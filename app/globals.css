@@ -1,0 +1,18 @@
+@import url('https://fonts.googleapis.com/css2?family=Cormorant+Garamond:ital,wght@0,300;0,400;0,600;1,300;1,400&family=Outfit:wght@300;400;500;600;700&family=JetBrains+Mono:wght@300;400;500&display=swap');
+@tailwind base;
+@tailwind components;
+@tailwind utilities;
+:root {
+  --gold:#c9a84c;--gold-light:#e8c97a;--gold-dark:#8a6a1a;
+  --obsidian:#080604;--up:#52b788;--dn:#e05a5e;
+}
+*{box-sizing:border-box;}
+body{background:#080604;color:#fff;font-family:'Outfit',system-ui,sans-serif;-webkit-font-smoothing:antialiased;}
+.gold-text{background:linear-gradient(135deg,#a07820 0%,#c9a84c 30%,#e8d090 55%,#c9a84c 75%,#8a6010 100%);-webkit-background-clip:text;-webkit-text-fill-color:transparent;background-clip:text;}
+::-webkit-scrollbar{width:4px;}::-webkit-scrollbar-track{background:#100e0a;}::-webkit-scrollbar-thumb{background:rgba(201,168,76,0.3);border-radius:2px;}
+@keyframes fade-up{from{opacity:0;transform:translateY(8px);}to{opacity:1;transform:translateY(0);}}
+@keyframes pulse-dot{0%,100%{opacity:1;}50%{opacity:.3;}}
+@keyframes ticker-scroll{0%{transform:translateX(0);}100%{transform:translateX(-50%);}}
+.animate-fade-up{animation:fade-up 0.4s ease forwards;}
+.animate-pulse-dot{animation:pulse-dot 1.4s ease-in-out infinite;}
+.animate-ticker{animation:ticker-scroll 40s linear infinite;}

@@ -1,0 +1,32 @@
+{
+  "version": "1.0",
+  "capital": {
+    "total": 50000,
+    "perTrade": 5000,
+    "maxPositions": 10
+  },
+  "limits": {
+    "maxBuysPerDay": 3,
+    "maxSellsPerDay": 3,
+    "circuitBreakerPct": -5
+  },
+  "targets": {
+    "intraday_t1_pct": 1.5,
+    "intraday_t2_pct": 2.0,
+    "delivery_ema_pct": 4.0
+  },
+  "ema": {
+    "period": 20,
+    "entryBelowPct": 5,
+    "strongBuyBelowPct": 8,
+    "minDownDays": 3
+  },
+  "sources": {
+    "brokerRecommendations": [
+      { "name": "ICICI Direct",    "url": "https://www.icicidirect.com/research/equity/stock-picks" },
+      { "name": "HDFC Securities", "url": "https://www.hdfcsec.com/research/equity-research" },
+      { "name": "Moneycontrol",    "url": "https://www.moneycontrol.com/stocks/marketstats/recos/" },
+      { "name": "Motilal Oswal",   "url": "https://www.motilaloswal.com/markets/equity" }
+    ]
+  }
+}
