@@ -1,98 +1,101 @@
 import { NextRequest, NextResponse } from 'next/server'
-import { verifySession } from '@/lib/auth'
 import { cookies } from 'next/headers'
+import { verifySession } from '@/lib/auth'
+import { getAccountSecrets, isAccountConfigured } from '@/lib/accounts'
+import { getState } from '@/lib/state'
 
 const KITE_BASE = 'https://api.kite.trade'
-const TOKEN_COOKIE = 'dt_zerodha_token'
 
-async function kiteRequest(endpoint: string, accessToken: string, method = 'GET', body?: any) {
+async function authed(): Promise<boolean> {
+  const session = cookies().get('dt_session')?.value
+  if (!session) return false
+  return verifySession(session)
+}
+
+// Resolve { apiKey, accessToken } for a configured account. Returns an error
+// description if anything is missing — caller maps that to a 400.
+async function resolveAccountCreds(account: string): Promise<
+  | { ok: true; apiKey: string; accessToken: string }
+  | { ok: false; error: string }
+> {
+  if (!isAccountConfigured(account)) return { ok: false, error: `Unknown account: ${account}` }
+  const secrets = getAccountSecrets(account)!
+  const state = await getState()
+  const accessToken = state.kiteTokens[account]
+  if (!accessToken) return { ok: false, error: `${account} not connected — paste today's Kite access token in Settings` }
+  return { ok: true, apiKey: secrets.apiKey, accessToken }
+}
+
+async function kiteRequest(endpoint: string, apiKey: string, accessToken: string, method = 'GET', body?: Record<string, string>) {
   const res = await fetch(`${KITE_BASE}${endpoint}`, {
     method,
     headers: {
       'X-Kite-Version': '3',
-      'Authorization': `token ${process.env.ZERODHA_API_KEY}:${accessToken}`,
+      'Authorization': `token ${apiKey}:${accessToken}`,
       'Content-Type': 'application/x-www-form-urlencoded',
     },
     body: body ? new URLSearchParams(body).toString() : undefined,
   })
-  return res.json()
-}
-
-function getAccessToken(): string {
-  // Always read from session cookie — never from env
-  return cookies().get(TOKEN_COOKIE)?.value || ''
+  const data = await res.json().catch(() => ({}))
+  return { status: res.status, ok: res.ok, data }
 }
 
 export async function GET(req: NextRequest) {
-  const session = cookies().get('dt_session')?.value
-  if (!session || !(await verifySession(session))) {
-    return NextResponse.json({ error: 'Unauthorized' }, { status: 401 })
-  }
+  if (!(await authed())) return NextResponse.json({ error: 'Unauthorized' }, { status: 401 })
+  const sp = req.nextUrl.searchParams
+  const account = sp.get('account')
+  const action = sp.get('action')
+  if (!account) return NextResponse.json({ error: 'account query param required' }, { status: 400 })
 
-  const accessToken = getAccessToken()
-  if (!accessToken) {
-    return NextResponse.json({
-      error: 'Zerodha not connected',
-      action: 'Please paste your Zerodha access token in Settings → Zerodha Connection'
-    }, { status: 400 })
-  }
+  const creds = await resolveAccountCreds(account)
+  if (!creds.ok) return NextResponse.json({ error: creds.error }, { status: 400 })
 
-  const { searchParams } = new URL(req.url)
-  const action = searchParams.get('action')
-
-  try {
-    switch (action) {
-      case 'holdings':
-        return NextResponse.json(await kiteRequest('/portfolio/holdings', accessToken))
-      case 'positions':
-        return NextResponse.json(await kiteRequest('/portfolio/positions', accessToken))
-      case 'orders':
-        return NextResponse.json(await kiteRequest('/orders', accessToken))
-      case 'funds':
-        return NextResponse.json(await kiteRequest('/user/margins', accessToken))
-      case 'quote':
-        const symbols = searchParams.get('symbols') || ''
-        return NextResponse.json(await kiteRequest(`/quote?i=${encodeURIComponent(symbols)}`, accessToken))
-      default:
-        return NextResponse.json({ error: 'Invalid action' }, { status: 400 })
+  let endpoint = ''
+  switch (action) {
+    case 'holdings':  endpoint = '/portfolio/holdings'; break
+    case 'positions': endpoint = '/portfolio/positions'; break
+    case 'orders':    endpoint = '/orders'; break
+    case 'margins':
+    case 'funds':     endpoint = '/user/margins'; break
+    case 'profile':   endpoint = '/user/profile'; break
+    case 'quote': {
+      const symbols = sp.get('symbols') || ''
+      endpoint = `/quote?i=${encodeURIComponent(symbols)}`
+      break
     }
-  } catch {
-    return NextResponse.json({ error: 'Zerodha API error' }, { status: 500 })
+    default:
+      return NextResponse.json({ error: `Invalid action: ${action}` }, { status: 400 })
   }
+
+  const r = await kiteRequest(endpoint, creds.apiKey, creds.accessToken)
+  return NextResponse.json({ account, ...r.data }, { status: r.ok ? 200 : (r.status || 502) })
 }
 
 export async function POST(req: NextRequest) {
-  const session = cookies().get('dt_session')?.value
-  if (!session || !(await verifySession(session))) {
-    return NextResponse.json({ error: 'Unauthorized' }, { status: 401 })
+  if (!(await authed())) return NextResponse.json({ error: 'Unauthorized' }, { status: 401 })
+  const body = await req.json().catch(() => ({}))
+  const { account, action, order } = body
+  if (!account) return NextResponse.json({ error: 'account is required' }, { status: 400 })
+
+  const creds = await resolveAccountCreds(account)
+  if (!creds.ok) return NextResponse.json({ error: creds.error }, { status: 400 })
+
+  if (action !== 'place_order') {
+    return NextResponse.json({ error: `Invalid action: ${action}` }, { status: 400 })
+  }
+  if (!order?.symbol || !order?.quantity || !order?.transaction_type) {
+    return NextResponse.json({ error: 'order requires symbol, quantity, transaction_type' }, { status: 400 })
   }
 
-  const accessToken = getAccessToken()
-  if (!accessToken) {
-    return NextResponse.json({
-      error: 'Zerodha not connected',
-      action: 'Please paste your Zerodha access token in Settings'
-    }, { status: 400 })
-  }
-
-  const { action, order } = await req.json()
-
-  if (action === 'place_order') {
-    if (!order?.symbol || !order?.quantity || !order?.transaction_type) {
-      return NextResponse.json({ error: 'Invalid order parameters' }, { status: 400 })
-    }
-    const data = await kiteRequest('/orders/regular', accessToken, 'POST', {
-      tradingsymbol: order.symbol,
-      exchange: 'NSE',
-      transaction_type: order.transaction_type.toUpperCase(),
-      quantity: String(order.quantity),
-      product: 'CNC',
-      order_type: 'MARKET',
-      validity: 'DAY',
-      market_protection: '-1', // SEBI mandated market protection
-    })
-    return NextResponse.json(data)
-  }
-
-  return NextResponse.json({ error: 'Invalid action' }, { status: 400 })
+  const r = await kiteRequest('/orders/regular', creds.apiKey, creds.accessToken, 'POST', {
+    tradingsymbol: order.symbol,
+    exchange: 'NSE',
+    transaction_type: String(order.transaction_type).toUpperCase(),
+    quantity: String(order.quantity),
+    product: 'CNC',
+    order_type: 'MARKET',
+    validity: 'DAY',
+    market_protection: '-1',
+  })
+  return NextResponse.json({ account, ...r.data }, { status: r.ok ? 200 : (r.status || 502) })
 }

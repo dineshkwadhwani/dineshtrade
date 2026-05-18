@@ -29,8 +29,11 @@ export default function DashboardPage() {
     try {
       const res = await fetch('/api/market')
       const json = await res.json()
-      if (json.success) {
-        setMarket(json.data)
+      // Only render if the payload has the required top-level fields — guards
+      // against partial/malformed responses crashing the page.
+      const d = json.data
+      if (json.success && d?.giftNifty && d?.indiaOutlook && Array.isArray(d?.globalIndices)) {
+        setMarket(d)
         setLastUpdated(new Date().toLocaleTimeString('en-IN', { timeZone:'Asia/Kolkata' }))
       }
     } catch {}

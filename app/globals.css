@@ -16,3 +16,13 @@ body{background:#080604;color:#fff;font-family:'Outfit',system-ui,sans-serif;-we
 .animate-fade-up{animation:fade-up 0.4s ease forwards;}
 .animate-pulse-dot{animation:pulse-dot 1.4s ease-in-out infinite;}
 .animate-ticker{animation:ticker-scroll 40s linear infinite;}
+
+/* Readability bump: original design used 8–13px text everywhere — too small on
+   most screens. Remap the arbitrary Tailwind text sizes used across the app.
+   Same specificity as the generated utilities; we win because we come later. */
+.text-\[8px\]  { font-size: 12px; }
+.text-\[9px\]  { font-size: 13px; }
+.text-\[10px\] { font-size: 14px; }
+.text-\[11px\] { font-size: 15px; }
+.text-\[12px\] { font-size: 15px; }
+.text-\[13px\] { font-size: 16px; }

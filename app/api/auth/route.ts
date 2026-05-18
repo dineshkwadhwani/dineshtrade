@@ -32,5 +32,6 @@ export async function POST(req: NextRequest) {
 export async function DELETE() {
   const res = NextResponse.json({ success: true })
   res.cookies.delete('dt_session')
+  res.cookies.delete('dt_state')
   return res
 }

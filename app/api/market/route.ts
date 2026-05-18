@@ -1,6 +1,8 @@
 import { NextRequest, NextResponse } from 'next/server'
 import { verifySession } from '@/lib/auth'
 import { cookies } from 'next/headers'
+import { MOCK_MARKET_DATA } from '@/lib/marketMock'
+import { callAI } from '@/lib/ai'
 
 export async function GET(req: NextRequest) {
   const token = cookies().get('dt_session')?.value
@@ -8,23 +10,14 @@ export async function GET(req: NextRequest) {
     return NextResponse.json({ error: 'Unauthorized' }, { status: 401 })
   }
 
+  // Dev/test toggle — skip the AI call and return canned data.
+  if (process.env.USE_MOCK_MARKET === 'true') {
+    return NextResponse.json({ success: true, data: MOCK_MARKET_DATA, generatedAt: new Date().toISOString(), mock: true })
+  }
+
   const today = new Date().toLocaleDateString('en-IN', { timeZone: 'Asia/Kolkata', weekday:'long', day:'numeric', month:'long', year:'numeric' })
 
-  try {
-    const response = await fetch(process.env.AI_API_URL!, {
-      method: 'POST',
-      headers: {
-        'Content-Type': 'application/json',
-        'x-api-key': process.env.AI_API_KEY!,
-        'anthropic-version': '2023-06-01',
-      },
-      body: JSON.stringify({
-        model: process.env.AI_MODEL,
-        max_tokens: 3000,
-        tools: [{ type: 'web_search_20250305', name: 'web_search' }],
-        messages: [{
-          role: 'user',
-          content: `Today is ${today}. You are a professional Indian equity market analyst. Search the web for latest data and provide a concise market briefing in JSON format ONLY (no markdown, no explanation outside JSON).
+  const prompt = `Today is ${today}. You are a professional Indian equity market analyst. Search the web for latest data and provide a concise market briefing in JSON format ONLY (no markdown, no explanation outside JSON).
 
 Return this exact JSON structure:
 {
@@ -60,28 +53,49 @@ Return this exact JSON structure:
   ],
   "headline": "Markets cautiously positive on global tech rally"
 }`
-        }]
-      })
-    })
 
-    const data = await response.json()
-    // Extract text content from Claude response
-    let textContent = ''
-    if (data.content) {
-      for (const block of data.content) {
-        if (block.type === 'text') textContent += block.text
-      }
+  try {
+    const result = await callAI({ prompt, useWebSearch: true, maxTokens: 3000 })
+
+    if (!result.ok) {
+      console.error(`[api/market] ${result.provider} HTTP ${result.status}:`, result.error?.slice(0, 500))
+      return NextResponse.json({ success: false, error: `${result.provider} API ${result.status}`, detail: result.error?.slice(0, 500) }, { status: 502 })
     }
 
-    // Parse JSON from response
-    const jsonMatch = textContent.match(/\{[\s\S]*\}/)
-    if (jsonMatch) {
+    // Strip common markdown fences (```json ... ```) some models wrap output in.
+    const cleaned = result.text
+      .replace(/^[\s\S]*?```(?:json)?\s*/i, '')
+      .replace(/```[\s\S]*$/, '')
+      .trim() || result.text
+
+    const jsonMatch = cleaned.match(/\{[\s\S]*\}/)
+    if (!jsonMatch) {
+      console.error('[api/market] No JSON in response. Text head:', result.text.slice(0, 400))
+      return NextResponse.json({ success: false, error: 'No JSON in model output', textHead: result.text.slice(0, 400), provider: result.provider }, { status: 502 })
+    }
+
+    try {
       const marketData = JSON.parse(jsonMatch[0])
-      return NextResponse.json({ success: true, data: marketData, generatedAt: new Date().toISOString() })
+      return NextResponse.json({
+        success: true,
+        data: marketData,
+        generatedAt: new Date().toISOString(),
+        provider: result.provider,
+        model: result.model,
+        webSearchUsed: result.webSearchUsed,
+      })
+    } catch (e) {
+      console.error('[api/market] JSON.parse failed:', e, '\nText head:', result.text.slice(0, 800))
+      return NextResponse.json({
+        success: false,
+        error: 'Model output is not valid JSON',
+        parseError: String(e),
+        textHead: result.text.slice(0, 800),
+        provider: result.provider,
+      }, { status: 502 })
     }
-
-    return NextResponse.json({ success: false, error: 'Could not parse market data' }, { status: 500 })
   } catch (error) {
-    return NextResponse.json({ success: false, error: 'Failed to fetch market data' }, { status: 500 })
+    console.error('[api/market] Exception:', error)
+    return NextResponse.json({ success: false, error: 'Failed to fetch market data', detail: String(error) }, { status: 500 })
   }
 }

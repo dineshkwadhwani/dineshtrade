@@ -1,5 +1,6 @@
 import { SignJWT, jwtVerify } from 'jose'
 import { cookies } from 'next/headers'
+import type { NextRequest } from 'next/server'
 
 const SECRET = new TextEncoder().encode(process.env.SESSION_SECRET || 'dineshtrade-secret-2026')
 const COOKIE = 'dt_session'
@@ -57,6 +58,14 @@ export async function verifySession(token: string): Promise<boolean> {
 
 export async function getSession(): Promise<boolean> {
   const token = cookies().get(COOKIE)?.value
+  if (!token) return false
+  return verifySession(token)
+}
+
+// Used by middleware (Edge runtime) — reads cookie from the request directly
+// because next/headers cookies() is not available in middleware.
+export async function requireAuth(request: NextRequest): Promise<boolean> {
+  const token = request.cookies.get(COOKIE)?.value
   if (!token) return false
   return verifySession(token)
 }

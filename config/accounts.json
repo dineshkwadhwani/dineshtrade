@@ -1,42 +1,9 @@
 [
   {
-    "id": "ACC001",
-    "name": "Dinesh Wadhwani",
+    "name": "DINESH",
+    "displayName": "Dinesh Wadhwani",
     "initials": "DW",
-    "broker": "Zerodha",
-    "accountNo": "DW-TRADING-01",
     "color": "#c9a84c",
-    "isTrading": true,
-    "note": "Primary trading account — ₹50,000 corpus, ₹5,000 per trade"
-  },
-  {
-    "id": "ACC002",
-    "name": "Kiran Wadhwani",
-    "initials": "KW",
-    "broker": "Motilal Oswal",
-    "accountNo": "4180283",
-    "color": "#52b788",
-    "isTrading": false,
-    "note": "View only in V1 — upgrade to live in V2"
-  },
-  {
-    "id": "ACC003",
-    "name": "Sheela Wadhwani",
-    "initials": "SW",
-    "broker": "Motilal Oswal",
-    "accountNo": "4432333",
-    "color": "#60a5fa",
-    "isTrading": false,
-    "note": "View only in V1"
-  },
-  {
-    "id": "ACC004",
-    "name": "Sonia Wadhwani",
-    "initials": "SoW",
-    "broker": "Zerodha",
-    "accountNo": "CJD607",
-    "color": "#e05a5e",
-    "isTrading": false,
-    "note": "View only in V1"
+    "note": "Primary trading account"
   }
 ]
