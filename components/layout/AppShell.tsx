@@ -8,6 +8,7 @@ const NAV = [
   { href: '/watchlist', label: 'Watchlist',         icon: '◎' },
   { href: '/engine',    label: 'Trading Engine',    icon: '⚡' },
   { href: '/holdings',  label: 'Current Holdings',  icon: '◐' },
+  { href: '/positions', label: "Today's Positions", icon: '◈' },
   { href: '/trades',    label: "Today's Orders",    icon: '≡' },
   { href: '/settings',  label: 'Settings',          icon: '⚙' },
 ]

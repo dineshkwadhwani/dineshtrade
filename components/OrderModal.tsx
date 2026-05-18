@@ -17,6 +17,7 @@ interface OrderModalProps {
   initialSide: 'BUY' | 'SELL'
   ltp?: number              // current LTP for default price + estimated value
   initialQty?: number       // pre-fill (e.g. held quantity for SELL)
+  initialProduct?: 'CNC' | 'MIS'  // pre-fill product (e.g. position's product for square-off)
   accounts: AccountDisplay[]
   defaultAccount?: string
   onSuccess?: () => void    // called after successful place; pages refresh data
@@ -24,12 +25,12 @@ interface OrderModalProps {
 
 export default function OrderModal({
   isOpen, onClose, symbol, symbolName, initialSide, ltp,
-  initialQty, accounts, defaultAccount, onSuccess,
+  initialQty, initialProduct, accounts, defaultAccount, onSuccess,
 }: OrderModalProps) {
   const [account, setAccount] = useState(defaultAccount || accounts[0]?.name || '')
   const [side, setSide] = useState<'BUY' | 'SELL'>(initialSide)
   const [qty, setQty] = useState<number>(initialQty ?? Math.max(1, Math.floor(5000 / Math.max(1, ltp || 1))))
-  const [product, setProduct] = useState<'CNC' | 'MIS'>('CNC')
+  const [product, setProduct] = useState<'CNC' | 'MIS'>(initialProduct || 'CNC')
   const [orderType, setOrderType] = useState<'MARKET' | 'LIMIT'>('MARKET')
   const [limitPrice, setLimitPrice] = useState<number>(ltp || 0)
   const [busy, setBusy] = useState(false)
@@ -40,14 +41,14 @@ export default function OrderModal({
     if (!isOpen) return
     setSide(initialSide)
     setQty(initialQty ?? Math.max(1, Math.floor(5000 / Math.max(1, ltp || 1))))
-    setProduct('CNC')
+    setProduct(initialProduct || 'CNC')
     setOrderType('MARKET')
     setLimitPrice(ltp || 0)
     setResult(null)
     if (defaultAccount) setAccount(defaultAccount)
     else if (accounts.length > 0 && !account) setAccount(accounts[0].name)
   // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [isOpen, symbol, initialSide, initialQty, ltp, defaultAccount])
+  }, [isOpen, symbol, initialSide, initialQty, initialProduct, ltp, defaultAccount])
 
   // Close on Escape
   useEffect(() => {
