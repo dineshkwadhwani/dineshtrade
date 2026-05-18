@@ -48,16 +48,28 @@ export interface PreflightInput {
   side: 'BUY' | 'SELL'
   quantity: number
   pricePerShare: number
+  // When true, user is placing an explicit manual order via the UI. Skip the
+  // rate-limit gates (per-trade cap, idempotency, day quota, position cap,
+  // no-loss-sell). Only the essential safety gates apply:
+  //   - token connected
+  //   - market open
+  //   - BUY: funds available
+  //   - SELL: noShort (with qty clamping)
+  manual?: boolean
 }
 
 export interface PreflightResult {
   ok: boolean
   reason?: string
   gate?: string
+  // SELL only — when set, caller MUST use this quantity instead of the originally
+  // requested one (held quantity in Kite is less than requested, so we clamp down
+  // to avoid short-selling). null if no adjustment needed.
+  adjustedQty?: number
 }
 
 export async function runPreflight(input: PreflightInput): Promise<PreflightResult> {
-  const { account, symbol, side, quantity, pricePerShare } = input
+  const { account, symbol, side, quantity, pricePerShare, manual } = input
   const tradeValue = pricePerShare * quantity
 
   // GATE 1 — token connected
@@ -73,36 +85,43 @@ export async function runPreflight(input: PreflightInput): Promise<PreflightResu
   const market = isMarketOpen()
   if (!market.open) return { ok: false, gate: 'market', reason: `Market closed: ${market.status}` }
 
-  // GATE 3 — per-trade cap (BUY only — SELL is disposing capital, not deploying)
-  if (side === 'BUY' && tradeValue > strategyCfg.capital.perTrade) {
+  // GATE 3 — per-trade cap (BUY only). Skipped for explicit manual orders.
+  if (!manual && side === 'BUY' && tradeValue > strategyCfg.capital.perTrade) {
     return { ok: false, gate: 'perTrade', reason: `Trade value ₹${Math.round(tradeValue)} exceeds per-trade cap ₹${strategyCfg.capital.perTrade}` }
   }
 
-  // GATE 4 — idempotency (already done this symbol+side today on this account?)
-  pruneOldLedger()
-  const ledgerSet = idempotencyLedger.get(ledgerKey(account))
-  if (ledgerSet?.has(`${symbol}:${side}`)) {
-    return { ok: false, gate: 'idempotency', reason: `${account}: already ${side} ${symbol} earlier today` }
-  }
-
-  // GATE 5 — day buy/sell quota (via getOrders)
-  const ordersJson = await kiteGet<{ data?: any[] }>('/orders', apiKey, accessToken)
-  if (ordersJson?.data) {
-    const completed = ordersJson.data.filter(o => o.status === 'COMPLETE')
-    const buys = completed.filter(o => o.transaction_type === 'BUY').length
-    const sells = completed.filter(o => o.transaction_type === 'SELL').length
-    const maxBuys = strategyCfg.limits.maxBuysPerDay
-    const maxSells = strategyCfg.limits.maxSellsPerDay
-    if (side === 'BUY' && buys >= maxBuys) {
-      return { ok: false, gate: 'quota', reason: `${account}: already ${buys}/${maxBuys} buys today` }
-    }
-    if (side === 'SELL' && sells >= maxSells) {
-      return { ok: false, gate: 'quota', reason: `${account}: already ${sells}/${maxSells} sells today` }
+  // GATE 4 — idempotency for BUYs only. Prevents double-buying the same symbol
+  // across multiple cron ticks. SELLs are NOT idempotent — Strategy 1 deliberately
+  // sells in two tranches (potentially same day), and the noShort gate below
+  // prevents accidental over-sells. Skipped for explicit manual orders.
+  if (!manual && side === 'BUY') {
+    pruneOldLedger()
+    const ledgerSet = idempotencyLedger.get(ledgerKey(account))
+    if (ledgerSet?.has(`${symbol}:BUY`)) {
+      return { ok: false, gate: 'idempotency', reason: `${account}: already bought ${symbol} earlier today` }
     }
   }
 
-  // GATE 6 — open positions < maxPositions (only enforced on BUY)
-  if (side === 'BUY') {
+  // GATE 5 — day buy/sell quota (via getOrders). Skipped for explicit manual orders.
+  if (!manual) {
+    const ordersJson = await kiteGet<{ data?: any[] }>('/orders', apiKey, accessToken)
+    if (ordersJson?.data) {
+      const completed = ordersJson.data.filter(o => o.status === 'COMPLETE')
+      const buys = completed.filter(o => o.transaction_type === 'BUY').length
+      const sells = completed.filter(o => o.transaction_type === 'SELL').length
+      const maxBuys = strategyCfg.limits.maxBuysPerDay
+      const maxSells = strategyCfg.limits.maxSellsPerDay
+      if (side === 'BUY' && buys >= maxBuys) {
+        return { ok: false, gate: 'quota', reason: `${account}: already ${buys}/${maxBuys} buys today` }
+      }
+      if (side === 'SELL' && sells >= maxSells) {
+        return { ok: false, gate: 'quota', reason: `${account}: already ${sells}/${maxSells} sells today` }
+      }
+    }
+  }
+
+  // GATE 6 — open positions < maxPositions (BUY only). Skipped for manual orders.
+  if (!manual && side === 'BUY') {
     const [holdingsJson, positionsJson] = await Promise.all([
       kiteGet<{ data?: any[] }>('/portfolio/holdings', apiKey, accessToken),
       kiteGet<{ data?: { net?: any[] } }>('/portfolio/positions', apiKey, accessToken),
@@ -127,30 +146,52 @@ export async function runPreflight(input: PreflightInput): Promise<PreflightResu
     }
   }
 
-  // GATE 8 — Auto-mode never sells at a loss.
-  // Manual mode lets the trader override (they can sell at a loss deliberately);
-  // Auto mode must respect the "never sell at a loss" philosophy.
-  if (side === 'SELL' && state.mode === 'auto') {
-    const holdingsJson = await kiteGet<{ data?: any[] }>('/portfolio/holdings', apiKey, accessToken)
-    const holding = (holdingsJson?.data || []).find((h: any) =>
-      String(h.tradingsymbol).toUpperCase() === symbol.toUpperCase()
-    )
-    if (!holding) {
-      return { ok: false, gate: 'noHolding', reason: `${account}: not currently holding ${symbol}` }
-    }
-    const avg = Number(holding.average_price) || 0
-    const ltp = Number(holding.last_price) || 0
-    if (ltp < avg) {
-      const lossPct = avg > 0 ? ((avg - ltp) / avg * 100).toFixed(2) : '?'
+  // GATE 8 — Short-sell guard. Applies to ALL SELLs (Auto and Manual).
+  // Fetches live held quantity from Kite (holdings + day positions). Three outcomes:
+  //   - held == 0    → reject with gate='noShort' (position manually closed or never held)
+  //   - held < want  → ok with adjustedQty=held (caller must use this clamped quantity)
+  //   - held >= want → ok, no adjustment
+  let sellAdjustedQty: number | undefined = undefined
+  if (side === 'SELL') {
+    const [holdingsJson, positionsJson] = await Promise.all([
+      kiteGet<{ data?: any[] }>('/portfolio/holdings', apiKey, accessToken),
+      kiteGet<{ data?: { day?: any[]; net?: any[] } }>('/portfolio/positions', apiKey, accessToken),
+    ])
+    const sym = symbol.toUpperCase()
+    const eq = (s: any) => String(s).toUpperCase() === sym
+    const holding = (holdingsJson?.data || []).find((h: any) => eq(h.tradingsymbol))
+    const dayPos  = (positionsJson?.data?.day || []).find((p: any) => eq(p.tradingsymbol))
+    const heldQty = Number(holding?.quantity || 0)
+    const dayQty  = Number(dayPos?.quantity || 0)
+    const available = heldQty + dayQty
+
+    if (available <= 0) {
       return {
-        ok: false,
-        gate: 'noLossSell',
-        reason: `${account}: ${symbol} at ₹${ltp} vs avg ₹${avg} (−${lossPct}%) — Auto mode never sells at a loss`,
+        ok: false, gate: 'noShort',
+        reason: `${account}: not holding ${symbol} — short selling blocked (position may have been closed manually in Kite)`,
+      }
+    }
+    if (quantity > available) {
+      sellAdjustedQty = available
+      console.warn(`[preflight] ${account} ${symbol}: clamping SELL ${quantity} → ${available} (live held)`)
+    }
+
+    // GATE 9 — Auto-mode never sells at a loss. Manual mode lets you override.
+    // Also skipped for explicit manual orders (user knows what they're doing).
+    if (state.mode === 'auto' && !manual) {
+      const avg = Number(holding?.average_price ?? dayPos?.average_price ?? dayPos?.day_buy_price ?? 0)
+      const ltp = Number(holding?.last_price ?? dayPos?.last_price ?? pricePerShare ?? 0)
+      if (avg > 0 && ltp > 0 && ltp < avg) {
+        const lossPct = ((avg - ltp) / avg * 100).toFixed(2)
+        return {
+          ok: false, gate: 'noLossSell',
+          reason: `${account}: ${symbol} at ₹${ltp} vs avg ₹${avg} (−${lossPct}%) — Auto mode never sells at a loss`,
+        }
       }
     }
   }
 
-  return { ok: true }
+  return { ok: true, adjustedQty: sellAdjustedQty }
 }
 
 // Called after a successful place_order to record the trade in the ledger

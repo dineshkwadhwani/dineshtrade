@@ -103,17 +103,32 @@ export async function POST(req: NextRequest) {
   const reason = typeof order.reason === 'string' ? order.reason : undefined
   const symbolName = typeof order.symbolName === 'string' ? order.symbolName : undefined
 
+  // Manual order options (BUY/SELL from Watchlist or Holdings modal).
+  // - product: CNC (delivery) or MIS (intraday)
+  // - orderType: MARKET or LIMIT
+  // - limitPrice: required when orderType === 'LIMIT'
+  // - manual: true bypasses rate-limit gates (per-trade cap / quota / position cap / idempotency / no-loss-sell)
+  const product: 'CNC' | 'MIS' = order.product === 'MIS' ? 'MIS' : 'CNC'
+  const orderTypeReq: 'MARKET' | 'LIMIT' = order.orderType === 'LIMIT' ? 'LIMIT' : 'MARKET'
+  const limitPrice = orderTypeReq === 'LIMIT' ? Number(order.limitPrice) : undefined
+  const manual = !!order.manual
+  if (orderTypeReq === 'LIMIT' && (!limitPrice || limitPrice <= 0)) {
+    return NextResponse.json({ error: 'LIMIT order requires a positive limitPrice' }, { status: 400 })
+  }
+
   const state = await getState()
   const mode = state.mode === 'auto' ? 'auto' as const : 'manual' as const
   const accountDisplayName = getAccountList().find(a => a.name === account)?.displayName
 
   // Pre-flight gates — must all pass before we hit Kite's place_order.
+  // For manual orders: only the essential safety gates run (see lib/preflight.ts).
   const pre = await runPreflight({
     account,
     symbol: symbolUpper,
     side,
     quantity: qty,
     pricePerShare,
+    manual,
   })
   if (!pre.ok) {
     // Email the user when a preflight gate blocked the trade — they explicitly clicked Execute
@@ -134,16 +149,24 @@ export async function POST(req: NextRequest) {
     return NextResponse.json({ account, error: 'Preflight failed', gate: pre.gate, reason: pre.reason }, { status: 422 })
   }
 
+  // Preflight may clamp SELL qty to live holdings — honor that to avoid short-selling.
+  const actualQty = pre.adjustedQty ?? qty
+  const sellQtyAdjusted = side === 'SELL' && pre.adjustedQty !== undefined
+
   const orderTag = typeof order.tag === 'string' && order.tag ? String(order.tag).slice(0, 20) : undefined
   const kiteBody: Record<string, string> = {
     tradingsymbol: order.symbol,
     exchange: 'NSE',
     transaction_type: side,
-    quantity: String(qty),
-    product: 'CNC',
-    order_type: 'MARKET',
+    quantity: String(actualQty),
+    product,
+    order_type: orderTypeReq,
     validity: 'DAY',
-    market_protection: '-1',
+  }
+  if (orderTypeReq === 'MARKET') {
+    kiteBody.market_protection = '-1'
+  } else if (orderTypeReq === 'LIMIT' && limitPrice) {
+    kiteBody.price = String(limitPrice)
   }
   if (orderTag) kiteBody.tag = orderTag
   const r = await kiteRequest('/orders/regular', creds.apiKey, creds.accessToken, 'POST', kiteBody)
@@ -152,7 +175,7 @@ export async function POST(req: NextRequest) {
     markPlaced(account, symbolUpper, side)
     // Persist Strategy 1 BUYs so the SELL monitor manages them across days.
     if (side === 'BUY' && orderTag === STRATEGY_1_BUY_TAG) {
-      recordStrategy1Buy(account, symbolUpper, qty, pricePerShare)
+      recordStrategy1Buy(account, symbolUpper, actualQty, pricePerShare)
         .catch(err => console.error('[zerodha route] strategy1 record failed:', err))
     }
     sendEmail('trade_executed', {
@@ -161,14 +184,16 @@ export async function POST(req: NextRequest) {
       symbol: symbolUpper,
       symbolName,
       side,
-      quantity: qty,
+      quantity: actualQty,
       price: pricePerShare || undefined,
       target1,
       target2,
       stopLoss,
       orderId: r.data.data.order_id,
       source,
-      reason,
+      reason: sellQtyAdjusted
+        ? `${reason || ''}${reason ? ' · ' : ''}Clamped ${qty} → ${actualQty} (live held quantity)`.trim()
+        : reason,
       mode,
     }).catch(err => console.error('[email] trade-executed notification:', err))
   } else if (!r.ok) {
@@ -178,7 +203,7 @@ export async function POST(req: NextRequest) {
       accountDisplayName,
       symbol: symbolUpper,
       side,
-      quantity: qty,
+      quantity: actualQty,
       price: pricePerShare || undefined,
       failedAt: 'kite',
       reason: errMsg,
@@ -186,5 +211,9 @@ export async function POST(req: NextRequest) {
     }).catch(err => console.error('[email] kite-failed notification:', err))
   }
 
-  return NextResponse.json({ account, ...r.data }, { status: r.ok ? 200 : (r.status || 502) })
+  return NextResponse.json({
+    account,
+    ...r.data,
+    ...(sellQtyAdjusted ? { adjustedQty: actualQty, requestedQty: qty } : {}),
+  }, { status: r.ok ? 200 : (r.status || 502) })
 }

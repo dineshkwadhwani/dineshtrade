@@ -117,8 +117,8 @@ export default function EnginePage() {
 
   const modeColors: Record<string, string> = { catalyst:'#c9a84c', dip:'#52b788', circuit:'#e05a5e' }
   const modeLabels: Record<string, string> = {
-    catalyst:'⚡ Catalyst Mode — Strategy 2 active',
-    dip:'📊 EMA Dip Mode — Strategy 1 (paid plan only)',
+    catalyst:"⚡ Catalyst Mode — Strategy 2 (Momentum) · scans 09:30–14:30 IST",
+    dip:'📊 Dip Mode — Strategy 1 (Oscillator/EMA)',
     circuit:'🚨 Circuit Breaker — No Trades Today',
   }
 

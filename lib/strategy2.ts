@@ -21,6 +21,8 @@ import {
 import { runPreflight, markPlaced } from './preflight'
 import { sendEmail } from './email'
 import { getAccountList } from './accounts'
+import { ensureStrategy1Tracking } from './strategy1'
+import { appendJournal, istDateString, istHHMM, classifyVerdict } from './journal'
 
 export const STRATEGY_2_BUY_TAG = 'dt-s2'
 export const STRATEGY_2_SELL_TAG = 'dt-s2-exit'
@@ -83,6 +85,9 @@ export async function monitorAccount(account: string): Promise<MonitorResult> {
   if (entryBySymbol.size === 0) {
     return { account, ranAt, positionsChecked: 0, entries: [] }
   }
+  // Visibility — shows up in `pm2 logs dineshtrade` so you can confirm Manual
+  // BUYs are being picked up after a Manual → Auto mode switch mid-session.
+  console.log(`[strategy2 monitor] ${account}: tracking ${entryBySymbol.size} dt-s2 BUY(s) — ${Array.from(entryBySymbol.keys()).join(', ')}`)
 
   // 2. Get positions to know what's still held intraday.
   const { day, net } = await getPositions(creds)
@@ -120,47 +125,76 @@ export async function monitorAccount(account: string): Promise<MonitorResult> {
     const targetHit = ltp >= entry * T1_TRIGGER
 
     if (targetHit) {
-      // Fire SELL — re-run preflight first so we honor market/quota/idempotency gates.
+      // Fire SELL — re-run preflight first so we honor market / no-short / no-loss / quota gates.
       const pre = await runPreflight({ account, symbol, side: 'SELL', quantity: qty, pricePerShare: ltp })
       if (!pre.ok) {
+        // noShort means the position was closed manually in Kite — record + move on.
         entries.push({
           account, accountDisplayName: displayName, symbol,
           action: 'skipped', quantity: qty, entryPrice: entry, ltp, gainPct,
-          reason: `Preflight ${pre.gate}: ${pre.reason}`,
+          reason: pre.gate === 'noShort'
+            ? 'Position no longer held in Kite (manually closed?) — skipping'
+            : `Preflight ${pre.gate}: ${pre.reason}`,
         })
         continue
       }
-      const placed = await placeKiteOrder(creds, { symbol, side: 'SELL', quantity: qty, tag: STRATEGY_2_SELL_TAG })
+      const actualQty = pre.adjustedQty ?? qty
+      const placed = await placeKiteOrder(creds, { symbol, side: 'SELL', quantity: actualQty, tag: STRATEGY_2_SELL_TAG })
       if (placed.ok && placed.data?.data?.order_id) {
         markPlaced(account, symbol, 'SELL')
+        const adjusted = pre.adjustedQty !== undefined
+        // Journal the completed trade.
+        const pnlRupees = (ltp - entry) * actualQty
+        const pnlPct = ((ltp - entry) / entry) * 100
+        const dayHigh = (quote as any)?.ohlc?.high ?? ltp
+        const dayLow  = (quote as any)?.ohlc?.low  ?? ltp
+        appendJournal({
+          type: 'trade',
+          date: istDateString(),
+          account, symbol,
+          qty: actualQty,
+          entryPrice: entry,
+          entryTime: '',   // not tracked precisely — Kite getOrders has it; leave blank for now
+          exitPrice: ltp,
+          exitTime: new Date().toISOString(),
+          pnlRupees, pnlPct,
+          dayHighAfterEntry: dayHigh,
+          dayLowAfterEntry: dayLow,
+          leftOnTable: Math.max(0, dayHigh - ltp),
+          verdict: classifyVerdict({ strategy: 'catalyst', entryPrice: entry, exitPrice: ltp, t1TriggerPct: strategyCfg.targets.intraday_t1_pct }),
+          strategy: 'catalyst',
+          orderIdSell: placed.data.data.order_id,
+        }).catch(err => console.error('[strategy2] journal write failed:', err))
         entries.push({
           account, accountDisplayName: displayName, symbol,
-          action: 'sold', quantity: qty, entryPrice: entry, ltp, gainPct,
+          action: 'sold', quantity: actualQty, entryPrice: entry, ltp, gainPct,
           orderId: placed.data.data.order_id,
+          reason: adjusted ? `Clamped ${qty} → ${actualQty} (live held quantity)` : undefined,
         })
-        // Notification — fire-and-forget.
         sendEmail('trade_executed', {
           account,
           accountDisplayName: displayName,
           symbol,
           side: 'SELL',
-          quantity: qty,
+          quantity: actualQty,
           price: ltp,
           orderId: placed.data.data.order_id,
           source: `Auto-exit @ +${gainPct.toFixed(2)}%`,
-          reason: `Strategy 2 target hit (≥+${strategyCfg.targets.intraday_t1_pct}%)`,
+          reason: adjusted
+            ? `Strategy 2 target hit. Clamped ${qty} → ${actualQty} (live held)`
+            : `Strategy 2 target hit (≥+${strategyCfg.targets.intraday_t1_pct}%)`,
           mode: 'auto',
         }).catch(err => console.error('[strategy2] sold-email failed:', err))
       } else {
         const errMsg = placed.data?.message || placed.data?.error_type || `Kite HTTP ${placed.status}`
         entries.push({
           account, accountDisplayName: displayName, symbol,
-          action: 'sold_failed', quantity: qty, entryPrice: entry, ltp, gainPct,
+          action: 'sold_failed', quantity: actualQty, entryPrice: entry, ltp, gainPct,
           reason: errMsg,
         })
         sendEmail('trade_failed', {
           account, accountDisplayName: displayName,
-          symbol, side: 'SELL', quantity: qty, price: ltp,
+          symbol, side: 'SELL', quantity: actualQty, price: ltp,
           failedAt: 'kite', reason: errMsg, mode: 'auto',
         }).catch(err => console.error('[strategy2] sold-failed-email failed:', err))
       }
@@ -168,12 +202,16 @@ export async function monitorAccount(account: string): Promise<MonitorResult> {
     }
 
     if (pastDeliveryCutoff) {
-      // 3 PM IST cutoff reached — leave as delivery. Strategy 1 (EMA-based, days/weeks)
-      // takes over from tomorrow. No SELL, no email per spec ("don't panic-sell").
+      // 3 PM IST cutoff reached — leave as delivery and HAND OFF to Strategy 1.
+      // ensureStrategy1Tracking is idempotent so repeated 15:00–15:30 ticks are safe.
+      const handedOff = await ensureStrategy1Tracking(account, symbol, qty, entry, 'strategy2_delivery')
+        .catch(err => { console.error('[strategy2] handoff to s1 failed:', err); return false })
       entries.push({
         account, accountDisplayName: displayName, symbol,
         action: 'delivery', quantity: qty, entryPrice: entry, ltp, gainPct,
-        reason: `Past 15:00 IST without hitting +${strategyCfg.targets.intraday_t1_pct}% — held for delivery`,
+        reason: handedOff
+          ? `Past 15:00 IST without hitting +${strategyCfg.targets.intraday_t1_pct}% — transitioned to Strategy 1 (EMA-based exit from tomorrow)`
+          : `Past 15:00 IST — already tracked by Strategy 1`,
       })
       continue
     }

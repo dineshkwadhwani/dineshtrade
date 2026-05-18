@@ -17,7 +17,7 @@ import cron, { ScheduledTask } from 'node-cron'
 import { getState } from './state'
 import { isMarketOpen, NSE_HOLIDAYS } from './market'
 import { getAccountList } from './accounts'
-import { sendEODSummary, sendEmail, isEmailConfigured, type EODLineItem } from './email'
+import { sendEmail, sendDailyReport, sendMonthlyReport, isEmailConfigured, type EODLineItem } from './email'
 import { generateRecommendations, getMarketMode, type Recommendation } from './strategyEngine'
 import { monitorAllConnected, STRATEGY_2_BUY_TAG } from './strategy2'
 import {
@@ -25,6 +25,8 @@ import {
 } from './strategy1'
 import { resolveAccountCreds, placeKiteOrder } from './kite'
 import { runPreflight, markPlaced } from './preflight'
+import { appendJournal, istDateString } from './journal'
+import { buildDailyReport, buildMonthlyReport, isLastWeekdayOfMonth } from './retrospective'
 
 let started = false
 let tickTask: ScheduledTask | null = null
@@ -107,6 +109,13 @@ async function autoBuyOnAccount(account: string, accountDisplayName: string | un
         time: istHHMM(), account, symbol: rec.symbol, side: 'BUY', quantity: rec.suggestedQty,
         reason: `[${pre.gate}] ${pre.reason}`,
       })
+      // Journal the signal we DIDN'T trade so the retrospective can show "what
+      // happened to it by close" — was it a Good Miss or a Missed Opportunity?
+      appendJournal({
+        type: 'signal_skipped', date: istDateString(), time: istHHMM(),
+        account, symbol: rec.symbol, signalPrice: rec.price,
+        reasonSkipped: `[${pre.gate}] ${pre.reason || ''}`.trim(),
+      }).catch(err => console.error('[cron] journal signal_skipped failed:', err))
       sendEmail('trade_failed', {
         account, accountDisplayName, symbol: rec.symbol, side: 'BUY',
         quantity: rec.suggestedQty, price: rec.price,
@@ -164,7 +173,8 @@ async function tick(): Promise<void> {
 
   recordScan()
   const t = istHHMM()
-  console.log(`[cron tick] ${t} IST — scan #${dayStats.scans}`)
+  const accs = Object.keys(state.kiteTokens)
+  console.log(`[cron tick] ${t} IST — scan #${dayStats.scans} · mode=auto · accounts=${accs.join(',')}`)
 
   // 1a. SELL engine — Strategy 2 (intraday catalyst) monitor
   try {
@@ -241,29 +251,59 @@ async function tick(): Promise<void> {
   }
 }
 
-// ──────── EOD SUMMARY ────────
+// ──────── DAILY RETROSPECTIVE (15:35 IST) ────────
+//
+// Replaces the old plain-text EOD summary. Builds a journal-backed report
+// (today's trades + missed signals + 30-day rolling stats + fine-tuning
+// bullets), enriches with live Kite OHLC so finalDayHigh/leftOnTable reflect
+// the full session, and emails it as an HTML report.
+//
+// Skip rules (per spec):
+//   - weekend or NSE holiday        → skip
+//   - no trades AND no signals      → skip ("no empty reports")
+//   - SMTP not configured           → skip with warning
+//
+// On the last trading day of the month we additionally fire a monthly rollup.
 
-async function eodSummary(): Promise<void> {
+async function dailyRetrospective(): Promise<void> {
   maybeRollDay()
-  if (!isMarketDay()) return
-  if (!isEmailConfigured()) return
-  if (dayStats.scans === 0 && dayStats.executed.length === 0
-      && dayStats.failed.length === 0 && dayStats.delivery.length === 0) {
-    console.log('[cron eod] no activity today, skipping email')
+  if (!isMarketDay()) {
+    console.log('[cron retro] not a market day — skipping')
     return
   }
-  const ist = new Date(new Date().toLocaleString('en-US', { timeZone: 'Asia/Kolkata' }))
-  const dateStr = ist.toLocaleDateString('en-IN', { day: '2-digit', month: 'short', year: 'numeric' })
-    + ` (${['Sunday','Monday','Tuesday','Wednesday','Thursday','Friday','Saturday'][ist.getDay()]})`
-  await sendEODSummary({
-    date: dateStr,
-    scans: dayStats.scans,
-    executed: dayStats.executed,
-    failed: dayStats.failed,
-    skipped: dayStats.skipped,
-    delivery: dayStats.delivery,
-    realizedPnl: dayStats.realizedPnl,
-  })
+  if (!isEmailConfigured()) {
+    console.warn('[cron retro] SMTP not configured — skipping')
+    return
+  }
+
+  const today = istDateString()
+  try {
+    const report = await buildDailyReport(today)
+    if (!report.shouldSend) {
+      console.log(`[cron retro] ${today} — skipping (${report.skipReason || 'no activity'})`)
+    } else {
+      console.log(`[cron retro] ${today} — sending daily report: ${report.tradesCount} trades, ${report.missedSignals.length} missed signals`)
+      await sendDailyReport(report)
+    }
+  } catch (err) {
+    console.error('[cron retro] daily report failed:', err)
+  }
+
+  // Monthly rollup — fire on the last trading day of the month, even if today's
+  // daily report was skipped (the month may have plenty of activity earlier).
+  if (isLastWeekdayOfMonth(today)) {
+    try {
+      const monthly = await buildMonthlyReport(today)
+      if (monthly.totalTrades === 0 && monthly.signalsMissed === 0) {
+        console.log(`[cron retro] ${today} — last trading day, but month had zero activity — skipping monthly`)
+      } else {
+        console.log(`[cron retro] ${today} — sending monthly rollup for ${monthly.monthLabel}: ${monthly.totalTrades} trades`)
+        await sendMonthlyReport(monthly)
+      }
+    } catch (err) {
+      console.error('[cron retro] monthly rollup failed:', err)
+    }
+  }
 }
 
 // ──────── REGISTRATION ────────
@@ -275,14 +315,14 @@ export function startCron(): void {
     return
   }
   started = true
-  console.log('[cron] starting — tick every 5 min during 9:15–15:30 IST Mon–Fri; EOD summary at 15:35 IST')
+  console.log('[cron] starting — tick every 5 min during 9:15–15:30 IST Mon–Fri; daily retrospective at 15:35 IST')
 
   tickTask = cron.schedule('*/5 9-15 * * 1-5', () => {
     tick().catch(err => console.error('[cron tick] error:', err))
   }, { timezone: 'Asia/Kolkata' })
 
   eodTask = cron.schedule('35 15 * * 1-5', () => {
-    eodSummary().catch(err => console.error('[cron eod] error:', err))
+    dailyRetrospective().catch(err => console.error('[cron retro] error:', err))
   }, { timezone: 'Asia/Kolkata' })
 }
 

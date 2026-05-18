@@ -1,6 +1,7 @@
 'use client'
 import { useState, useEffect } from 'react'
 import watchlistData from '@/config/watchlist.json'
+import OrderModal from '@/components/OrderModal'
 
 interface AccountDisplay { name: string; displayName: string; initials: string; color: string; note: string }
 
@@ -14,6 +15,9 @@ export default function WatchlistPage() {
   const [holdingsLoading, setHoldingsLoading] = useState(false)
   const [quotes, setQuotes] = useState<Record<string, { ltp: number; changePct: number }>>({})
   const [quotesLoading, setQuotesLoading] = useState(false)
+  const [orderModal, setOrderModal] = useState<{
+    open: boolean; symbol: string; name?: string; side: 'BUY' | 'SELL'; ltp?: number
+  }>({ open: false, symbol: '', side: 'BUY' })
 
   const raw = activeTab === 'A' ? watchlistData.listA : watchlistData.listB
   const filtered = raw.filter(s =>
@@ -160,9 +164,9 @@ export default function WatchlistPage() {
 
       {/* Stock list */}
       <div className="rounded-xl overflow-hidden" style={{ border:'1px solid rgba(255,255,255,0.06)' }}>
-        <div className="grid px-4 py-2 text-[9px] tracking-widest uppercase"
+        <div className="grid px-4 py-2 text-[9px] tracking-widest uppercase items-center"
           style={{
-            gridTemplateColumns: '1.2fr 1.7fr 1fr 0.9fr 0.55fr',
+            gridTemplateColumns: '1.1fr 1.6fr 0.9fr 0.8fr 0.5fr 0.9fr',
             background:'rgba(255,255,255,0.02)', color:'rgba(255,255,255,0.25)',
             fontFamily:'JetBrains Mono, monospace', borderBottom:'1px solid rgba(255,255,255,0.06)',
           }}>
@@ -171,6 +175,7 @@ export default function WatchlistPage() {
           <span className="text-right">LTP</span>
           <span className="text-right">Today</span>
           <span className="text-right">Trades</span>
+          <span className="text-right">Action</span>
         </div>
         {filtered.map((s, i) => {
           const sym = s.nse.toUpperCase()
@@ -182,7 +187,7 @@ export default function WatchlistPage() {
             <div key={s.nse}
               className="grid px-4 py-3 items-center transition-all hover:bg-white/5"
               style={{
-                gridTemplateColumns: '1.2fr 1.7fr 1fr 0.9fr 0.55fr',
+                gridTemplateColumns: '1.1fr 1.6fr 0.9fr 0.8fr 0.5fr 0.9fr',
                 borderBottom: i < filtered.length-1 ? '1px solid rgba(255,255,255,0.04)' : 'none',
                 background: held ? `${activeColor}12` : 'transparent',
               }}>
@@ -191,7 +196,7 @@ export default function WatchlistPage() {
                 {held && (
                   <span className="text-[8px] px-1.5 py-0.5 rounded flex-shrink-0"
                     style={{ background:`${activeColor}25`, color: activeColor, border:`1px solid ${activeColor}50` }}>
-                    HOLDING
+                    HELD
                   </span>
                 )}
               </div>
@@ -207,10 +212,46 @@ export default function WatchlistPage() {
               <span className="text-right text-[11px]" style={{ color:'rgba(255,255,255,0.25)', fontFamily:'JetBrains Mono, monospace' }}>
                 {s.trades}
               </span>
+              <div className="flex gap-1 justify-end">
+                <button onClick={() => setOrderModal({ open: true, symbol: sym, name: s.name, side: 'BUY', ltp: q?.ltp })}
+                  disabled={!activeAccount}
+                  className="px-2 py-1 rounded text-[10px] font-semibold tracking-wider transition-all disabled:opacity-30"
+                  style={{ background: 'rgba(82,183,136,0.12)', border: '1px solid rgba(82,183,136,0.3)', color: '#52b788' }}>
+                  Buy
+                </button>
+                <button onClick={() => setOrderModal({ open: true, symbol: sym, name: s.name, side: 'SELL', ltp: q?.ltp })}
+                  disabled={!activeAccount}
+                  className="px-2 py-1 rounded text-[10px] font-semibold tracking-wider transition-all disabled:opacity-30"
+                  style={{ background: 'rgba(224,90,94,0.12)', border: '1px solid rgba(224,90,94,0.3)', color: '#e05a5e' }}>
+                  Sell
+                </button>
+              </div>
             </div>
           )
         })}
       </div>
+
+      <OrderModal
+        isOpen={orderModal.open}
+        onClose={() => setOrderModal({ ...orderModal, open: false })}
+        symbol={orderModal.symbol}
+        symbolName={orderModal.name}
+        initialSide={orderModal.side}
+        ltp={orderModal.ltp}
+        accounts={connectedAccounts}
+        defaultAccount={activeAccount ?? undefined}
+        onSuccess={() => {
+          // Refresh holdings highlight after a successful order
+          if (activeAccount) {
+            fetch(`/api/zerodha?account=${encodeURIComponent(activeAccount)}&action=holdings`)
+              .then(r => r.json())
+              .then(d => {
+                const list = Array.isArray(d?.data) ? d.data : []
+                setHeldSymbols(new Set(list.map((h: any) => String(h.tradingsymbol).toUpperCase())))
+              })
+              .catch(() => {})
+          }
+        }} />
 
       <p className="text-[10px] text-center pb-2" style={{ color:'rgba(255,255,255,0.2)' }}>
         {connectedAccounts.length === 0

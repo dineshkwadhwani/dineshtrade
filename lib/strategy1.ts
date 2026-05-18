@@ -21,6 +21,7 @@ import { getInstrumentToken } from './instruments'
 import { computeEMA } from './ema'
 import { runPreflight, markPlaced } from './preflight'
 import { sendEmail } from './email'
+import { appendJournal, istDateString } from './journal'
 
 export const STRATEGY_1_BUY_TAG = 'dt-s1'
 export const STRATEGY_1_TRANCHE1_TAG = 'dt-s1-t1'
@@ -73,6 +74,7 @@ function istDateKey(daysOffset = 0): string {
 }
 
 // Called after a successful Strategy 1 BUY (cron auto-buy + manual Execute path).
+// Overwrites any existing entry for this (account, symbol).
 export async function recordStrategy1Buy(account: string, symbol: string, qty: number, entryPrice: number): Promise<void> {
   const positions = await readPositions()
   const key = `${account}:${symbol.toUpperCase()}`
@@ -85,6 +87,29 @@ export async function recordStrategy1Buy(account: string, symbol: string, qty: n
   }
   await writePositions(positions)
   console.log(`[strategy1] recorded BUY ${key} × ${qty} @ ₹${entryPrice}`)
+}
+
+// Idempotent — adds a position to Strategy 1 tracking only if not already present.
+// Used by the Strategy 2 → Strategy 1 delivery handoff at 15:00 IST so unexited
+// dt-s2 positions get managed by EMA-based exits from the next trading day.
+// Returns true if a new entry was created, false if one already existed.
+export async function ensureStrategy1Tracking(
+  account: string, symbol: string, qty: number, entryPrice: number,
+  source: string = 'manual',
+): Promise<boolean> {
+  const positions = await readPositions()
+  const key = `${account}:${symbol.toUpperCase()}`
+  if (positions[key]) return false
+  positions[key] = {
+    boughtAt: istDateKey(),
+    entryQty: qty,
+    remainingQty: qty,
+    entryPrice,
+    tranche1At: null,
+  }
+  await writePositions(positions)
+  console.log(`[strategy1] now tracking ${key} × ${qty} @ ₹${entryPrice} (source: ${source})`)
+  return true
 }
 
 // Used by the Holdings/Engine UI later to show "this is a Strategy 1 position".
@@ -196,37 +221,79 @@ export async function monitorAccountStrategy1(account: string): Promise<Strategy
       continue
     }
 
-    // Branch 2: LTP >= EMA. First time? → tranche 1 (50%). Already done tranche 1? → check 1-day hold.
+    // Branch 2: LTP >= EMA. First time? → tranche 1 (50%). Already done tranche 1? → check EMA + 3%.
     if (!pos.tranche1At) {
-      const qty = Math.max(1, Math.floor(pos.remainingQty * 0.5))
-      if (qty > pos.remainingQty) {
-        entries.push({ account, accountDisplayName: displayName, symbol, action: 'skipped', reason: `Invalid qty ${qty}` })
+      const intentQty = Math.max(1, Math.floor(pos.remainingQty * 0.5))
+      if (intentQty > pos.remainingQty) {
+        entries.push({ account, accountDisplayName: displayName, symbol, action: 'skipped', reason: `Invalid qty ${intentQty}` })
         continue
       }
-      const pre = await runPreflight({ account, symbol, side: 'SELL', quantity: qty, pricePerShare: ltp })
+      const pre = await runPreflight({ account, symbol, side: 'SELL', quantity: intentQty, pricePerShare: ltp })
       if (!pre.ok) {
-        entries.push({ account, accountDisplayName: displayName, symbol, action: 'skipped', qty, entryPrice: pos.entryPrice, ema: todayEMA, ltp, reason: `Preflight ${pre.gate}: ${pre.reason}` })
+        if (pre.gate === 'noShort') {
+          // Position fully closed manually in Kite — clean up our tracking
+          delete all[key]
+          await writePositions(all)
+          entries.push({
+            account, accountDisplayName: displayName, symbol, action: 'skipped',
+            reason: 'Position no longer held in Kite — Strategy 1 tracking cleared',
+          })
+        } else {
+          entries.push({ account, accountDisplayName: displayName, symbol, action: 'skipped', qty: intentQty, entryPrice: pos.entryPrice, ema: todayEMA, ltp, reason: `Preflight ${pre.gate}: ${pre.reason}` })
+        }
         continue
       }
-      const placed = await placeKiteOrder(creds, { symbol, side: 'SELL', quantity: qty, tag: STRATEGY_1_TRANCHE1_TAG })
+      const actualQty = pre.adjustedQty ?? intentQty
+      const placed = await placeKiteOrder(creds, { symbol, side: 'SELL', quantity: actualQty, tag: STRATEGY_1_TRANCHE1_TAG })
       if (placed.ok && placed.data?.data?.order_id) {
         markPlaced(account, symbol, 'SELL')
-        pos.tranche1At = istDateKey()
-        pos.tranche1SoldQty = qty
-        pos.remainingQty -= qty
+        const adjusted = pre.adjustedQty !== undefined
+        if (adjusted) {
+          // Held less than intended 50% — selling what's there closes the position
+          delete all[key]
+        } else {
+          pos.tranche1At = istDateKey()
+          pos.tranche1SoldQty = actualQty
+          pos.remainingQty -= actualQty
+        }
         await writePositions(all)
-        entries.push({ account, accountDisplayName: displayName, symbol, action: 'tranche1_sold', qty, entryPrice: pos.entryPrice, ema: todayEMA, ltp, orderId: placed.data.data.order_id })
-        sendEmail('trade_executed', {
-          account, accountDisplayName: displayName, symbol, side: 'SELL', quantity: qty, price: ltp,
+        // Journal — partial exit
+        const pnlR = (ltp - pos.entryPrice) * actualQty
+        const pnlP = ((ltp - pos.entryPrice) / pos.entryPrice) * 100
+        appendJournal({
+          type: 'trade', date: istDateString(),
+          account, symbol, qty: actualQty,
+          entryPrice: pos.entryPrice, entryTime: pos.boughtAt,
+          exitPrice: ltp, exitTime: new Date().toISOString(),
+          pnlRupees: pnlR, pnlPct: pnlP,
+          dayHighAfterEntry: ltp, dayLowAfterEntry: ltp,
+          leftOnTable: 0,
+          verdict: 'correct_exit',
+          strategy: 'oscillator',
+          orderIdSell: placed.data.data.order_id,
+          notes: `Tranche 1 (50% at EMA ₹${todayEMA.toFixed(2)})`,
+        }).catch(err => console.error('[strategy1] journal write failed:', err))
+        entries.push({
+          account, accountDisplayName: displayName, symbol, action: 'tranche1_sold',
+          qty: actualQty, entryPrice: pos.entryPrice, ema: todayEMA, ltp,
           orderId: placed.data.data.order_id,
-          source: 'Strategy 1 — Tranche 1 (EMA recovery)',
-          reason: `Sold 50% of original ${pos.entryQty} as 20-EMA (₹${todayEMA.toFixed(2)}) recovered`,
+          reason: adjusted ? `Adjusted ${intentQty} → ${actualQty} (partial manual close); position cleared` : undefined,
+        })
+        sendEmail('trade_executed', {
+          account, accountDisplayName: displayName, symbol, side: 'SELL', quantity: actualQty, price: ltp,
+          orderId: placed.data.data.order_id,
+          source: adjusted
+            ? `Strategy 1 — Final exit (clamped from ${intentQty})`
+            : 'Strategy 1 — Tranche 1 (EMA recovery)',
+          reason: adjusted
+            ? `Held qty (${actualQty}) less than tranche-1 intent (${intentQty}) — sold remaining and closed position`
+            : `Sold 50% of original ${pos.entryQty} as 20-EMA (₹${todayEMA.toFixed(2)}) recovered`,
           mode: 'auto',
         }).catch(err => console.error('[strategy1] tranche1 email failed:', err))
       } else {
         const errMsg = placed.data?.message || placed.data?.error_type || `Kite HTTP ${placed.status}`
-        entries.push({ account, accountDisplayName: displayName, symbol, action: 'failed', qty, ltp, reason: errMsg })
-        sendEmail('trade_failed', { account, accountDisplayName: displayName, symbol, side: 'SELL', quantity: qty, price: ltp, failedAt: 'kite', reason: errMsg, mode: 'auto' }).catch(() => {})
+        entries.push({ account, accountDisplayName: displayName, symbol, action: 'failed', qty: actualQty, ltp, reason: errMsg })
+        sendEmail('trade_failed', { account, accountDisplayName: displayName, symbol, side: 'SELL', quantity: actualQty, price: ltp, failedAt: 'kite', reason: errMsg, mode: 'auto' }).catch(() => {})
       }
       continue
     }
@@ -242,29 +309,64 @@ export async function monitorAccountStrategy1(account: string): Promise<Strategy
     }
 
     // Tranche 2 fires — sell the rest
-    const qty = pos.remainingQty
-    const pre = await runPreflight({ account, symbol, side: 'SELL', quantity: qty, pricePerShare: ltp })
+    const intentQty = pos.remainingQty
+    const pre = await runPreflight({ account, symbol, side: 'SELL', quantity: intentQty, pricePerShare: ltp })
     if (!pre.ok) {
-      entries.push({ account, accountDisplayName: displayName, symbol, action: 'skipped', qty, entryPrice: pos.entryPrice, ema: todayEMA, ltp, reason: `Preflight ${pre.gate}: ${pre.reason}` })
+      if (pre.gate === 'noShort') {
+        // Position fully closed manually — clean up
+        delete all[key]
+        await writePositions(all)
+        entries.push({
+          account, accountDisplayName: displayName, symbol, action: 'skipped',
+          reason: 'Position no longer held in Kite — Strategy 1 tracking cleared',
+        })
+      } else {
+        entries.push({ account, accountDisplayName: displayName, symbol, action: 'skipped', qty: intentQty, entryPrice: pos.entryPrice, ema: todayEMA, ltp, reason: `Preflight ${pre.gate}: ${pre.reason}` })
+      }
       continue
     }
-    const placed = await placeKiteOrder(creds, { symbol, side: 'SELL', quantity: qty, tag: STRATEGY_1_TRANCHE2_TAG })
+    const actualQty = pre.adjustedQty ?? intentQty
+    const placed = await placeKiteOrder(creds, { symbol, side: 'SELL', quantity: actualQty, tag: STRATEGY_1_TRANCHE2_TAG })
     if (placed.ok && placed.data?.data?.order_id) {
       markPlaced(account, symbol, 'SELL')
       delete all[key]
       await writePositions(all)
-      entries.push({ account, accountDisplayName: displayName, symbol, action: 'tranche2_sold', qty, entryPrice: pos.entryPrice, ema: todayEMA, ltp, orderId: placed.data.data.order_id })
+      const adjusted = pre.adjustedQty !== undefined
+      // Journal — final exit
+      const pnlR2 = (ltp - pos.entryPrice) * actualQty
+      const pnlP2 = ((ltp - pos.entryPrice) / pos.entryPrice) * 100
+      appendJournal({
+        type: 'trade', date: istDateString(),
+        account, symbol, qty: actualQty,
+        entryPrice: pos.entryPrice, entryTime: pos.boughtAt,
+        exitPrice: ltp, exitTime: new Date().toISOString(),
+        pnlRupees: pnlR2, pnlPct: pnlP2,
+        dayHighAfterEntry: ltp, dayLowAfterEntry: ltp,
+        leftOnTable: 0,
+        verdict: 'correct_exit',
+        strategy: 'oscillator',
+        orderIdSell: placed.data.data.order_id,
+        notes: `Tranche 2 (EMA + ${tranche2AbovePct}%)`,
+      }).catch(err => console.error('[strategy1] journal write failed:', err))
+      entries.push({
+        account, accountDisplayName: displayName, symbol, action: 'tranche2_sold',
+        qty: actualQty, entryPrice: pos.entryPrice, ema: todayEMA, ltp,
+        orderId: placed.data.data.order_id,
+        reason: adjusted ? `Adjusted ${intentQty} → ${actualQty} (partial manual close)` : undefined,
+      })
       sendEmail('trade_executed', {
-        account, accountDisplayName: displayName, symbol, side: 'SELL', quantity: qty, price: ltp,
+        account, accountDisplayName: displayName, symbol, side: 'SELL', quantity: actualQty, price: ltp,
         orderId: placed.data.data.order_id,
         source: `Strategy 1 — Tranche 2 (EMA +${tranche2AbovePct}% hit)`,
-        reason: `Closing remaining ${qty} — LTP ₹${ltp.toFixed(2)} ≥ EMA ₹${todayEMA.toFixed(2)} + ${tranche2AbovePct}% (₹${tranche2Trigger.toFixed(2)})`,
+        reason: adjusted
+          ? `Closing remaining ${actualQty} (clamped from ${intentQty} — partial manual close)`
+          : `Closing remaining ${actualQty} — LTP ₹${ltp.toFixed(2)} ≥ EMA ₹${todayEMA.toFixed(2)} + ${tranche2AbovePct}% (₹${tranche2Trigger.toFixed(2)})`,
         mode: 'auto',
       }).catch(() => {})
     } else {
       const errMsg = placed.data?.message || placed.data?.error_type || `Kite HTTP ${placed.status}`
-      entries.push({ account, accountDisplayName: displayName, symbol, action: 'failed', qty, ltp, reason: errMsg })
-      sendEmail('trade_failed', { account, accountDisplayName: displayName, symbol, side: 'SELL', quantity: qty, price: ltp, failedAt: 'kite', reason: errMsg, mode: 'auto' }).catch(() => {})
+      entries.push({ account, accountDisplayName: displayName, symbol, action: 'failed', qty: actualQty, ltp, reason: errMsg })
+      sendEmail('trade_failed', { account, accountDisplayName: displayName, symbol, side: 'SELL', quantity: actualQty, price: ltp, failedAt: 'kite', reason: errMsg, mode: 'auto' }).catch(() => {})
     }
   }
 
