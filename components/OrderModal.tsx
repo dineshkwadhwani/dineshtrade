@@ -1,5 +1,6 @@
 'use client'
 import { useEffect, useState } from 'react'
+import { createPortal } from 'react-dom'
 
 export interface AccountDisplay {
   name: string
@@ -119,11 +120,15 @@ export default function OrderModal({
   const accentBg    = side === 'BUY' ? 'rgba(82,183,136,0.15)' : 'rgba(224,90,94,0.15)'
   const accentBd    = side === 'BUY' ? 'rgba(82,183,136,0.4)'  : 'rgba(224,90,94,0.4)'
 
-  return (
-    <div className="fixed inset-0 z-50 flex items-center justify-center px-4 py-8 animate-fade-up"
+  // Render via portal so parent transforms (page-level animations, AppShell
+  // layout) can't break `position: fixed` centering. Animation goes on the
+  // inner card, not the backdrop, for the same reason.
+  if (typeof document === 'undefined') return null
+  const modal = (
+    <div className="fixed inset-0 z-50 flex items-center justify-center px-4 py-8"
       style={{ background: 'rgba(0,0,0,0.75)', backdropFilter: 'blur(4px)' }}
       onClick={onClose}>
-      <div className="w-full max-w-md rounded-2xl overflow-hidden"
+      <div className="w-full max-w-md rounded-2xl overflow-hidden animate-fade-up"
         style={{ background: '#100e0a', border: '1px solid rgba(201,168,76,0.2)' }}
         onClick={e => e.stopPropagation()}>
 
@@ -261,6 +266,7 @@ export default function OrderModal({
       </div>
     </div>
   )
+  return createPortal(modal, document.body)
 }
 
 function Field({ label, rightLabel, children }: { label: string; rightLabel?: React.ReactNode; children: React.ReactNode }) {
