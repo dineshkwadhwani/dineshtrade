@@ -15,8 +15,9 @@ export default function WatchlistPage() {
   const [holdingsLoading, setHoldingsLoading] = useState(false)
   const [quotes, setQuotes] = useState<Record<string, { ltp: number; changePct: number }>>({})
   const [quotesLoading, setQuotesLoading] = useState(false)
+  const [quotesError, setQuotesError] = useState<string>('')
   const [orderModal, setOrderModal] = useState<{
-    open: boolean; symbol: string; name?: string; side: 'BUY' | 'SELL'; ltp?: number
+    open: boolean; symbol: string; name?: string; side: 'BUY' | 'SELL'; ltp?: number; dayChangePct?: number
   }>({ open: false, symbol: '', side: 'BUY' })
 
   const raw = activeTab === 'A' ? watchlistData.listA : watchlistData.listB
@@ -55,34 +56,62 @@ export default function WatchlistPage() {
       .finally(() => setHoldingsLoading(false))
   }, [activeAccount])
 
-  // Fetch live LTPs for the whole watchlist (List A + List B) — one batched /quote call
-  useEffect(() => {
-    if (!activeAccount) {
-      setQuotes({})
-      return
-    }
+  // Fetch live LTPs for the whole watchlist. We batch into chunks of 50 because
+  // Kite's /quote endpoint sometimes rejects the whole request if any symbol is
+  // unrecognised — smaller batches isolate the bad ones so the rest still load.
+  async function loadQuotes(account: string) {
     const allSymbols = [
       ...watchlistData.listA.map(s => s.nse.toUpperCase()),
       ...watchlistData.listB.map(s => s.nse.toUpperCase()),
     ]
-    const symParam = allSymbols.map(s => `NSE:${s}`).join(',')
+    const BATCH = 50
+    const chunks: string[][] = []
+    for (let i = 0; i < allSymbols.length; i += BATCH) chunks.push(allSymbols.slice(i, i + BATCH))
+
     setQuotesLoading(true)
-    fetch(`/api/zerodha?account=${encodeURIComponent(activeAccount)}&action=quote&symbols=${encodeURIComponent(symParam)}`)
-      .then(r => r.json())
-      .then(data => {
+    setQuotesError('')
+    const out: Record<string, { ltp: number; changePct: number }> = {}
+    const errors: string[] = []
+
+    for (const chunk of chunks) {
+      const symParam = chunk.map(s => `NSE:${s}`).join(',')
+      try {
+        const res = await fetch(`/api/zerodha?account=${encodeURIComponent(account)}&action=quote&symbols=${encodeURIComponent(symParam)}`)
+        const data = await res.json().catch(() => ({}))
+        if (!res.ok) {
+          errors.push(`HTTP ${res.status}: ${data?.error || data?.message || 'unknown'}`)
+          continue
+        }
         const kiteQuotes: Record<string, any> = data?.data || {}
-        const out: Record<string, { ltp: number; changePct: number }> = {}
+        if (Object.keys(kiteQuotes).length === 0 && data?.message) {
+          errors.push(String(data.message))
+        }
         for (const [key, q] of Object.entries(kiteQuotes)) {
           const symbol = key.replace(/^NSE:/, '')
-          const ltp = Number(q.last_price)
-          const prevClose = Number(q.ohlc?.close)
+          const ltp = Number((q as any).last_price)
+          const prevClose = Number((q as any).ohlc?.close)
           const changePct = prevClose > 0 ? ((ltp - prevClose) / prevClose) * 100 : 0
           if (ltp > 0) out[symbol] = { ltp, changePct }
         }
-        setQuotes(out)
-      })
-      .catch(() => setQuotes({}))
-      .finally(() => setQuotesLoading(false))
+      } catch (e) {
+        errors.push(String(e).slice(0, 120))
+      }
+    }
+
+    setQuotes(out)
+    if (Object.keys(out).length === 0 && errors.length > 0) {
+      // Surface a single representative error so the user knows why
+      setQuotesError(errors[0])
+    } else if (Object.keys(out).length < allSymbols.length && errors.length > 0) {
+      setQuotesError(`Partial load — ${errors.length} chunk${errors.length === 1 ? '' : 's'} failed: ${errors[0]}`)
+    }
+    setQuotesLoading(false)
+  }
+
+  useEffect(() => {
+    if (!activeAccount) { setQuotes({}); setQuotesError(''); return }
+    loadQuotes(activeAccount)
+  // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [activeAccount])
 
   const connectedAccounts = accounts.filter(a => connected.includes(a.name))
@@ -94,10 +123,30 @@ export default function WatchlistPage() {
         <h1 className="text-2xl font-light" style={{ fontFamily:'Cormorant Garamond, serif', color:'rgba(255,255,255,0.9)' }}>
           Watch<span className="gold-text">list</span>
         </h1>
-        <p className="text-[10px]" style={{ color:'rgba(255,255,255,0.25)', fontFamily:'JetBrains Mono, monospace' }}>
-          Config-locked · Edit watchlist.json to add stocks
-        </p>
+        <div className="flex items-center gap-3">
+          <p className="text-[10px]" style={{ color:'rgba(255,255,255,0.25)', fontFamily:'JetBrains Mono, monospace' }}>
+            Config-locked · Edit watchlist.json to add stocks
+          </p>
+          {activeAccount && (
+            <button onClick={() => loadQuotes(activeAccount)} disabled={quotesLoading}
+              className="px-3 py-1.5 rounded-lg text-[11px] font-medium transition-all"
+              style={{ background:'rgba(201,168,76,0.1)', border:'1px solid rgba(201,168,76,0.2)', color:'#c9a84c' }}>
+              {quotesLoading ? '↻ Loading…' : '↻ Refresh'}
+            </button>
+          )}
+        </div>
       </div>
+
+      {quotesError && (
+        <div className="rounded-xl p-3" style={{ background:'rgba(224,90,94,0.05)', border:'1px solid rgba(224,90,94,0.25)' }}>
+          <p className="text-[12px]" style={{ color:'rgba(224,90,94,0.9)', fontFamily:'JetBrains Mono, monospace' }}>
+            ✗ Live prices: {quotesError}
+          </p>
+          <p className="text-[10px] mt-1" style={{ color:'rgba(255,255,255,0.4)' }}>
+            Most common causes: Kite access token expired (re-Login from Settings), Kite Connect plan doesn't include /quote, or one of the symbols isn't recognised by Kite.
+          </p>
+        </div>
+      )}
 
       {/* Account picker — visible only when 2+ accounts connected */}
       {connectedAccounts.length > 1 && (
@@ -213,13 +262,13 @@ export default function WatchlistPage() {
                 {s.trades}
               </span>
               <div className="flex gap-1 justify-end">
-                <button onClick={() => setOrderModal({ open: true, symbol: sym, name: s.name, side: 'BUY', ltp: q?.ltp })}
+                <button onClick={() => setOrderModal({ open: true, symbol: sym, name: s.name, side: 'BUY', ltp: q?.ltp, dayChangePct: q?.changePct })}
                   disabled={!activeAccount}
                   className="px-2 py-1 rounded text-[10px] font-semibold tracking-wider transition-all disabled:opacity-30"
                   style={{ background: 'rgba(82,183,136,0.12)', border: '1px solid rgba(82,183,136,0.3)', color: '#52b788' }}>
                   Buy
                 </button>
-                <button onClick={() => setOrderModal({ open: true, symbol: sym, name: s.name, side: 'SELL', ltp: q?.ltp })}
+                <button onClick={() => setOrderModal({ open: true, symbol: sym, name: s.name, side: 'SELL', ltp: q?.ltp, dayChangePct: q?.changePct })}
                   disabled={!activeAccount}
                   className="px-2 py-1 rounded text-[10px] font-semibold tracking-wider transition-all disabled:opacity-30"
                   style={{ background: 'rgba(224,90,94,0.12)', border: '1px solid rgba(224,90,94,0.3)', color: '#e05a5e' }}>
@@ -238,6 +287,7 @@ export default function WatchlistPage() {
         symbolName={orderModal.name}
         initialSide={orderModal.side}
         ltp={orderModal.ltp}
+        dayChangePct={orderModal.dayChangePct}
         accounts={connectedAccounts}
         defaultAccount={activeAccount ?? undefined}
         onSuccess={() => {

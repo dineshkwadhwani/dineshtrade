@@ -16,6 +16,7 @@ interface OrderModalProps {
   symbolName?: string
   initialSide: 'BUY' | 'SELL'
   ltp?: number              // current LTP for default price + estimated value
+  dayChangePct?: number     // today's % change from prev close — shown next to LTP for direction context
   initialQty?: number       // pre-fill (e.g. held quantity for SELL)
   initialProduct?: 'CNC' | 'MIS'  // pre-fill product (e.g. position's product for square-off)
   accounts: AccountDisplay[]
@@ -24,7 +25,7 @@ interface OrderModalProps {
 }
 
 export default function OrderModal({
-  isOpen, onClose, symbol, symbolName, initialSide, ltp,
+  isOpen, onClose, symbol, symbolName, initialSide, ltp, dayChangePct,
   initialQty, initialProduct, accounts, defaultAccount, onSuccess,
 }: OrderModalProps) {
   const [account, setAccount] = useState(defaultAccount || accounts[0]?.name || '')
@@ -197,7 +198,19 @@ export default function OrderModal({
           </Field>
 
           {/* Order Type */}
-          <Field label="Order Type" rightLabel={ltp ? `LTP ₹${ltp.toFixed(2)}` : undefined}>
+          <Field label="Order Type" rightLabel={ltp ? (
+            <>
+              <span>LTP ₹{ltp.toFixed(2)}</span>
+              {dayChangePct !== undefined && (
+                <span style={{
+                  marginLeft: 6,
+                  color: dayChangePct > 0 ? '#52b788' : dayChangePct < 0 ? '#e05a5e' : 'rgba(255,255,255,0.4)',
+                }}>
+                  · {dayChangePct > 0 ? '▲' : dayChangePct < 0 ? '▼' : '─'} {Math.abs(dayChangePct).toFixed(2)}%
+                </span>
+              )}
+            </>
+          ) : undefined}>
             <div className="flex gap-2 mb-2">
               {(['MARKET', 'LIMIT'] as const).map(t => (
                 <button key={t} onClick={() => setOrderType(t)}
@@ -250,16 +263,16 @@ export default function OrderModal({
   )
 }
 
-function Field({ label, rightLabel, children }: { label: string; rightLabel?: string; children: React.ReactNode }) {
+function Field({ label, rightLabel, children }: { label: string; rightLabel?: React.ReactNode; children: React.ReactNode }) {
   return (
     <div>
       <div className="flex justify-between mb-2">
         <p className="text-[10px] tracking-widest uppercase"
           style={{ color: 'rgba(201,168,76,0.5)', fontFamily: 'JetBrains Mono, monospace' }}>{label}</p>
         {rightLabel && (
-          <p className="text-[10px]" style={{ color: 'rgba(255,255,255,0.3)', fontFamily: 'JetBrains Mono, monospace' }}>
+          <div className="text-[10px]" style={{ color: 'rgba(255,255,255,0.3)', fontFamily: 'JetBrains Mono, monospace' }}>
             {rightLabel}
-          </p>
+          </div>
         )}
       </div>
       {children}

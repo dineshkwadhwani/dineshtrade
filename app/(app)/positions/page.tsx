@@ -136,6 +136,7 @@ export default function PositionsPage() {
           initialQty={squareOff.qty}
           initialProduct={squareOff.product === 'MIS' ? 'MIS' : 'CNC'}
           ltp={squareOff.ltp}
+          dayChangePct={squareOff.dayChangePct}
           accounts={accounts.filter(a => a.name === activeTab)}
           defaultAccount={activeTab}
           onSuccess={() => { setSquareOff(null); load(activeTab) }}
@@ -174,12 +175,27 @@ function PositionRow({ p, last, onSquareOff }: {
         {p.avgPrice > 0 ? `₹${p.avgPrice.toFixed(2)}` : '—'}
       </span>
       <span className="col-span-2 text-right" style={{ fontFamily:'JetBrains Mono, monospace' }}>
-        <div className="text-white/80">{p.ltp > 0 ? `₹${p.ltp.toFixed(2)}` : '—'}</div>
-        {isOpen && p.avgPrice > 0 && (
-          <div className="text-[9px] mt-0.5" style={{ color: chgPct >= 0 ? '#52b788' : '#e05a5e' }}>
-            {chgPct >= 0 ? '+' : ''}{chgPct.toFixed(2)}%
-          </div>
-        )}
+        {(() => {
+          const dc = p.dayChangePct
+          const dColor = dc === undefined ? 'rgba(255,255,255,0.8)'
+            : dc > 0 ? '#52b788' : dc < 0 ? '#e05a5e' : 'rgba(255,255,255,0.7)'
+          const arrow = dc === undefined ? '' : dc > 0 ? '▲' : dc < 0 ? '▼' : '─'
+          return (
+            <>
+              <div style={{ color: dColor }}>{p.ltp > 0 ? `₹${p.ltp.toFixed(2)}` : '—'}</div>
+              {dc !== undefined && (
+                <div className="text-[9px] mt-0.5" style={{ color: dColor }}>
+                  {arrow} {Math.abs(dc).toFixed(2)}% today
+                </div>
+              )}
+              {isOpen && p.avgPrice > 0 && (
+                <div className="text-[9px]" style={{ color: chgPct >= 0 ? 'rgba(82,183,136,0.7)' : 'rgba(224,90,94,0.7)' }}>
+                  {chgPct >= 0 ? '+' : ''}{chgPct.toFixed(2)}% vs avg
+                </div>
+              )}
+            </>
+          )
+        })()}
       </span>
       <span className="col-span-2 text-right" style={{ fontFamily:'JetBrains Mono, monospace' }}>
         <div className="font-semibold" style={{ color: isOpen ? uColor : 'rgba(255,255,255,0.35)' }}>

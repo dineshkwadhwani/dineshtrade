@@ -38,7 +38,7 @@ export default function HoldingsPage() {
   const [s1Symbols, setS1Symbols] = useState<Set<string>>(new Set())   // "ACCOUNT:SYMBOL" keys in strategy1.json
   const [loaded, setLoaded] = useState(false)
   const [orderModal, setOrderModal] = useState<{
-    open: boolean; symbol: string; name?: string; side: 'BUY' | 'SELL'; ltp?: number; initialQty?: number
+    open: boolean; symbol: string; name?: string; side: 'BUY' | 'SELL'; ltp?: number; initialQty?: number; dayChangePct?: number
   }>({ open: false, symbol: '', side: 'SELL' })
 
   // Initial load — accounts + connection set
@@ -228,12 +228,12 @@ export default function HoldingsPage() {
                       {h.day_change_percentage >= 0 ? '▲' : '▼'} {Math.abs(h.day_change_percentage).toFixed(2)}%
                     </span>
                     <div className="flex gap-1 justify-end">
-                      <button onClick={() => setOrderModal({ open: true, symbol: h.tradingsymbol, side: 'BUY', ltp: h.last_price })}
+                      <button onClick={() => setOrderModal({ open: true, symbol: h.tradingsymbol, side: 'BUY', ltp: h.last_price, dayChangePct: h.day_change_percentage })}
                         className="px-2 py-1 rounded text-[10px] font-semibold tracking-wider transition-all"
                         style={{ background:'rgba(82,183,136,0.12)', border:'1px solid rgba(82,183,136,0.3)', color:'#52b788' }}>
                         Buy
                       </button>
-                      <button onClick={() => setOrderModal({ open: true, symbol: h.tradingsymbol, side: 'SELL', ltp: h.last_price, initialQty: h.quantity })}
+                      <button onClick={() => setOrderModal({ open: true, symbol: h.tradingsymbol, side: 'SELL', ltp: h.last_price, initialQty: h.quantity, dayChangePct: h.day_change_percentage })}
                         className="px-2 py-1 rounded text-[10px] font-semibold tracking-wider transition-all"
                         style={{ background:'rgba(224,90,94,0.12)', border:'1px solid rgba(224,90,94,0.3)', color:'#e05a5e' }}>
                         Sell
@@ -262,6 +262,7 @@ export default function HoldingsPage() {
         symbolName={orderModal.name}
         initialSide={orderModal.side}
         ltp={orderModal.ltp}
+        dayChangePct={orderModal.dayChangePct}
         initialQty={orderModal.initialQty}
         accounts={accounts.filter(a => connected.includes(a.name))}
         defaultAccount={activeTab ?? undefined}

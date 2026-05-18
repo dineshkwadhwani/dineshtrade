@@ -14,7 +14,7 @@
 import { NextResponse } from 'next/server'
 import { cookies } from 'next/headers'
 import { verifySession } from '@/lib/auth'
-import { resolveAccountCreds, getPositions, getOrders, type KiteOrder } from '@/lib/kite'
+import { resolveAccountCreds, getPositions, getOrders, getQuotes, type KiteOrder } from '@/lib/kite'
 import {
   STRATEGY_1_BUY_TAG, STRATEGY_1_TRANCHE1_TAG, STRATEGY_1_TRANCHE2_TAG,
 } from '@/lib/strategy1'
@@ -31,6 +31,7 @@ export interface EnrichedPosition {
   qty: number
   avgPrice: number
   ltp: number
+  dayChangePct?: number    // today's % change from previous close (live, may be missing if /quote fails)
   dayBuyQty: number
   daySellQty: number
   pnl: number
@@ -70,6 +71,17 @@ export async function GET(req: Request) {
     getPositions(creds).catch(() => ({ day: [], net: [] })),
     getOrders(creds).catch(() => [] as KiteOrder[]),
   ])
+
+  // Fetch today's quotes for every symbol we hold/traded so we can compute
+  // today's % change from previous close. Best-effort — falls back to no
+  // change-pct on the row if /quote fails (Kite plan tier or token issue).
+  const allSymbols = Array.from(new Set([
+    ...positions.net.map(p => p.tradingsymbol),
+    ...positions.day.map(p => p.tradingsymbol),
+  ]))
+  const quotes = allSymbols.length > 0
+    ? await getQuotes(creds, allSymbols).catch(() => ({} as Awaited<ReturnType<typeof getQuotes>>))
+    : ({} as Awaited<ReturnType<typeof getQuotes>>)
 
   // Index today's filled orders by symbol → tags + ids + buy/sell-side avgs.
   const tagsBySymbol = new Map<string, Set<string>>()
@@ -118,13 +130,18 @@ export async function GET(req: Request) {
       realized = closedQty * (sellVwap - buyVwap)
     }
     const unrealized = p.quantity * ((p.last_price || 0) - (p.average_price || 0))
+    const quote = quotes[`NSE:${sym}`]
+    const liveLtp = Number(quote?.last_price) || p.last_price || 0
+    const prevClose = Number((quote as any)?.ohlc?.close)
+    const dayChangePct = prevClose > 0 && liveLtp > 0 ? ((liveLtp - prevClose) / prevClose) * 100 : undefined
     return {
       symbol: sym,
       exchange: p.exchange,
       product: p.product,
       qty: p.quantity,
       avgPrice: p.average_price || 0,
-      ltp: p.last_price || 0,
+      ltp: liveLtp,
+      dayChangePct,
       dayBuyQty: p.day_buy_quantity || 0,
       daySellQty: p.day_sell_quantity || 0,
       pnl: p.pnl || 0,

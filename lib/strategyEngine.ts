@@ -46,6 +46,7 @@ export interface Recommendation {
   name: string
   price: number
   priceSource: PriceSource
+  dayChangePct?: number    // today's % change from previous close — for direction indicator on Engine
   action: string
   strategy: 'catalyst' | 'oscillator'
   source: string
@@ -316,6 +317,7 @@ async function runStrategy2(now: string, giftChangePct: number): Promise<Strateg
       name: nameBySymbol.get(s.symbol) || s.symbol,
       price: s.ltp,
       priceSource: 'kite_live',
+      dayChangePct: s.dayGainPct,
       action: 'BUY',
       strategy: 'catalyst',
       source: 'Momentum scan',
@@ -473,11 +475,14 @@ async function runStrategy1(now: string, giftChangePct: number): Promise<Strateg
     const qty = Math.floor(perTrade / ltp)
     if (qty < 1) continue
 
+    const prevCloseFromHist = v.lastClose
+    const dayChgPct = prevCloseFromHist > 0 ? ((ltp - prevCloseFromHist) / prevCloseFromHist) * 100 : undefined
     recs.push({
       symbol: v.symbol,
       name: nameBySymbol.get(v.symbol) || v.symbol,
       price: ltp,
       priceSource: 'kite_live',
+      dayChangePct: dayChgPct,
       action: 'BUY',
       strategy: 'oscillator',
       source: 'EMA stretch signal',

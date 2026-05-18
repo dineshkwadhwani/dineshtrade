@@ -8,6 +8,7 @@ interface Recommendation {
   strategy: string; source: string; reason: string
   target1: number; target2: number; stopLoss: number
   suggestedQty: number; confidence: string
+  dayChangePct?: number     // today's % change from prev close (server may omit)
 }
 
 interface EngineScan {
@@ -322,8 +323,23 @@ function RecCard({ rec, tradeMode, onExecute, accountCount }: {
           <p className="text-[11px] mt-0.5" style={{ color:'rgba(255,255,255,0.4)' }}>{rec.name} · {rec.source}</p>
         </div>
         <div className="text-right">
-          <p className="text-xl font-medium" style={{ fontFamily:'JetBrains Mono, monospace', color:'rgba(255,255,255,0.8)' }}>₹{rec.price}</p>
-          <p className="text-[10px]" style={{ color:'rgba(255,255,255,0.3)' }}>Qty: {rec.suggestedQty}</p>
+          {(() => {
+            const chg = rec.dayChangePct
+            const chgColor = chg === undefined ? 'rgba(255,255,255,0.8)'
+              : chg > 0 ? '#52b788' : chg < 0 ? '#e05a5e' : 'rgba(255,255,255,0.7)'
+            const arrow = chg === undefined ? '' : chg > 0 ? '▲' : chg < 0 ? '▼' : '─'
+            return (
+              <>
+                <p className="text-xl font-medium" style={{ fontFamily:'JetBrains Mono, monospace', color: chgColor }}>₹{rec.price}</p>
+                {chg !== undefined && (
+                  <p className="text-[10px]" style={{ color: chgColor, fontFamily:'JetBrains Mono, monospace' }}>
+                    {arrow} {Math.abs(chg).toFixed(2)}% today
+                  </p>
+                )}
+                <p className="text-[10px]" style={{ color:'rgba(255,255,255,0.3)' }}>Qty: {rec.suggestedQty}</p>
+              </>
+            )
+          })()}
         </div>
       </div>
       <div className="px-4 py-3">
