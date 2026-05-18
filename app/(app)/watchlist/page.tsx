@@ -238,11 +238,10 @@ export default function WatchlistPage() {
       <div className="rounded-xl overflow-hidden" style={{ border:'1px solid rgba(255,255,255,0.06)' }}>
         <div className="grid px-4 py-2 text-[9px] tracking-widest uppercase items-center"
           style={{
-            gridTemplateColumns: '1.1fr 1.6fr 0.9fr 0.8fr 0.5fr 0.9fr',
+            gridTemplateColumns: '2fr 0.9fr 0.8fr 0.5fr 0.9fr',
             background:'rgba(255,255,255,0.02)', color:'rgba(255,255,255,0.25)',
             fontFamily:'JetBrains Mono, monospace', borderBottom:'1px solid rgba(255,255,255,0.06)',
           }}>
-          <span>Symbol</span>
           <span>Name</span>
           <span className="text-right">LTP</span>
           <span className="text-right">Today</span>
@@ -260,20 +259,19 @@ export default function WatchlistPage() {
             <div key={s.nse}
               className="grid px-4 py-3 items-center transition-all hover:bg-white/5"
               style={{
-                gridTemplateColumns: '1.1fr 1.6fr 0.9fr 0.8fr 0.5fr 0.9fr',
+                gridTemplateColumns: '2fr 0.9fr 0.8fr 0.5fr 0.9fr',
                 borderBottom: i < filtered.length-1 ? '1px solid rgba(255,255,255,0.04)' : 'none',
                 background: held ? `${activeColor}12` : 'transparent',
               }}>
-              <div className="flex items-center gap-1.5 min-w-0">
-                <span className="text-sm font-semibold truncate" style={{ fontFamily:'JetBrains Mono, monospace', color: priceColor }}>{s.nse}</span>
+              <div className="flex items-center gap-2 min-w-0">
+                <span className="text-[13px] truncate" style={{ color:'rgba(255,255,255,0.75)' }}>{s.name}</span>
                 {held && (
                   <span className="text-[8px] px-1.5 py-0.5 rounded flex-shrink-0"
-                    style={{ background:`${activeColor}25`, color: activeColor, border:`1px solid ${activeColor}50` }}>
+                    style={{ background:`${activeColor}25`, color: activeColor, border:`1px solid ${activeColor}50`, fontFamily:'JetBrains Mono, monospace' }}>
                     HELD
                   </span>
                 )}
               </div>
-              <span className="text-[11px] truncate" style={{ color:'rgba(255,255,255,0.45)' }}>{s.name}</span>
               <span className="text-right text-sm" style={{ fontFamily:'JetBrains Mono, monospace', color: symInvalid ? '#f59e0b' : priceColor }}>
                 {symInvalid ? 'INVALID' : q ? `₹${q.ltp.toFixed(2)}` : '—'}
               </span>
