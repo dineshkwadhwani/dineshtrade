@@ -73,8 +73,8 @@ export async function runPreflight(input: PreflightInput): Promise<PreflightResu
   const market = isMarketOpen()
   if (!market.open) return { ok: false, gate: 'market', reason: `Market closed: ${market.status}` }
 
-  // GATE 3 — per-trade cap
-  if (tradeValue > strategyCfg.capital.perTrade) {
+  // GATE 3 — per-trade cap (BUY only — SELL is disposing capital, not deploying)
+  if (side === 'BUY' && tradeValue > strategyCfg.capital.perTrade) {
     return { ok: false, gate: 'perTrade', reason: `Trade value ₹${Math.round(tradeValue)} exceeds per-trade cap ₹${strategyCfg.capital.perTrade}` }
   }
 

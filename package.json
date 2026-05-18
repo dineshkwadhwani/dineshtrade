@@ -16,12 +16,16 @@
     "kiteconnect": "^5.0.1",
     "axios": "^1.6.8",
     "date-fns": "^3.6.0",
+    "nodemailer": "^6.9.16",
+    "node-cron": "^3.0.3",
     "clsx": "^2.1.1",
     "tailwind-merge": "^2.3.0"
   },
   "devDependencies": {
     "typescript": "^5",
     "@types/node": "^20",
+    "@types/nodemailer": "^6.4.17",
+    "@types/node-cron": "^3.0.11",
     "@types/react": "^18",
     "@types/react-dom": "^18",
     "autoprefixer": "^10.0.1",

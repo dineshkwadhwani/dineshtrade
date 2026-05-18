@@ -1,9 +1,10 @@
 import { NextRequest, NextResponse } from 'next/server'
 import { cookies } from 'next/headers'
 import { verifySession } from '@/lib/auth'
-import { getAccountSecrets, isAccountConfigured } from '@/lib/accounts'
+import { getAccountSecrets, isAccountConfigured, getAccountList } from '@/lib/accounts'
 import { getState } from '@/lib/state'
 import { runPreflight, markPlaced } from '@/lib/preflight'
+import { sendEmail } from '@/lib/email'
 
 const KITE_BASE = 'https://api.kite.trade'
 
@@ -89,34 +90,94 @@ export async function POST(req: NextRequest) {
   }
 
   const side = String(order.transaction_type).toUpperCase() as 'BUY' | 'SELL'
+  const symbolUpper = String(order.symbol).toUpperCase()
+  const qty = Number(order.quantity)
   const pricePerShare = Number(order.price) || 0  // used by preflight funds/perTrade math; not sent to Kite
+
+  // Optional enrichment for nicer emails (Engine page passes these through).
+  const target1 = order.target1 !== undefined ? Number(order.target1) : undefined
+  const target2 = order.target2 !== undefined ? Number(order.target2) : undefined
+  const stopLoss = order.stopLoss !== undefined ? Number(order.stopLoss) : undefined
+  const source = typeof order.source === 'string' ? order.source : 'Manual Execute'
+  const reason = typeof order.reason === 'string' ? order.reason : undefined
+  const symbolName = typeof order.symbolName === 'string' ? order.symbolName : undefined
+
+  const state = await getState()
+  const mode = state.mode === 'auto' ? 'auto' as const : 'manual' as const
+  const accountDisplayName = getAccountList().find(a => a.name === account)?.displayName
 
   // Pre-flight gates — must all pass before we hit Kite's place_order.
   const pre = await runPreflight({
     account,
-    symbol: String(order.symbol).toUpperCase(),
+    symbol: symbolUpper,
     side,
-    quantity: Number(order.quantity),
+    quantity: qty,
     pricePerShare,
   })
   if (!pre.ok) {
+    // Email the user when a preflight gate blocked the trade — they explicitly clicked Execute
+    // (or the cron tried it) and deserve a notification with the reason.
+    sendEmail('trade_failed', {
+      account,
+      accountDisplayName,
+      symbol: symbolUpper,
+      side,
+      quantity: qty,
+      price: pricePerShare || undefined,
+      failedAt: 'preflight',
+      gate: pre.gate,
+      reason: pre.reason || 'Unknown preflight failure',
+      mode,
+    }).catch(err => console.error('[email] preflight-failed notification:', err))
+
     return NextResponse.json({ account, error: 'Preflight failed', gate: pre.gate, reason: pre.reason }, { status: 422 })
   }
 
-  const r = await kiteRequest('/orders/regular', creds.apiKey, creds.accessToken, 'POST', {
+  const orderTag = typeof order.tag === 'string' && order.tag ? String(order.tag).slice(0, 20) : undefined
+  const kiteBody: Record<string, string> = {
     tradingsymbol: order.symbol,
     exchange: 'NSE',
     transaction_type: side,
-    quantity: String(order.quantity),
+    quantity: String(qty),
     product: 'CNC',
     order_type: 'MARKET',
     validity: 'DAY',
     market_protection: '-1',
-  })
+  }
+  if (orderTag) kiteBody.tag = orderTag
+  const r = await kiteRequest('/orders/regular', creds.apiKey, creds.accessToken, 'POST', kiteBody)
 
-  // On success, record in idempotency ledger so we don't double-place.
   if (r.ok && r.data?.data?.order_id) {
-    markPlaced(account, String(order.symbol).toUpperCase(), side)
+    markPlaced(account, symbolUpper, side)
+    sendEmail('trade_executed', {
+      account,
+      accountDisplayName,
+      symbol: symbolUpper,
+      symbolName,
+      side,
+      quantity: qty,
+      price: pricePerShare || undefined,
+      target1,
+      target2,
+      stopLoss,
+      orderId: r.data.data.order_id,
+      source,
+      reason,
+      mode,
+    }).catch(err => console.error('[email] trade-executed notification:', err))
+  } else if (!r.ok) {
+    const errMsg = r.data?.message || r.data?.error_type || `Kite HTTP ${r.status}`
+    sendEmail('trade_failed', {
+      account,
+      accountDisplayName,
+      symbol: symbolUpper,
+      side,
+      quantity: qty,
+      price: pricePerShare || undefined,
+      failedAt: 'kite',
+      reason: errMsg,
+      mode,
+    }).catch(err => console.error('[email] kite-failed notification:', err))
   }
 
   return NextResponse.json({ account, ...r.data }, { status: r.ok ? 200 : (r.status || 502) })

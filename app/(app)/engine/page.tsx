@@ -88,9 +88,16 @@ export default function EnginePage() {
             action: 'place_order',
             order: {
               symbol: rec.symbol,
+              symbolName: rec.name,
               quantity: rec.suggestedQty,
               transaction_type: 'BUY',
-              price: rec.price,  // preflight uses this for funds + per-trade math
+              price: rec.price,        // preflight uses this for funds + per-trade math
+              target1: rec.target1,    // for the Trade Executed email
+              target2: rec.target2,
+              stopLoss: rec.stopLoss,
+              source: rec.source,
+              reason: rec.reason,
+              tag: 'dt-s2',            // marks this as a Strategy 2 BUY so the monitor manages it
             },
           })
         })

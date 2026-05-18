@@ -1,19 +1,30 @@
 // Session-scoped state: mode, selected accounts, per-account daily Kite tokens.
-// Phase 1: stored in a signed cookie (httpOnly).
-// Phase 2 (EC2): swap the storage layer to a flat JSON file behind the same API.
+// Two pluggable backends behind the same API:
+//   - cookie (default) — signed JWT cookie via next/headers. Works only inside
+//     route handlers / server components. Used in local dev.
+//   - file — flat JSON on disk at STATE_FILE_PATH. Required for the node-cron
+//     job which runs outside any request context. Used on EC2.
+//
+// Pick backend via env: set STATE_FILE_PATH=/abs/path/state.json to enable file.
+// Otherwise the cookie backend is used.
 
 import { SignJWT, jwtVerify } from 'jose'
 import { cookies } from 'next/headers'
+import { promises as fs } from 'fs'
+import * as path from 'path'
 
 const SECRET = new TextEncoder().encode(process.env.SESSION_SECRET || 'dineshtrade-secret-2026')
 const COOKIE = 'dt_state'
+
+const FILE_PATH = process.env.STATE_FILE_PATH || ''
+const useFile = !!FILE_PATH
 
 export type TradeMode = 'auto' | 'manual'
 
 export interface SessionState {
   mode: TradeMode
-  selectedAccounts: string[]              // account names that are checked on the Engine page
-  kiteTokens: Record<string, string>      // account name → today's pasted Kite access token
+  selectedAccounts: string[]
+  kiteTokens: Record<string, string>
 }
 
 const DEFAULT_STATE: SessionState = {
@@ -22,7 +33,6 @@ const DEFAULT_STATE: SessionState = {
   kiteTokens: {},
 }
 
-// Cookie expires at midnight IST — same as the auth session.
 function midnightIST(): Date {
   const now = new Date()
   const ist = new Date(now.toLocaleString('en-US', { timeZone: 'Asia/Kolkata' }))
@@ -32,32 +42,54 @@ function midnightIST(): Date {
   return midnight
 }
 
-export async function getState(): Promise<SessionState> {
-  const token = cookies().get(COOKIE)?.value
-  if (!token) return { ...DEFAULT_STATE }
-  try {
-    const { payload } = await jwtVerify(token, SECRET)
-    const s = payload.state as Partial<SessionState> | undefined
-    return {
-      mode: s?.mode === 'auto' ? 'auto' : 'manual',
-      selectedAccounts: Array.isArray(s?.selectedAccounts) ? s!.selectedAccounts : [],
-      kiteTokens: (s?.kiteTokens && typeof s.kiteTokens === 'object') ? s.kiteTokens : {},
-    }
-  } catch {
-    return { ...DEFAULT_STATE }
+function normalize(raw: Partial<SessionState> | null | undefined): SessionState {
+  if (!raw) return { ...DEFAULT_STATE, kiteTokens: {} }
+  return {
+    mode: raw.mode === 'auto' ? 'auto' : 'manual',
+    selectedAccounts: Array.isArray(raw.selectedAccounts) ? raw.selectedAccounts : [],
+    kiteTokens: (raw.kiteTokens && typeof raw.kiteTokens === 'object') ? raw.kiteTokens : {},
   }
 }
 
-export async function saveState(patch: Partial<SessionState>): Promise<SessionState> {
-  const current = await getState()
-  const next: SessionState = {
-    mode: patch.mode ?? current.mode,
-    selectedAccounts: patch.selectedAccounts ?? current.selectedAccounts,
-    kiteTokens: { ...current.kiteTokens, ...(patch.kiteTokens || {}) },
+// ──────── FILE BACKEND ────────
+
+async function readFile(): Promise<SessionState> {
+  try {
+    const raw = await fs.readFile(FILE_PATH, 'utf8')
+    return normalize(JSON.parse(raw))
+  } catch {
+    return normalize(null)
   }
+}
+
+async function writeFile(state: SessionState): Promise<void> {
+  await fs.mkdir(path.dirname(FILE_PATH), { recursive: true })
+  const tmp = FILE_PATH + '.tmp'
+  await fs.writeFile(tmp, JSON.stringify(state, null, 2), { encoding: 'utf8', mode: 0o600 })
+  await fs.rename(tmp, FILE_PATH)
+}
+
+async function deleteFile(): Promise<void> {
+  try { await fs.unlink(FILE_PATH) } catch {}
+}
+
+// ──────── COOKIE BACKEND ────────
+
+async function readCookie(): Promise<SessionState> {
+  const token = cookies().get(COOKIE)?.value
+  if (!token) return normalize(null)
+  try {
+    const { payload } = await jwtVerify(token, SECRET)
+    return normalize(payload.state as Partial<SessionState>)
+  } catch {
+    return normalize(null)
+  }
+}
+
+async function writeCookie(state: SessionState): Promise<void> {
   const expires = midnightIST()
   const expiresSec = Math.max(60, Math.floor((expires.getTime() - Date.now()) / 1000))
-  const token = await new SignJWT({ state: next })
+  const token = await new SignJWT({ state })
     .setProtectedHeader({ alg: 'HS256' })
     .setIssuedAt()
     .setExpirationTime(`${expiresSec}s`)
@@ -69,16 +101,51 @@ export async function saveState(patch: Partial<SessionState>): Promise<SessionSt
     expires,
     path: '/',
   })
+}
+
+async function deleteCookie(): Promise<void> {
+  cookies().delete(COOKIE)
+}
+
+// ──────── PUBLIC API ────────
+
+export async function getState(): Promise<SessionState> {
+  return useFile ? readFile() : readCookie()
+}
+
+export async function saveState(patch: Partial<SessionState>): Promise<SessionState> {
+  const current = await getState()
+  const next: SessionState = {
+    mode: patch.mode ?? current.mode,
+    selectedAccounts: patch.selectedAccounts ?? current.selectedAccounts,
+    kiteTokens: { ...current.kiteTokens, ...(patch.kiteTokens || {}) },
+  }
+  if (useFile) await writeFile(next)
+  else await writeCookie(next)
   return next
 }
 
-// Drop a single account's token (e.g., when user disconnects that account in Settings).
+// Replace whole state. Used when removing a token (saveState merges, which would
+// keep the deleted key). Caller must pass full SessionState.
+async function replaceState(next: SessionState): Promise<SessionState> {
+  if (useFile) await writeFile(next)
+  else await writeCookie(next)
+  return next
+}
+
 export async function clearAccountToken(accountName: string): Promise<SessionState> {
   const current = await getState()
+  if (!(accountName in current.kiteTokens)) return current
   const { [accountName]: _, ...rest } = current.kiteTokens
-  return saveState({ kiteTokens: rest })
+  return replaceState({ ...current, kiteTokens: rest })
 }
 
 export async function clearState(): Promise<void> {
-  cookies().delete(COOKIE)
+  if (useFile) await deleteFile()
+  else await deleteCookie()
+}
+
+// Diagnostic info — surface in /api/state if helpful.
+export function getBackendInfo(): { backend: 'file' | 'cookie'; path: string | null } {
+  return { backend: useFile ? 'file' : 'cookie', path: useFile ? FILE_PATH : null }
 }

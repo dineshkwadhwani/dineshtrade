@@ -35,6 +35,51 @@ export default function HoldingsPage() {
   const [margins, setMargins] = useState<MarginsResponse | null>(null)
   const [holdings, setHoldings] = useState<Holding[]>([])
   const [loaded, setLoaded] = useState(false)
+  const [sellBusy, setSellBusy] = useState<Record<string, boolean>>({})
+  const [sellResult, setSellResult] = useState<Record<string, { ok: boolean; msg: string }>>({})
+
+  async function sellHolding(h: Holding) {
+    if (!activeTab) return
+    const key = h.tradingsymbol
+    const proceed = window.confirm(
+      `SELL ${h.quantity} × ${h.tradingsymbol} at MARKET for ${activeTab}?\n\n` +
+      `Avg: ₹${h.average_price.toFixed(2)}   LTP: ₹${h.last_price.toFixed(2)}\n` +
+      `Est P&L on this leg: ${h.pnl >= 0 ? '+' : ''}₹${Math.round(h.pnl)}`
+    )
+    if (!proceed) return
+    setSellBusy(b => ({ ...b, [key]: true }))
+    setSellResult(r => ({ ...r, [key]: { ok: false, msg: '' } }))
+    try {
+      const res = await fetch('/api/zerodha', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          account: activeTab,
+          action: 'place_order',
+          order: {
+            symbol: h.tradingsymbol,
+            quantity: h.quantity,
+            transaction_type: 'SELL',
+            price: h.last_price,
+            source: 'Manual Sell (Holdings)',
+            reason: `Manual exit. Avg ₹${h.average_price.toFixed(2)} → LTP ₹${h.last_price.toFixed(2)} (${h.pnl >= 0 ? '+' : ''}₹${Math.round(h.pnl)})`,
+          },
+        }),
+      })
+      const data = await res.json()
+      if (res.ok && data.data?.order_id) {
+        setSellResult(r => ({ ...r, [key]: { ok: true, msg: `✓ Order ${data.data.order_id}` } }))
+      } else if (data.gate) {
+        setSellResult(r => ({ ...r, [key]: { ok: false, msg: `✗ [${data.gate}] ${data.reason}` } }))
+      } else {
+        setSellResult(r => ({ ...r, [key]: { ok: false, msg: `✗ ${data.message || data.error || `HTTP ${res.status}`}` } }))
+      }
+    } catch (e) {
+      setSellResult(r => ({ ...r, [key]: { ok: false, msg: '✗ Network error' } }))
+    } finally {
+      setSellBusy(b => ({ ...b, [key]: false }))
+    }
+  }
 
   // Initial load — accounts + connection set
   useEffect(() => {
@@ -171,31 +216,60 @@ export default function HoldingsPage() {
           {/* Holdings table */}
           {holdings.length > 0 && (
             <div className="rounded-xl overflow-hidden" style={{ border:'1px solid rgba(255,255,255,0.06)' }}>
-              <div className="grid grid-cols-6 px-4 py-2 text-[9px] tracking-widest uppercase"
-                style={{ background:'rgba(255,255,255,0.02)', color:'rgba(255,255,255,0.25)', fontFamily:'JetBrains Mono, monospace', borderBottom:'1px solid rgba(255,255,255,0.06)' }}>
+              <div className="grid items-center px-4 py-2 text-[9px] tracking-widest uppercase"
+                style={{
+                  gridTemplateColumns: '1.3fr 0.55fr 0.85fr 0.85fr 0.85fr 0.7fr 0.85fr',
+                  background:'rgba(255,255,255,0.02)', color:'rgba(255,255,255,0.25)',
+                  fontFamily:'JetBrains Mono, monospace', borderBottom:'1px solid rgba(255,255,255,0.06)',
+                }}>
                 <span>Symbol</span>
                 <span className="text-right">Qty</span>
                 <span className="text-right">Avg</span>
                 <span className="text-right">LTP</span>
                 <span className="text-right">P&L</span>
                 <span className="text-right">Today</span>
+                <span className="text-right">Action</span>
               </div>
-              {holdings.map((h, i) => (
-                <div key={`${h.tradingsymbol}-${i}`}
-                  className="grid grid-cols-6 px-4 py-3 items-center text-[12px] transition-all hover:bg-white/5"
-                  style={{ borderBottom: i < holdings.length-1 ? '1px solid rgba(255,255,255,0.04)' : 'none' }}>
-                  <span className="font-semibold text-white/80" style={{ fontFamily:'JetBrains Mono, monospace' }}>{h.tradingsymbol}</span>
-                  <span className="text-right text-white/60" style={{ fontFamily:'JetBrains Mono, monospace' }}>{h.quantity}</span>
-                  <span className="text-right text-white/50" style={{ fontFamily:'JetBrains Mono, monospace' }}>₹{h.average_price.toFixed(2)}</span>
-                  <span className="text-right text-white/70" style={{ fontFamily:'JetBrains Mono, monospace' }}>₹{h.last_price.toFixed(2)}</span>
-                  <span className="text-right" style={{ color: h.pnl >= 0 ? '#52b788' : '#e05a5e', fontFamily:'JetBrains Mono, monospace' }}>
-                    {fmtPnl(h.pnl)}
-                  </span>
-                  <span className="text-right text-[11px]" style={{ color: h.day_change >= 0 ? '#52b788' : '#e05a5e', fontFamily:'JetBrains Mono, monospace' }}>
-                    {h.day_change_percentage >= 0 ? '▲' : '▼'} {Math.abs(h.day_change_percentage).toFixed(2)}%
-                  </span>
-                </div>
-              ))}
+              {holdings.map((h, i) => {
+                const key = h.tradingsymbol
+                const busy = !!sellBusy[key]
+                const result = sellResult[key]
+                return (
+                  <div key={`${h.tradingsymbol}-${i}`}
+                    style={{ borderBottom: i < holdings.length-1 ? '1px solid rgba(255,255,255,0.04)' : 'none' }}>
+                    <div className="grid items-center px-4 py-3 text-[12px] transition-all hover:bg-white/5"
+                      style={{ gridTemplateColumns: '1.3fr 0.55fr 0.85fr 0.85fr 0.85fr 0.7fr 0.85fr' }}>
+                      <span className="font-semibold text-white/80" style={{ fontFamily:'JetBrains Mono, monospace' }}>{h.tradingsymbol}</span>
+                      <span className="text-right text-white/60" style={{ fontFamily:'JetBrains Mono, monospace' }}>{h.quantity}</span>
+                      <span className="text-right text-white/50" style={{ fontFamily:'JetBrains Mono, monospace' }}>₹{h.average_price.toFixed(2)}</span>
+                      <span className="text-right text-white/70" style={{ fontFamily:'JetBrains Mono, monospace' }}>₹{h.last_price.toFixed(2)}</span>
+                      <span className="text-right" style={{ color: h.pnl >= 0 ? '#52b788' : '#e05a5e', fontFamily:'JetBrains Mono, monospace' }}>
+                        {fmtPnl(h.pnl)}
+                      </span>
+                      <span className="text-right text-[11px]" style={{ color: h.day_change >= 0 ? '#52b788' : '#e05a5e', fontFamily:'JetBrains Mono, monospace' }}>
+                        {h.day_change_percentage >= 0 ? '▲' : '▼'} {Math.abs(h.day_change_percentage).toFixed(2)}%
+                      </span>
+                      <span className="text-right">
+                        <button onClick={() => sellHolding(h)} disabled={busy}
+                          className="px-3 py-1 rounded text-[10px] font-semibold tracking-wider uppercase transition-all disabled:opacity-40"
+                          style={{
+                            background:'rgba(224,90,94,0.12)',
+                            border:'1px solid rgba(224,90,94,0.3)',
+                            color:'#e05a5e',
+                          }}>
+                          {busy ? '…' : 'Sell'}
+                        </button>
+                      </span>
+                    </div>
+                    {result && result.msg && (
+                      <div className="px-4 pb-2 text-[11px]"
+                        style={{ color: result.ok ? '#52b788' : 'rgba(224,90,94,0.85)' }}>
+                        {result.msg}
+                      </div>
+                    )}
+                  </div>
+                )
+              })}
             </div>
           )}
 
