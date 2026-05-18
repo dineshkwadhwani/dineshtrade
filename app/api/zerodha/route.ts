@@ -3,6 +3,7 @@ import { cookies } from 'next/headers'
 import { verifySession } from '@/lib/auth'
 import { getAccountSecrets, isAccountConfigured } from '@/lib/accounts'
 import { getState } from '@/lib/state'
+import { runPreflight, markPlaced } from '@/lib/preflight'
 
 const KITE_BASE = 'https://api.kite.trade'
 
@@ -87,15 +88,36 @@ export async function POST(req: NextRequest) {
     return NextResponse.json({ error: 'order requires symbol, quantity, transaction_type' }, { status: 400 })
   }
 
+  const side = String(order.transaction_type).toUpperCase() as 'BUY' | 'SELL'
+  const pricePerShare = Number(order.price) || 0  // used by preflight funds/perTrade math; not sent to Kite
+
+  // Pre-flight gates — must all pass before we hit Kite's place_order.
+  const pre = await runPreflight({
+    account,
+    symbol: String(order.symbol).toUpperCase(),
+    side,
+    quantity: Number(order.quantity),
+    pricePerShare,
+  })
+  if (!pre.ok) {
+    return NextResponse.json({ account, error: 'Preflight failed', gate: pre.gate, reason: pre.reason }, { status: 422 })
+  }
+
   const r = await kiteRequest('/orders/regular', creds.apiKey, creds.accessToken, 'POST', {
     tradingsymbol: order.symbol,
     exchange: 'NSE',
-    transaction_type: String(order.transaction_type).toUpperCase(),
+    transaction_type: side,
     quantity: String(order.quantity),
     product: 'CNC',
     order_type: 'MARKET',
     validity: 'DAY',
     market_protection: '-1',
   })
+
+  // On success, record in idempotency ledger so we don't double-place.
+  if (r.ok && r.data?.data?.order_id) {
+    markPlaced(account, String(order.symbol).toUpperCase(), side)
+  }
+
   return NextResponse.json({ account, ...r.data }, { status: r.ok ? 200 : (r.status || 502) })
 }

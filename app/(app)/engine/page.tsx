@@ -86,12 +86,20 @@ export default function EnginePage() {
           body: JSON.stringify({
             account,
             action: 'place_order',
-            order: { symbol: rec.symbol, quantity: rec.suggestedQty, transaction_type: 'BUY' },
+            order: {
+              symbol: rec.symbol,
+              quantity: rec.suggestedQty,
+              transaction_type: 'BUY',
+              price: rec.price,  // preflight uses this for funds + per-trade math
+            },
           })
         })
         const data = await res.json()
-        if (res.ok) return { account, ok: true, msg: data.order_id ? `Order ${data.order_id}` : 'Placed' }
-        return { account, ok: false, msg: data.error || `HTTP ${res.status}` }
+        if (res.ok && data.data?.order_id) return { account, ok: true, msg: `Order ${data.data.order_id}` }
+        if (res.ok) return { account, ok: true, msg: 'Placed' }
+        // Preflight failures (422) — surface the gate name + reason.
+        if (data.gate) return { account, ok: false, msg: `[${data.gate}] ${data.reason}` }
+        return { account, ok: false, msg: data.reason || data.error || `HTTP ${res.status}` }
       } catch (e) {
         return { account, ok: false, msg: 'Network error' }
       }

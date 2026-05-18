@@ -162,18 +162,6 @@ export default function LoginClient({ hint, market, datetime }: Props) {
             }}>
             {loading ? 'Verifying…' : 'Enter Trading Desk →'}
           </button>
-
-          {/* Hint */}
-          <div className="mt-4 p-3 rounded-lg text-center"
-            style={{ background:'rgba(201,168,76,0.04)', border:'1px solid rgba(201,168,76,0.08)' }}>
-            <p className="text-[9px] tracking-wider uppercase mb-1"
-              style={{ color:'rgba(201,168,76,0.3)', fontFamily:'JetBrains Mono, monospace' }}>
-              Format: ddmmyyyyhh
-            </p>
-            <p className="text-[11px]" style={{ color:'rgba(201,168,76,0.5)', fontFamily:'JetBrains Mono, monospace' }}>
-              {hint.date} at {hint.time} → <span style={{ color:'rgba(201,168,76,0.8)' }}>{hint.hint}</span>
-            </p>
-          </div>
         </form>
       </div>
 

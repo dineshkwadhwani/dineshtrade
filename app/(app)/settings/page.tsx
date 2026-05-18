@@ -276,6 +276,19 @@ export default function SettingsPage() {
         <p className="text-[10px] mt-3" style={{ color:'rgba(255,255,255,0.25)' }}>
           Tokens expire at 6 AM IST next day — re-login each morning. Token never touches the browser; stored server-side in your session.
         </p>
+
+        {accounts.length > 1 && (
+          <div className="rounded-lg p-3 mt-3" style={{ background:'rgba(255,255,255,0.02)', border:'1px solid rgba(255,255,255,0.05)' }}>
+            <p className="text-[11px] mb-2" style={{ color:'rgba(255,255,255,0.5)' }}>
+              Switching between accounts? Kite reuses your browser session — log out of the current Kite user first:
+            </p>
+            <a href="https://kite.zerodha.com/logout" target="_blank" rel="noopener noreferrer"
+              className="inline-block px-3 py-1.5 rounded-lg text-[11px] font-medium tracking-wider transition-all"
+              style={{ background:'rgba(201,168,76,0.08)', border:'1px solid rgba(201,168,76,0.25)', color:'#c9a84c' }}>
+              ↗ Logout of Zerodha (new tab)
+            </a>
+          </div>
+        )}
       </div>
 
       {/* ── STRATEGY RULES (read-only) ── */}
@@ -296,6 +309,7 @@ export default function SettingsPage() {
             ['Entry Signal', '5%+ below EMA'],
             ['Short Selling', 'Never'],
             ['F&O', 'Never'],
+            ['Auto Mode Loss-Sell', 'Never'],
             ['Circuit Breaker', 'Nifty −5%'],
             ['Order Type', 'CNC / Market'],
           ].map(([k,v]) => (

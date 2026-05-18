@@ -1,9 +1,7 @@
-// NSE holiday list 2026 - market closed on these dates
-export const NSE_HOLIDAYS_2026 = [
-  '2026-01-26','2026-02-19','2026-03-14','2026-03-25','2026-04-02',
-  '2026-04-10','2026-04-14','2026-05-01','2026-08-15','2026-10-02',
-  '2026-10-24','2026-11-05','2026-11-14','2026-12-25'
-]
+import holidaysCfg from '@/config/holidays.json'
+
+// Single source of truth — config/holidays.json. De-duped at module load.
+export const NSE_HOLIDAYS: string[] = Array.from(new Set(holidaysCfg.holidays))
 
 export function isMarketOpen(): { open: boolean; status: string; nextOpen?: string } {
   const now = new Date()
@@ -15,7 +13,7 @@ export function isMarketOpen(): { open: boolean; status: string; nextOpen?: stri
   const timeInMins = hours * 60 + minutes
 
   if (day === 0 || day === 6) return { open: false, status: 'Closed — Weekend' }
-  if (NSE_HOLIDAYS_2026.includes(dateStr)) return { open: false, status: 'Closed — Market Holiday' }
+  if (NSE_HOLIDAYS.includes(dateStr)) return { open: false, status: 'Closed — Market Holiday' }
 
   // Pre-market: 9:00–9:15, Market: 9:15–15:30, Post: 15:30–16:00
   if (timeInMins >= 9*60 && timeInMins < 9*60+15) return { open: false, status: 'Pre-Market (9:00–9:15)' }

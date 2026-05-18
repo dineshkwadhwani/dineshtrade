@@ -35,8 +35,8 @@ export const MOCK_MARKET_DATA = {
     strategy: 'Wait for 9:30 AM candle confirmation before entering. Avoid chasing gap-ups.',
   },
   topRecommendations: [
-    { symbol: 'BAJFINANCE', name: 'Bajaj Finance',       action: 'BUY', source: 'ICICI Direct',    reason: '20-EMA support holding; strong NBFC sector momentum' },
-    { symbol: 'RELIANCE',   name: 'Reliance Industries', action: 'BUY', source: 'HDFC Securities', reason: 'Telecom + retail growth; oil price decline favourable' },
-    { symbol: 'TATASTEEL',  name: 'Tata Steel',          action: 'BUY', source: 'Moneycontrol',    reason: 'Metal sector outperforming; China stimulus tailwind' },
+    { symbol: 'BAJFINANCE', name: 'Bajaj Finance',       cmp: '910.45',  action: 'BUY', source: 'ICICI Direct',    reason: '20-EMA support holding; strong NBFC sector momentum' },
+    { symbol: 'RELIANCE',   name: 'Reliance Industries', cmp: '1421.30', action: 'BUY', source: 'HDFC Securities', reason: 'Telecom + retail growth; oil price decline favourable' },
+    { symbol: 'TATASTEEL',  name: 'Tata Steel',          cmp: '338.90',  action: 'BUY', source: 'Moneycontrol',    reason: 'Metal sector outperforming; China stimulus tailwind' },
   ],
 }
