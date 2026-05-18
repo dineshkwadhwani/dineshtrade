@@ -98,7 +98,7 @@ export default function EnginePage() {
               stopLoss: rec.stopLoss,
               source: rec.source,
               reason: rec.reason,
-              tag: 'dt-s2',            // marks this as a Strategy 2 BUY so the monitor manages it
+              tag: rec.strategy === 'oscillator' ? 'dt-s1' : 'dt-s2',  // routes to correct monitor
             },
           })
         })

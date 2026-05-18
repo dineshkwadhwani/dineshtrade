@@ -12,6 +12,8 @@ export default function WatchlistPage() {
   const [activeAccount, setActiveAccount] = useState<string | null>(null)
   const [heldSymbols, setHeldSymbols] = useState<Set<string>>(new Set())
   const [holdingsLoading, setHoldingsLoading] = useState(false)
+  const [quotes, setQuotes] = useState<Record<string, { ltp: number; changePct: number }>>({})
+  const [quotesLoading, setQuotesLoading] = useState(false)
 
   const raw = activeTab === 'A' ? watchlistData.listA : watchlistData.listB
   const filtered = raw.filter(s =>
@@ -47,6 +49,36 @@ export default function WatchlistPage() {
       })
       .catch(() => setHeldSymbols(new Set()))
       .finally(() => setHoldingsLoading(false))
+  }, [activeAccount])
+
+  // Fetch live LTPs for the whole watchlist (List A + List B) — one batched /quote call
+  useEffect(() => {
+    if (!activeAccount) {
+      setQuotes({})
+      return
+    }
+    const allSymbols = [
+      ...watchlistData.listA.map(s => s.nse.toUpperCase()),
+      ...watchlistData.listB.map(s => s.nse.toUpperCase()),
+    ]
+    const symParam = allSymbols.map(s => `NSE:${s}`).join(',')
+    setQuotesLoading(true)
+    fetch(`/api/zerodha?account=${encodeURIComponent(activeAccount)}&action=quote&symbols=${encodeURIComponent(symParam)}`)
+      .then(r => r.json())
+      .then(data => {
+        const kiteQuotes: Record<string, any> = data?.data || {}
+        const out: Record<string, { ltp: number; changePct: number }> = {}
+        for (const [key, q] of Object.entries(kiteQuotes)) {
+          const symbol = key.replace(/^NSE:/, '')
+          const ltp = Number(q.last_price)
+          const prevClose = Number(q.ohlc?.close)
+          const changePct = prevClose > 0 ? ((ltp - prevClose) / prevClose) * 100 : 0
+          if (ltp > 0) out[symbol] = { ltp, changePct }
+        }
+        setQuotes(out)
+      })
+      .catch(() => setQuotes({}))
+      .finally(() => setQuotesLoading(false))
   }, [activeAccount])
 
   const connectedAccounts = accounts.filter(a => connected.includes(a.name))
@@ -111,32 +143,51 @@ export default function WatchlistPage() {
         style={{ background:'rgba(255,255,255,0.04)', border:'1px solid rgba(255,255,255,0.08)', color:'rgba(255,255,255,0.8)' }} />
 
       {/* Legend */}
-      <div className="flex gap-4 text-[10px] flex-wrap" style={{ color:'rgba(255,255,255,0.3)' }}>
+      <div className="flex gap-4 text-[10px] flex-wrap items-center" style={{ color:'rgba(255,255,255,0.3)' }}>
         <span className="flex items-center gap-1.5">
           <span className="w-2 h-2 rounded-sm" style={{ background:`${activeColor}55` }}></span>
           Currently holding{activeAccount ? ` in ${activeAccount}` : ''}
         </span>
-        <span className="flex items-center gap-1.5"><span className="w-2 h-2 rounded-sm bg-[#52b788]"></span> Positive today (needs paid Kite)</span>
-        <span className="flex items-center gap-1.5"><span className="w-2 h-2 rounded-sm bg-[#e05a5e]"></span> Negative today (needs paid Kite)</span>
+        <span className="flex items-center gap-1.5"><span className="w-2 h-2 rounded-sm bg-[#52b788]"></span> Positive today</span>
+        <span className="flex items-center gap-1.5"><span className="w-2 h-2 rounded-sm bg-[#e05a5e]"></span> Negative today</span>
+        {quotesLoading && (
+          <span style={{ color:'rgba(201,168,76,0.5)', fontFamily:'JetBrains Mono, monospace' }}>· loading live prices…</span>
+        )}
+        {!quotesLoading && Object.keys(quotes).length > 0 && (
+          <span style={{ color:'#52b788', fontFamily:'JetBrains Mono, monospace' }}>· {Object.keys(quotes).length} live</span>
+        )}
       </div>
 
       {/* Stock list */}
       <div className="rounded-xl overflow-hidden" style={{ border:'1px solid rgba(255,255,255,0.06)' }}>
-        <div className="grid grid-cols-[1.2fr_2fr_1fr_1fr] px-4 py-2 text-[9px] tracking-widest uppercase"
-          style={{ background:'rgba(255,255,255,0.02)', color:'rgba(255,255,255,0.25)', fontFamily:'JetBrains Mono, monospace', borderBottom:'1px solid rgba(255,255,255,0.06)' }}>
-          <span>Symbol</span><span>Name</span><span className="text-right">Price</span><span className="text-right">Trades</span>
+        <div className="grid px-4 py-2 text-[9px] tracking-widest uppercase"
+          style={{
+            gridTemplateColumns: '1.2fr 1.7fr 1fr 0.9fr 0.55fr',
+            background:'rgba(255,255,255,0.02)', color:'rgba(255,255,255,0.25)',
+            fontFamily:'JetBrains Mono, monospace', borderBottom:'1px solid rgba(255,255,255,0.06)',
+          }}>
+          <span>Symbol</span>
+          <span>Name</span>
+          <span className="text-right">LTP</span>
+          <span className="text-right">Today</span>
+          <span className="text-right">Trades</span>
         </div>
         {filtered.map((s, i) => {
-          const held = heldSymbols.has(s.nse.toUpperCase())
+          const sym = s.nse.toUpperCase()
+          const held = heldSymbols.has(sym)
+          const q = quotes[sym]
+          const dir: 'up' | 'down' | 'flat' = !q ? 'flat' : q.changePct > 0 ? 'up' : q.changePct < 0 ? 'down' : 'flat'
+          const priceColor = dir === 'up' ? '#52b788' : dir === 'down' ? '#e05a5e' : 'rgba(255,255,255,0.55)'
           return (
             <div key={s.nse}
-              className="grid grid-cols-[1.2fr_2fr_1fr_1fr] px-4 py-3 items-center transition-all hover:bg-white/5"
+              className="grid px-4 py-3 items-center transition-all hover:bg-white/5"
               style={{
+                gridTemplateColumns: '1.2fr 1.7fr 1fr 0.9fr 0.55fr',
                 borderBottom: i < filtered.length-1 ? '1px solid rgba(255,255,255,0.04)' : 'none',
                 background: held ? `${activeColor}12` : 'transparent',
               }}>
               <div className="flex items-center gap-1.5 min-w-0">
-                <span className="text-sm font-semibold truncate" style={{ fontFamily:'JetBrains Mono, monospace', color:'rgba(255,255,255,0.85)' }}>{s.nse}</span>
+                <span className="text-sm font-semibold truncate" style={{ fontFamily:'JetBrains Mono, monospace', color: priceColor }}>{s.nse}</span>
                 {held && (
                   <span className="text-[8px] px-1.5 py-0.5 rounded flex-shrink-0"
                     style={{ background:`${activeColor}25`, color: activeColor, border:`1px solid ${activeColor}50` }}>
@@ -145,7 +196,14 @@ export default function WatchlistPage() {
                 )}
               </div>
               <span className="text-[11px] truncate" style={{ color:'rgba(255,255,255,0.45)' }}>{s.name}</span>
-              <span className="text-right text-sm" style={{ fontFamily:'JetBrains Mono, monospace', color:'rgba(255,255,255,0.3)' }}>—</span>
+              <span className="text-right text-sm" style={{ fontFamily:'JetBrains Mono, monospace', color: priceColor }}>
+                {q ? `₹${q.ltp.toFixed(2)}` : '—'}
+              </span>
+              <span className="text-right text-[11px]" style={{ fontFamily:'JetBrains Mono, monospace', color: priceColor }}>
+                {q
+                  ? `${dir === 'up' ? '▲' : dir === 'down' ? '▼' : '─'} ${Math.abs(q.changePct).toFixed(2)}%`
+                  : '—'}
+              </span>
               <span className="text-right text-[11px]" style={{ color:'rgba(255,255,255,0.25)', fontFamily:'JetBrains Mono, monospace' }}>
                 {s.trades}
               </span>
@@ -156,10 +214,8 @@ export default function WatchlistPage() {
 
       <p className="text-[10px] text-center pb-2" style={{ color:'rgba(255,255,255,0.2)' }}>
         {connectedAccounts.length === 0
-          ? 'Connect at least one account in Settings to see the HOLDING highlight'
-          : holdingsLoading
-          ? 'Loading holdings…'
-          : `${heldSymbols.size} held in ${activeAccount}. Live prices unlock with the paid Kite Connect plan.`}
+          ? 'Connect at least one account in Settings to see live prices + HOLDING highlight'
+          : `${heldSymbols.size} held in ${activeAccount} · ${Object.keys(quotes).length} live quotes from Kite`}
       </p>
     </div>
   )

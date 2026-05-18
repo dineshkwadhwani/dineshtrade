@@ -4,6 +4,7 @@ import { verifySession } from '@/lib/auth'
 import { getAccountSecrets, isAccountConfigured, getAccountList } from '@/lib/accounts'
 import { getState } from '@/lib/state'
 import { runPreflight, markPlaced } from '@/lib/preflight'
+import { recordStrategy1Buy, STRATEGY_1_BUY_TAG } from '@/lib/strategy1'
 import { sendEmail } from '@/lib/email'
 
 const KITE_BASE = 'https://api.kite.trade'
@@ -149,6 +150,11 @@ export async function POST(req: NextRequest) {
 
   if (r.ok && r.data?.data?.order_id) {
     markPlaced(account, symbolUpper, side)
+    // Persist Strategy 1 BUYs so the SELL monitor manages them across days.
+    if (side === 'BUY' && orderTag === STRATEGY_1_BUY_TAG) {
+      recordStrategy1Buy(account, symbolUpper, qty, pricePerShare)
+        .catch(err => console.error('[zerodha route] strategy1 record failed:', err))
+    }
     sendEmail('trade_executed', {
       account,
       accountDisplayName,

@@ -132,6 +132,37 @@ export async function getQuotes(creds: KiteCreds, symbols: string[]): Promise<Re
   return r.data?.data || {}
 }
 
+// /instruments/historical/{token}/{interval} — daily candles.
+// Returns array of { date, open, high, low, close, volume }. Paid plan only.
+export interface HistoricalCandle {
+  date: string   // ISO datetime
+  open: number
+  high: number
+  low: number
+  close: number
+  volume: number
+}
+
+export async function getHistoricalCandles(
+  creds: KiteCreds,
+  instrumentToken: number,
+  from: string,                    // YYYY-MM-DD
+  to: string,                      // YYYY-MM-DD
+  interval: 'day' | '5minute' | '15minute' | '60minute' = 'day',
+): Promise<HistoricalCandle[]> {
+  const url = `/instruments/historical/${instrumentToken}/${interval}?from=${from}&to=${to}`
+  const r = await kiteRequest<{ data?: { candles?: any[][] } }>(url, creds)
+  const rows = r.data?.data?.candles || []
+  return rows.map(row => ({
+    date: row[0],
+    open: Number(row[1]),
+    high: Number(row[2]),
+    low:  Number(row[3]),
+    close: Number(row[4]),
+    volume: Number(row[5]),
+  }))
+}
+
 // POST /orders/regular — place an order. Returns Kite's response.
 export interface PlaceOrderInput {
   symbol: string

@@ -18,8 +18,11 @@ import { getState } from './state'
 import { isMarketOpen, NSE_HOLIDAYS } from './market'
 import { getAccountList } from './accounts'
 import { sendEODSummary, sendEmail, isEmailConfigured, type EODLineItem } from './email'
-import { generateRecommendations, type Recommendation } from './strategyEngine'
+import { generateRecommendations, getMarketMode, type Recommendation } from './strategyEngine'
 import { monitorAllConnected, STRATEGY_2_BUY_TAG } from './strategy2'
+import {
+  monitorAllAccountsStrategy1, recordStrategy1Buy, STRATEGY_1_BUY_TAG,
+} from './strategy1'
 import { resolveAccountCreds, placeKiteOrder } from './kite'
 import { runPreflight, markPlaced } from './preflight'
 
@@ -30,7 +33,9 @@ let eodTask: ScheduledTask | null = null
 // ──────── DAY-OF STATS (in-process) ────────
 
 let currentDateKey = ''
-let firstScanDoneToday = false
+// Strategy 1 (dip mode) runs once per day. Strategy 2 (catalyst) runs every tick
+// during 9:30–14:30 IST via the strategyEngine's own time-window check.
+let dipScanDoneDate = ''
 const dayStats = {
   scans: 0,
   executed: [] as EODLineItem[],
@@ -57,7 +62,6 @@ function maybeRollDay() {
   const today = istDateKey()
   if (today !== currentDateKey) {
     currentDateKey = today
-    firstScanDoneToday = false
     dayStats.scans = 0
     dayStats.executed = []
     dayStats.failed = []
@@ -83,7 +87,7 @@ export function recordPnl(account: string, pnl: number) {
   dayStats.realizedPnl[account] = (dayStats.realizedPnl[account] || 0) + pnl
 }
 export function recordScan() { maybeRollDay(); dayStats.scans++ }
-export function getDayStats() { maybeRollDay(); return { date: currentDateKey, firstScanDoneToday, ...dayStats } }
+export function getDayStats() { maybeRollDay(); return { date: currentDateKey, dipScanDoneDate, ...dayStats } }
 
 // ──────── AUTO BUY — first-of-day morning scan ────────
 
@@ -111,11 +115,17 @@ async function autoBuyOnAccount(account: string, accountDisplayName: string | un
       }).catch(err => console.error('[cron autoBuy] preflight-email failed:', err))
       continue
     }
+    const tag = rec.strategy === 'oscillator' ? STRATEGY_1_BUY_TAG : STRATEGY_2_BUY_TAG
     const placed = await placeKiteOrder(creds, {
-      symbol: rec.symbol, side: 'BUY', quantity: rec.suggestedQty, tag: STRATEGY_2_BUY_TAG,
+      symbol: rec.symbol, side: 'BUY', quantity: rec.suggestedQty, tag,
     })
     if (placed.ok && placed.data?.data?.order_id) {
       markPlaced(account, rec.symbol, 'BUY')
+      // Persist Strategy 1 position so the SELL monitor manages it across days.
+      if (rec.strategy === 'oscillator') {
+        recordStrategy1Buy(account, rec.symbol, rec.suggestedQty, rec.price)
+          .catch(err => console.error('[cron autoBuy] strategy1 record failed:', err))
+      }
       recordExecuted({
         time: istHHMM(), account, symbol: rec.symbol, side: 'BUY',
         quantity: rec.suggestedQty, price: rec.price, orderId: placed.data.data.order_id,
@@ -156,10 +166,10 @@ async function tick(): Promise<void> {
   const t = istHHMM()
   console.log(`[cron tick] ${t} IST — scan #${dayStats.scans}`)
 
-  // 1. SELL engine — Strategy 2 monitor across all connected accounts
+  // 1a. SELL engine — Strategy 2 (intraday catalyst) monitor
   try {
-    const monitorResults = await monitorAllConnected()
-    for (const r of monitorResults) {
+    const s2Results = await monitorAllConnected()
+    for (const r of s2Results) {
       for (const e of r.entries) {
         const item: EODLineItem = {
           time: t, account: e.account, symbol: e.symbol, side: 'SELL',
@@ -168,35 +178,66 @@ async function tick(): Promise<void> {
         if (e.action === 'sold')         recordExecuted(item)
         else if (e.action === 'sold_failed') recordFailed(item)
         else if (e.action === 'delivery')    recordDelivery(item)
-        // 'held' and 'skipped' are not recorded — too noisy
       }
     }
   } catch (err) {
-    console.error('[cron tick] monitor failed:', err)
+    console.error('[cron tick] Strategy 2 monitor failed:', err)
   }
 
-  // 2. BUY scan — only on the first tick of the day
-  if (!firstScanDoneToday) {
-    firstScanDoneToday = true
-    try {
-      const result = await generateRecommendations()
-      if (result.mode === 'catalyst' && result.recommendations.length > 0) {
-        const accounts = getAccountList()
-        const targetAccounts = state.selectedAccounts.filter(a => !!state.kiteTokens[a])
-        if (targetAccounts.length === 0) {
-          console.log('[cron tick] BUY scan skipped — no selectedAccounts with tokens')
-        } else {
-          for (const account of targetAccounts) {
-            const display = accounts.find(a => a.name === account)?.displayName
-            await autoBuyOnAccount(account, display, result.recommendations)
-          }
+  // 1b. SELL engine — Strategy 1 (oscillator/EMA two-tranche) monitor
+  try {
+    const s1Results = await monitorAllAccountsStrategy1()
+    for (const r of s1Results) {
+      for (const e of r.entries) {
+        const item: EODLineItem = {
+          time: t, account: e.account, symbol: e.symbol, side: 'SELL',
+          quantity: e.qty || 0, price: e.ltp, orderId: e.orderId, reason: e.reason,
         }
-      } else {
-        console.log(`[cron tick] BUY scan — mode=${result.mode}, recs=${result.recommendations.length} (${result.message || ''})`)
+        if (e.action === 'tranche1_sold' || e.action === 'tranche2_sold') recordExecuted(item)
+        else if (e.action === 'failed') recordFailed(item)
       }
-    } catch (err) {
-      console.error('[cron tick] BUY scan failed:', err)
     }
+  } catch (err) {
+    console.error('[cron tick] Strategy 1 monitor failed:', err)
+  }
+
+  // 2. BUY scan — Strategy 2 (catalyst) every tick; Strategy 1 (dip) first of day only.
+  try {
+    const modeInfo = await getMarketMode()
+    if (!modeInfo) {
+      console.log('[cron tick] BUY scan skipped — no market mode (briefing fetch failed?)')
+      return
+    }
+    if (modeInfo.mode === 'circuit') return
+    if (modeInfo.mode === 'error') return
+
+    let shouldScan = false
+    if (modeInfo.mode === 'catalyst') {
+      shouldScan = true   // every tick; runStrategy2's internal window check gates 9:30-14:30
+    } else if (modeInfo.mode === 'dip' && dipScanDoneDate !== currentDateKey) {
+      dipScanDoneDate = currentDateKey
+      shouldScan = true
+    }
+
+    if (!shouldScan) return
+
+    const result = await generateRecommendations()
+    if (result.recommendations.length === 0) {
+      if (result.message) console.log(`[cron tick] BUY scan — ${result.mode}, 0 recs: ${result.message}`)
+      return
+    }
+    const accounts = getAccountList()
+    const targetAccounts = state.selectedAccounts.filter(a => !!state.kiteTokens[a])
+    if (targetAccounts.length === 0) {
+      console.log('[cron tick] BUY scan — no selectedAccounts with tokens')
+      return
+    }
+    for (const account of targetAccounts) {
+      const display = accounts.find(a => a.name === account)?.displayName
+      await autoBuyOnAccount(account, display, result.recommendations)
+    }
+  } catch (err) {
+    console.error('[cron tick] BUY scan failed:', err)
   }
 }
 

@@ -13,7 +13,17 @@
   "targets": {
     "intraday_t1_pct": 1.5,
     "intraday_t2_pct": 2.0,
-    "delivery_ema_pct": 4.0
+    "delivery_ema_pct": 4.0,
+    "strategy1_tranche2_above_ema_pct": 3.0
+  },
+  "strategy2_momentum": {
+    "minDayGainPct": 0.5,
+    "maxDayGainPct": 1.5,
+    "emaProximityPct": 3.0,
+    "consecutiveCandles": 3,
+    "scanStartHHMM": "09:30",
+    "scanEndHHMM": "14:30",
+    "volumeAvgDays": 10
   },
   "ema": {
     "period": 20,
