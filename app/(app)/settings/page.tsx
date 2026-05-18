@@ -14,6 +14,7 @@ type Mode = 'auto' | 'manual'
 
 export default function SettingsPage() {
   const [accounts, setAccounts] = useState<AccountDisplay[]>([])
+  const [environment, setEnvironment] = useState<string | null>(null)
   const [mode, setMode] = useState<Mode>('manual')
   const [connected, setConnected] = useState<string[]>([])
   const [busy, setBusy] = useState<Record<string, boolean>>({})
@@ -38,6 +39,7 @@ export default function SettingsPage() {
       fetch('/api/state').then(r => r.json()),
     ]).then(([a, s]) => {
       setAccounts(a.accounts || [])
+      setEnvironment(a.environment || null)
       setMode(s.mode === 'auto' ? 'auto' : 'manual')
       setConnected(s.accountsWithToken || [])
     }).catch(() => {})
@@ -102,10 +104,23 @@ export default function SettingsPage() {
 
   return (
     <div className="space-y-6 pb-4 max-w-2xl">
-      <div className="flex items-center justify-between">
-        <h1 className="text-2xl font-light" style={{ fontFamily:'Cormorant Garamond, serif', color:'rgba(255,255,255,0.9)' }}>
-          <span className="gold-text">Settings</span>
-        </h1>
+      <div className="flex items-center justify-between gap-3">
+        <div className="flex items-center gap-3">
+          <h1 className="text-2xl font-light" style={{ fontFamily:'Cormorant Garamond, serif', color:'rgba(255,255,255,0.9)' }}>
+            <span className="gold-text">Settings</span>
+          </h1>
+          {environment && (
+            <span className="text-[10px] tracking-widest uppercase px-2 py-1 rounded"
+              style={{
+                background: environment === 'PROD' ? 'rgba(224,90,94,0.12)' : 'rgba(82,183,136,0.12)',
+                border: `1px solid ${environment === 'PROD' ? 'rgba(224,90,94,0.35)' : 'rgba(82,183,136,0.35)'}`,
+                color: environment === 'PROD' ? '#e05a5e' : '#52b788',
+                fontFamily:'JetBrains Mono, monospace',
+              }}>
+              {environment}
+            </span>
+          )}
+        </div>
         {savedFlash && (
           <span className="text-[11px]" style={{ color:'#52b788', fontFamily:'JetBrains Mono, monospace' }}>
             ✓ Saved
