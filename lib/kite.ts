@@ -122,12 +122,13 @@ export async function getOrders(creds: KiteCreds): Promise<KiteOrder[]> {
   return r.data?.data || []
 }
 
-// /quote?i=NSE:SYMBOL1,NSE:SYMBOL2 — live LTPs (paid plan)
+// /quote?i=NSE:SYM1&i=NSE:SYM2 — live LTPs (paid plan). Kite expects REPEATED
+// i= params, not a comma-separated single value (which silently returns {}).
 export async function getQuotes(creds: KiteCreds, symbols: string[]): Promise<Record<string, KiteQuoteEntry>> {
   if (symbols.length === 0) return {}
-  const ids = symbols.map(s => `NSE:${s.toUpperCase()}`).join(',')
+  const query = symbols.map(s => `i=${encodeURIComponent(`NSE:${s.toUpperCase()}`)}`).join('&')
   const r = await kiteRequest<{ data?: Record<string, KiteQuoteEntry> }>(
-    `/quote?i=${encodeURIComponent(ids)}`, creds,
+    `/quote?${query}`, creds,
   )
   return r.data?.data || {}
 }

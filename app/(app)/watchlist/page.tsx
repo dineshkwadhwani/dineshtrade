@@ -16,6 +16,7 @@ export default function WatchlistPage() {
   const [quotes, setQuotes] = useState<Record<string, { ltp: number; changePct: number }>>({})
   const [quotesLoading, setQuotesLoading] = useState(false)
   const [quotesError, setQuotesError] = useState<string>('')
+  const [invalidSymbols, setInvalidSymbols] = useState<string[]>([])
   const [orderModal, setOrderModal] = useState<{
     open: boolean; symbol: string; name?: string; side: 'BUY' | 'SELL'; ltp?: number; dayChangePct?: number
   }>({ open: false, symbol: '', side: 'BUY' })
@@ -56,14 +57,25 @@ export default function WatchlistPage() {
       .finally(() => setHoldingsLoading(false))
   }, [activeAccount])
 
+  // Real NSE tradingsymbols are uppercase A-Z plus digits, & or -, no spaces,
+  // typically ≤ 14 chars. Anything else (e.g. "NLC INDIA LIMITED") will be
+  // rejected by Kite silently, so filter them up-front and surface them.
+  function isValidKiteSymbol(s: string): boolean {
+    if (!s || s.length > 14) return false
+    return /^[A-Z0-9&\-]+$/.test(s)
+  }
+
   // Fetch live LTPs for the whole watchlist. We batch into chunks of 50 because
   // Kite's /quote endpoint sometimes rejects the whole request if any symbol is
   // unrecognised — smaller batches isolate the bad ones so the rest still load.
   async function loadQuotes(account: string) {
-    const allSymbols = [
+    const rawSymbols = [
       ...watchlistData.listA.map(s => s.nse.toUpperCase()),
       ...watchlistData.listB.map(s => s.nse.toUpperCase()),
     ]
+    const invalid = rawSymbols.filter(s => !isValidKiteSymbol(s))
+    const allSymbols = rawSymbols.filter(isValidKiteSymbol)
+    setInvalidSymbols(invalid)
     const BATCH = 50
     const chunks: string[][] = []
     for (let i = 0; i < allSymbols.length; i += BATCH) chunks.push(allSymbols.slice(i, i + BATCH))
@@ -148,6 +160,17 @@ export default function WatchlistPage() {
         </div>
       )}
 
+      {invalidSymbols.length > 0 && (
+        <div className="rounded-xl p-3" style={{ background:'rgba(245,158,11,0.05)', border:'1px solid rgba(245,158,11,0.25)' }}>
+          <p className="text-[12px]" style={{ color:'rgba(245,158,11,0.95)', fontFamily:'JetBrains Mono, monospace' }}>
+            ⚠ {invalidSymbols.length} entries in <span style={{ color:'#f59e0b' }}>watchlist.json</span> look like company names, not NSE tradingsymbols — Kite can't quote them.
+          </p>
+          <p className="text-[10px] mt-1" style={{ color:'rgba(255,255,255,0.4)' }}>
+            Examples: {invalidSymbols.slice(0, 4).join(', ')}{invalidSymbols.length > 4 ? `, …+${invalidSymbols.length - 4} more` : ''}. Edit config/watchlist.json to use the actual NSE symbol (e.g. <code style={{ color:'#c9a84c' }}>NAZARA</code>, not <code style={{ color:'#c9a84c' }}>NAZARA TECHNOLOGIES LIMITED</code>).
+          </p>
+        </div>
+      )}
+
       {/* Account picker — visible only when 2+ accounts connected */}
       {connectedAccounts.length > 1 && (
         <div className="flex items-center gap-3 flex-wrap">
@@ -228,6 +251,7 @@ export default function WatchlistPage() {
         </div>
         {filtered.map((s, i) => {
           const sym = s.nse.toUpperCase()
+          const symInvalid = !isValidKiteSymbol(sym)
           const held = heldSymbols.has(sym)
           const q = quotes[sym]
           const dir: 'up' | 'down' | 'flat' = !q ? 'flat' : q.changePct > 0 ? 'up' : q.changePct < 0 ? 'down' : 'flat'
@@ -250,11 +274,13 @@ export default function WatchlistPage() {
                 )}
               </div>
               <span className="text-[11px] truncate" style={{ color:'rgba(255,255,255,0.45)' }}>{s.name}</span>
-              <span className="text-right text-sm" style={{ fontFamily:'JetBrains Mono, monospace', color: priceColor }}>
-                {q ? `₹${q.ltp.toFixed(2)}` : '—'}
+              <span className="text-right text-sm" style={{ fontFamily:'JetBrains Mono, monospace', color: symInvalid ? '#f59e0b' : priceColor }}>
+                {symInvalid ? 'INVALID' : q ? `₹${q.ltp.toFixed(2)}` : '—'}
               </span>
-              <span className="text-right text-[11px]" style={{ fontFamily:'JetBrains Mono, monospace', color: priceColor }}>
-                {q
+              <span className="text-right text-[11px]" style={{ fontFamily:'JetBrains Mono, monospace', color: symInvalid ? 'rgba(245,158,11,0.7)' : priceColor }}>
+                {symInvalid
+                  ? 'fix in json'
+                  : q
                   ? `${dir === 'up' ? '▲' : dir === 'down' ? '▼' : '─'} ${Math.abs(q.changePct).toFixed(2)}%`
                   : '—'}
               </span>

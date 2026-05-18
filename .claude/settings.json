@@ -1,7 +1,8 @@
 {
   "permissions": {
     "allow": [
-      "Bash(mkdir -p \"/Users/Dinesh.Wadhwani/Library/CloudStorage/OneDrive-NICELtd/Documents/Documents/Personal/TS/Git/dineshtrade/app/api/journal/dates\" && mkdir -p \"/Users/Dinesh.Wadhwani/Library/CloudStorage/OneDrive-NICELtd/Documents/Documents/Personal/TS/Git/dineshtrade/app/api/journal/[date]\")"
+      "Bash(mkdir -p \"/Users/Dinesh.Wadhwani/Library/CloudStorage/OneDrive-NICELtd/Documents/Documents/Personal/TS/Git/dineshtrade/app/api/journal/dates\" && mkdir -p \"/Users/Dinesh.Wadhwani/Library/CloudStorage/OneDrive-NICELtd/Documents/Documents/Personal/TS/Git/dineshtrade/app/api/journal/[date]\")",
+      "Bash(node -e ' *)"
     ],
     "additionalDirectories": [
       "/Users/Dinesh.Wadhwani/Library/CloudStorage/OneDrive-NICELtd/Documents/Documents/Personal/TS/Git/dineshtrade/app/api/journal"

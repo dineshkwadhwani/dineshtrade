@@ -62,8 +62,14 @@ export async function GET(req: NextRequest) {
     case 'funds':     endpoint = '/user/margins'; break
     case 'profile':   endpoint = '/user/profile'; break
     case 'quote': {
+      // Kite's /quote expects REPEATED i= params, not a single comma-separated value.
+      // Wrong:  /quote?i=NSE:BAJFINANCE,NSE:RELIANCE
+      // Right:  /quote?i=NSE:BAJFINANCE&i=NSE:RELIANCE
+      // The comma form returns an empty data object with no error — that's why
+      // earlier the Watchlist showed dashes everywhere even on valid symbols.
       const symbols = sp.get('symbols') || ''
-      endpoint = `/quote?i=${encodeURIComponent(symbols)}`
+      const ids = symbols.split(',').map(s => s.trim()).filter(Boolean)
+      endpoint = `/quote?${ids.map(id => `i=${encodeURIComponent(id)}`).join('&')}`
       break
     }
     default:
