@@ -17,6 +17,7 @@ interface EngineScan {
   cashAvailable: number
   generatedAt: string
   message?: string
+  priceSource?: 'kite_live' | 'briefing_cmp'
 }
 
 type TradeMode = 'auto' | 'manual'
@@ -247,10 +248,23 @@ export default function EnginePage() {
 
       {scan?.recommendations && scan.recommendations.length > 0 && (
         <div className="space-y-3">
-          <h2 className="text-[11px] tracking-widest uppercase"
-            style={{ color:'rgba(201,168,76,0.5)', fontFamily:'JetBrains Mono, monospace' }}>
-            {scan.recommendations.length} Signal{scan.recommendations.length > 1 ? 's' : ''} Found
-          </h2>
+          <div className="flex items-center gap-3 flex-wrap">
+            <h2 className="text-[11px] tracking-widest uppercase"
+              style={{ color:'rgba(201,168,76,0.5)', fontFamily:'JetBrains Mono, monospace' }}>
+              {scan.recommendations.length} Signal{scan.recommendations.length > 1 ? 's' : ''} Found
+            </h2>
+            {scan.priceSource && (
+              <span className="text-[10px] tracking-widest uppercase px-2 py-0.5 rounded"
+                style={{
+                  background: scan.priceSource === 'kite_live' ? 'rgba(82,183,136,0.12)' : 'rgba(224,90,94,0.12)',
+                  border: `1px solid ${scan.priceSource === 'kite_live' ? 'rgba(82,183,136,0.3)' : 'rgba(224,90,94,0.3)'}`,
+                  color: scan.priceSource === 'kite_live' ? '#52b788' : 'rgba(224,90,94,0.85)',
+                  fontFamily:'JetBrains Mono, monospace',
+                }}>
+                {scan.priceSource === 'kite_live' ? '✓ Kite live prices' : '⚠ Fallback (briefing) prices'}
+              </span>
+            )}
+          </div>
           {scan.recommendations.map((rec, i) => (
             <RecCard key={i} rec={rec} tradeMode={tradeMode} onExecute={executeRec} accountCount={selected.length} />
           ))}

@@ -5,13 +5,18 @@
 import watchlist from '@/config/watchlist.json'
 import strategyCfg from '@/config/strategy.json'
 import { getMarketBriefing } from './marketBriefing'
+import { getState } from './state'
+import { resolveAccountCreds, getQuotes } from './kite'
 
 interface WatchlistStock { nse: string; name?: string; trades?: number }
+
+export type PriceSource = 'kite_live' | 'briefing_cmp'
 
 export interface Recommendation {
   symbol: string
   name: string
   price: number
+  priceSource: PriceSource    // 'kite_live' (preferred) or 'briefing_cmp' (fallback only)
   action: string
   strategy: string
   source: string
@@ -36,6 +41,7 @@ export interface StrategyResult {
     skippedNoPrice: number
     produced: number
   }
+  priceSource?: PriceSource   // 'kite_live' if any rec was Kite-priced; 'briefing_cmp' if all fallback
   generatedAt: string
 }
 
@@ -94,17 +100,55 @@ export async function generateRecommendations(): Promise<StrategyResult> {
   const stockBySymbol = new Map(allStocks.map(s => [s.nse.toUpperCase(), s]))
 
   const topRecs = briefing.data.topRecommendations || []
-  const recs: Recommendation[] = []
-  let skippedNoPrice = 0
-  let skippedOffWatchlist = 0
 
+  // Step 1: filter to symbols that are in our watchlist
+  type Candidate = { rec: typeof topRecs[number]; symbol: string; inWatchlist: WatchlistStock }
+  const candidates: Candidate[] = []
+  let skippedOffWatchlist = 0
   for (const r of topRecs) {
     const symbol = String(r.symbol || '').toUpperCase()
     if (!symbol) continue
     const inWatchlist = stockBySymbol.get(symbol)
     if (!inWatchlist) { skippedOffWatchlist++; continue }
-    const price = parseNumber(r.cmp)
+    candidates.push({ rec: r, symbol, inWatchlist })
+  }
+
+  // Step 2: batch-fetch live LTPs from Kite for every candidate. We use any
+  // connected account's creds — the quote is the same regardless of who asks.
+  // If no account is connected (or Kite call fails), we fall back to briefing CMP.
+  let liveQuotes: Record<string, number> = {}
+  let priceSourceForAll: PriceSource = 'briefing_cmp'
+  if (candidates.length > 0) {
+    try {
+      const state = await getState()
+      const firstAcc = Object.keys(state.kiteTokens)[0]
+      if (firstAcc) {
+        const creds = await resolveAccountCreds(firstAcc)
+        if (creds.ok) {
+          const quotes = await getQuotes(creds, candidates.map(c => c.symbol))
+          for (const c of candidates) {
+            const ltp = quotes[`NSE:${c.symbol}`]?.last_price
+            if (ltp && ltp > 0) liveQuotes[c.symbol] = ltp
+          }
+          if (Object.keys(liveQuotes).length > 0) priceSourceForAll = 'kite_live'
+        }
+      }
+    } catch (err) {
+      console.warn('[strategyEngine] Kite quote enrichment failed, falling back to briefing CMP:', String(err).slice(0, 200))
+    }
+  }
+
+  // Step 3: build recommendations using live LTPs (preferred) or briefing CMPs (fallback)
+  const recs: Recommendation[] = []
+  let skippedNoPrice = 0
+
+  for (const c of candidates) {
+    const live = liveQuotes[c.symbol]
+    const fallback = parseNumber(c.rec.cmp)
+    const price = live ?? fallback
     if (!price || price <= 0) { skippedNoPrice++; continue }
+    const priceSource: PriceSource = live ? 'kite_live' : 'briefing_cmp'
+
     const perTrade = strategyCfg.capital.perTrade
     const qty = Math.floor(perTrade / price)
     if (qty < 1) continue
@@ -114,13 +158,14 @@ export async function generateRecommendations(): Promise<StrategyResult> {
     const sl = +(price * 0.985).toFixed(2)
 
     recs.push({
-      symbol,
-      name: r.name || inWatchlist.name || symbol,
+      symbol: c.symbol,
+      name: c.rec.name || c.inWatchlist.name || c.symbol,
       price,
-      action: (r.action || 'BUY').toUpperCase(),
+      priceSource,
+      action: (c.rec.action || 'BUY').toUpperCase(),
       strategy: 'catalyst',
-      source: r.source || 'AI briefing',
-      reason: r.reason || `Featured in today's daily catalyst`,
+      source: c.rec.source || 'AI briefing',
+      reason: c.rec.reason || `Featured in today's daily catalyst`,
       target1: t1,
       target2: t2,
       stopLoss: sl,
@@ -139,6 +184,7 @@ export async function generateRecommendations(): Promise<StrategyResult> {
       skippedNoPrice,
       produced: recs.length,
     },
+    priceSource: priceSourceForAll,
     generatedAt: now,
   }
 }
