@@ -141,7 +141,7 @@ export async function monitorAccount(account: string): Promise<MonitorResult> {
       const actualQty = pre.adjustedQty ?? qty
       const placed = await placeKiteOrder(creds, { symbol, side: 'SELL', quantity: actualQty, tag: STRATEGY_2_SELL_TAG })
       if (placed.ok && placed.data?.data?.order_id) {
-        markPlaced(account, symbol, 'SELL')
+        await markPlaced(account, symbol, 'SELL')
         const adjusted = pre.adjustedQty !== undefined
         // Journal the completed trade.
         const pnlRupees = (ltp - entry) * actualQty

@@ -151,7 +151,9 @@ async function autoBuyOnAccount(account: string, accountDisplayName: string | un
       symbol: rec.symbol, side: 'BUY', quantity: rec.suggestedQty, tag,
     })
     if (placed.ok && placed.data?.data?.order_id) {
-      markPlaced(account, rec.symbol, 'BUY')
+      // Persist BEFORE doing anything else — critical for preventing duplicate
+      // BUYs on the next cron tick if this function were to crash partway.
+      await markPlaced(account, rec.symbol, 'BUY')
       // Persist Strategy 1 position so the SELL monitor manages it across days.
       if (rec.strategy === 'oscillator') {
         recordStrategy1Buy(account, rec.symbol, rec.suggestedQty, rec.price)

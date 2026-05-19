@@ -246,7 +246,7 @@ export async function monitorAccountStrategy1(account: string): Promise<Strategy
       const actualQty = pre.adjustedQty ?? intentQty
       const placed = await placeKiteOrder(creds, { symbol, side: 'SELL', quantity: actualQty, tag: STRATEGY_1_TRANCHE1_TAG })
       if (placed.ok && placed.data?.data?.order_id) {
-        markPlaced(account, symbol, 'SELL')
+        await markPlaced(account, symbol, 'SELL')
         const adjusted = pre.adjustedQty !== undefined
         if (adjusted) {
           // Held less than intended 50% — selling what's there closes the position
@@ -328,7 +328,7 @@ export async function monitorAccountStrategy1(account: string): Promise<Strategy
     const actualQty = pre.adjustedQty ?? intentQty
     const placed = await placeKiteOrder(creds, { symbol, side: 'SELL', quantity: actualQty, tag: STRATEGY_1_TRANCHE2_TAG })
     if (placed.ok && placed.data?.data?.order_id) {
-      markPlaced(account, symbol, 'SELL')
+      await markPlaced(account, symbol, 'SELL')
       delete all[key]
       await writePositions(all)
       const adjusted = pre.adjustedQty !== undefined

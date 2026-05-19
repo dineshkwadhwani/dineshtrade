@@ -2,33 +2,16 @@
 // Six gates per spec (CONTEXT.md): token, market-open, day-quota, open-positions,
 // funds-available, idempotency. Phase 2 will add a seed-from-Kite on cron startup.
 
-import { getState } from '@/lib/state'
+import { getState, recordIdempotency, makeIdempotencyKey } from '@/lib/state'
 import { getAccountSecrets } from '@/lib/accounts'
 import { isMarketOpen } from '@/lib/market'
 import strategyCfg from '@/config/strategy.json'
 
 const KITE_BASE = 'https://api.kite.trade'
 
-// In-process idempotency ledger: account+date → set of `${symbol}:${side}` strings.
-// Phase 1 (Vercel serverless) — lost on cold start, accepted.
-// Phase 2 (EC2 PM2) — persists across requests; seed from Kite orders-today on boot.
-const idempotencyLedger = new Map<string, Set<string>>()
-
-function istDateKey(): string {
-  const ist = new Date(new Date().toLocaleString('en-US', { timeZone: 'Asia/Kolkata' }))
-  return `${ist.getFullYear()}-${String(ist.getMonth()+1).padStart(2,'0')}-${String(ist.getDate()).padStart(2,'0')}`
-}
-
-function ledgerKey(account: string): string {
-  return `${account}:${istDateKey()}`
-}
-
-function pruneOldLedger() {
-  const today = istDateKey()
-  Array.from(idempotencyLedger.keys()).forEach(k => {
-    if (!k.endsWith(`:${today}`)) idempotencyLedger.delete(k)
-  })
-}
+// Idempotency ledger now lives in state.json (see lib/state.ts) — persistent
+// across PM2 restarts, shared by every code path. Old days are pruned by
+// normalize() at read time, so we don't need an in-process prune here.
 
 async function kiteGet<T = any>(path: string, apiKey: string, accessToken: string): Promise<T | null> {
   try {
@@ -94,10 +77,15 @@ export async function runPreflight(input: PreflightInput): Promise<PreflightResu
   // across multiple cron ticks. SELLs are NOT idempotent — Strategy 1 deliberately
   // sells in two tranches (potentially same day), and the noShort gate below
   // prevents accidental over-sells. Skipped for explicit manual orders.
+  //
+  // Reads from state.json (persistent, survives PM2 restarts). The key is
+  // uppercased so 'itc' and 'ITC' match. Re-fetching state INSIDE this gate
+  // (not relying on the older 'state' variable above) ensures we see the
+  // most recent ledger write — important when two cron ticks fire back-to-back.
   if (!manual && side === 'BUY') {
-    pruneOldLedger()
-    const ledgerSet = idempotencyLedger.get(ledgerKey(account))
-    if (ledgerSet?.has(`${symbol}:BUY`)) {
+    const fresh = await getState()
+    const key = makeIdempotencyKey(account, symbol, 'BUY')
+    if (fresh.idempotencyLedger[key]) {
       return { ok: false, gate: 'idempotency', reason: `${account}: already bought ${symbol} earlier today` }
     }
   }
@@ -194,11 +182,16 @@ export async function runPreflight(input: PreflightInput): Promise<PreflightResu
   return { ok: true, adjustedQty: sellAdjustedQty }
 }
 
-// Called after a successful place_order to record the trade in the ledger
-// so a subsequent scan/click doesn't duplicate it.
-export function markPlaced(account: string, symbol: string, side: 'BUY' | 'SELL') {
-  pruneOldLedger()
-  const key = ledgerKey(account)
-  if (!idempotencyLedger.has(key)) idempotencyLedger.set(key, new Set())
-  idempotencyLedger.get(key)!.add(`${symbol}:${side}`)
+// Called after a successful place_order to record the trade in the persistent
+// ledger so the next scan/click — even after a PM2 restart — won't duplicate
+// it. ALWAYS await this from the calling code so the write completes before
+// the next cron tick fires.
+export async function markPlaced(account: string, symbol: string, side: 'BUY' | 'SELL'): Promise<void> {
+  try {
+    await recordIdempotency(account, symbol, side)
+  } catch (err) {
+    // We log loudly because failing to persist an idempotency record can
+    // lead to duplicate orders on the next tick.
+    console.error(`[preflight] CRITICAL: failed to persist idempotency for ${account} ${symbol} ${side}:`, err)
+  }
 }

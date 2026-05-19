@@ -179,7 +179,7 @@ export async function POST(req: NextRequest) {
   const r = await kiteRequest('/orders/regular', creds.apiKey, creds.accessToken, 'POST', kiteBody)
 
   if (r.ok && r.data?.data?.order_id) {
-    markPlaced(account, symbolUpper, side)
+    await markPlaced(account, symbolUpper, side)
     // Persist Strategy 1 BUYs so the SELL monitor manages them across days.
     if (side === 'BUY' && orderTag === STRATEGY_1_BUY_TAG) {
       recordStrategy1Buy(account, symbolUpper, actualQty, pricePerShare)

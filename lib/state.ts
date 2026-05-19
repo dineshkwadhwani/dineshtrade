@@ -21,16 +21,30 @@ const useFile = !!FILE_PATH
 
 export type TradeMode = 'auto' | 'manual'
 
+// Idempotency ledger — persisted to state.json so it survives PM2 restarts and
+// is shared across every code path that checks it (cron tick, manual order
+// route, both strategy monitors). Key shape: `${ACCOUNT}:${YYYY-MM-DD}:${SYMBOL}:${SIDE}`
+// → true. All keys uppercased so ITC and itc map to the same entry. Old days
+// are pruned on read (see normalize()).
+export type IdempotencyLedger = Record<string, true>
+
 export interface SessionState {
   mode: TradeMode
   selectedAccounts: string[]
   kiteTokens: Record<string, string>
+  idempotencyLedger: IdempotencyLedger
 }
 
 const DEFAULT_STATE: SessionState = {
   mode: 'manual',
   selectedAccounts: [],
   kiteTokens: {},
+  idempotencyLedger: {},
+}
+
+function istDateKey(): string {
+  const ist = new Date(new Date().toLocaleString('en-US', { timeZone: 'Asia/Kolkata' }))
+  return `${ist.getFullYear()}-${String(ist.getMonth()+1).padStart(2,'0')}-${String(ist.getDate()).padStart(2,'0')}`
 }
 
 function midnightIST(): Date {
@@ -43,11 +57,21 @@ function midnightIST(): Date {
 }
 
 function normalize(raw: Partial<SessionState> | null | undefined): SessionState {
-  if (!raw) return { ...DEFAULT_STATE, kiteTokens: {} }
+  if (!raw) return { ...DEFAULT_STATE, kiteTokens: {}, idempotencyLedger: {} }
+  // Prune any ledger entries whose date prefix isn't today — old days never need to be remembered
+  const today = istDateKey()
+  const cleanedLedger: IdempotencyLedger = {}
+  const rawLedger = (raw.idempotencyLedger && typeof raw.idempotencyLedger === 'object') ? raw.idempotencyLedger : {}
+  for (const key of Object.keys(rawLedger)) {
+    // key format: ACCOUNT:DATE:SYMBOL:SIDE
+    const parts = key.split(':')
+    if (parts.length === 4 && parts[1] === today) cleanedLedger[key] = true
+  }
   return {
     mode: raw.mode === 'auto' ? 'auto' : 'manual',
     selectedAccounts: Array.isArray(raw.selectedAccounts) ? raw.selectedAccounts : [],
     kiteTokens: (raw.kiteTokens && typeof raw.kiteTokens === 'object') ? raw.kiteTokens : {},
+    idempotencyLedger: cleanedLedger,
   }
 }
 
@@ -119,10 +143,23 @@ export async function saveState(patch: Partial<SessionState>): Promise<SessionSt
     mode: patch.mode ?? current.mode,
     selectedAccounts: patch.selectedAccounts ?? current.selectedAccounts,
     kiteTokens: { ...current.kiteTokens, ...(patch.kiteTokens || {}) },
+    idempotencyLedger: { ...current.idempotencyLedger, ...(patch.idempotencyLedger || {}) },
   }
   if (useFile) await writeFile(next)
   else await writeCookie(next)
   return next
+}
+
+// Atomic, additive ledger write. Uppercases everything defensively so callers
+// passing 'itc' or 'ITC' end up with the same persisted key. Returns the new
+// state so callers can observe the post-write ledger if they need to.
+export async function recordIdempotency(account: string, symbol: string, side: 'BUY' | 'SELL'): Promise<SessionState> {
+  const key = `${account.toUpperCase()}:${istDateKey()}:${symbol.toUpperCase()}:${side}`
+  return saveState({ idempotencyLedger: { [key]: true } })
+}
+
+export function makeIdempotencyKey(account: string, symbol: string, side: 'BUY' | 'SELL'): string {
+  return `${account.toUpperCase()}:${istDateKey()}:${symbol.toUpperCase()}:${side}`
 }
 
 // Replace whole state. Used when removing a token (saveState merges, which would
