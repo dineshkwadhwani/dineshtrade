@@ -1,6 +1,7 @@
 'use client'
 import { useEffect, useState } from 'react'
 import type { DailyReport, EnrichedTrade, EnrichedMissed } from '@/lib/retrospective'
+import FundsCard from '@/components/FundsCard'
 
 interface AccountDisplay { name: string; displayName: string; initials: string; color: string; note: string }
 
@@ -122,6 +123,8 @@ function OrdersView() {
       </div>
 
       <AccountTabs accounts={accounts} connected={connected} active={activeTab} onSelect={setActiveTab} loaded={loaded} />
+
+      {activeTab && <FundsCard account={activeTab} />}
 
       {loaded && connected.length === 0 && (
         <div className="rounded-xl p-6 text-center"

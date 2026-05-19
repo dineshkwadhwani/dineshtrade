@@ -1,6 +1,7 @@
 'use client'
 import { useEffect, useState } from 'react'
 import OrderModal from '@/components/OrderModal'
+import FundsCard from '@/components/FundsCard'
 
 interface AccountDisplay { name: string; displayName: string; initials: string; color: string; note: string }
 
@@ -241,6 +242,10 @@ export default function EnginePage() {
           Uses live Kite orders for the first selected account, NOT the config max,
           so the "remaining" numbers actually reflect what was placed. */}
       <TodayActivity orders={todayOrders} account={selected[0] || connected[0] || null} />
+
+      {/* Available funds — manual-refresh card so you don't have to leave this
+          page to know if you can still place trades. */}
+      <FundsCard account={selected[0] || connected[0] || null} />
 
       {/* Mode chip — from latest scan if available */}
       {scan && (

@@ -2,6 +2,7 @@
 import { useEffect, useRef, useState } from 'react'
 import Link from 'next/link'
 import { usePathname, useRouter } from 'next/navigation'
+import LiveTicker from '@/components/LiveTicker'
 
 const NAV = [
   { href: '/dashboard', label: 'Dashboard',         icon: '▦' },
@@ -47,6 +48,9 @@ export default function AppShell({ children }: { children: React.ReactNode }) {
 
   return (
     <div className="min-h-screen flex flex-col bg-[#080604]">
+
+      {/* Live indices ticker — top strip, persistent across all pages */}
+      <LiveTicker />
 
       {/* Top nav — logo + DW menu only */}
       <nav className="sticky top-0 z-50 border-b"
