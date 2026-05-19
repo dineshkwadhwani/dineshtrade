@@ -1,10 +1,18 @@
-// Maps NSE tradingsymbol → instrument_token. Required because Kite's /historical
-// endpoint takes instrument_token, not symbol. Cached in-process for 24h after
-// first load (instruments don't change much; new listings are rare).
+// Maps NSE tradingsymbol → instrument_token + company name. Required because
+// Kite's /historical endpoint takes instrument_token, not symbol. The name is
+// also used by the Manage Lists search (type a company name → find the NSE
+// tradingsymbol). Cached in-process for 24h after first load.
 
 import type { KiteCreds } from './kite'
 
-const tokenMap = new Map<string, number>()
+export interface InstrumentRecord {
+  token: number
+  symbol: string         // tradingsymbol (uppercase, no spaces)
+  name: string           // company name (e.g. "Reliance Industries Ltd.")
+}
+
+const recordMap = new Map<string, InstrumentRecord>()
+const tokenMap = new Map<string, number>()     // legacy — kept for backwards compat
 let lastLoad = 0
 const CACHE_MS = 24 * 60 * 60 * 1000
 
@@ -36,11 +44,13 @@ async function loadInstruments(creds: KiteCreds): Promise<void> {
   const header = parseCSVLine(lines[0])
   const iToken = header.indexOf('instrument_token')
   const iSymbol = header.indexOf('tradingsymbol')
+  const iName = header.indexOf('name')
   const iType = header.indexOf('instrument_type')
   if (iToken < 0 || iSymbol < 0 || iType < 0) {
     throw new Error('Kite /instruments/NSE CSV header missing required columns')
   }
   tokenMap.clear()
+  recordMap.clear()
   for (let i = 1; i < lines.length; i++) {
     const line = lines[i].trim()
     if (!line) continue
@@ -48,10 +58,14 @@ async function loadInstruments(creds: KiteCreds): Promise<void> {
     if (row[iType] !== 'EQ') continue
     const symbol = row[iSymbol]?.toUpperCase()
     const token = parseInt(row[iToken], 10)
-    if (symbol && !isNaN(token)) tokenMap.set(symbol, token)
+    const name = (iName >= 0 ? row[iName] : '') || symbol
+    if (symbol && !isNaN(token)) {
+      tokenMap.set(symbol, token)
+      recordMap.set(symbol, { token, symbol, name })
+    }
   }
   lastLoad = Date.now()
-  console.log(`[instruments] loaded ${tokenMap.size} NSE equity tokens`)
+  console.log(`[instruments] loaded ${recordMap.size} NSE equity tokens`)
 }
 
 async function ensureLoaded(creds: KiteCreds): Promise<void> {
@@ -73,4 +87,28 @@ export async function getInstrumentTokens(creds: KiteCreds, symbols: string[]): 
     if (t !== undefined) out[s.toUpperCase()] = t
   }
   return out
+}
+
+// Fuzzy search for the Manage Lists UI. Ranks symbol prefix > name prefix >
+// substring matches. Returns at most `limit` matches. Case-insensitive.
+export async function searchInstruments(creds: KiteCreds, query: string, limit = 20): Promise<InstrumentRecord[]> {
+  await ensureLoaded(creds)
+  const q = query.trim().toUpperCase()
+  if (!q) return []
+  const records = Array.from(recordMap.values())
+  type Scored = { r: InstrumentRecord; score: number }
+  const scored: Scored[] = []
+  for (const r of records) {
+    const sym = r.symbol.toUpperCase()
+    const nm = r.name.toUpperCase()
+    let score = 0
+    if (sym === q) score = 100
+    else if (sym.startsWith(q)) score = 80
+    else if (nm.startsWith(q)) score = 60
+    else if (sym.includes(q)) score = 40
+    else if (nm.includes(q)) score = 20
+    if (score > 0) scored.push({ r, score })
+  }
+  scored.sort((a, b) => b.score - a.score || a.r.symbol.localeCompare(b.r.symbol))
+  return scored.slice(0, limit).map(s => s.r)
 }

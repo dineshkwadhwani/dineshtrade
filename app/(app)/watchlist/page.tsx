@@ -1,9 +1,10 @@
 'use client'
 import { useState, useEffect } from 'react'
-import watchlistData from '@/config/watchlist.json'
 import OrderModal from '@/components/OrderModal'
 
 interface AccountDisplay { name: string; displayName: string; initials: string; color: string; note: string }
+
+interface WatchlistEntry { nse: string; name: string; trades?: number; lastTraded?: string }
 
 export default function WatchlistPage() {
   const [activeTab, setActiveTab] = useState<'A'|'B'>('A')
@@ -21,7 +22,18 @@ export default function WatchlistPage() {
     open: boolean; symbol: string; name?: string; side: 'BUY' | 'SELL'; ltp?: number; dayChangePct?: number
   }>({ open: false, symbol: '', side: 'BUY' })
 
-  const raw = activeTab === 'A' ? watchlistData.listA : watchlistData.listB
+  // Watchlist now lives in data/watchlist.json (editable from Manage Lists UI),
+  // falling back to the bundled seed. Fetched via /api/watchlist on mount.
+  const [listA, setListA] = useState<WatchlistEntry[]>([])
+  const [listB, setListB] = useState<WatchlistEntry[]>([])
+  useEffect(() => {
+    fetch('/api/watchlist').then(r => r.json()).then(d => {
+      setListA(d.listA || [])
+      setListB(d.listB || [])
+    }).catch(() => {})
+  }, [])
+
+  const raw = activeTab === 'A' ? listA : listB
   const filtered = raw.filter(s =>
     s.name.toLowerCase().includes(search.toLowerCase()) ||
     s.nse.toLowerCase().includes(search.toLowerCase())
@@ -70,8 +82,8 @@ export default function WatchlistPage() {
   // unrecognised — smaller batches isolate the bad ones so the rest still load.
   async function loadQuotes(account: string) {
     const rawSymbols = [
-      ...watchlistData.listA.map(s => s.nse.toUpperCase()),
-      ...watchlistData.listB.map(s => s.nse.toUpperCase()),
+      ...listA.map(s => s.nse.toUpperCase()),
+      ...listB.map(s => s.nse.toUpperCase()),
     ]
     const invalid = rawSymbols.filter(s => !isValidKiteSymbol(s))
     const allSymbols = rawSymbols.filter(isValidKiteSymbol)
@@ -122,9 +134,10 @@ export default function WatchlistPage() {
 
   useEffect(() => {
     if (!activeAccount) { setQuotes({}); setQuotesError(''); return }
+    if (listA.length === 0 && listB.length === 0) return  // wait for /api/watchlist response
     loadQuotes(activeAccount)
   // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [activeAccount])
+  }, [activeAccount, listA.length, listB.length])
 
   const connectedAccounts = accounts.filter(a => connected.includes(a.name))
   const activeColor = accounts.find(a => a.name === activeAccount)?.color || '#c9a84c'
@@ -207,7 +220,7 @@ export default function WatchlistPage() {
               background: activeTab === tab ? 'linear-gradient(135deg, #8a6a1a, #c9a84c)' : 'rgba(255,255,255,0.04)',
               border: activeTab === tab ? 'none' : '1px solid rgba(255,255,255,0.08)',
             }}>
-            List {tab} <span className="ml-1.5 opacity-60">({tab === 'A' ? watchlistData.listA.length : watchlistData.listB.length})</span>
+            List {tab} <span className="ml-1.5 opacity-60">({tab === 'A' ? listA.length : listB.length})</span>
           </button>
         ))}
       </div>
