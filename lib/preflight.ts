@@ -2,7 +2,8 @@
 // Six gates per spec (CONTEXT.md): token, market-open, day-quota, open-positions,
 // funds-available, idempotency. Phase 2 will add a seed-from-Kite on cron startup.
 
-import { getState, recordIdempotency, makeIdempotencyKey } from '@/lib/state'
+import { getState, recordIdempotency, makeIdempotencyKey, getBuyHistory, resetBuyHistoryForSymbol } from '@/lib/state'
+import { getCapital } from '@/lib/strategyConfig'
 import { getAccountSecrets } from '@/lib/accounts'
 import { isMarketOpen } from '@/lib/market'
 import strategyCfg from '@/config/strategy.json'
@@ -87,6 +88,49 @@ export async function runPreflight(input: PreflightInput): Promise<PreflightResu
     const key = makeIdempotencyKey(account, symbol, 'BUY')
     if (fresh.idempotencyLedger[key]) {
       return { ok: false, gate: 'idempotency', reason: `${account}: already bought ${symbol} earlier today` }
+    }
+  }
+
+  // GATE 4b — pyramid: limits averaging-down behaviour in auto mode.
+  //   Max N BUYs per symbol (default 3); each subsequent BUY requires LTP to
+  //   be at least `minDropBetweenBuysPct`% below the previous BUY price.
+  // The buy-history is auto-reset for a symbol when Kite shows zero qty (the
+  // previous position has been fully exited) — so once you sell out, the
+  // pyramid starts fresh on the next entry. Persists across days.
+  // Skipped for manual orders.
+  if (!manual && side === 'BUY') {
+    const cap = getCapital()
+    const maxBuys = cap.maxBuysPerSymbol
+    const minDropPct = cap.minDropBetweenBuysPct
+    // Check current held qty in Kite. If 0, reset the history before reading.
+    const positionsJson = await kiteGet<{ data?: { net?: any[]; day?: any[] } }>('/portfolio/positions', apiKey, accessToken)
+    const holdingsJson  = await kiteGet<{ data?: any[] }>('/portfolio/holdings', apiKey, accessToken)
+    let heldQty = 0
+    for (const p of (positionsJson?.data?.net || [])) {
+      if (p.tradingsymbol?.toUpperCase() === symbol.toUpperCase()) heldQty += (p.quantity || 0)
+    }
+    for (const h of (holdingsJson?.data || [])) {
+      if (h.tradingsymbol?.toUpperCase() === symbol.toUpperCase()) heldQty += (h.quantity || 0)
+    }
+    if (heldQty <= 0) {
+      // No open position — clear any stale history for this symbol
+      await resetBuyHistoryForSymbol(account, symbol)
+    } else {
+      const fresh2 = await getState()
+      const history = getBuyHistory(fresh2, account, symbol)
+      if (history.length >= maxBuys) {
+        return { ok: false, gate: 'pyramid', reason: `${account}: already ${history.length} BUYs of ${symbol} on the current position (cap ${maxBuys})` }
+      }
+      if (history.length > 0) {
+        const lastPrice = history[history.length - 1].price
+        const requiredCeiling = lastPrice * (1 - minDropPct / 100)
+        if (pricePerShare > requiredCeiling) {
+          return {
+            ok: false, gate: 'pyramid',
+            reason: `${account}: ${symbol} at ₹${pricePerShare.toFixed(2)} — must be ≤ ₹${requiredCeiling.toFixed(2)} (${minDropPct}% below previous BUY @ ₹${lastPrice.toFixed(2)})`,
+          }
+        }
+      }
     }
   }
 
@@ -186,12 +230,27 @@ export async function runPreflight(input: PreflightInput): Promise<PreflightResu
 // ledger so the next scan/click — even after a PM2 restart — won't duplicate
 // it. ALWAYS await this from the calling code so the write completes before
 // the next cron tick fires.
-export async function markPlaced(account: string, symbol: string, side: 'BUY' | 'SELL'): Promise<void> {
+//
+// For auto-mode BUYs, also appends the fill price to the per-symbol buy
+// history (pyramid gate). Manual orders are excluded so pyramid bookkeeping
+// only reflects the auto engine's accumulating decisions.
+export async function markPlaced(
+  account: string,
+  symbol: string,
+  side: 'BUY' | 'SELL',
+  opts?: { price?: number; manual?: boolean },
+): Promise<void> {
   try {
     await recordIdempotency(account, symbol, side)
   } catch (err) {
-    // We log loudly because failing to persist an idempotency record can
-    // lead to duplicate orders on the next tick.
     console.error(`[preflight] CRITICAL: failed to persist idempotency for ${account} ${symbol} ${side}:`, err)
+  }
+  if (side === 'BUY' && !opts?.manual && typeof opts?.price === 'number' && opts.price > 0) {
+    try {
+      const { recordBuyHistory } = await import('@/lib/state')
+      await recordBuyHistory(account, symbol, opts.price)
+    } catch (err) {
+      console.error(`[preflight] failed to record buy history for ${account} ${symbol}:`, err)
+    }
   }
 }

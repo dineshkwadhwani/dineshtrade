@@ -10,7 +10,9 @@
     "circuitBreakerPct": -5,
     "maxDeployPct": 80,
     "sharedPool": true,
-    "maxPositions": 10
+    "maxPositions": 10,
+    "maxBuysPerSymbol": 3,
+    "minDropBetweenBuysPct": 10
   },
 
   "strategies": [

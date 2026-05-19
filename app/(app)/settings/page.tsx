@@ -372,6 +372,8 @@ interface CapitalConfig {
   maxDeployPct: number
   sharedPool: boolean
   maxPositions: number
+  maxBuysPerSymbol: number
+  minDropBetweenBuysPct: number
 }
 
 interface StrategyConfig {
@@ -398,6 +400,8 @@ const CAPITAL_DESCRIPTIONS: Record<string, string> = {
   maxDeployPct: 'Never deploy more than this percentage of available funds. The remainder is reserve.',
   sharedPool: 'When true, every strategy draws from one common pool of funds.',
   maxPositions: 'Maximum number of simultaneously open positions per account.',
+  maxBuysPerSymbol: 'Auto-mode pyramid cap: max BUYs that can stack into one position before sellout. Default 3.',
+  minDropBetweenBuysPct: 'Each subsequent auto BUY must be at least this % below the previous BUY price. Default 10 = next BUY only if LTP ≤ previous × 0.90.',
 }
 
 // Descriptions for the params of each strategy type. Used in the cards so each
@@ -573,6 +577,8 @@ function StrategiesTab({ autoModeOn }: { autoModeOn: boolean }) {
           <NumField label="Circuit Breaker %"  value={draft.capital.circuitBreakerPct} onChange={v => patchCapital({ circuitBreakerPct: v })} desc={CAPITAL_DESCRIPTIONS.circuitBreakerPct} suffix="%" disabled={locked} />
           <NumField label="Max Deploy %"       value={draft.capital.maxDeployPct}    onChange={v => patchCapital({ maxDeployPct: v })}    desc={CAPITAL_DESCRIPTIONS.maxDeployPct}      suffix="%" disabled={locked} />
           <NumField label="Max Open Positions" value={draft.capital.maxPositions}    onChange={v => patchCapital({ maxPositions: v })}    desc={CAPITAL_DESCRIPTIONS.maxPositions}             disabled={locked} />
+          <NumField label="Max BUYs / Symbol"  value={draft.capital.maxBuysPerSymbol} onChange={v => patchCapital({ maxBuysPerSymbol: v })} desc={CAPITAL_DESCRIPTIONS.maxBuysPerSymbol}        disabled={locked} />
+          <NumField label="Min Drop Between BUYs" value={draft.capital.minDropBetweenBuysPct} onChange={v => patchCapital({ minDropBetweenBuysPct: v })} desc={CAPITAL_DESCRIPTIONS.minDropBetweenBuysPct} suffix="%" disabled={locked} />
         </div>
         {funds && (
           <div className="grid grid-cols-2 sm:grid-cols-4 gap-px" style={{ background:'rgba(255,255,255,0.04)', borderTop:'1px solid rgba(201,168,76,0.12)' }}>

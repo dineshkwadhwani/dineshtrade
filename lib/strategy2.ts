@@ -1,19 +1,19 @@
 // Strategy 2 — "Daily Catalyst" SELL engine.
 //
-// Polls today's open BUY positions and decides per-rule whether to:
-//   - SELL (LTP hit +1.5% target — exit immediately, book profit)
-//   - HOLD (still within targets, market still open)
-//   - DELIVERY (3 PM IST reached without target hit — hand off to Strategy 1)
+// Per the unified exit model:
+//   - T1 trigger = firstBuyPrice × (1 + catalyst.exits.t1Pct/100) → SELL 50%
+//   - T2 trigger = firstBuyPrice × (1 + catalyst.exits.t2Pct/100) → SELL remaining
+//   - If LTP jumps past T2 before T1 ever fires → SELL ENTIRE qty at T2
+//   - If 15 calendar days pass from firstBuyAt without full exit → HAND OFF
+//     to Strategy 1 (Oscillator). Entry price preserved; Oscillator's
+//     percentages then take over.
 //
-// Per spec exit rules:
-//   "If stock hits +1.5% from entry → sell immediately, book profit"
-//   "If stock hits +2% from entry → sell immediately if still holding"
-//   "If neither hit by 3:00 PM → don't sell, take to delivery"
+// Positions are tracked in data/strategy2_positions.json so first-BUY anchor
+// and the 15-day clock survive PM2 restarts and span days. Pyramid BUYs add
+// to the same position without resetting the anchor.
 //
-// We tag our orders 'dt-s2' (BUY) and 'dt-s2-exit' (SELL) so we only manage
-// positions we placed, never the user's manual trades.
+// Order tags: 'dt-s2' (BUY), 'dt-s2-exit' (SELL).
 
-import strategyCfg from '@/config/strategy.json'
 import {
   resolveAccountCreds, getPositions, getOrders, getQuotes, placeKiteOrder,
   type KitePosition, type KiteOrder,
@@ -23,12 +23,16 @@ import { sendEmail } from './email'
 import { getAccountList } from './accounts'
 import { ensureStrategy1Tracking } from './strategy1'
 import { appendJournal, istDateString, istHHMM, classifyVerdict } from './journal'
+import { getStrategyById } from './strategyConfig'
+import {
+  listStrategy2Positions, removeStrategy2Position, markTranche1Sold,
+  recordStrategy2Buy, ageInCalendarDays,
+} from './strategy2Positions'
 
 export const STRATEGY_2_BUY_TAG = 'dt-s2'
 export const STRATEGY_2_SELL_TAG = 'dt-s2-exit'
 
-const T1_TRIGGER = 1 + strategyCfg.targets.intraday_t1_pct / 100  // 1.015
-const DELIVERY_HOUR_IST = 15                                       // 15:00 IST — past this, no more SELL attempts
+const HANDOFF_DAYS_DEFAULT = 15   // calendar days from firstBuyAt
 
 export type MonitorAction = 'sold' | 'sold_failed' | 'held' | 'delivery' | 'skipped'
 
@@ -52,13 +56,9 @@ export interface MonitorResult {
   entries: MonitorEntry[]
 }
 
-function istHour(): number {
-  const ist = new Date(new Date().toLocaleString('en-US', { timeZone: 'Asia/Kolkata' }))
-  return ist.getHours()
-}
-
-// For each account's open day positions whose original BUY came from us (tag === dt-s2),
-// poll LTP and decide SELL / HOLD / DELIVERY.
+// Reads the persistent S2 position store + live Kite quotes, evaluates each
+// open position against T1 / T2 (first-BUY-based) and the 15-day handoff
+// timer. Pyramid-aware via the store's totalQty/remainingQty fields.
 export async function monitorAccount(account: string): Promise<MonitorResult> {
   const ranAt = new Date().toISOString()
   const displayName = getAccountList().find(a => a.name === account)?.displayName
@@ -69,162 +69,203 @@ export async function monitorAccount(account: string): Promise<MonitorResult> {
     return { account, ranAt, positionsChecked: 0, entries: [{ account, accountDisplayName: displayName, symbol: '—', action: 'skipped', reason: creds.error }] }
   }
 
-  // 1. Find today's BUYs we placed (tag === dt-s2) that are still open in the day book.
+  // Strategy config — pull exits + handoff window from the live config (so
+  // edits in Settings take effect on the next tick without a restart).
+  const catalyst = getStrategyById('catalyst')
+  const t1Pct = catalyst?.exits?.t1Pct ?? 1.5
+  const t2Pct = catalyst?.exits?.t2Pct ?? 2.0
+  const handoffDays = (catalyst?.params as any)?.deliveryHandoffDays ?? HANDOFF_DAYS_DEFAULT
+
+  // Seed the store from today's Kite dt-s2 BUYs in case any exist that haven't
+  // been recorded yet (e.g. on the migration deploy, or if recordStrategy2Buy
+  // ever failed). Idempotent: existing entries aren't overwritten.
   const orders = await getOrders(creds)
-  const ourTodayBuys = orders.filter(o =>
-    o.tag === STRATEGY_2_BUY_TAG &&
-    o.transaction_type === 'BUY' &&
-    o.status === 'COMPLETE'
-  )
-  // Symbol → entry price (use first fill — most accurate for sizing)
-  const entryBySymbol = new Map<string, number>()
-  for (const o of ourTodayBuys) {
+  const todaysS2Buys = orders.filter(o => o.tag === STRATEGY_2_BUY_TAG && o.transaction_type === 'BUY' && o.status === 'COMPLETE')
+  const allKnown = await listStrategy2Positions()
+  const knownKeys = new Set(allKnown.filter(p => p.account.toUpperCase() === account.toUpperCase()).map(p => p.symbol.toUpperCase()))
+  for (const o of todaysS2Buys) {
     const sym = o.tradingsymbol.toUpperCase()
-    if (!entryBySymbol.has(sym)) entryBySymbol.set(sym, Number(o.average_price) || 0)
+    if (!knownKeys.has(sym)) {
+      const px = Number(o.average_price) || 0
+      const qty = Number(o.filled_quantity || o.quantity) || 0
+      if (px > 0 && qty > 0) {
+        await recordStrategy2Buy(account, sym, qty, px)
+        console.log(`[strategy2 monitor] seeded missing position ${account}:${sym} from today's Kite order`)
+      }
+    }
   }
-  if (entryBySymbol.size === 0) {
+
+  // Per-account positions from the store
+  const positions = (await listStrategy2Positions()).filter(p => p.account.toUpperCase() === account.toUpperCase())
+  if (positions.length === 0) {
     return { account, ranAt, positionsChecked: 0, entries: [] }
   }
-  // Visibility — shows up in `pm2 logs dineshtrade` so you can confirm Manual
-  // BUYs are being picked up after a Manual → Auto mode switch mid-session.
-  console.log(`[strategy2 monitor] ${account}: tracking ${entryBySymbol.size} dt-s2 BUY(s) — ${Array.from(entryBySymbol.keys()).join(', ')}`)
 
-  // 2. Get positions to know what's still held intraday.
+  // Live Kite positions + holdings → know what's actually held
   const { day, net } = await getPositions(creds)
-  const positionBySymbol = new Map<string, KitePosition>()
+  const liveQtyBySymbol = new Map<string, number>()
   for (const p of [...day, ...net]) {
-    if (p.quantity > 0) positionBySymbol.set(p.tradingsymbol.toUpperCase(), p)
+    const sym = p.tradingsymbol.toUpperCase()
+    liveQtyBySymbol.set(sym, (liveQtyBySymbol.get(sym) || 0) + (p.quantity || 0))
   }
 
-  // 3. Quote all symbols in one batch.
-  const symbols = Array.from(entryBySymbol.keys())
+  const symbols = positions.map(p => p.symbol)
   const quotes = await getQuotes(creds, symbols)
 
-  // 4. Decide per symbol.
-  const pastDeliveryCutoff = istHour() >= DELIVERY_HOUR_IST
+  console.log(`[strategy2 monitor] ${account}: ${positions.length} open S2 position(s) — ${symbols.join(', ')}`)
 
-  for (const symbol of symbols) {
-    const entry = entryBySymbol.get(symbol)!
-    const pos = positionBySymbol.get(symbol)
-    const qty = pos?.quantity ?? 0
+  for (const pos of positions) {
+    const symbol = pos.symbol
     const quote = quotes[`NSE:${symbol}`]
     const ltp = quote?.last_price
+    const liveQty = liveQtyBySymbol.get(symbol) ?? 0
 
-    if (qty <= 0) {
-      // Already sold (either by us in a prior tick, or by the user). Nothing to do.
-      entries.push({ account, accountDisplayName: displayName, symbol, action: 'skipped', entryPrice: entry, reason: 'No open quantity — already exited' })
-      continue
-    }
-
-    if (ltp === undefined) {
-      entries.push({ account, accountDisplayName: displayName, symbol, action: 'skipped', quantity: qty, entryPrice: entry, reason: 'No LTP from Kite' })
-      continue
-    }
-
-    const gainPct = ((ltp - entry) / entry) * 100
-    const targetHit = ltp >= entry * T1_TRIGGER
-
-    if (targetHit) {
-      // Fire SELL — re-run preflight first so we honor market / no-short / no-loss / quota gates.
-      const pre = await runPreflight({ account, symbol, side: 'SELL', quantity: qty, pricePerShare: ltp })
-      if (!pre.ok) {
-        // noShort means the position was closed manually in Kite — record + move on.
-        entries.push({
-          account, accountDisplayName: displayName, symbol,
-          action: 'skipped', quantity: qty, entryPrice: entry, ltp, gainPct,
-          reason: pre.gate === 'noShort'
-            ? 'Position no longer held in Kite (manually closed?) — skipping'
-            : `Preflight ${pre.gate}: ${pre.reason}`,
-        })
-        continue
-      }
-      const actualQty = pre.adjustedQty ?? qty
-      const placed = await placeKiteOrder(creds, { symbol, side: 'SELL', quantity: actualQty, tag: STRATEGY_2_SELL_TAG })
-      if (placed.ok && placed.data?.data?.order_id) {
-        await markPlaced(account, symbol, 'SELL')
-        const adjusted = pre.adjustedQty !== undefined
-        // Journal the completed trade.
-        const pnlRupees = (ltp - entry) * actualQty
-        const pnlPct = ((ltp - entry) / entry) * 100
-        const dayHigh = (quote as any)?.ohlc?.high ?? ltp
-        const dayLow  = (quote as any)?.ohlc?.low  ?? ltp
-        appendJournal({
-          type: 'trade',
-          date: istDateString(),
-          account, symbol,
-          qty: actualQty,
-          entryPrice: entry,
-          entryTime: '',   // not tracked precisely — Kite getOrders has it; leave blank for now
-          exitPrice: ltp,
-          exitTime: new Date().toISOString(),
-          pnlRupees, pnlPct,
-          dayHighAfterEntry: dayHigh,
-          dayLowAfterEntry: dayLow,
-          leftOnTable: Math.max(0, dayHigh - ltp),
-          verdict: classifyVerdict({ strategy: 'catalyst', entryPrice: entry, exitPrice: ltp, t1TriggerPct: strategyCfg.targets.intraday_t1_pct }),
-          strategy: 'catalyst',
-          orderIdSell: placed.data.data.order_id,
-        }).catch(err => console.error('[strategy2] journal write failed:', err))
-        entries.push({
-          account, accountDisplayName: displayName, symbol,
-          action: 'sold', quantity: actualQty, entryPrice: entry, ltp, gainPct,
-          orderId: placed.data.data.order_id,
-          reason: adjusted ? `Clamped ${qty} → ${actualQty} (live held quantity)` : undefined,
-        })
-        sendEmail('trade_executed', {
-          account,
-          accountDisplayName: displayName,
-          symbol,
-          side: 'SELL',
-          quantity: actualQty,
-          price: ltp,
-          orderId: placed.data.data.order_id,
-          source: `Auto-exit @ +${gainPct.toFixed(2)}%`,
-          reason: adjusted
-            ? `Strategy 2 target hit. Clamped ${qty} → ${actualQty} (live held)`
-            : `Strategy 2 target hit (≥+${strategyCfg.targets.intraday_t1_pct}%)`,
-          mode: 'auto',
-        }).catch(err => console.error('[strategy2] sold-email failed:', err))
-      } else {
-        const errMsg = placed.data?.message || placed.data?.error_type || `Kite HTTP ${placed.status}`
-        entries.push({
-          account, accountDisplayName: displayName, symbol,
-          action: 'sold_failed', quantity: actualQty, entryPrice: entry, ltp, gainPct,
-          reason: errMsg,
-        })
-        sendEmail('trade_failed', {
-          account, accountDisplayName: displayName,
-          symbol, side: 'SELL', quantity: actualQty, price: ltp,
-          failedAt: 'kite', reason: errMsg, mode: 'auto',
-        }).catch(err => console.error('[strategy2] sold-failed-email failed:', err))
-      }
-      continue
-    }
-
-    if (pastDeliveryCutoff) {
-      // 3 PM IST cutoff reached — leave as delivery and HAND OFF to Strategy 1.
-      // ensureStrategy1Tracking is idempotent so repeated 15:00–15:30 ticks are safe.
-      const handedOff = await ensureStrategy1Tracking(account, symbol, qty, entry, 'strategy2_delivery')
-        .catch(err => { console.error('[strategy2] handoff to s1 failed:', err); return false })
+    // Sold externally? Drop from store.
+    if (liveQty <= 0) {
+      await removeStrategy2Position(account, symbol)
       entries.push({
         account, accountDisplayName: displayName, symbol,
-        action: 'delivery', quantity: qty, entryPrice: entry, ltp, gainPct,
-        reason: handedOff
-          ? `Past 15:00 IST without hitting +${strategyCfg.targets.intraday_t1_pct}% — transitioned to Strategy 1 (EMA-based exit from tomorrow)`
-          : `Past 15:00 IST — already tracked by Strategy 1`,
+        action: 'skipped', entryPrice: pos.firstBuyPrice,
+        reason: 'Kite qty = 0 — position closed externally; removed from store',
       })
       continue
     }
 
-    // Default: still in monitoring window, target not yet hit.
-    entries.push({
-      account, accountDisplayName: displayName, symbol,
-      action: 'held', quantity: qty, entryPrice: entry, ltp, gainPct,
-      reason: `Waiting for +${strategyCfg.targets.intraday_t1_pct}% — currently ${gainPct >= 0 ? '+' : ''}${gainPct.toFixed(2)}%`,
-    })
+    // Age check — handoff to Oscillator if too old
+    const ageDays = ageInCalendarDays(pos.firstBuyAt)
+    if (ageDays >= handoffDays) {
+      const handedOff = await ensureStrategy1Tracking(account, symbol, pos.remainingQty, pos.firstBuyPrice, `strategy2_age_${Math.floor(ageDays)}d`)
+        .catch(err => { console.error('[strategy2] handoff to s1 failed:', err); return false })
+      await removeStrategy2Position(account, symbol)
+      entries.push({
+        account, accountDisplayName: displayName, symbol,
+        action: 'delivery', quantity: pos.remainingQty, entryPrice: pos.firstBuyPrice, ltp,
+        reason: handedOff
+          ? `${Math.floor(ageDays)} calendar days since first BUY — handed off to Strategy 1 (Oscillator) for percentage-based exit`
+          : `${Math.floor(ageDays)} days old; Strategy 1 was already tracking — removed from S2 store`,
+      })
+      continue
+    }
+
+    if (ltp === undefined) {
+      entries.push({ account, accountDisplayName: displayName, symbol, action: 'skipped', quantity: pos.remainingQty, entryPrice: pos.firstBuyPrice, reason: 'No LTP from Kite' })
+      continue
+    }
+
+    const t1Price = pos.firstBuyPrice * (1 + t1Pct / 100)
+    const t2Price = pos.firstBuyPrice * (1 + t2Pct / 100)
+    const gainPct = ((ltp - pos.firstBuyPrice) / pos.firstBuyPrice) * 100
+    const tranche1Done = !!pos.tranche1At
+
+    // Decide what to sell, if anything
+    let sellQty = 0
+    let sellReason = ''
+    let willCompletePosition = false
+    if (!tranche1Done && ltp >= t2Price) {
+      // LTP jumped past T2 before T1 fired — sell entire position at T2
+      sellQty = pos.remainingQty
+      sellReason = `LTP ₹${ltp.toFixed(2)} ≥ T2 ₹${t2Price.toFixed(2)} (skipped past T1) — selling entire position`
+      willCompletePosition = true
+    } else if (!tranche1Done && ltp >= t1Price) {
+      // Tranche 1: sell ~50%. Use Math.ceil so a qty of 1 still triggers
+      // tranche1 (we never want to leave 0/1 on a tranche).
+      sellQty = Math.max(1, Math.floor(pos.remainingQty / 2))
+      sellReason = `LTP ₹${ltp.toFixed(2)} ≥ T1 ₹${t1Price.toFixed(2)} — tranche 1 sell (50% of ${pos.remainingQty})`
+    } else if (tranche1Done && ltp >= t2Price) {
+      sellQty = pos.remainingQty
+      sellReason = `LTP ₹${ltp.toFixed(2)} ≥ T2 ₹${t2Price.toFixed(2)} — tranche 2 sell (remainder)`
+      willCompletePosition = true
+    }
+
+    if (sellQty === 0) {
+      // Hold
+      entries.push({
+        account, accountDisplayName: displayName, symbol,
+        action: 'held', quantity: pos.remainingQty, entryPrice: pos.firstBuyPrice, ltp, gainPct,
+        reason: tranche1Done
+          ? `Waiting for T2 ₹${t2Price.toFixed(2)} — currently ₹${ltp.toFixed(2)} (${gainPct >= 0 ? '+' : ''}${gainPct.toFixed(2)}%)`
+          : `Waiting for T1 ₹${t1Price.toFixed(2)} — currently ₹${ltp.toFixed(2)} (${gainPct >= 0 ? '+' : ''}${gainPct.toFixed(2)}%)`,
+      })
+      continue
+    }
+
+    // Fire SELL — preflight enforces market/no-short/no-loss
+    const pre = await runPreflight({ account, symbol, side: 'SELL', quantity: sellQty, pricePerShare: ltp })
+    if (!pre.ok) {
+      entries.push({
+        account, accountDisplayName: displayName, symbol,
+        action: 'skipped', quantity: sellQty, entryPrice: pos.firstBuyPrice, ltp, gainPct,
+        reason: pre.gate === 'noShort'
+          ? 'Position no longer held in Kite (manually closed?) — skipping'
+          : `Preflight ${pre.gate}: ${pre.reason}`,
+      })
+      continue
+    }
+    const actualQty = pre.adjustedQty ?? sellQty
+    const placed = await placeKiteOrder(creds, { symbol, side: 'SELL', quantity: actualQty, tag: STRATEGY_2_SELL_TAG })
+    if (placed.ok && placed.data?.data?.order_id) {
+      await markPlaced(account, symbol, 'SELL', { price: ltp, manual: false })
+
+      // Update the position store
+      if (willCompletePosition || actualQty >= pos.remainingQty) {
+        await removeStrategy2Position(account, symbol)
+      } else {
+        await markTranche1Sold(account, symbol, actualQty)
+      }
+
+      const pnlRupees = (ltp - pos.firstBuyPrice) * actualQty
+      const pnlPct = gainPct
+      const dayHigh = (quote as any)?.ohlc?.high ?? ltp
+      const dayLow  = (quote as any)?.ohlc?.low  ?? ltp
+      appendJournal({
+        type: 'trade',
+        date: istDateString(),
+        account, symbol,
+        qty: actualQty,
+        entryPrice: pos.firstBuyPrice,
+        entryTime: pos.firstBuyAt,
+        exitPrice: ltp,
+        exitTime: new Date().toISOString(),
+        pnlRupees, pnlPct,
+        dayHighAfterEntry: dayHigh,
+        dayLowAfterEntry: dayLow,
+        leftOnTable: Math.max(0, dayHigh - ltp),
+        verdict: classifyVerdict({ strategy: 'catalyst', entryPrice: pos.firstBuyPrice, exitPrice: ltp, t1TriggerPct: t1Pct }),
+        strategy: 'catalyst',
+        orderIdSell: placed.data.data.order_id,
+        notes: sellReason,
+      }).catch(err => console.error('[strategy2] journal write failed:', err))
+
+      entries.push({
+        account, accountDisplayName: displayName, symbol,
+        action: 'sold', quantity: actualQty, entryPrice: pos.firstBuyPrice, ltp, gainPct,
+        orderId: placed.data.data.order_id,
+        reason: sellReason,
+      })
+      sendEmail('trade_executed', {
+        account, accountDisplayName: displayName, symbol,
+        side: 'SELL', quantity: actualQty, price: ltp,
+        orderId: placed.data.data.order_id,
+        source: `S2 auto-exit @ +${gainPct.toFixed(2)}%`,
+        reason: sellReason,
+        mode: 'auto',
+      }).catch(err => console.error('[strategy2] sold-email failed:', err))
+    } else {
+      const errMsg = placed.data?.message || placed.data?.error_type || `Kite HTTP ${placed.status}`
+      entries.push({
+        account, accountDisplayName: displayName, symbol,
+        action: 'sold_failed', quantity: actualQty, entryPrice: pos.firstBuyPrice, ltp, gainPct,
+        reason: errMsg,
+      })
+      sendEmail('trade_failed', {
+        account, accountDisplayName: displayName, symbol,
+        side: 'SELL', quantity: actualQty, price: ltp,
+        failedAt: 'kite', reason: errMsg, mode: 'auto',
+      }).catch(err => console.error('[strategy2] sold-failed-email failed:', err))
+    }
   }
 
-  return { account, ranAt, positionsChecked: symbols.length, entries }
+  return { account, ranAt, positionsChecked: positions.length, entries }
 }
 
 // Run the monitor across every connected account. Used by the cron tick.

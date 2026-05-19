@@ -28,11 +28,23 @@ export type TradeMode = 'auto' | 'manual'
 // are pruned on read (see normalize()).
 export type IdempotencyLedger = Record<string, true>
 
+// Per-account-symbol BUY history used by the pyramid gate. Records every
+// successful auto BUY price so subsequent BUYs can enforce the "next BUY
+// must be ≥10% below previous BUY" rule. Entries are cleared at the start
+// of each preflight when Kite reports zero qty for that symbol — meaning the
+// previous position has been fully exited and pyramiding starts fresh.
+export interface BuyHistoryEntry {
+  price: number
+  ts: string                    // ISO timestamp of the BUY
+}
+export type BuyHistoryLedger = Record<string, BuyHistoryEntry[]>
+
 export interface SessionState {
   mode: TradeMode
   selectedAccounts: string[]
   kiteTokens: Record<string, string>
   idempotencyLedger: IdempotencyLedger
+  buyHistory: BuyHistoryLedger
 }
 
 const DEFAULT_STATE: SessionState = {
@@ -40,6 +52,7 @@ const DEFAULT_STATE: SessionState = {
   selectedAccounts: [],
   kiteTokens: {},
   idempotencyLedger: {},
+  buyHistory: {},
 }
 
 function istDateKey(): string {
@@ -57,7 +70,7 @@ function midnightIST(): Date {
 }
 
 function normalize(raw: Partial<SessionState> | null | undefined): SessionState {
-  if (!raw) return { ...DEFAULT_STATE, kiteTokens: {}, idempotencyLedger: {} }
+  if (!raw) return { ...DEFAULT_STATE, kiteTokens: {}, idempotencyLedger: {}, buyHistory: {} }
   // Prune any ledger entries whose date prefix isn't today — old days never need to be remembered
   const today = istDateKey()
   const cleanedLedger: IdempotencyLedger = {}
@@ -72,6 +85,7 @@ function normalize(raw: Partial<SessionState> | null | undefined): SessionState 
     selectedAccounts: Array.isArray(raw.selectedAccounts) ? raw.selectedAccounts : [],
     kiteTokens: (raw.kiteTokens && typeof raw.kiteTokens === 'object') ? raw.kiteTokens : {},
     idempotencyLedger: cleanedLedger,
+    buyHistory: (raw.buyHistory && typeof raw.buyHistory === 'object') ? raw.buyHistory as BuyHistoryLedger : {},
   }
 }
 
@@ -144,6 +158,7 @@ export async function saveState(patch: Partial<SessionState>): Promise<SessionSt
     selectedAccounts: patch.selectedAccounts ?? current.selectedAccounts,
     kiteTokens: { ...current.kiteTokens, ...(patch.kiteTokens || {}) },
     idempotencyLedger: { ...current.idempotencyLedger, ...(patch.idempotencyLedger || {}) },
+    buyHistory: patch.buyHistory ?? current.buyHistory,
   }
   if (useFile) await writeFile(next)
   else await writeCookie(next)
@@ -160,6 +175,35 @@ export async function recordIdempotency(account: string, symbol: string, side: '
 
 export function makeIdempotencyKey(account: string, symbol: string, side: 'BUY' | 'SELL'): string {
   return `${account.toUpperCase()}:${istDateKey()}:${symbol.toUpperCase()}:${side}`
+}
+
+function buyHistoryKey(account: string, symbol: string): string {
+  return `${account.toUpperCase()}:${symbol.toUpperCase()}`
+}
+
+// Append a successful BUY price to the per-symbol history (pyramid gate).
+// Called from markPlaced on BUY success in auto-mode paths.
+export async function recordBuyHistory(account: string, symbol: string, price: number): Promise<void> {
+  const current = await getState()
+  const key = buyHistoryKey(account, symbol)
+  const entries = current.buyHistory[key] || []
+  const next = { ...current.buyHistory, [key]: [...entries, { price, ts: new Date().toISOString() }] }
+  await saveState({ buyHistory: next })
+}
+
+// Reset buy history for a symbol — called when Kite reports zero qty (the
+// position has been fully exited) so the next BUY starts a fresh pyramid.
+export async function resetBuyHistoryForSymbol(account: string, symbol: string): Promise<void> {
+  const current = await getState()
+  const key = buyHistoryKey(account, symbol)
+  if (!(key in current.buyHistory)) return
+  const next = { ...current.buyHistory }
+  delete next[key]
+  await saveState({ buyHistory: next })
+}
+
+export function getBuyHistory(state: SessionState, account: string, symbol: string): BuyHistoryEntry[] {
+  return state.buyHistory[buyHistoryKey(account, symbol)] || []
 }
 
 // Replace whole state. Used when removing a token (saveState merges, which would

@@ -179,11 +179,18 @@ export async function POST(req: NextRequest) {
   const r = await kiteRequest('/orders/regular', creds.apiKey, creds.accessToken, 'POST', kiteBody)
 
   if (r.ok && r.data?.data?.order_id) {
-    await markPlaced(account, symbolUpper, side)
+    await markPlaced(account, symbolUpper, side, { price: pricePerShare, manual })
     // Persist Strategy 1 BUYs so the SELL monitor manages them across days.
     if (side === 'BUY' && orderTag === STRATEGY_1_BUY_TAG) {
       recordStrategy1Buy(account, symbolUpper, actualQty, pricePerShare)
         .catch(err => console.error('[zerodha route] strategy1 record failed:', err))
+    }
+    // Persist Strategy 2 BUYs into the multi-day position store. dt-s2 is used
+    // when the user clicks Execute on a Catalyst recommendation from /engine.
+    if (side === 'BUY' && orderTag === 'dt-s2') {
+      const { recordStrategy2Buy } = await import('@/lib/strategy2Positions')
+      recordStrategy2Buy(account, symbolUpper, actualQty, pricePerShare)
+        .catch(err => console.error('[zerodha route] strategy2 record failed:', err))
     }
     sendEmail('trade_executed', {
       account,

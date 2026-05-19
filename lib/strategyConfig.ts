@@ -17,6 +17,13 @@ export interface CapitalConfig {
   maxDeployPct: number        // never deploy more than this % of available funds (default 80)
   sharedPool: boolean         // when true, every strategy draws from one pool of funds
   maxPositions: number        // open-position cap (preflight GATE 6)
+  // Pyramiding controls — limit averaging-down behaviour in auto mode.
+  // maxBuysPerSymbol: hard cap on consecutive BUYs accumulating into one position.
+  //   Resets when the position is fully exited (Kite qty for the symbol = 0).
+  // minDropBetweenBuysPct: each subsequent BUY must be at least this % below the
+  //   previous BUY price. Default 10 = next BUY only if LTP ≤ previous × 0.90.
+  maxBuysPerSymbol: number
+  minDropBetweenBuysPct: number
 }
 
 export interface StrategyExits {
@@ -89,6 +96,8 @@ export function getCapital(): CapitalConfig {
     maxDeployPct: typeof c.maxDeployPct === 'number' ? c.maxDeployPct : 80,
     sharedPool: c.sharedPool !== false,
     maxPositions: typeof c.maxPositions === 'number' ? c.maxPositions : 10,
+    maxBuysPerSymbol: typeof c.maxBuysPerSymbol === 'number' ? c.maxBuysPerSymbol : 3,
+    minDropBetweenBuysPct: typeof c.minDropBetweenBuysPct === 'number' ? c.minDropBetweenBuysPct : 10,
   }
 }
 

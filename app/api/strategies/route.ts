@@ -57,6 +57,8 @@ export async function POST(req: Request) {
     if (!(capital.maxDeployPct > 0 && capital.maxDeployPct <= 100)) errors.push('Max Deploy % must be between 1 and 100')
     if (capital.circuitBreakerPct > 0)       errors.push('Circuit breaker % must be 0 or negative')
     if (!(capital.maxPositions >= 1))        errors.push('Max positions must be ≥ 1')
+    if (capital.maxBuysPerSymbol !== undefined && !(capital.maxBuysPerSymbol >= 1)) errors.push('Max BUYs per symbol must be ≥ 1')
+    if (capital.minDropBetweenBuysPct !== undefined && !(capital.minDropBetweenBuysPct >= 0)) errors.push('Min drop between BUYs must be ≥ 0%')
   }
 
   if (!Array.isArray(body.strategies)) errors.push('strategies array missing')
