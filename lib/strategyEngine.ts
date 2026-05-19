@@ -704,7 +704,14 @@ export async function evaluateAllForTiles(): Promise<TileEvalResult> {
   }
 
   // Sort by score descending, then by symbol asc within same score
-  const byScore = (a: Tile, b: Tile) => b.score - a.score || a.symbol.localeCompare(b.symbol)
+  // Sort: highest score first (better prospects on top). Within the same
+  // score tier, break ties by today's day change descending — a stock that's
+  // already moving in the strategy's favour is a better next-tick candidate
+  // than one sitting flat. Finally fall back to alphabetical for full ties.
+  const byScore = (a: Tile, b: Tile) =>
+    b.score - a.score ||
+    b.dayChangePct - a.dayChangePct ||
+    a.symbol.localeCompare(b.symbol)
   catalyst.sort(byScore)
   oscillator.sort(byScore)
 

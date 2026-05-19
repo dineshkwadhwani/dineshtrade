@@ -743,16 +743,20 @@ function TileCard({ tile, fullScore, tradeMode, onBuy, onSell }: {
   onBuy: () => void
   onSell: () => void
 }) {
-  // Border + BUY-button colour from score
+  // Three visual tiers. Each is distinct enough that a glance tells you the
+  // class of opportunity — 8/8 gold with glow, 6-7/8 amber with softer border,
+  // below 6 nearly invisible dim grey.
   const fullPass = tile.score === fullScore
   const partialPass = tile.score >= fullScore - 2 && tile.score < fullScore   // 6-7 of 8
-  const border = fullPass ? '#c9a84c' : partialPass ? '#f59e0b' : 'rgba(255,255,255,0.08)'
-  const cardBg = fullPass ? 'rgba(201,168,76,0.05)' : 'rgba(255,255,255,0.02)'
-  const buyBg = fullPass ? 'rgba(201,168,76,0.25)'
-    : partialPass ? 'rgba(245,158,11,0.15)'
+  const border = fullPass ? '#e8c97a' : partialPass ? 'rgba(245,158,11,0.5)' : 'rgba(255,255,255,0.08)'
+  const borderWidth = fullPass ? 2 : 1
+  const cardBg = fullPass ? 'rgba(201,168,76,0.12)' : partialPass ? 'rgba(245,158,11,0.03)' : 'rgba(255,255,255,0.02)'
+  const cardShadow = fullPass ? '0 0 20px rgba(201,168,76,0.35), inset 0 0 30px rgba(201,168,76,0.05)' : 'none'
+  const buyBg = fullPass ? 'linear-gradient(135deg, #8a6a1a, #c9a84c)'
+    : partialPass ? 'rgba(245,158,11,0.1)'
     : 'rgba(255,255,255,0.04)'
-  const buyBd = fullPass ? '#c9a84c' : partialPass ? '#f59e0b' : 'rgba(255,255,255,0.12)'
-  const buyColor = fullPass ? '#080604' : partialPass ? '#f59e0b' : 'rgba(255,255,255,0.5)'
+  const buyBd = fullPass ? '#c9a84c' : partialPass ? 'rgba(245,158,11,0.4)' : 'rgba(255,255,255,0.12)'
+  const buyColor = fullPass ? '#080604' : partialPass ? 'rgba(245,158,11,0.85)' : 'rgba(255,255,255,0.5)'
   const dayChgColor = tile.dayChangePct > 0 ? '#52b788' : tile.dayChangePct < 0 ? '#e05a5e' : 'rgba(255,255,255,0.55)'
   const dayChgArrow = tile.dayChangePct > 0 ? '▲' : tile.dayChangePct < 0 ? '▼' : '─'
 
@@ -763,7 +767,7 @@ function TileCard({ tile, fullScore, tradeMode, onBuy, onSell }: {
 
   return (
     <div className="rounded-xl overflow-hidden"
-      style={{ background: cardBg, border: `1px solid ${border}` }}>
+      style={{ background: cardBg, border: `${borderWidth}px solid ${border}`, boxShadow: cardShadow }}>
       {/* Header — symbol, LTP, today's % */}
       <div className="px-4 py-3 flex items-start justify-between"
         style={{ borderBottom: `1px solid rgba(255,255,255,0.05)` }}>
