@@ -24,6 +24,19 @@ interface EngineScan {
 
 type TradeMode = 'auto' | 'manual'
 
+// Kite order shape — we only use the fields we care about for today's activity.
+interface KiteOrder {
+  order_id: string
+  tradingsymbol: string
+  transaction_type: 'BUY' | 'SELL' | string
+  quantity: number
+  filled_quantity?: number
+  average_price: number
+  status: string
+  order_timestamp?: string
+  tag?: string
+}
+
 export default function EnginePage() {
   const [accounts, setAccounts] = useState<AccountDisplay[]>([])
   const [connected, setConnected] = useState<string[]>([])
@@ -32,6 +45,7 @@ export default function EnginePage() {
   const [scan, setScan] = useState<EngineScan | null>(null)
   const [loading, setLoading] = useState(false)
   const [loaded, setLoaded] = useState(false)
+  const [todayOrders, setTodayOrders] = useState<KiteOrder[]>([])
 
   useEffect(() => {
     Promise.all([
@@ -45,6 +59,19 @@ export default function EnginePage() {
     }).catch(() => {})
       .finally(() => setLoaded(true))
   }, [])
+
+  // Today's orders for the first selected (or first connected) account. Persistent
+  // — fetched on mount and after every execute, independent of the strategy scan.
+  async function loadTodayOrders() {
+    const account = selected[0] || connected[0]
+    if (!account) { setTodayOrders([]); return }
+    try {
+      const r = await fetch(`/api/zerodha?account=${encodeURIComponent(account)}&action=orders`).then(r => r.json())
+      if (Array.isArray(r?.data)) setTodayOrders(r.data as KiteOrder[])
+    } catch { /* best-effort */ }
+  }
+  useEffect(() => { loadTodayOrders() // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [selected.join(','), connected.join(',')])
 
   async function toggleAccount(name: string) {
     if (!connected.includes(name)) return  // can't trade on un-tokened account
@@ -105,8 +132,8 @@ export default function EnginePage() {
           })
         })
         const data = await res.json()
-        if (res.ok && data.data?.order_id) return { account, ok: true, msg: `Order ${data.data.order_id}` }
-        if (res.ok) return { account, ok: true, msg: 'Placed' }
+        if (res.ok && data.data?.order_id) { loadTodayOrders(); return { account, ok: true, msg: `Order ${data.data.order_id}` } }
+        if (res.ok) { loadTodayOrders(); return { account, ok: true, msg: 'Placed' } }
         // Preflight failures (422) — surface the gate name + reason.
         if (data.gate) return { account, ok: false, msg: `[${data.gate}] ${data.reason}` }
         return { account, ok: false, msg: data.reason || data.error || `HTTP ${res.status}` }
@@ -210,7 +237,12 @@ export default function EnginePage() {
         </div>
       )}
 
-      {/* Mode + limits */}
+      {/* TODAY'S ACTIVITY — persistent (fetched on mount + after every execute).
+          Uses live Kite orders for the first selected account, NOT the config max,
+          so the "remaining" numbers actually reflect what was placed. */}
+      <TodayActivity orders={todayOrders} account={selected[0] || connected[0] || null} />
+
+      {/* Mode chip — from latest scan if available */}
       {scan && (
         <div className="rounded-xl px-4 py-3 flex items-center gap-3 flex-wrap"
           style={{
@@ -220,11 +252,6 @@ export default function EnginePage() {
           <p className="text-sm font-medium" style={{ color: modeColors[scan.mode] || '#fff' }}>
             {modeLabels[scan.mode] || scan.mode}
           </p>
-          <div className="ml-auto flex gap-4 text-[11px]"
-            style={{ fontFamily:'JetBrains Mono, monospace', color:'rgba(255,255,255,0.4)' }}>
-            <span>Buys left: <span style={{ color:'#52b788' }}>{scan.limits?.buysRemaining ?? '—'}</span></span>
-            <span>Sells left: <span style={{ color:'#52b788' }}>{scan.limits?.sellsRemaining ?? '—'}</span></span>
-          </div>
         </div>
       )}
 
@@ -248,40 +275,29 @@ export default function EnginePage() {
         </div>
       )}
 
-      {scan?.recommendations && scan.recommendations.length > 0 && (
-        <div className="space-y-3">
-          <div className="flex items-center gap-3 flex-wrap">
-            <h2 className="text-[11px] tracking-widest uppercase"
-              style={{ color:'rgba(201,168,76,0.5)', fontFamily:'JetBrains Mono, monospace' }}>
-              {scan.recommendations.length} Signal{scan.recommendations.length > 1 ? 's' : ''} Found
-            </h2>
-            {scan.priceSource && (
-              <span className="text-[10px] tracking-widest uppercase px-2 py-0.5 rounded"
-                style={{
-                  background: scan.priceSource === 'kite_live' ? 'rgba(82,183,136,0.12)' : 'rgba(224,90,94,0.12)',
-                  border: `1px solid ${scan.priceSource === 'kite_live' ? 'rgba(82,183,136,0.3)' : 'rgba(224,90,94,0.3)'}`,
-                  color: scan.priceSource === 'kite_live' ? '#52b788' : 'rgba(224,90,94,0.85)',
-                  fontFamily:'JetBrains Mono, monospace',
-                }}>
-                {scan.priceSource === 'kite_live' ? '✓ Kite live prices' : '⚠ Fallback (briefing) prices'}
-              </span>
-            )}
-          </div>
-          {scan.recommendations.map((rec, i) => (
-            <RecCard key={i} rec={rec} tradeMode={tradeMode} onExecute={executeRec} accountCount={selected.length} />
-          ))}
-        </div>
-      )}
-
-      {scan && scan.recommendations?.length === 0 && !loading && (
-        <div className="text-center py-12">
-          <p className="text-4xl mb-3 opacity-30">—</p>
-          <p className="text-base" style={{ fontFamily:'Cormorant Garamond, serif', color:'rgba(255,255,255,0.4)', fontSize:'18px' }}>No signals</p>
-          <p className="text-[12px] mt-1" style={{ color:'rgba(255,255,255,0.2)' }}>
-            {scan.message || 'No stocks meet entry criteria right now. Check again in 30 minutes.'}
-          </p>
-        </div>
-      )}
+      {/* Two strategy sections — always visible after a scan (or when there are
+          today's orders even without a fresh scan). Each shows new recs +
+          today's executed orders for that strategy. */}
+      <StrategySection
+        title="Strategy 1 — Oscillator (EMA Dip)"
+        accent="#52b788"
+        recs={(scan?.recommendations || []).filter(r => r.strategy === 'oscillator')}
+        ordersToday={todayOrders.filter(o => (o.tag || '').startsWith('dt-s1'))}
+        tradeMode={tradeMode}
+        onExecute={executeRec}
+        accountCount={selected.length}
+        scanRan={!!scan}
+      />
+      <StrategySection
+        title="Strategy 2 — Catalyst (Momentum)"
+        accent="#c9a84c"
+        recs={(scan?.recommendations || []).filter(r => r.strategy === 'catalyst')}
+        ordersToday={todayOrders.filter(o => (o.tag || '').startsWith('dt-s2'))}
+        tradeMode={tradeMode}
+        onExecute={executeRec}
+        accountCount={selected.length}
+        scanRan={!!scan}
+      />
 
       {/* ── FULL SCAN TILES — every List A stock with per-rule pass/fail ── */}
       <EngineTilesSection
@@ -292,6 +308,141 @@ export default function EnginePage() {
       />
     </div>
   )
+}
+
+// ─────────────────────── TODAY'S ACTIVITY ────────────────────────
+//
+// Replaces the misleading old "Buys left: 3 / Sells left: 3" chip (which
+// was just the config max, never decrementing). Now reads live Kite orders
+// for the active account and shows the actual today's BUYs / SELLs +
+// remaining-vs-cap. Refreshes on every successful execute.
+
+function TodayActivity({ orders, account }: { orders: KiteOrder[]; account: string | null }) {
+  // Filter to today's COMPLETE orders only. Kite returns ALL orders since
+  // session start (we're already today-scoped via /orders endpoint).
+  const completed = orders.filter(o => o.status === 'COMPLETE')
+  const buys = completed.filter(o => o.transaction_type === 'BUY')
+  const sells = completed.filter(o => o.transaction_type === 'SELL')
+  const buyValue = buys.reduce((s, o) => s + o.average_price * (o.filled_quantity ?? o.quantity), 0)
+  const sellValue = sells.reduce((s, o) => s + o.average_price * (o.filled_quantity ?? o.quantity), 0)
+  const buyCap = 3, sellCap = 3   // from strategy.json — informational
+  const buysLeft = Math.max(0, buyCap - buys.length)
+  const sellsLeft = Math.max(0, sellCap - sells.length)
+
+  return (
+    <div className="rounded-xl p-4" style={{ background:'rgba(255,255,255,0.03)', border:'1px solid rgba(255,255,255,0.06)' }}>
+      <div className="flex items-center justify-between mb-3 flex-wrap gap-2">
+        <p className="text-[11px] tracking-widest uppercase"
+          style={{ color:'rgba(201,168,76,0.6)', fontFamily:'JetBrains Mono, monospace' }}>
+          Today's activity{account ? ` · ${account}` : ''}
+        </p>
+        <p className="text-[9px]" style={{ color:'rgba(255,255,255,0.3)', fontFamily:'JetBrains Mono, monospace' }}>
+          Auto quota: {buyCap} BUYs / {sellCap} SELLs per day
+        </p>
+      </div>
+      <div className="grid grid-cols-2 sm:grid-cols-4 gap-3">
+        <ActivityCell label="BUYs placed" value={String(buys.length)} sub={`${buysLeft} left`} color="#52b788" />
+        <ActivityCell label="SELLs placed" value={String(sells.length)} sub={`${sellsLeft} left`} color="#e05a5e" />
+        <ActivityCell label="Bought ₹" value={fmtRupees(buyValue)} sub={undefined} color="rgba(255,255,255,0.7)" />
+        <ActivityCell label="Sold ₹" value={fmtRupees(sellValue)} sub={undefined} color="rgba(255,255,255,0.7)" />
+      </div>
+    </div>
+  )
+}
+
+function ActivityCell({ label, value, sub, color }: { label: string; value: string; sub?: string; color: string }) {
+  return (
+    <div className="rounded-lg p-3" style={{ background:'rgba(255,255,255,0.02)', border:'1px solid rgba(255,255,255,0.05)' }}>
+      <p className="text-[9px] tracking-widest uppercase mb-1" style={{ color:'rgba(255,255,255,0.3)', fontFamily:'JetBrains Mono, monospace' }}>{label}</p>
+      <p className="text-lg font-semibold" style={{ color, fontFamily:'JetBrains Mono, monospace' }}>{value}</p>
+      {sub && <p className="text-[10px] mt-0.5" style={{ color:'rgba(255,255,255,0.35)', fontFamily:'JetBrains Mono, monospace' }}>{sub}</p>}
+    </div>
+  )
+}
+
+function fmtRupees(n: number): string {
+  if (!n) return '₹0'
+  return `₹${Math.round(n).toLocaleString('en-IN')}`
+}
+
+// ──────────────────── STRATEGY SECTION ────────────────────
+//
+// One section per strategy. Always renders the header (so you can see "no
+// recs yet" explicitly) and shows two parts: today's executed orders +
+// new recommendations from the latest scan.
+
+function StrategySection({ title, accent, recs, ordersToday, tradeMode, onExecute, accountCount, scanRan }: {
+  title: string
+  accent: string
+  recs: Recommendation[]
+  ordersToday: KiteOrder[]
+  tradeMode: TradeMode
+  onExecute: (r: Recommendation) => Promise<{ accountResults: { account: string; ok: boolean; msg: string }[] }>
+  accountCount: number
+  scanRan: boolean
+}) {
+  const completed = ordersToday.filter(o => o.status === 'COMPLETE')
+  return (
+    <div className="space-y-3">
+      <div className="flex items-center gap-3 flex-wrap" style={{ borderLeft: `3px solid ${accent}`, paddingLeft: 12 }}>
+        <h2 className="text-[13px] font-semibold tracking-wider uppercase" style={{ color: accent, fontFamily:'JetBrains Mono, monospace' }}>
+          {title}
+        </h2>
+        <span className="text-[10px]" style={{ color:'rgba(255,255,255,0.35)', fontFamily:'JetBrains Mono, monospace' }}>
+          {recs.length} new rec{recs.length === 1 ? '' : 's'} · {completed.length} executed today
+        </span>
+      </div>
+
+      {/* Today's executed orders for this strategy */}
+      {completed.length > 0 && (
+        <div className="rounded-xl overflow-hidden" style={{ border:'1px solid rgba(255,255,255,0.06)' }}>
+          <div className="px-4 py-2 text-[9px] tracking-widest uppercase"
+            style={{ background:'rgba(255,255,255,0.02)', color:'rgba(255,255,255,0.3)', fontFamily:'JetBrains Mono, monospace', borderBottom:'1px solid rgba(255,255,255,0.06)' }}>
+            Executed today ({completed.length})
+          </div>
+          {completed.map((o, i) => (
+            <div key={o.order_id}
+              className="grid items-center px-4 py-2.5 text-[12px]"
+              style={{
+                gridTemplateColumns: '0.7fr 1.3fr 0.8fr 0.7fr 0.9fr 0.8fr',
+                borderBottom: i < completed.length - 1 ? '1px solid rgba(255,255,255,0.04)' : 'none',
+              }}>
+              <span style={{ color:'rgba(255,255,255,0.35)', fontFamily:'JetBrains Mono, monospace', fontSize: 10 }}>
+                {fmtOrderTime(o.order_timestamp)}
+              </span>
+              <span style={{ color:'rgba(255,255,255,0.85)', fontFamily:'JetBrains Mono, monospace', fontWeight: 600 }}>{o.tradingsymbol}</span>
+              <span style={{ color: o.transaction_type === 'BUY' ? '#52b788' : '#e05a5e', fontWeight: 600 }}>
+                {o.transaction_type === 'BUY' ? '▲ BUY' : '▼ SELL'}
+              </span>
+              <span className="text-right" style={{ color:'rgba(255,255,255,0.6)', fontFamily:'JetBrains Mono, monospace' }}>× {o.filled_quantity ?? o.quantity}</span>
+              <span className="text-right" style={{ color:'rgba(255,255,255,0.6)', fontFamily:'JetBrains Mono, monospace' }}>@ ₹{o.average_price.toFixed(2)}</span>
+              <span className="text-right" style={{ color:'rgba(96,165,250,0.6)', fontFamily:'JetBrains Mono, monospace', fontSize: 10 }}>{o.tag || '—'}</span>
+            </div>
+          ))}
+        </div>
+      )}
+
+      {/* New recommendations */}
+      {recs.length > 0 && recs.map((rec, i) => (
+        <RecCard key={i} rec={rec} tradeMode={tradeMode} onExecute={onExecute} accountCount={accountCount} />
+      ))}
+
+      {/* Empty state */}
+      {recs.length === 0 && completed.length === 0 && (
+        <div className="rounded-xl py-6 text-center" style={{ background:'rgba(255,255,255,0.02)', border:'1px dashed rgba(255,255,255,0.06)' }}>
+          <p className="text-[12px]" style={{ color:'rgba(255,255,255,0.3)' }}>
+            {scanRan ? 'No recommendations and no orders today' : 'Press Refresh & Scan to fetch recommendations'}
+          </p>
+        </div>
+      )}
+    </div>
+  )
+}
+
+function fmtOrderTime(ts?: string): string {
+  if (!ts) return '—'
+  const m = ts.match(/(\d{2}):(\d{2}):(\d{2})/)
+  return m ? `${m[1]}:${m[2]}` : ts.slice(0, 5)
 }
 
 function RecCard({ rec, tradeMode, onExecute, accountCount }: {

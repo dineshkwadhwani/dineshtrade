@@ -29,17 +29,29 @@ export default function ManageListsPage() {
   const [error, setError] = useState('')
   const [okMsg, setOkMsg] = useState('')
 
+  // Holdings indicator — fetch from the first connected account so each list
+  // row can show a suitcase icon if you currently hold that symbol.
+  const [heldSymbols, setHeldSymbols] = useState<Set<string>>(new Set())
+
   // Search state
   const [query, setQuery] = useState('')
   const [results, setResults] = useState<SearchResult[]>([])
   const [searching, setSearching] = useState(false)
   const [addTarget, setAddTarget] = useState<ListKey>('listA')
 
-  // Initial load
+  // Initial load — watchlist + holdings in parallel
   useEffect(() => {
     fetch('/api/watchlist').then(r => r.json()).then((d: Watchlist) => {
       setWl({ listA: d.listA || [], listB: d.listB || [], generated: d.generated })
     }).catch(() => setError('Failed to load watchlist'))
+    fetch('/api/state').then(r => r.json()).then(async s => {
+      const accs: string[] = s.accountsWithToken || []
+      if (accs.length === 0) return
+      const r = await fetch(`/api/zerodha?account=${encodeURIComponent(accs[0])}&action=holdings`).then(r => r.json()).catch(() => null)
+      if (Array.isArray(r?.data)) {
+        setHeldSymbols(new Set(r.data.map((h: any) => String(h.tradingsymbol).toUpperCase())))
+      }
+    }).catch(() => { /* holdings is best-effort decoration */ })
   }, [])
 
   // Debounced search
@@ -221,8 +233,10 @@ export default function ManageListsPage() {
 
       {/* TWO LIST COLUMNS */}
       <div className="grid grid-cols-1 lg:grid-cols-2 gap-4">
-        <ListPanel name="List A" listKey="listA" entries={wl.listA} otherKey="listB" onRemove={remove} onMove={move} />
-        <ListPanel name="List B" listKey="listB" entries={wl.listB} otherKey="listA" onRemove={remove} onMove={move} />
+        <ListPanel name="List A" listKey="listA" entries={wl.listA} otherKey="listB"
+          onRemove={remove} onMove={move} heldSymbols={heldSymbols} />
+        <ListPanel name="List B" listKey="listB" entries={wl.listB} otherKey="listA"
+          onRemove={remove} onMove={move} heldSymbols={heldSymbols} />
       </div>
 
       <p className="text-[10px] text-center" style={{ color:'rgba(255,255,255,0.25)', fontFamily:'JetBrains Mono, monospace' }}>
@@ -232,16 +246,21 @@ export default function ManageListsPage() {
   )
 }
 
-function ListPanel({ name, listKey, entries, otherKey, onRemove, onMove }: {
+function ListPanel({ name, listKey, entries, otherKey, onRemove, onMove, heldSymbols }: {
   name: string
   listKey: ListKey
   entries: Entry[]
   otherKey: ListKey
   onRemove: (list: ListKey, symbol: string) => void
   onMove: (from: ListKey, to: ListKey, symbol: string) => void
+  heldSymbols: Set<string>
 }) {
   const [filter, setFilter] = useState('')
-  const filtered = entries.filter(e =>
+  // Sort alphabetically by symbol so the list is scannable; held symbols
+  // already get visually emphasised by the suitcase icon so no separate
+  // sort by held/unheld is needed.
+  const sorted = [...entries].sort((a, b) => a.nse.localeCompare(b.nse))
+  const filtered = sorted.filter(e =>
     e.nse.toLowerCase().includes(filter.toLowerCase()) ||
     (e.name || '').toLowerCase().includes(filter.toLowerCase())
   )
@@ -264,14 +283,23 @@ function ListPanel({ name, listKey, entries, otherKey, onRemove, onMove }: {
             {entries.length === 0 ? 'empty' : 'no matches'}
           </p>
         )}
-        {filtered.map((e, i) => (
+        {filtered.map((e, i) => {
+          const held = heldSymbols.has(e.nse.toUpperCase())
+          return (
           <div key={e.nse}
             className="grid items-center px-4 py-2.5 transition-all hover:bg-white/5"
             style={{
               gridTemplateColumns: '1fr 1.6fr 0.7fr 0.6fr',
               borderBottom: i < filtered.length - 1 ? '1px solid rgba(255,255,255,0.04)' : 'none',
+              background: held ? 'rgba(96,165,250,0.05)' : 'transparent',
             }}>
-            <span style={{ color:'rgba(255,255,255,0.8)', fontFamily:'JetBrains Mono, monospace', fontWeight: 600 }}>{e.nse}</span>
+            <span className="flex items-center gap-1.5" style={{ color:'rgba(255,255,255,0.8)', fontFamily:'JetBrains Mono, monospace', fontWeight: 600 }}>
+              {held && (
+                <span title="Currently held in this account"
+                  style={{ color:'#60a5fa', fontSize: '11px' }}>💼</span>
+              )}
+              {e.nse}
+            </span>
             <span className="text-[11px] truncate" style={{ color:'rgba(255,255,255,0.5)' }}>{e.name}</span>
             <button onClick={() => onMove(listKey, otherKey, e.nse)}
               className="text-[10px] px-2 py-1 rounded transition-all"
@@ -284,7 +312,8 @@ function ListPanel({ name, listKey, entries, otherKey, onRemove, onMove }: {
               ✕
             </button>
           </div>
-        ))}
+          )
+        })}
       </div>
     </div>
   )
