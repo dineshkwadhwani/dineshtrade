@@ -275,7 +275,10 @@ function RetrospectiveView() {
 
 function ReportBody({ r }: { r: DailyReport }) {
   const pnlColor = r.totalPnl >= 0 ? '#52b788' : '#e05a5e'
-  const winRate = r.tradesCount > 0 ? `${Math.round(100 * r.wins / r.tradesCount)}%` : '—'
+  const buys = r.activityToday.filter(a => a.side === 'BUY').length
+  const sells = r.activityToday.filter(a => a.side === 'SELL').length
+  const fmt = (n: number) => `₹${Math.round(n).toLocaleString('en-IN')}`
+
   return (
     <div className="space-y-6">
       <div>
@@ -284,15 +287,109 @@ function ReportBody({ r }: { r: DailyReport }) {
         </p>
       </div>
 
+      {/* HERO — orders, open positions, capital deployed, realized P&L */}
       <div className="grid grid-cols-2 sm:grid-cols-4 gap-3">
-        <StatCard label="Trades" value={String(r.tradesCount)} color="#c9a84c" />
-        <StatCard label="Win Rate" value={winRate} color="#c9a84c" />
-        <StatCard label="Total P&L" value={signedRupees(r.totalPnl)} color={pnlColor} />
-        <StatCard label="Capital" value={`₹${Math.round(r.capitalDeployed).toLocaleString('en-IN')}`} color="#c9a84c" />
+        <StatCardSub label="Orders Today"   value={String(r.activityToday.length)} sub={`${buys} BUY · ${sells} SELL`} color="#c9a84c" />
+        <StatCardSub label="Open Positions" value={String(r.openPositions.length)} sub={fmt(r.openPositionValue)}    color="#c9a84c" />
+        <StatCardSub label="Deployed Today" value={fmt(r.capitalDeployedToday)}    sub="BUY notional"                 color="#c9a84c" />
+        <StatCardSub label="Realized P&L"   value={r.totalPnl !== 0 ? signedRupees(r.totalPnl) : '—'} sub={r.totalPnl !== 0 ? `${r.wins}/${r.tradesCount} wins` : 'no exits today'} color={pnlColor} />
       </div>
 
+      {/* CAPITAL STATUS */}
+      {r.capitalStatus && (
+        <Section title="Capital status">
+          <div className="grid grid-cols-2 sm:grid-cols-4 gap-3">
+            <StatCardSub label="Available"   value={fmt(r.capitalStatus.available)}            sub="from Kite" color="#c9a84c" />
+            <StatCardSub label="Deployed"    value={fmt(r.capitalStatus.deployedNow)}          sub={`${r.capitalStatus.pctDeployed.toFixed(0)}% of cap`} color={r.capitalStatus.pctDeployed > 90 ? '#e05a5e' : r.capitalStatus.pctDeployed > 75 ? '#f59e0b' : '#52b788'} />
+            <StatCardSub label="Reserve"     value={fmt(r.capitalStatus.available - r.capitalStatus.maxDeployable)} sub="buffer" color="rgba(255,255,255,0.55)" />
+            <StatCardSub label="Headroom"    value={fmt(r.capitalStatus.remainingDeployable)}  sub="for new entries" color={r.capitalStatus.remainingDeployable > 0 ? '#52b788' : 'rgba(255,255,255,0.4)'} />
+          </div>
+        </Section>
+      )}
+
+      {/* ACTIVITY TODAY */}
+      {r.activityToday.length > 0 && (
+        <Section title={`Activity today (${r.activityToday.length})`}>
+          <div className="rounded-xl overflow-hidden" style={{ background:'#100e0a', border:'1px solid rgba(255,255,255,0.08)' }}>
+            <div className="grid grid-cols-12 px-4 py-2.5 text-[9px] tracking-widest uppercase"
+              style={{ background:'rgba(255,255,255,0.02)', color:'rgba(255,255,255,0.3)', fontFamily:'JetBrains Mono, monospace', borderBottom:'1px solid rgba(255,255,255,0.08)' }}>
+              <span className="col-span-2">Time</span>
+              <span className="col-span-3">Symbol</span>
+              <span className="col-span-2">Side</span>
+              <span className="col-span-1 text-right">Qty</span>
+              <span className="col-span-2 text-right">Price</span>
+              <span className="col-span-2 text-right">Tag</span>
+            </div>
+            {r.activityToday.map((a, i) => (
+              <div key={i} className="grid grid-cols-12 px-4 py-2 items-center text-[11px]"
+                style={{ borderBottom:'1px solid rgba(255,255,255,0.04)', fontFamily:'JetBrains Mono, monospace' }}>
+                <span className="col-span-2" style={{ color:'rgba(255,255,255,0.5)' }}>{a.time}</span>
+                <span className="col-span-3 font-semibold" style={{ color:'rgba(255,255,255,0.85)' }}>{a.symbol}</span>
+                <span className="col-span-2 font-semibold" style={{ color: a.side === 'BUY' ? '#52b788' : '#e05a5e' }}>{a.side === 'BUY' ? '▲ BUY' : '▼ SELL'}</span>
+                <span className="col-span-1 text-right" style={{ color:'rgba(255,255,255,0.6)' }}>× {a.qty}</span>
+                <span className="col-span-2 text-right" style={{ color:'rgba(255,255,255,0.6)' }}>₹{a.price.toFixed(2)}</span>
+                <span className="col-span-2 text-right text-[9px]" style={{ color:'rgba(96,165,250,0.7)' }}>{a.tag || '—'}</span>
+              </div>
+            ))}
+          </div>
+        </Section>
+      )}
+
+      {/* OPEN POSITIONS */}
+      {r.openPositions.length > 0 && (
+        <Section title={`Open positions (${r.openPositions.length})`}>
+          <div className="rounded-xl overflow-hidden" style={{ background:'#100e0a', border:'1px solid rgba(255,255,255,0.08)' }}>
+            <div className="grid grid-cols-12 px-4 py-2.5 text-[9px] tracking-widest uppercase"
+              style={{ background:'rgba(255,255,255,0.02)', color:'rgba(255,255,255,0.3)', fontFamily:'JetBrains Mono, monospace', borderBottom:'1px solid rgba(255,255,255,0.08)' }}>
+              <span className="col-span-2">Symbol</span>
+              <span className="col-span-2">Source</span>
+              <span className="col-span-1 text-right">Qty</span>
+              <span className="col-span-2 text-right">Avg/LTP</span>
+              <span className="col-span-2 text-right">P&L</span>
+              <span className="col-span-3 text-right">Note</span>
+            </div>
+            {r.openPositions.map((p, i) => {
+              const pnlC = p.pnl >= 0 ? '#52b788' : '#e05a5e'
+              const srcColor = p.strategySource === 's1' ? '#c9a84c' : p.strategySource === 's2' ? '#60a5fa' : p.strategySource === 'mixed' ? '#f59e0b' : 'rgba(255,255,255,0.55)'
+              const note = [p.pyramidStatus, p.s2HandoffIn !== undefined ? `handoff in ${p.s2HandoffIn}d` : null].filter(Boolean).join(' · ')
+              return (
+                <div key={i} className="grid grid-cols-12 px-4 py-2.5 items-center text-[11px]"
+                  style={{ borderBottom:'1px solid rgba(255,255,255,0.04)', fontFamily:'JetBrains Mono, monospace' }}>
+                  <span className="col-span-2 font-semibold" style={{ color:'rgba(255,255,255,0.85)' }}>{p.symbol}</span>
+                  <span className="col-span-2">
+                    <span className="text-[8px] font-semibold tracking-widest px-1.5 py-0.5 rounded"
+                      style={{ background:`${srcColor}22`, color: srcColor, border:`1px solid ${srcColor}55` }}>
+                      {p.strategySource.toUpperCase()}
+                    </span>
+                  </span>
+                  <span className="col-span-1 text-right" style={{ color:'rgba(255,255,255,0.6)' }}>{p.qty}</span>
+                  <span className="col-span-2 text-right text-[10px]" style={{ color:'rgba(255,255,255,0.6)' }}>
+                    ₹{p.avgPrice.toFixed(2)} → ₹{p.ltp.toFixed(2)}
+                  </span>
+                  <span className="col-span-2 text-right font-semibold" style={{ color: pnlC }}>
+                    {signedRupees(p.pnl)} <span className="text-[9px] opacity-70">({p.pnlPct >= 0 ? '+' : ''}{p.pnlPct.toFixed(2)}%)</span>
+                  </span>
+                  <span className="col-span-3 text-right text-[9px]" style={{ color:'rgba(255,255,255,0.4)' }}>{note || '—'}</span>
+                </div>
+              )
+            })}
+          </div>
+        </Section>
+      )}
+
+      {/* PER-STRATEGY HEALTH */}
+      {r.strategyHealth.length > 0 && (
+        <Section title="Strategy health (30 days)">
+          <div className="space-y-2.5">
+            {r.strategyHealth.map((s, i) => (
+              <StrategyHealthCardUI key={i} s={s} />
+            ))}
+          </div>
+        </Section>
+      )}
+
       {r.trades.length > 0 && (
-        <Section title={`Trade-by-trade (${r.trades.length})`}>
+        <Section title={`Completed trades today (${r.trades.length})`}>
           <div className="space-y-3">
             {r.trades.map((t, i) => <TradeCard key={i} t={t} />)}
           </div>
@@ -314,23 +411,6 @@ function ReportBody({ r }: { r: DailyReport }) {
         </Section>
       )}
 
-      <Section title={`Strategy health (30-day rolling${r.rolling30.sampleSize > 0 ? `, n=${r.rolling30.sampleSize}` : ''})`}>
-        <div className="grid grid-cols-2 sm:grid-cols-4 gap-3">
-          <StatCard label="Win Rate (target 70%)"
-            value={r.rolling30.winRate === null ? '—' : `${r.rolling30.winRate.toFixed(0)}%`}
-            color={rateColor(r.rolling30.winRate, 70, 50)} />
-          <StatCard label="Avg Gain/Trade"
-            value={r.rolling30.avgGainPct === null ? '—' : `${r.rolling30.avgGainPct >= 0 ? '+' : ''}${r.rolling30.avgGainPct.toFixed(2)}%`}
-            color={rateColor(r.rolling30.avgGainPct, 1.5, 0.5)} />
-          <StatCard label="Delivery Open"
-            value={String(r.rolling30.deliveryOpen)}
-            color={r.rolling30.deliveryOpen > 5 ? '#f59e0b' : '#c9a84c'} />
-          <StatCard label="Capital Eff."
-            value={r.rolling30.capitalEfficiency === null ? '—' : `${r.rolling30.capitalEfficiency >= 0 ? '+' : ''}${r.rolling30.capitalEfficiency.toFixed(2)}%`}
-            color={r.rolling30.capitalEfficiency === null ? 'rgba(255,255,255,0.55)' : (r.rolling30.capitalEfficiency >= 0 ? '#52b788' : '#e05a5e')} />
-        </div>
-      </Section>
-
       {r.fineTuning.length > 0 && (
         <Section title="Fine-tuning signals">
           <div className="rounded-xl p-5" style={{ background:'#100e0a', border:'1px solid rgba(255,255,255,0.08)' }}>
@@ -341,12 +421,51 @@ function ReportBody({ r }: { r: DailyReport }) {
         </Section>
       )}
 
-      {r.trades.length === 0 && r.missedSignals.length === 0 && (
+      {r.trades.length === 0 && r.missedSignals.length === 0 && r.activityToday.length === 0 && r.openPositions.length === 0 && (
         <div className="text-center py-12">
           <p className="text-4xl mb-3 opacity-20">∅</p>
           <p className="text-base" style={{ fontFamily:'Cormorant Garamond, serif', color:'rgba(255,255,255,0.35)', fontSize:'18px' }}>
             No activity recorded on this date
           </p>
+        </div>
+      )}
+    </div>
+  )
+}
+
+function StatCardSub({ label, value, sub, color }: { label: string; value: string; sub: string; color: string }) {
+  return (
+    <div className="rounded-xl p-4" style={{ background:'rgba(201,168,76,0.04)', border:'1px solid rgba(201,168,76,0.15)' }}>
+      <p className="text-[9px] tracking-widest uppercase mb-2" style={{ color:'rgba(255,255,255,0.3)', fontFamily:'JetBrains Mono, monospace' }}>{label}</p>
+      <p className="text-xl font-semibold" style={{ color, fontFamily:'JetBrains Mono, monospace' }}>{value}</p>
+      <p className="text-[9px] mt-1" style={{ color:'rgba(255,255,255,0.4)', fontFamily:'JetBrains Mono, monospace' }}>{sub}</p>
+    </div>
+  )
+}
+
+function StrategyHealthCardUI({ s }: { s: DailyReport['strategyHealth'][number] }) {
+  const statusColor = !s.active ? 'rgba(255,255,255,0.35)' : s.warning ? '#f59e0b' : '#52b788'
+  const lastSignal = s.daysSinceLastSignal === null ? 'never' : s.daysSinceLastSignal === 0 ? 'today' : `${s.daysSinceLastSignal}d ago`
+  return (
+    <div className="rounded-xl p-4"
+      style={{ background:'#100e0a', border:`1px solid ${s.warning ? 'rgba(245,158,11,0.3)' : 'rgba(255,255,255,0.08)'}` }}>
+      <div className="flex items-center justify-between mb-3">
+        <span className="font-semibold text-[14px]" style={{ color:'rgba(255,255,255,0.85)' }}>{s.name}</span>
+        <span className="text-[9px] font-semibold tracking-widest px-2 py-0.5 rounded"
+          style={{ background:`${statusColor}22`, color: statusColor, border:`1px solid ${statusColor}55`, fontFamily:'JetBrains Mono, monospace' }}>
+          {s.active ? 'ACTIVE' : 'INACTIVE'}
+        </span>
+      </div>
+      <div className="grid grid-cols-2 sm:grid-cols-4 gap-3 text-[10px]" style={{ fontFamily:'JetBrains Mono, monospace' }}>
+        <div><span style={{ color:'rgba(255,255,255,0.4)' }}>Scans (30d)</span> <span style={{ color:'rgba(255,255,255,0.85)' }}>{s.scans30d}</span></div>
+        <div><span style={{ color:'rgba(255,255,255,0.4)' }}>Signals</span> <span style={{ color:'rgba(255,255,255,0.85)' }}>{s.signals30d}</span></div>
+        <div><span style={{ color:'rgba(255,255,255,0.4)' }}>Executions</span> <span style={{ color:'rgba(255,255,255,0.85)' }}>{s.executions30d}</span></div>
+        <div><span style={{ color:'rgba(255,255,255,0.4)' }}>Last signal</span> <span style={{ color:'rgba(255,255,255,0.85)' }}>{lastSignal}</span></div>
+      </div>
+      {s.warning && (
+        <div className="mt-3 rounded-md px-3 py-2 text-[11px]"
+          style={{ background:'rgba(245,158,11,0.08)', border:'1px solid rgba(245,158,11,0.3)', color:'#f59e0b' }}>
+          ⚠ {s.warning}
         </div>
       )}
     </div>

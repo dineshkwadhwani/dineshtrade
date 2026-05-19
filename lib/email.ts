@@ -329,20 +329,48 @@ function eodBody(d: EODSummaryData): string {
 // ──────── DAILY REPORT (HTML) ────────
 
 function dailyReportSubject(d: DailyReport): string {
-  const pnl = d.totalPnl >= 0 ? `+₹${Math.round(d.totalPnl).toLocaleString('en-IN')}` : `-₹${Math.round(Math.abs(d.totalPnl)).toLocaleString('en-IN')}`
-  const wr = `${d.wins}/${d.tradesCount} wins`
-  return `DineshTrade · Daily Report · ${d.displayDate.split(' (')[0]} · ${pnl} · ${wr}`
+  const orders = d.activityToday.length
+  const open = d.openPositions.length
+  const pnl = d.totalPnl !== 0
+    ? (d.totalPnl >= 0 ? `+₹${Math.round(d.totalPnl).toLocaleString('en-IN')}` : `-₹${Math.round(Math.abs(d.totalPnl)).toLocaleString('en-IN')}`)
+    : null
+  const parts = [`${orders} orders`, `${open} open`]
+  if (pnl) parts.push(pnl)
+  return `DineshTrade · ${d.displayDate.split(' (')[0]} · ${parts.join(' · ')}`
 }
 
 function dailyReportText(d: DailyReport): string {
-  // Plain-text fallback for clients that don't render HTML
   const lines: string[] = []
   lines.push(`DineshTrade — Daily Retrospective — ${d.displayDate}`)
   lines.push('')
-  lines.push(`Trades: ${d.tradesCount}   Wins: ${d.wins}   P&L: ${signedRupees(d.totalPnl)}   Capital: ${rupees(d.capitalDeployed)}`)
-  lines.push('')
-  for (const t of d.trades) {
-    lines.push(`  ${t.symbol.padEnd(10)} ${t.qty}sh   ₹${t.entryPrice.toFixed(2)} → ₹${t.exitPrice.toFixed(2)}   ${signedRupees(t.pnlRupees)} (${t.pnlPct >= 0 ? '+' : ''}${t.pnlPct.toFixed(2)}%)   [${t.verdict.toUpperCase()}]`)
+  const buys = d.activityToday.filter(a => a.side === 'BUY').length
+  const sells = d.activityToday.filter(a => a.side === 'SELL').length
+  lines.push(`Orders today: ${d.activityToday.length} (${buys} BUY · ${sells} SELL) · Deployed ${rupees(d.capitalDeployedToday)}`)
+  lines.push(`Open positions: ${d.openPositions.length} · Realized P&L (closed trades today): ${d.totalPnl !== 0 ? signedRupees(d.totalPnl) : '— (no exits)'}`)
+  if (d.capitalStatus) {
+    lines.push(`Capital: ${rupees(d.capitalStatus.available)} available · ${rupees(d.capitalStatus.deployedNow)} deployed (${d.capitalStatus.pctDeployed.toFixed(0)}% of cap) · ${rupees(d.capitalStatus.remainingDeployable)} headroom`)
+  }
+  if (d.activityToday.length > 0) {
+    lines.push('')
+    lines.push('Activity:')
+    for (const a of d.activityToday) {
+      lines.push(`  ${a.time}  ${a.side.padEnd(4)} ${a.symbol.padEnd(12)} × ${a.qty}  @ ₹${a.price.toFixed(2)}  [${a.tag || '—'}]`)
+    }
+  }
+  if (d.openPositions.length > 0) {
+    lines.push('')
+    lines.push('Open positions:')
+    for (const p of d.openPositions) {
+      lines.push(`  ${p.symbol.padEnd(12)} × ${p.qty}  avg ₹${p.avgPrice.toFixed(2)}  LTP ₹${p.ltp.toFixed(2)}  ${signedRupees(p.pnl)} (${p.pnlPct >= 0 ? '+' : ''}${p.pnlPct.toFixed(2)}%)  [${p.strategySource.toUpperCase()}]${p.pyramidStatus ? ' ' + p.pyramidStatus : ''}${p.s2HandoffIn !== undefined ? ` · handoff in ${p.s2HandoffIn}d` : ''}`)
+    }
+  }
+  if (d.strategyHealth.length > 0) {
+    lines.push('')
+    lines.push('Strategy health (30d):')
+    for (const s of d.strategyHealth) {
+      const last = s.daysSinceLastSignal === null ? 'never' : `${s.daysSinceLastSignal}d ago`
+      lines.push(`  ${s.name.padEnd(20)} ${s.active ? 'ACTIVE' : 'inactive'}  scans:${s.scans30d}  signals:${s.signals30d}  execs:${s.executions30d}  last signal: ${last}${s.warning ? '  ⚠ ' + s.warning : ''}`)
+    }
   }
   if (d.missedSignals.length > 0) {
     lines.push('')
@@ -467,54 +495,89 @@ function missedRow(m: DailyReport['missedSignals'][number]): string {
 
 function dailyReportHTML(d: DailyReport): string {
   const totalPnlColor = d.totalPnl >= 0 ? COL.green : COL.red
-  const winRate = d.tradesCount > 0 ? `${Math.round(100 * d.wins / d.tradesCount)}%` : '—'
+  const buys = d.activityToday.filter(a => a.side === 'BUY').length
+  const sells = d.activityToday.filter(a => a.side === 'SELL').length
 
+  // ── HERO ── 4 cards: Orders Today · Open Positions · Capital Deployed · Realized P&L
   const heroStats = `
     <table width="100%" cellpadding="0" cellspacing="0" border="0">
       <tr>
-        ${statCard('Trades', String(d.tradesCount), COL.gold)}
-        ${statCard('Win Rate', winRate, COL.gold)}
-        ${statCard('Total P&L', signedRupees(d.totalPnl), totalPnlColor)}
-        ${statCard('Capital', rupees(d.capitalDeployed), COL.gold)}
+        ${statCardSub('Orders Today', String(d.activityToday.length), `${buys} BUY · ${sells} SELL`, COL.gold)}
+        ${statCardSub('Open Positions', String(d.openPositions.length), rupees(d.openPositionValue), COL.gold)}
+        ${statCardSub('Deployed Today', rupees(d.capitalDeployedToday), 'BUY notional', COL.gold)}
+        ${statCardSub('Realized P&L', d.totalPnl !== 0 ? signedRupees(d.totalPnl) : '—', d.totalPnl !== 0 ? `${d.wins}/${d.tradesCount} wins` : 'no exits today', totalPnlColor)}
       </tr>
     </table>`
 
+  // ── ACTIVITY TODAY ── all today's orders
+  const activitySection = d.activityToday.length === 0 ? '' : `
+    <tr><td style="padding-top:28px;">
+      <div style="font-size:11px; color:${COL.goldM}; letter-spacing:0.25em; text-transform:uppercase; font-family:'JetBrains Mono',monospace; margin-bottom:12px;">Activity today (${d.activityToday.length})</div>
+      <table width="100%" cellpadding="0" cellspacing="0" border="0" style="background:${COL.card}; border:1px solid ${COL.borderD}; border-radius:8px;">
+        <tr>
+          ${tableHeader('Time')}${tableHeader('Symbol')}${tableHeader('Side')}${tableHeader('Qty', 'right')}${tableHeader('Price', 'right')}${tableHeader('Tag', 'right')}
+        </tr>
+        ${d.activityToday.map(activityRowHTML).join('')}
+      </table>
+    </td></tr>`
+
+  // ── OPEN POSITIONS ── carry-forward + today's holdings
+  const openSection = d.openPositions.length === 0 ? '' : `
+    <tr><td style="padding-top:28px;">
+      <div style="font-size:11px; color:${COL.goldM}; letter-spacing:0.25em; text-transform:uppercase; font-family:'JetBrains Mono',monospace; margin-bottom:12px;">Open positions (${d.openPositions.length})</div>
+      <table width="100%" cellpadding="0" cellspacing="0" border="0" style="background:${COL.card}; border:1px solid ${COL.borderD}; border-radius:8px;">
+        <tr>
+          ${tableHeader('Symbol')}${tableHeader('Source')}${tableHeader('Qty', 'right')}${tableHeader('Avg', 'right')}${tableHeader('LTP', 'right')}${tableHeader('P&L', 'right')}${tableHeader('Note', 'right')}
+        </tr>
+        ${d.openPositions.map(openPosRowHTML).join('')}
+      </table>
+    </td></tr>`
+
+  // ── CAPITAL STATUS ──
+  const capSection = !d.capitalStatus ? '' : (() => {
+    const c = d.capitalStatus
+    const depColor = c.pctDeployed > 90 ? COL.red : c.pctDeployed > 75 ? COL.amber : COL.green
+    return `
+    <tr><td style="padding-top:28px;">
+      <div style="font-size:11px; color:${COL.goldM}; letter-spacing:0.25em; text-transform:uppercase; font-family:'JetBrains Mono',monospace; margin-bottom:12px;">Capital status</div>
+      <table width="100%" cellpadding="0" cellspacing="0" border="0">
+        <tr>
+          ${statCardSub('Available', rupees(c.available), 'from Kite', COL.gold)}
+          ${statCardSub('Deployed', rupees(c.deployedNow), `${c.pctDeployed.toFixed(0)}% of cap`, depColor)}
+          ${statCardSub('Reserve', rupees(c.available - c.maxDeployable), 'buffer', COL.textM)}
+          ${statCardSub('Headroom', rupees(c.remainingDeployable), 'for new entries', c.remainingDeployable > 0 ? COL.green : COL.textM)}
+        </tr>
+      </table>
+    </td></tr>`
+  })()
+
+  // ── PER-STRATEGY HEALTH ── replaces the old aggregate 30d block
+  const strategySection = d.strategyHealth.length === 0 ? '' : `
+    <tr><td style="padding-top:28px;">
+      <div style="font-size:11px; color:${COL.goldM}; letter-spacing:0.25em; text-transform:uppercase; font-family:'JetBrains Mono',monospace; margin-bottom:12px;">Strategy health (30 days)</div>
+      <table width="100%" cellpadding="0" cellspacing="0" border="0">${d.strategyHealth.map(strategyHealthCard).join('')}</table>
+    </td></tr>`
+
+  // ── TRADE-BY-TRADE (existing) ──
   const tradesSection = d.trades.length === 0 ? '' : `
     <tr><td style="padding-top:28px;">
-      <div style="font-size:11px; color:${COL.goldM}; letter-spacing:0.25em; text-transform:uppercase; font-family:'JetBrains Mono',monospace; margin-bottom:12px;">Trade-by-trade</div>
+      <div style="font-size:11px; color:${COL.goldM}; letter-spacing:0.25em; text-transform:uppercase; font-family:'JetBrains Mono',monospace; margin-bottom:12px;">Completed trades today (${d.trades.length})</div>
       <table width="100%" cellpadding="0" cellspacing="0" border="0">${d.trades.map(tradeCard).join('')}</table>
     </td></tr>`
 
+  // ── MISSED SIGNALS (existing) ──
   const missedSection = d.missedSignals.length === 0 ? '' : `
     <tr><td style="padding-top:28px;">
       <div style="font-size:11px; color:${COL.goldM}; letter-spacing:0.25em; text-transform:uppercase; font-family:'JetBrains Mono',monospace; margin-bottom:12px;">Missed signals (${d.missedSignals.length})</div>
       <table width="100%" cellpadding="0" cellspacing="0" border="0" style="background:${COL.card}; border:1px solid ${COL.borderD}; border-radius:8px;">
         <tr>
-          <th align="left" style="font-size:9px; color:${COL.textL}; letter-spacing:0.2em; text-transform:uppercase; font-family:'JetBrains Mono',monospace; padding:10px 6px; border-bottom:1px solid ${COL.borderD};">Time</th>
-          <th align="left" style="font-size:9px; color:${COL.textL}; letter-spacing:0.2em; text-transform:uppercase; font-family:'JetBrains Mono',monospace; padding:10px 6px; border-bottom:1px solid ${COL.borderD};">Symbol</th>
-          <th align="left" style="font-size:9px; color:${COL.textL}; letter-spacing:0.2em; text-transform:uppercase; font-family:'JetBrains Mono',monospace; padding:10px 6px; border-bottom:1px solid ${COL.borderD};">Reason</th>
-          <th align="right" style="font-size:9px; color:${COL.textL}; letter-spacing:0.2em; text-transform:uppercase; font-family:'JetBrains Mono',monospace; padding:10px 6px; border-bottom:1px solid ${COL.borderD};">Outcome</th>
+          ${tableHeader('Time')}${tableHeader('Symbol')}${tableHeader('Reason')}${tableHeader('Outcome', 'right')}
         </tr>
         ${d.missedSignals.map(missedRow).join('')}
       </table>
     </td></tr>`
 
-  const r = d.rolling30
-  const wrColor = r.winRate === null ? COL.textM : (r.winRate >= 70 ? COL.green : r.winRate >= 50 ? COL.amber : COL.red)
-  const agColor = r.avgGainPct === null ? COL.textM : (r.avgGainPct >= 1.5 ? COL.green : r.avgGainPct >= 0.5 ? COL.amber : COL.red)
-  const healthSection = `
-    <tr><td style="padding-top:28px;">
-      <div style="font-size:11px; color:${COL.goldM}; letter-spacing:0.25em; text-transform:uppercase; font-family:'JetBrains Mono',monospace; margin-bottom:12px;">Strategy health (30-day rolling${r.sampleSize > 0 ? `, n=${r.sampleSize}` : ''})</div>
-      <table width="100%" cellpadding="0" cellspacing="0" border="0">
-        <tr>
-          ${statCard('Win Rate (target 70%)', r.winRate === null ? '—' : `${r.winRate.toFixed(0)}%`, wrColor)}
-          ${statCard('Avg Gain/Trade', r.avgGainPct === null ? '—' : `${r.avgGainPct >= 0 ? '+' : ''}${r.avgGainPct.toFixed(2)}%`, agColor)}
-          ${statCard('Delivery Open', String(r.deliveryOpen), r.deliveryOpen > 5 ? COL.amber : COL.gold)}
-          ${statCard('Capital Eff.', r.capitalEfficiency === null ? '—' : `${r.capitalEfficiency >= 0 ? '+' : ''}${r.capitalEfficiency.toFixed(2)}%`, r.capitalEfficiency === null ? COL.textM : (r.capitalEfficiency >= 0 ? COL.green : COL.red))}
-        </tr>
-      </table>
-    </td></tr>`
-
+  // ── FINE-TUNING (existing) ──
   const tuningSection = d.fineTuning.length === 0 ? '' : `
     <tr><td style="padding-top:28px;">
       <div style="font-size:11px; color:${COL.goldM}; letter-spacing:0.25em; text-transform:uppercase; font-family:'JetBrains Mono',monospace; margin-bottom:12px;">Fine-tuning signals</div>
@@ -533,33 +596,105 @@ function dailyReportHTML(d: DailyReport): string {
 <table width="100%" cellpadding="0" cellspacing="0" border="0" style="background:${COL.bg};">
 <tr><td align="center" style="padding:32px 16px;">
 <table width="640" cellpadding="0" cellspacing="0" border="0" style="max-width:640px; width:100%;">
-
-  <!-- Header -->
   <tr><td>
     <div style="color:${COL.gold}; font-size:32px; font-family:'Cormorant Garamond',Georgia,serif; font-weight:300; letter-spacing:0.02em; line-height:1;">DW</div>
     <div style="color:${COL.goldM}; font-size:10px; letter-spacing:0.3em; text-transform:uppercase; font-family:'JetBrains Mono',monospace; margin-top:4px;">DineshTrade · Daily Retrospective</div>
     <div style="color:${COL.textM}; font-size:14px; margin-top:10px;">${d.displayDate}</div>
   </td></tr>
-
-  <!-- Hero -->
   <tr><td style="padding-top:24px;">${heroStats}</td></tr>
-
+  ${activitySection}
+  ${openSection}
+  ${capSection}
+  ${strategySection}
   ${tradesSection}
   ${missedSection}
-  ${healthSection}
   ${tuningSection}
-
-  <!-- Footer -->
   <tr><td style="padding-top:32px; padding-bottom:8px;">
     <div style="border-top:1px solid ${COL.borderD}; padding-top:16px; font-size:10px; color:${COL.textL}; letter-spacing:0.1em; text-transform:uppercase; font-family:'JetBrains Mono',monospace; text-align:center;">
       Sent ${new Date().toLocaleString('en-IN', { timeZone: 'Asia/Kolkata' })} IST · DineshTrade
     </div>
   </td></tr>
-
 </table>
 </td></tr>
 </table>
 </body></html>`
+}
+
+// ──── helper renderers for the new sections ────
+
+function statCardSub(label: string, value: string, sub: string, color: string): string {
+  return `<td width="25%" valign="top" style="padding:6px;">
+    <table width="100%" cellpadding="14" cellspacing="0" border="0" style="background:rgba(201,168,76,0.04); border:1px solid ${COL.border}; border-radius:8px;">
+      <tr><td>
+        <div style="font-size:9px; color:${COL.textL}; letter-spacing:0.2em; text-transform:uppercase; font-family:'JetBrains Mono',monospace;">${label}</div>
+        <div style="font-size:20px; font-weight:600; color:${color}; font-family:'JetBrains Mono',monospace; margin-top:6px;">${value}</div>
+        <div style="font-size:9px; color:${COL.textL}; margin-top:4px; font-family:'JetBrains Mono',monospace;">${sub}</div>
+      </td></tr>
+    </table>
+  </td>`
+}
+
+function tableHeader(label: string, align: 'left' | 'right' = 'left'): string {
+  return `<th align="${align}" style="font-size:9px; color:${COL.textL}; letter-spacing:0.2em; text-transform:uppercase; font-family:'JetBrains Mono',monospace; padding:10px 6px; border-bottom:1px solid ${COL.borderD};">${label}</th>`
+}
+
+function activityRowHTML(a: DailyReport['activityToday'][number]): string {
+  const sideColor = a.side === 'BUY' ? COL.green : COL.red
+  return `<tr>
+    <td style="font-size:10px; color:${COL.textM}; font-family:'JetBrains Mono',monospace; padding:8px 6px; border-bottom:1px solid rgba(255,255,255,0.04);">${a.time}</td>
+    <td style="font-size:11px; color:${COL.textD}; font-family:'JetBrains Mono',monospace; font-weight:600; padding:8px 6px; border-bottom:1px solid rgba(255,255,255,0.04);">${a.symbol}</td>
+    <td style="font-size:10px; color:${sideColor}; font-family:'JetBrains Mono',monospace; font-weight:600; padding:8px 6px; border-bottom:1px solid rgba(255,255,255,0.04);">${a.side === 'BUY' ? '▲ BUY' : '▼ SELL'}</td>
+    <td align="right" style="font-size:10px; color:${COL.textM}; font-family:'JetBrains Mono',monospace; padding:8px 6px; border-bottom:1px solid rgba(255,255,255,0.04);">× ${a.qty}</td>
+    <td align="right" style="font-size:10px; color:${COL.textM}; font-family:'JetBrains Mono',monospace; padding:8px 6px; border-bottom:1px solid rgba(255,255,255,0.04);">₹${a.price.toFixed(2)}</td>
+    <td align="right" style="font-size:9px; color:rgba(96,165,250,0.7); font-family:'JetBrains Mono',monospace; padding:8px 6px; border-bottom:1px solid rgba(255,255,255,0.04);">${a.tag || '—'}</td>
+  </tr>`
+}
+
+function openPosRowHTML(p: DailyReport['openPositions'][number]): string {
+  const pnlColor = p.pnl >= 0 ? COL.green : COL.red
+  const srcColor = p.strategySource === 's1' ? COL.gold : p.strategySource === 's2' ? '#60a5fa' : p.strategySource === 'mixed' ? COL.amber : COL.textM
+  const note = [p.pyramidStatus, p.s2HandoffIn !== undefined ? `handoff in ${p.s2HandoffIn}d` : null].filter(Boolean).join(' · ')
+  return `<tr>
+    <td style="font-size:11px; color:${COL.textD}; font-family:'JetBrains Mono',monospace; font-weight:600; padding:8px 6px; border-bottom:1px solid rgba(255,255,255,0.04);">${p.symbol}</td>
+    <td style="padding:8px 6px; border-bottom:1px solid rgba(255,255,255,0.04);">
+      <span style="background:${srcColor}22; color:${srcColor}; border:1px solid ${srcColor}55; padding:2px 6px; border-radius:3px; font-size:8px; font-weight:600; letter-spacing:0.15em; font-family:'JetBrains Mono',monospace;">${p.strategySource.toUpperCase()}</span>
+    </td>
+    <td align="right" style="font-size:10px; color:${COL.textM}; font-family:'JetBrains Mono',monospace; padding:8px 6px; border-bottom:1px solid rgba(255,255,255,0.04);">${p.qty}</td>
+    <td align="right" style="font-size:10px; color:${COL.textM}; font-family:'JetBrains Mono',monospace; padding:8px 6px; border-bottom:1px solid rgba(255,255,255,0.04);">₹${p.avgPrice.toFixed(2)}</td>
+    <td align="right" style="font-size:10px; color:${COL.textD}; font-family:'JetBrains Mono',monospace; padding:8px 6px; border-bottom:1px solid rgba(255,255,255,0.04);">₹${p.ltp.toFixed(2)}</td>
+    <td align="right" style="font-size:10px; color:${pnlColor}; font-family:'JetBrains Mono',monospace; font-weight:600; padding:8px 6px; border-bottom:1px solid rgba(255,255,255,0.04);">${signedRupees(p.pnl)}<br><span style="font-size:9px; opacity:0.7;">${p.pnlPct >= 0 ? '+' : ''}${p.pnlPct.toFixed(2)}%</span></td>
+    <td align="right" style="font-size:9px; color:${COL.textL}; font-family:'JetBrains Mono',monospace; padding:8px 6px; border-bottom:1px solid rgba(255,255,255,0.04);">${note || '—'}</td>
+  </tr>`
+}
+
+function strategyHealthCard(s: DailyReport['strategyHealth'][number]): string {
+  const statusColor = !s.active ? COL.textL : s.warning ? COL.amber : COL.green
+  const lastSignal = s.daysSinceLastSignal === null ? 'never' : s.daysSinceLastSignal === 0 ? 'today' : `${s.daysSinceLastSignal}d ago`
+  return `<tr><td style="padding:8px 0;">
+    <table width="100%" cellpadding="14" cellspacing="0" border="0" style="background:${COL.card}; border:1px solid ${s.warning ? 'rgba(245,158,11,0.3)' : COL.borderD}; border-radius:8px;">
+      <tr><td>
+        <table width="100%" cellpadding="0" cellspacing="0" border="0">
+          <tr>
+            <td><span style="font-size:14px; font-weight:600; color:${COL.textD};">${s.name}</span></td>
+            <td align="right">
+              <span style="background:${statusColor}22; color:${statusColor}; border:1px solid ${statusColor}55; padding:3px 8px; border-radius:4px; font-size:9px; font-weight:600; letter-spacing:0.15em; font-family:'JetBrains Mono',monospace;">${s.active ? 'ACTIVE' : 'INACTIVE'}</span>
+            </td>
+          </tr>
+          <tr><td colspan="2" style="padding-top:10px;">
+            <table width="100%" cellpadding="0" cellspacing="0" border="0">
+              <tr>
+                <td style="font-size:10px; color:${COL.textM}; font-family:'JetBrains Mono',monospace;">Scans (30d) <span style="color:${COL.textD};">${s.scans30d}</span></td>
+                <td style="font-size:10px; color:${COL.textM}; font-family:'JetBrains Mono',monospace;">Signals <span style="color:${COL.textD};">${s.signals30d}</span></td>
+                <td style="font-size:10px; color:${COL.textM}; font-family:'JetBrains Mono',monospace;">Executions <span style="color:${COL.textD};">${s.executions30d}</span></td>
+                <td style="font-size:10px; color:${COL.textM}; font-family:'JetBrains Mono',monospace;">Last signal <span style="color:${COL.textD};">${lastSignal}</span></td>
+              </tr>
+            </table>
+          </td></tr>
+          ${s.warning ? `<tr><td colspan="2" style="padding-top:10px;"><div style="background:rgba(245,158,11,0.08); border:1px solid rgba(245,158,11,0.3); border-radius:6px; padding:8px 10px; font-size:11px; color:${COL.amber};">⚠ ${s.warning}</div></td></tr>` : ''}
+        </table>
+      </td></tr>
+    </table>
+  </td></tr>`
 }
 
 // ──────── MONTHLY ROLLUP ────────

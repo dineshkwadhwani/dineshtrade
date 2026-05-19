@@ -5,11 +5,13 @@
 import strategyCfg from '@/config/strategy.json'
 import {
   readJournalDay, readJournalRange, readJournalMonth, istDateString,
-  type TradeRecord, type SignalSkippedRecord,
+  type TradeRecord, type SignalSkippedRecord, type StrategyScanRecord,
 } from './journal'
 import { listStrategy1Positions } from './strategy1'
-import { resolveAccountCreds, getQuotes } from './kite'
+import { resolveAccountCreds, getQuotes, getOrders, getHoldings, getPositions } from './kite'
 import { getState } from './state'
+import { getCapital, getStrategies } from './strategyConfig'
+import { listStrategy2Positions } from './strategy2Positions'
 import type { MonthlyReportData } from './email'
 
 export interface EnrichedTrade extends TradeRecord {
@@ -25,25 +27,80 @@ export interface EnrichedMissed extends SignalSkippedRecord {
   outcome: MissedOutcome
 }
 
+// One row in the "Today's Activity" section — all Kite orders placed today.
+export interface ActivityRow {
+  time: string              // "HH:MM"
+  account: string
+  symbol: string
+  side: 'BUY' | 'SELL'
+  qty: number
+  price: number
+  status: string
+  tag?: string
+}
+
+// One row in the "Open Positions" section — symbols currently held.
+export interface OpenPositionRow {
+  account: string
+  symbol: string
+  qty: number
+  avgPrice: number
+  ltp: number
+  pnl: number
+  pnlPct: number
+  strategySource: 's1' | 's2' | 'pre' | 'mixed'   // where the position came from
+  pyramidStatus?: string    // e.g. "2/3 BUYs"
+  s2HandoffIn?: number      // days until S2→S1 handoff (only for S2-managed positions)
+}
+
+// Per-strategy diagnostics — answers "is this strategy actually working?"
+export interface StrategyHealthRow {
+  id: string
+  name: string
+  active: boolean
+  scans30d: number
+  signals30d: number       // count of scans where recs > 0
+  executions30d: number    // count of scans where executed > 0 (cumulative executions)
+  lastSignalAt: string | null
+  daysSinceLastSignal: number | null
+  warning?: string         // populated when something diagnostic is wrong
+}
+
 export interface DailyReport {
   date: string                // YYYY-MM-DD IST
   displayDate: string         // "18 May 2026 (Monday)"
   shouldSend: boolean
   skipReason?: string
 
-  // Section 1 — hero
-  tradesCount: number
+  // Hero
+  tradesCount: number         // completed round trips today (legacy)
   wins: number
   totalPnl: number
-  capitalDeployed: number
+  capitalDeployed: number     // historical: capital used by completed round trips today
 
-  // Section 2 — trade-by-trade
+  // NEW — Today's activity (all orders, BUY+SELL)
+  activityToday: ActivityRow[]
+  capitalDeployedToday: number    // sum of today's BUY notional
+  capitalRecoveredToday: number   // sum of today's SELL notional
+
+  // NEW — Open positions snapshot
+  openPositions: OpenPositionRow[]
+  openPositionValue: number       // total ₹ across all open positions at LTP
+
+  // NEW — Capital status (vs caps)
+  capitalStatus: {
+    available: number              // from Kite margins
+    maxDeployable: number          // available × maxDeployPct/100
+    deployedNow: number            // qty × LTP across all open positions
+    remainingDeployable: number
+    pctDeployed: number            // 0-100
+  } | null
+
+  // Trades + missed (existing)
   trades: EnrichedTrade[]
-
-  // Section 3 — missed signals
   missedSignals: EnrichedMissed[]
 
-  // Section 4 — rolling 30-day
+  // 30-day rolling (existing, now meaningful even with 0 trades via openCount)
   rolling30: {
     sampleSize: number
     winRate: number | null
@@ -52,7 +109,10 @@ export interface DailyReport {
     capitalEfficiency: number | null
   }
 
-  // Section 5 — fine-tuning (empty if nothing actionable)
+  // NEW — Per-strategy health
+  strategyHealth: StrategyHealthRow[]
+
+  // Fine-tuning bullets (existing)
   fineTuning: string[]
 }
 
@@ -193,16 +253,228 @@ export async function buildDailyReport(dateYmd?: string): Promise<DailyReport> {
   // Section 5 — fine-tuning
   const fineTuning = generateFineTuning({ todayTrades: trades, todayMissed: missedSignals, rolling: rollingTrades, rolling30Stats: rolling30 })
 
-  // Skip rules
-  const hasActivity = trades.length > 0 || missedSignals.length > 0
+  // ── NEW SECTIONS ──
+
+  // Activity today + open positions snapshot + capital status — pulled live
+  // from Kite for the first connected account. Best-effort: if Kite is down
+  // or no account connected, sections render empty without breaking the email.
+  const { activityToday, openPositions, capitalStatus, capitalDeployedToday, capitalRecoveredToday, openPositionValue } =
+    await buildLiveSnapshot(date)
+
+  // Per-strategy 30-day health from journal strategy_scan records
+  const strategyHealth = buildStrategyHealth(rollingAll, date)
+
+  // Skip rules — expanded: send if ANY of (trades, missed signals, today's
+  // orders, open positions). On a low-activity day we still want the report
+  // to show carry-forward positions + strategy health.
+  const hasActivity = trades.length > 0 || missedSignals.length > 0 || activityToday.length > 0 || openPositions.length > 0
   const shouldSend = hasActivity
 
   return {
     date, displayDate, shouldSend,
-    skipReason: hasActivity ? undefined : 'No trades and no signals today',
+    skipReason: hasActivity ? undefined : 'No trades, no signals, no open positions',
     tradesCount: trades.length, wins, totalPnl, capitalDeployed,
-    trades, missedSignals, rolling30, fineTuning,
+    activityToday, capitalDeployedToday, capitalRecoveredToday,
+    openPositions, openPositionValue,
+    capitalStatus,
+    trades, missedSignals, rolling30,
+    strategyHealth,
+    fineTuning,
   }
+}
+
+// ──────── LIVE SNAPSHOT — Activity Today + Open Positions + Capital Status ────────
+
+interface LiveSnapshot {
+  activityToday: ActivityRow[]
+  capitalDeployedToday: number
+  capitalRecoveredToday: number
+  openPositions: OpenPositionRow[]
+  openPositionValue: number
+  capitalStatus: DailyReport['capitalStatus']
+}
+
+async function buildLiveSnapshot(date: string): Promise<LiveSnapshot> {
+  const empty: LiveSnapshot = {
+    activityToday: [], capitalDeployedToday: 0, capitalRecoveredToday: 0,
+    openPositions: [], openPositionValue: 0,
+    capitalStatus: null,
+  }
+  try {
+    const state = await getState()
+    const firstAcc = Object.keys(state.kiteTokens)[0]
+    if (!firstAcc) return empty
+    const creds = await resolveAccountCreds(firstAcc)
+    if (!creds.ok) return empty
+
+    const [orders, holdings, positionsKite, marginsRes, s1Positions, s2Positions] = await Promise.all([
+      getOrders(creds).catch(() => []),
+      getHoldings(creds).catch(() => []),
+      getPositions(creds).catch(() => ({ net: [], day: [] })),
+      // Margins via Kite API for available cash
+      (async () => {
+        try {
+          const { kiteRequest } = await import('./kite')
+          const r = await kiteRequest<{ data?: { equity?: { available?: { live_balance?: number; cash?: number } } } }>('/user/margins', creds)
+          return r.data?.data?.equity?.available
+        } catch { return null }
+      })(),
+      listStrategy1Positions(),
+      listStrategy2Positions(),
+    ])
+
+    // Activity Today — all COMPLETE orders from Kite getOrders()
+    const activityToday: ActivityRow[] = orders
+      .filter(o => o.status === 'COMPLETE')
+      .map(o => ({
+        time: parseOrderTime(o.order_timestamp),
+        account: firstAcc,
+        symbol: o.tradingsymbol.toUpperCase(),
+        side: (o.transaction_type === 'BUY' ? 'BUY' : 'SELL') as 'BUY' | 'SELL',
+        qty: o.filled_quantity || o.quantity,
+        price: o.average_price,
+        status: o.status,
+        tag: o.tag,
+      }))
+    activityToday.sort((a, b) => a.time.localeCompare(b.time))
+
+    const capitalDeployedToday = activityToday.filter(a => a.side === 'BUY').reduce((s, a) => s + a.qty * a.price, 0)
+    const capitalRecoveredToday = activityToday.filter(a => a.side === 'SELL').reduce((s, a) => s + a.qty * a.price, 0)
+
+    // Open Positions — merge Kite holdings + Kite intraday positions, annotate
+    // with strategy source from s1Positions / s2Positions / order tags.
+    const s1Set = new Set(s1Positions.map(p => p.symbol.toUpperCase()))
+    const s2Set = new Set(s2Positions.map(p => p.symbol.toUpperCase()))
+    const tagsByToday = new Map<string, Set<string>>()
+    for (const o of activityToday) {
+      const set = tagsByToday.get(o.symbol) || new Set<string>()
+      if (o.tag) set.add(o.tag)
+      tagsByToday.set(o.symbol, set)
+    }
+    const tagsBySymbol = (symbol: string): Set<string> => tagsByToday.get(symbol) || new Set()
+
+    const classifySource = (symbol: string): OpenPositionRow['strategySource'] => {
+      const inS1 = s1Set.has(symbol)
+      const inS2 = s2Set.has(symbol)
+      if (inS1 && inS2) return 'mixed'
+      if (inS1) return 's1'
+      if (inS2) return 's2'
+      // Look at today's tags
+      const tags = tagsBySymbol(symbol)
+      if (Array.from(tags).some(t => t.startsWith('dt-s1'))) return 's1'
+      if (Array.from(tags).some(t => t.startsWith('dt-s2'))) return 's2'
+      return 'pre'   // started the day already held (no DineshTrade tag)
+    }
+
+    const allOpenSymbols = new Map<string, { qty: number; avgPrice: number; ltp: number }>()
+    for (const h of holdings) {
+      const sym = h.tradingsymbol.toUpperCase()
+      if (h.quantity > 0) allOpenSymbols.set(sym, { qty: h.quantity, avgPrice: h.average_price, ltp: h.last_price })
+    }
+    for (const p of [...positionsKite.net, ...positionsKite.day]) {
+      const sym = p.tradingsymbol.toUpperCase()
+      if (p.quantity > 0 && !allOpenSymbols.has(sym)) {
+        allOpenSymbols.set(sym, { qty: p.quantity, avgPrice: p.average_price, ltp: p.last_price })
+      }
+    }
+
+    const openPositions: OpenPositionRow[] = []
+    for (const [symbol, info] of Array.from(allOpenSymbols.entries())) {
+      const source = classifySource(symbol)
+      const pnl = info.qty * (info.ltp - info.avgPrice)
+      const pnlPct = info.avgPrice > 0 ? ((info.ltp - info.avgPrice) / info.avgPrice) * 100 : 0
+      // Pyramid status: count entries in buyHistory if available
+      const buyHistKey = `${firstAcc.toUpperCase()}:${symbol}`
+      const buyHist = state.buyHistory[buyHistKey] || []
+      const pyramidStatus = buyHist.length > 0 ? `${buyHist.length}/${getCapital().maxBuysPerSymbol} BUYs` : undefined
+      // S2 handoff countdown
+      let s2HandoffIn: number | undefined
+      if (source === 's2') {
+        const s2 = s2Positions.find(p => p.symbol.toUpperCase() === symbol)
+        if (s2) {
+          const ageDays = (Date.now() - new Date(s2.firstBuyAt).getTime()) / (1000 * 60 * 60 * 24)
+          const handoffAt = 15
+          s2HandoffIn = Math.max(0, handoffAt - Math.floor(ageDays))
+        }
+      }
+      openPositions.push({
+        account: firstAcc, symbol,
+        qty: info.qty, avgPrice: info.avgPrice, ltp: info.ltp,
+        pnl, pnlPct, strategySource: source,
+        pyramidStatus, s2HandoffIn,
+      })
+    }
+    openPositions.sort((a, b) => Math.abs(b.pnl) - Math.abs(a.pnl))
+    const openPositionValue = openPositions.reduce((s, p) => s + p.qty * p.ltp, 0)
+
+    // Capital status
+    let capitalStatus: DailyReport['capitalStatus'] = null
+    if (marginsRes) {
+      const available = Number(marginsRes.live_balance ?? marginsRes.cash ?? 0)
+      const cap = getCapital()
+      const maxDeployable = (available * cap.maxDeployPct) / 100
+      const deployedNow = openPositionValue
+      const remainingDeployable = Math.max(0, maxDeployable - deployedNow)
+      capitalStatus = {
+        available,
+        maxDeployable,
+        deployedNow,
+        remainingDeployable,
+        pctDeployed: maxDeployable > 0 ? (deployedNow / maxDeployable) * 100 : 0,
+      }
+    }
+
+    return { activityToday, capitalDeployedToday, capitalRecoveredToday, openPositions, openPositionValue, capitalStatus }
+  } catch (err) {
+    console.warn('[retrospective] live snapshot failed:', String(err).slice(0, 200))
+    return empty
+  }
+}
+
+function parseOrderTime(ts?: string): string {
+  if (!ts) return '—'
+  const m = ts.match(/(\d{2}):(\d{2}):/)
+  return m ? `${m[1]}:${m[2]}` : ts.slice(0, 5)
+}
+
+// ──────── PER-STRATEGY HEALTH ────────
+
+function buildStrategyHealth(rollingAll: any[], today: string): StrategyHealthRow[] {
+  const scans = rollingAll.filter((r): r is StrategyScanRecord => r.type === 'strategy_scan')
+  const strategies = getStrategies()
+  const out: StrategyHealthRow[] = []
+  const now = new Date(today + 'T23:59:59Z').getTime()
+
+  for (const s of strategies) {
+    const mine = scans.filter(r => r.strategyId === s.id)
+    const signals = mine.filter(r => r.recs > 0)
+    const executions = mine.filter(r => r.executed > 0)
+    const lastSignalAt = signals.length > 0
+      ? signals.map(r => r.ts).sort().slice(-1)[0]
+      : null
+    const daysSinceLastSignal = lastSignalAt
+      ? Math.floor((now - new Date(lastSignalAt).getTime()) / (1000 * 60 * 60 * 24))
+      : null
+    let warning: string | undefined
+    if (!s.active) {
+      warning = 'Inactive — no scans firing. Toggle in Settings to enable.'
+    } else if (mine.length === 0) {
+      warning = 'No scans in last 30 days. Strategy might not be registered with cron — check pm2 logs.'
+    } else if (daysSinceLastSignal !== null && daysSinceLastSignal >= 15) {
+      warning = `No signals for ${daysSinceLastSignal} days. Review params — entry criteria may be too tight.`
+    } else if (lastSignalAt === null) {
+      warning = 'Scans running but no signals produced. Market conditions or entry criteria.'
+    }
+    out.push({
+      id: s.id, name: s.name, active: s.active,
+      scans30d: mine.length,
+      signals30d: signals.length,
+      executions30d: executions.reduce((sum, r) => sum + r.executed, 0),
+      lastSignalAt, daysSinceLastSignal,
+      warning,
+    })
+  }
+  return out
 }
 
 // Aggregates the month's journal into a MonthlyReportData payload. Pass any

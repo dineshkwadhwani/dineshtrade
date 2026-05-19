@@ -304,26 +304,52 @@ async function runStrategyTaskBody(strategy: Strategy): Promise<void> {
   const t = istHHMM()
   console.log(`[cron strategy:${strategy.id}] ${t} IST — scan firing (every ${strategy.scanIntervalMin} min)`)
 
+  let recsCount = 0
+  let executedCount = 0
+  let scanSymbols: string[] = []
+  let skipReason: string | undefined
+
   try {
     const result = await runStrategyScan(strategy)
-    if (result.recommendations.length === 0) {
+    recsCount = result.recommendations.length
+    scanSymbols = result.recommendations.map(r => r.symbol)
+    if (recsCount === 0) {
+      skipReason = result.message
       if (result.message) console.log(`[cron strategy:${strategy.id}] 0 recs: ${result.message}`)
-      return
-    }
-    const accounts = getAccountList()
-    const targetAccounts = state.selectedAccounts.filter(a => !!state.kiteTokens[a])
-    if (targetAccounts.length === 0) {
-      console.log(`[cron strategy:${strategy.id}] no selectedAccounts with tokens`)
-      return
-    }
-    console.log(`[cron strategy:${strategy.id}] ${result.recommendations.length} rec(s) → ${targetAccounts.length} account(s)`)
-    for (const account of targetAccounts) {
-      const display = accounts.find(a => a.name === account)?.displayName
-      await autoBuyOnAccount(account, display, result.recommendations)
+    } else {
+      const accounts = getAccountList()
+      const targetAccounts = state.selectedAccounts.filter(a => !!state.kiteTokens[a])
+      if (targetAccounts.length === 0) {
+        console.log(`[cron strategy:${strategy.id}] no selectedAccounts with tokens`)
+        skipReason = 'No selectedAccounts with valid tokens'
+      } else {
+        console.log(`[cron strategy:${strategy.id}] ${recsCount} rec(s) → ${targetAccounts.length} account(s)`)
+        for (const account of targetAccounts) {
+          const display = accounts.find(a => a.name === account)?.displayName
+          const beforeExec = dayStats.executed.length
+          await autoBuyOnAccount(account, display, result.recommendations)
+          executedCount += (dayStats.executed.length - beforeExec)
+        }
+      }
     }
   } catch (err) {
     console.error(`[cron strategy:${strategy.id}] scan failed:`, err)
+    skipReason = `Scan crashed: ${String(err).slice(0, 120)}`
   }
+
+  // Journal this scan tick so the daily retrospective can compute per-strategy
+  // health: scans/signals/executions counts + last-signal-date. Fire-and-forget.
+  appendJournal({
+    type: 'strategy_scan',
+    date: istDateString(),
+    ts: new Date().toISOString(),
+    strategyId: strategy.id,
+    strategyName: strategy.name,
+    recs: recsCount,
+    executed: executedCount,
+    symbols: scanSymbols.length > 0 ? scanSymbols : undefined,
+    skipReason,
+  }).catch(err => console.error(`[cron strategy:${strategy.id}] journal scan failed:`, err))
 }
 
 // ──────── DAILY RETROSPECTIVE (15:35 IST) ────────

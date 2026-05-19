@@ -44,7 +44,24 @@ export interface SignalSkippedRecord {
   reasonSkipped: string         // gate name + human reason
 }
 
-export type JournalRecord = TradeRecord | SignalSkippedRecord
+// One record per strategy scan tick. Lets the retrospective answer:
+//   "When did strategy X last produce a signal?"
+//   "How many scans did X run today / in the last 30 days?"
+//   "How many of those signals actually became BUYs?"
+// Critical for diagnosing strategies that have gone silent (e.g. config too tight).
+export interface StrategyScanRecord {
+  type: 'strategy_scan'
+  date: string                  // YYYY-MM-DD IST
+  ts: string                    // ISO timestamp
+  strategyId: string
+  strategyName: string
+  recs: number                  // signals produced this scan (rec count)
+  executed: number              // signals that resulted in successful auto-BUY
+  symbols?: string[]            // signal symbols (optional, for debugging)
+  skipReason?: string           // when the scan didn't run (e.g. GIFT Nifty gate blocked)
+}
+
+export type JournalRecord = TradeRecord | SignalSkippedRecord | StrategyScanRecord
 
 // Storage is anchored to the same dir as state.json. Local dev (cookie state)
 // keeps it in memory only — fine since cron won't run there anyway.
