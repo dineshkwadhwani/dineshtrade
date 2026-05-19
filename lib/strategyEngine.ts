@@ -488,11 +488,8 @@ export async function evaluateAllForTiles(): Promise<TileEvalResult> {
   const emaCfg = strategyCfg.ema || { period: 20, entryBelowPct: 5, strongBuyBelowPct: 8, minDownDays: 3 }
   const capitulationFloor = 12   // hide if deeper than -12% from EMA (panic zone)
 
-  // 5-min candle fetch is expensive — only do it for symbols that already
-  // pass the cheap Catalyst checks (gain band + volume + EMA proximity).
-  // For others, mark the candle rule as skipped.
-  type CheapPass = { symbol: string; ltp: number }
-  const cheapPassedCatalyst: CheapPass[] = []
+  // Per-symbol data snapshot used by both Catalyst + Oscillator rule evaluations.
+  // We populate this once from quotes + the daily-aggregate cache.
   const dataBySymbol = new Map<string, {
     ltp: number; volume: number; prevClose: number; ema20: number; avgVol10d: number;
     hasQuote: boolean; hasAgg: boolean;
@@ -511,38 +508,42 @@ export async function evaluateAllForTiles(): Promise<TileEvalResult> {
       hasQuote: ltp > 0,
       hasAgg: !!agg && ema20 > 0,
     })
-    if (!q?.last_price || !agg) continue
-    const dayGainPct = prevClose > 0 ? ((ltp - prevClose) / prevClose) * 100 : 0
-    if (dayGainPct < s2cfg.minDayGainPct || dayGainPct > s2cfg.maxDayGainPct) continue
-    const emaDev = ((ltp - ema20) / ema20) * 100
-    if (Math.abs(emaDev) > s2cfg.emaProximityPct) continue
-    const proratedAvgVol = avgVol10d * (elapsedMin / SESSION_MINUTES)
-    if (volume < proratedAvgVol) continue
-    cheapPassedCatalyst.push({ symbol: sym, ltp })
   }
 
-  // Fetch 5-min candles only for cheap-passed symbols
-  const risingBySymbol = new Map<string, boolean | null>()   // null = not evaluated
-  if (cheapPassedCatalyst.length > 0) {
-    const { getInstrumentToken } = await import('./instruments')
-    const today = istDateString()
-    await mapWithLimit(cheapPassedCatalyst, 3, async ({ symbol }) => {
-      try {
-        const token = await getInstrumentToken(creds, symbol)
-        if (!token) { risingBySymbol.set(symbol, false); return }
-        const candles = await getHistoricalCandles(creds, token, `${today} 09:15:00`, `${today} 15:30:00`, '5minute')
-        if (candles.length < s2cfg.consecutiveCandles) { risingBySymbol.set(symbol, false); return }
-        const lastN = candles.slice(-s2cfg.consecutiveCandles)
-        let rising = true
-        for (let i = 1; i < lastN.length; i++) {
-          if (lastN[i].close <= lastN[i - 1].close) { rising = false; break }
-        }
-        risingBySymbol.set(symbol, rising)
-      } catch {
-        risingBySymbol.set(symbol, false)
+  // 5-min candle check — evaluated for EVERY List A symbol so the rule always
+  // resolves to green/red on the tile (never "not evaluated"). At Kite's
+  // historical rate limit (~3/sec safe) this takes ~30 sec for 80 symbols on
+  // a cold cache; subsequent calls within 60 sec hit Next.js' route handler
+  // cache. The `_logFirst` flag prints the raw request + response for the
+  // first symbol so we can see exactly what Kite returns.
+  const risingBySymbol = new Map<string, boolean>()
+  const { getInstrumentToken } = await import('./instruments')
+  const today = istDateString()
+  const fromTs = `${today} 09:15:00`
+  const toTs = `${today} 15:30:00`
+  let logged = false
+  await mapWithLimit(symbols, 5, async (symbol) => {
+    try {
+      const token = await getInstrumentToken(creds, symbol)
+      if (!token) { risingBySymbol.set(symbol, false); return }
+      const shouldLog = !logged
+      if (shouldLog) logged = true
+      const candles = await getHistoricalCandles(creds, token, fromTs, toTs, '5minute', shouldLog)
+      if (shouldLog) {
+        console.log(`[tiles candles] ${symbol}: parsed ${candles.length} candle(s). Last 4 closes: ${candles.slice(-4).map(c => c.close.toFixed(2)).join(' → ')}`)
       }
-    })
-  }
+      if (candles.length < s2cfg.consecutiveCandles) { risingBySymbol.set(symbol, false); return }
+      const lastN = candles.slice(-s2cfg.consecutiveCandles)
+      let rising = true
+      for (let i = 1; i < lastN.length; i++) {
+        if (lastN[i].close <= lastN[i - 1].close) { rising = false; break }
+      }
+      risingBySymbol.set(symbol, rising)
+    } catch (err) {
+      console.warn(`[tiles candles] ${symbol} failed:`, String(err).slice(0, 120))
+      risingBySymbol.set(symbol, false)
+    }
+  })
 
   // Build Catalyst + Oscillator tiles in parallel
   const catalyst: Tile[] = []
@@ -577,15 +578,13 @@ export async function evaluateAllForTiles(): Promise<TileEvalResult> {
       actual: d.hasQuote && d.hasAgg ? fmtPct(dayGainPct) : '—',
       threshold: `≤ +${s2cfg.maxDayGainPct}%`,
     })
-    const candleEvaled = risingBySymbol.has(sym)
-    const candleRising = risingBySymbol.get(sym)
+    const candleRising = risingBySymbol.get(sym) === true
     catRules.push({
       id: 'rising_candles',
       label: `${s2cfg.consecutiveCandles}+ rising 5-min candles`,
-      passed: candleEvaled && candleRising === true,
-      actual: !candleEvaled ? 'not evaluated' : candleRising ? `last ${s2cfg.consecutiveCandles} rising` : 'not rising',
+      passed: candleRising,
+      actual: candleRising ? `last ${s2cfg.consecutiveCandles} rising` : 'not rising',
       threshold: `${s2cfg.consecutiveCandles} in a row`,
-      skipped: !candleEvaled,
     })
     const volMult = proratedAvgVol > 0 ? d.volume / proratedAvgVol : 0
     catRules.push({

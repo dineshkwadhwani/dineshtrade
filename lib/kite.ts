@@ -168,12 +168,23 @@ export interface HistoricalCandle {
 export async function getHistoricalCandles(
   creds: KiteCreds,
   instrumentToken: number,
-  from: string,                    // YYYY-MM-DD
-  to: string,                      // YYYY-MM-DD
+  from: string,                    // YYYY-MM-DD (daily) or YYYY-MM-DD HH:MM:SS (intraday)
+  to: string,                      // YYYY-MM-DD (daily) or YYYY-MM-DD HH:MM:SS (intraday)
   interval: 'day' | '5minute' | '15minute' | '60minute' = 'day',
+  debugLog = false,                // when true, console.log the request + response
 ): Promise<HistoricalCandle[]> {
-  const url = `/instruments/historical/${instrumentToken}/${interval}?from=${from}&to=${to}`
-  const r = await kiteRequest<{ data?: { candles?: any[][] } }>(url, creds)
+  // CRITICAL: encodeURIComponent both timestamps. For intraday intervals Kite
+  // expects 'YYYY-MM-DD HH:MM:SS' — the space MUST be %20-encoded or Kite
+  // returns 400 Bad Request and we get [] silently.
+  const url = `/instruments/historical/${instrumentToken}/${interval}?from=${encodeURIComponent(from)}&to=${encodeURIComponent(to)}`
+  if (debugLog) {
+    console.log(`[kite historical] REQUEST: ${url} (token=${instrumentToken}, interval=${interval}, from="${from}", to="${to}")`)
+  }
+  const r = await kiteRequest<{ data?: { candles?: any[][] }; status?: string; message?: string }>(url, creds)
+  if (debugLog) {
+    const preview = JSON.stringify(r.data).slice(0, 800)
+    console.log(`[kite historical] RESPONSE status=${r.status} ok=${r.ok} body=${preview}`)
+  }
   const rows = r.data?.data?.candles || []
   return rows.map(row => ({
     date: row[0],
