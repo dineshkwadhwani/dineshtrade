@@ -151,12 +151,7 @@
       "trades": 17,
       "lastTraded": "2026-09-03"
     },
-    {
-      "nse": "RAILTEL",
-      "name": "Railtel Corporation",
-      "trades": 17,
-      "lastTraded": "2024-12-07"
-    },
+
     {
       "nse": "RPOWER",
       "name": "Reliance Power",
@@ -181,12 +176,7 @@
       "trades": 16,
       "lastTraded": "2026-04-05"
     },
-    {
-      "nse": "CANBK",
-      "name": "Canara Bank",
-      "trades": 15,
-      "lastTraded": "2025-05-30"
-    },
+
     {
       "nse": "OFSS",
       "name": "Oracle Financial Services",
@@ -241,12 +231,7 @@
       "trades": 7,
       "lastTraded": "2024-07-01"
     },
-    {
-      "nse": "BEL",
-      "name": "Bharat Electronics",
-      "trades": 7,
-      "lastTraded": "2024-12-17"
-    },
+
     {
       "nse": "HDFCAMC",
       "name": "HDFC AMC",
@@ -271,59 +256,12 @@
       "trades": 6,
       "lastTraded": "2026-05-04"
     },
-    {
-      "nse": "PARAGMILK",
-      "name": "Parag Milk Foods",
-      "trades": 6,
-      "lastTraded": "2024-10-09"
-    },
-    {
-      "nse": "POWERGRID",
-      "name": "Power Grid",
-      "trades": 6,
-      "lastTraded": "2024-07-26"
-    },
+
     {
       "nse": "ADANIGREEN",
       "name": "Adani Green",
       "trades": 5,
       "lastTraded": "2026-03-02"
-    },
-    {
-      "nse": "UNIONBANK",
-      "name": "Union Bank of India",
-      "trades": 5,
-      "lastTraded": "2024-06-03"
-    },
-    {
-      "nse": "NATIONALUM",
-      "name": "NATIONALUM",
-      "trades": 5,
-      "lastTraded": "2024-10-07"
-    },
-    {
-      "nse": "HBLENGINE",
-      "name": "HBL Engineering",
-      "trades": 5,
-      "lastTraded": "2024-12-06"
-    },
-    {
-      "nse": "UNITECH",
-      "name": "Unitech",
-      "trades": 5,
-      "lastTraded": "2024-10-28"
-    },
-    {
-      "nse": "UNOMINDA",
-      "name": "Uno Minda",
-      "trades": 5,
-      "lastTraded": "2024-10-11"
-    },
-    {
-      "nse": "IOB",
-      "name": "Indian Overseas Bank",
-      "trades": 5,
-      "lastTraded": "2024-09-16"
     },
     {
       "nse": "BHEL",
@@ -355,42 +293,7 @@
       "trades": 3,
       "lastTraded": "2025-04-06"
     },
-    {
-      "nse": "EASEMYTRIP",
-      "name": "Easy Trip Planners (EaseMyTrip)",
-      "trades": 3,
-      "lastTraded": "2024-09-25"
-    },
-    {
-      "nse": "BDL",
-      "name": "Bharat Dynamics",
-      "trades": 3,
-      "lastTraded": "2025-05-15"
-    },
-    {
-      "nse": "HCC",
-      "name": "Hindustan Construction Co",
-      "trades": 3,
-      "lastTraded": "2024-09-19"
-    },
-    {
-      "nse": "KOPRAN",
-      "name": "Kopran",
-      "trades": 3,
-      "lastTraded": "2024-08-19"
-    },
-    {
-      "nse": "ABSLAMC",
-      "name": "ABSLAMC",
-      "trades": 3,
-      "lastTraded": "2025-11-07"
-    },
-    {
-      "nse": "ASTEC",
-      "name": "Astec LifeSciences",
-      "trades": 3,
-      "lastTraded": "2024-07-11"
-    },
+
     {
       "nse": "DRREDDY",
       "name": "Dr. Reddy's Labs",
@@ -475,12 +378,7 @@
       "trades": 2,
       "lastTraded": "2024-10-07"
     },
-    {
-      "nse": "HUDCO",
-      "name": "Housing & Urban Development Corp",
-      "trades": 2,
-      "lastTraded": "2024-06-03"
-    },
+
     {
       "nse": "HYUNDAI",
       "name": "Hyundai Motor India",
@@ -495,11 +393,75 @@
       "trades": 2,
       "lastTraded": "2025-09-07"
     },
+
+
+
+    {
+      "nse": "UNITECH",
+      "name": "Unitech",
+      "trades": 5,
+      "lastTraded": "2024-10-28"
+    },
+    {
+      "nse": "UNOMINDA",
+      "name": "Uno Minda",
+      "trades": 5,
+      "lastTraded": "2024-10-11"
+    },
+    {
+      "nse": "IOB",
+      "name": "Indian Overseas Bank",
+      "trades": 5,
+      "lastTraded": "2024-09-16"
+    },
+
+    {
+      "nse": "UNIONBANK",
+      "name": "Union Bank of India",
+      "trades": 5,
+      "lastTraded": "2024-06-03"
+    },
+    {
+      "nse": "HUDCO",
+      "name": "Housing & Urban Development Corp",
+      "trades": 2,
+      "lastTraded": "2024-06-03"
+    },    
+    {
+      "nse": "NATIONALUM",
+      "name": "NATIONALUM",
+      "trades": 5,
+      "lastTraded": "2024-10-07"
+    },
+        {
+      "nse": "HBLENGINE",
+      "name": "HBL Engineering",
+      "trades": 5,
+      "lastTraded": "2024-12-06"
+    },
+        {
+      "nse": "RAILTEL",
+      "name": "Railtel Corporation",
+      "trades": 17,
+      "lastTraded": "2024-12-07"
+    },
     {
       "nse": "NLCINDIA",
       "name": "NLC India",
       "trades": 2,
       "lastTraded": "2024-07-15"
+    },
+    {
+      "nse": "CANBK",
+      "name": "Canara Bank",
+      "trades": 15,
+      "lastTraded": "2025-05-30"
+    },
+    {
+      "nse": "BEL",
+      "name": "Bharat Electronics",
+      "trades": 7,
+      "lastTraded": "2024-12-17"
     },
     {
       "nse": "PFC",
@@ -554,6 +516,54 @@
       "name": "MTAR Technologies",
       "trades": 2,
       "lastTraded": "2025-05-15"
+    },
+        {
+      "nse": "PARAGMILK",
+      "name": "Parag Milk Foods",
+      "trades": 6,
+      "lastTraded": "2024-10-09"
+    },
+    {
+      "nse": "POWERGRID",
+      "name": "Power Grid",
+      "trades": 6,
+      "lastTraded": "2024-07-26"
+    },
+        {
+      "nse": "EASEMYTRIP",
+      "name": "Easy Trip Planners (EaseMyTrip)",
+      "trades": 3,
+      "lastTraded": "2024-09-25"
+    },
+    {
+      "nse": "BDL",
+      "name": "Bharat Dynamics",
+      "trades": 3,
+      "lastTraded": "2025-05-15"
+    },
+    {
+      "nse": "HCC",
+      "name": "Hindustan Construction Co",
+      "trades": 3,
+      "lastTraded": "2024-09-19"
+    },
+    {
+      "nse": "KOPRAN",
+      "name": "Kopran",
+      "trades": 3,
+      "lastTraded": "2024-08-19"
+    },
+    {
+      "nse": "ABSLAMC",
+      "name": "ABSLAMC",
+      "trades": 3,
+      "lastTraded": "2025-11-07"
+    },
+    {
+      "nse": "ASTEC",
+      "name": "Astec LifeSciences",
+      "trades": 3,
+      "lastTraded": "2024-07-11"
     },
     {
       "nse": "MAXHEALTH",
