@@ -44,7 +44,7 @@ export default function LiveTicker() {
   if (visible.length === 0) return null
 
   return (
-    <div className="w-full overflow-x-auto"
+    <div className="w-full overflow-x-auto ticker-strip"
       style={{ background: 'rgba(8,6,4,0.92)', borderBottom: '1px solid rgba(201,168,76,0.12)', backdropFilter: 'blur(8px)' }}>
       <div className="flex items-center gap-6 px-4 py-1.5 min-w-fit" style={{ fontFamily:'JetBrains Mono, monospace', fontSize: 10 }}>
         {visible.map((k, i) => {

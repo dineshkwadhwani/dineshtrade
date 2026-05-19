@@ -10,6 +10,7 @@
 body{background:#080604;color:#fff;font-family:'Outfit',system-ui,sans-serif;-webkit-font-smoothing:antialiased;}
 .gold-text{background:linear-gradient(135deg,#a07820 0%,#c9a84c 30%,#e8d090 55%,#c9a84c 75%,#8a6010 100%);-webkit-background-clip:text;-webkit-text-fill-color:transparent;background-clip:text;}
 ::-webkit-scrollbar{width:4px;}::-webkit-scrollbar-track{background:#100e0a;}::-webkit-scrollbar-thumb{background:rgba(201,168,76,0.3);border-radius:2px;}
+.ticker-strip{scrollbar-width:none;-ms-overflow-style:none;}.ticker-strip::-webkit-scrollbar{display:none;}
 @keyframes fade-up{from{opacity:0;transform:translateY(8px);}to{opacity:1;transform:translateY(0);}}
 @keyframes pulse-dot{0%,100%{opacity:1;}50%{opacity:.3;}}
 @keyframes ticker-scroll{0%{transform:translateX(0);}100%{transform:translateX(-50%);}}
