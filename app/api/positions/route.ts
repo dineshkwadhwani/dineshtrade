@@ -20,6 +20,10 @@ import {
 } from '@/lib/strategy1'
 import { STRATEGY_2_BUY_TAG, STRATEGY_2_SELL_TAG } from '@/lib/strategy2'
 
+// Live broker data — every request must hit Kite fresh, never serve from cache.
+export const dynamic = 'force-dynamic'
+export const revalidate = 0
+
 const MANUAL_TAG = 'dt-manual'
 
 export type PositionTag = 's1' | 's2' | 'manual' | 'pre' | 'mixed'
@@ -72,18 +76,20 @@ export async function GET(req: Request) {
     getOrders(creds).catch(() => [] as KiteOrder[]),
   ])
 
-  // We use the position object's own last_price + close_price for LTP and
-  // today's % — those are the same values Zerodha shows, and they stay
-  // consistent with the position's pnl (which is recomputed against last_price
-  // by the broker). Earlier we used /quote here, which can drift a few rupees
-  // out of sync with /portfolio/positions and made the LTP look wrong.
-  // /quote is now only used as a fallback when close_price is 0 (rare).
-  const symbolsMissingClose = Array.from(new Set([
-    ...positions.net.filter(p => !p.close_price).map(p => p.tradingsymbol),
-    ...positions.day.filter(p => !p.close_price).map(p => p.tradingsymbol),
+  // Kite's two endpoints disagree on price:
+  //   - /portfolio/positions returns p.last_price that's updated when the
+  //     POSITION changes (every few seconds at best, often stale by 20–30 sec)
+  //   - /quote returns the live tick (same source the Watchlist uses)
+  // We use /quote for the LTP shown on this page and RECOMPUTE pnl from it,
+  // so the same row shows live price + matching P&L, and stays in sync with
+  // Watchlist's price. Without /quote the LTP would lag Watchlist on the same
+  // symbol by ~20 rupees, which is what the user was seeing.
+  const allSymbols = Array.from(new Set([
+    ...positions.net.map(p => p.tradingsymbol),
+    ...positions.day.map(p => p.tradingsymbol),
   ]))
-  const quotes = symbolsMissingClose.length > 0
-    ? await getQuotes(creds, symbolsMissingClose).catch(() => ({} as Awaited<ReturnType<typeof getQuotes>>))
+  const quotes = allSymbols.length > 0
+    ? await getQuotes(creds, allSymbols).catch(() => ({} as Awaited<ReturnType<typeof getQuotes>>))
     : ({} as Awaited<ReturnType<typeof getQuotes>>)
 
   // Index today's filled orders by symbol → tags + ids + buy/sell-side avgs.
@@ -132,15 +138,16 @@ export async function GET(req: Request) {
       const sellVwap = sellAgg.notional / sellAgg.qty
       realized = closedQty * (sellVwap - buyVwap)
     }
-    const liveLtp = p.last_price || 0   // authoritative — matches Zerodha + the pnl Kite reports
-    const unrealized = p.quantity * (liveLtp - (p.average_price || 0))
-    // prevClose: prefer position's own close_price (always current). Fall back
-    // to the /quote ohlc.close only when close_price is 0 (typically MIS-only
-    // intraday positions with no prior-day close).
+    // LTP — prefer /quote (live tick) over /portfolio/positions (stale ~20s)
     const quote = quotes[`NSE:${sym}`]
-    const prevClose = (p.close_price && p.close_price > 0)
-      ? p.close_price
-      : Number((quote as any)?.ohlc?.close) || 0
+    const liveLtp = Number(quote?.last_price) || p.last_price || 0
+    // Unrealized P&L recomputed from the LIVE LTP so the row stays internally
+    // consistent (we never expose Kite's p.pnl which is tied to the stale price).
+    const avg = p.average_price || 0
+    const unrealized = p.quantity * (liveLtp - avg)
+    // prevClose for today's %: /quote's ohlc.close is the most live source;
+    // fall back to p.close_price only if /quote didn't return ohlc.
+    const prevClose = Number((quote as any)?.ohlc?.close) || p.close_price || 0
     const dayChangePct = prevClose > 0 && liveLtp > 0 ? ((liveLtp - prevClose) / prevClose) * 100 : undefined
     return {
       symbol: sym,
@@ -152,7 +159,7 @@ export async function GET(req: Request) {
       dayChangePct,
       dayBuyQty: p.day_buy_quantity || 0,
       daySellQty: p.day_sell_quantity || 0,
-      pnl: p.pnl || 0,
+      pnl: unrealized + realized,   // live + same source as the row's other numbers
       m2m: p.m2m || 0,
       tag: classifyTag(tags),
       unrealized,
@@ -172,5 +179,7 @@ export async function GET(req: Request) {
     return a.symbol.localeCompare(b.symbol)
   })
 
-  return NextResponse.json({ positions: filtered })
+  return NextResponse.json({ positions: filtered, fetchedAt: new Date().toISOString() }, {
+    headers: { 'Cache-Control': 'no-store, no-cache, must-revalidate' },
+  })
 }

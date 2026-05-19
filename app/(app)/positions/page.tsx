@@ -28,12 +28,19 @@ export default function PositionsPage() {
       .finally(() => setLoaded(true))
   }, [])
 
+  const [fetchedAt, setFetchedAt] = useState<string>('')
+
   async function load(account: string) {
     setLoading(true); setError(''); setPositions([])
     try {
-      const res = await fetch(`/api/positions?account=${encodeURIComponent(account)}`).then(r => r.json())
+      // cache-bust the browser fetch with a timestamp + no-store hint
+      const res = await fetch(
+        `/api/positions?account=${encodeURIComponent(account)}&_t=${Date.now()}`,
+        { cache: 'no-store' },
+      ).then(r => r.json())
       if (res.error) setError(res.error)
       else if (Array.isArray(res.positions)) setPositions(res.positions)
+      if (res.fetchedAt) setFetchedAt(res.fetchedAt)
     } catch {
       setError('Failed to load positions')
     } finally {
@@ -59,11 +66,18 @@ export default function PositionsPage() {
           Today's <span className="gold-text">Positions</span>
         </h1>
         {activeTab && (
-          <button onClick={() => load(activeTab)} disabled={loading}
-            className="px-4 py-2 rounded-lg text-[11px] font-medium transition-all"
-            style={{ background:'rgba(201,168,76,0.1)', border:'1px solid rgba(201,168,76,0.2)', color:'#c9a84c' }}>
-            {loading ? '↻ Loading…' : '↻ Refresh'}
-          </button>
+          <div className="flex items-center gap-3">
+            {fetchedAt && (
+              <span className="text-[10px]" style={{ color:'rgba(255,255,255,0.4)', fontFamily:'JetBrains Mono, monospace' }}>
+                fetched {new Date(fetchedAt).toLocaleTimeString('en-IN', { hour12: false, timeZone: 'Asia/Kolkata' })}
+              </span>
+            )}
+            <button onClick={() => load(activeTab)} disabled={loading}
+              className="px-4 py-2 rounded-lg text-[11px] font-medium transition-all"
+              style={{ background:'rgba(201,168,76,0.1)', border:'1px solid rgba(201,168,76,0.2)', color:'#c9a84c' }}>
+              {loading ? '↻ Loading…' : '↻ Refresh'}
+            </button>
+          </div>
         )}
       </div>
 
