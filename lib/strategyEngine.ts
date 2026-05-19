@@ -5,7 +5,7 @@
 
 import { getWatchlist } from './watchlistStore'
 import strategyCfg from '@/config/strategy.json'
-import { getStrategyById, getActiveStrategies, type Strategy } from './strategyConfig'
+import { getStrategyById, getActiveStrategies, checkGiftNiftyGate, type Strategy } from './strategyConfig'
 import { getMarketBriefing } from './marketBriefing'
 import { getState } from './state'
 import {
@@ -781,13 +781,26 @@ export async function evaluateAllForTiles(): Promise<TileEvalResult> {
 }
 
 // ──────── GENERIC DISPATCHER ────────
-// Picks the right inner scanner based on the strategy's type. Used by the
-// per-strategy cron tasks — each active strategy is scanned on its own
-// schedule by calling this. New strategy types (e.g. 'mean_reversion') can
-// be added by extending the switch.
+// Picks the right inner scanner based on the strategy's type. Applies the
+// optional GIFT Nifty gate (e.g. Oscillator only fires on gap-down days)
+// before delegating. Used by the per-strategy cron tasks.
 export async function runStrategyScan(strategy: Strategy): Promise<StrategyResult> {
   const now = new Date().toISOString()
   const giftChangePct = (await getMarketMode())?.giftChangePct ?? 0
+
+  // Apply GIFT Nifty gate first — short-circuit if today's pre-market signal
+  // is outside this strategy's configured range. Returns a clear message so
+  // the cron log and Engine UI show why the strategy didn't fire.
+  const gate = checkGiftNiftyGate(strategy.giftNiftyGate, giftChangePct)
+  if (!gate.allowed) {
+    return {
+      mode: strategy.type === 'dip' ? 'dip' : 'catalyst',
+      recommendations: [], giftChangePct,
+      message: `${strategy.name}: GIFT Nifty gate blocked — ${gate.reason}`,
+      generatedAt: now,
+    }
+  }
+
   if (strategy.type === 'momentum') return runStrategy2(now, giftChangePct, strategy)
   if (strategy.type === 'dip')      return runStrategy1(now, giftChangePct, strategy)
   return {

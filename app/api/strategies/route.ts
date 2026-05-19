@@ -76,6 +76,15 @@ export async function POST(req: Request) {
         if (!(s.exits.t2Pct > 0)) errors.push(`"${s.id}": t2Pct must be > 0`)
         if (s.exits.t1Pct > s.exits.t2Pct) errors.push(`"${s.id}": t1Pct (${s.exits.t1Pct}) cannot exceed t2Pct (${s.exits.t2Pct})`)
       }
+      // Optional GIFT Nifty gate
+      if (s.giftNiftyGate) {
+        const g = s.giftNiftyGate
+        if (typeof g.enabled !== 'boolean') errors.push(`"${s.id}": giftNiftyGate.enabled must be a boolean`)
+        const hasMin = g.minPct !== null && g.minPct !== undefined
+        const hasMax = g.maxPct !== null && g.maxPct !== undefined
+        if (g.enabled && !hasMin && !hasMax) errors.push(`"${s.id}": giftNiftyGate is enabled but has no bounds — set min or max (or both)`)
+        if (hasMin && hasMax && g.minPct > g.maxPct) errors.push(`"${s.id}": giftNiftyGate minPct (${g.minPct}) cannot exceed maxPct (${g.maxPct})`)
+      }
     }
   }
 

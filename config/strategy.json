@@ -35,6 +35,11 @@
       "exits": {
         "t1Pct": 5.0,
         "t2Pct": 8.0
+      },
+      "giftNiftyGate": {
+        "enabled": true,
+        "minPct": null,
+        "maxPct": -0.5
       }
     },
     {
@@ -57,6 +62,11 @@
       "exits": {
         "t1Pct": 1.5,
         "t2Pct": 2.0
+      },
+      "giftNiftyGate": {
+        "enabled": false,
+        "minPct": null,
+        "maxPct": null
       }
     },
     {
@@ -79,6 +89,11 @@
       "exits": {
         "t1Pct": 2.0,
         "t2Pct": 3.0
+      },
+      "giftNiftyGate": {
+        "enabled": true,
+        "minPct": 1.0,
+        "maxPct": null
       }
     }
   ],

@@ -384,6 +384,7 @@ interface StrategyConfig {
   watchlist: string[]
   params: Record<string, unknown>
   exits: { t1Pct: number; t2Pct: number }
+  giftNiftyGate?: { enabled: boolean; minPct?: number | null; maxPct?: number | null }
 }
 
 // One-line descriptions for each capital field — surfaced inline so the user
@@ -509,6 +510,7 @@ function StrategiesTab({ autoModeOn }: { autoModeOn: boolean }) {
       id: newId, name: 'New Strategy', type: 'momentum', active: false, color: '#a78bfa',
       scanIntervalMin: 5, watchlist: ['listA'],
       params: { ...DEFAULT_MOMENTUM_PARAMS }, exits: { t1Pct: 1.5, t2Pct: 2.0 },
+      giftNiftyGate: { enabled: false, minPct: null, maxPct: null },
     }
     setDraft({ ...draft, strategies: [...draft.strategies, fresh] })
     setExpanded(newId)
@@ -833,6 +835,9 @@ function StrategyCard({ s, expanded, onToggle, watchlistKeys, onPatch, onReset, 
             <NumField label="T2 % (second target)" value={s.exits.t2Pct} onChange={v => onPatch({ exits: { ...s.exits, t2Pct: v } })} suffix="%" desc="Second take-profit target. For Strategy 1, T1 sells 50% and T2 sells the remaining." disabled={locked} />
           </div>
 
+          {/* GIFT Nifty gate */}
+          <GiftNiftyGateEditor strategy={s} onPatch={onPatch} disabled={locked} />
+
           {/* Actions */}
           <div className="flex gap-2 flex-wrap pt-2" style={{ borderTop:'1px solid rgba(255,255,255,0.05)' }}>
             <button onClick={onReset} disabled={locked || !canReset}
@@ -924,6 +929,85 @@ function ColorField({ label, value, onChange, disabled }: {
           style={{ background:'transparent', border:'1px solid rgba(255,255,255,0.1)', padding: 0 }} />
         <span className="text-[11px]" style={{ color:'rgba(255,255,255,0.5)', fontFamily:'JetBrains Mono, monospace' }}>{value}</span>
       </div>
+    </div>
+  )
+}
+
+// GIFT Nifty pre-market gate editor — disabled by default for new strategies;
+// when enabled, lets the user set min/max bounds. UI explains exactly what
+// triggers a fire (e.g. "Only fires when GIFT Nifty ≤ −0.5%").
+function GiftNiftyGateEditor({ strategy, onPatch, disabled }: {
+  strategy: StrategyConfig
+  onPatch: (patch: Partial<StrategyConfig>) => void
+  disabled?: boolean
+}) {
+  const gate = strategy.giftNiftyGate
+  const enabled = gate?.enabled === true
+  const minPct = gate?.minPct ?? null
+  const maxPct = gate?.maxPct ?? null
+
+  function patchGate(p: Partial<{ enabled: boolean; minPct: number | null; maxPct: number | null }>) {
+    const next: any = {
+      enabled: gate?.enabled ?? false,
+      minPct: gate?.minPct ?? null,
+      maxPct: gate?.maxPct ?? null,
+      ...p,
+    }
+    onPatch({ giftNiftyGate: next })
+  }
+
+  // Human-readable preview of the gate's effect
+  let preview: string
+  if (!enabled) preview = 'Not applicable — strategy fires regardless of GIFT Nifty'
+  else if (minPct !== null && maxPct !== null) preview = `Only fires when GIFT Nifty is between ${minPct}% and ${maxPct}%`
+  else if (maxPct !== null) preview = `Only fires when GIFT Nifty ≤ ${maxPct}%`
+  else if (minPct !== null) preview = `Only fires when GIFT Nifty ≥ ${minPct}%`
+  else preview = 'Enabled but no bounds set — add a min or max'
+
+  return (
+    <div className="space-y-2.5">
+      <div className="flex items-center justify-between">
+        <p className="text-[10px] tracking-widest uppercase" style={{ color:'rgba(255,255,255,0.4)', fontFamily:'JetBrains Mono, monospace' }}>
+          GIFT Nifty Gate (pre-market mode filter)
+        </p>
+        <button onClick={() => !disabled && patchGate({ enabled: !enabled })} disabled={disabled}
+          className="px-2.5 py-1 rounded text-[10px] tracking-widest disabled:opacity-50"
+          style={{
+            background: enabled ? 'rgba(82,183,136,0.12)' : 'rgba(255,255,255,0.04)',
+            color: enabled ? '#52b788' : 'rgba(255,255,255,0.4)',
+            border: `1px solid ${enabled ? 'rgba(82,183,136,0.4)' : 'rgba(255,255,255,0.1)'}`,
+            fontFamily:'JetBrains Mono, monospace',
+          }}>
+          {enabled ? '● ENABLED' : '○ N/A'}
+        </button>
+      </div>
+
+      {enabled && (
+        <>
+          <NumField label="Min GIFT Nifty %" value={minPct ?? 0}
+            onChange={v => patchGate({ minPct: Number.isFinite(v) ? v : null })}
+            suffix="%" desc="Lower bound. Leave at 0 + clear the field for no lower bound (use Clear below)." disabled={disabled} />
+          <NumField label="Max GIFT Nifty %" value={maxPct ?? 0}
+            onChange={v => patchGate({ maxPct: Number.isFinite(v) ? v : null })}
+            suffix="%" desc="Upper bound. e.g. −0.5 = only fires on gap-down days." disabled={disabled} />
+          <div className="flex gap-2">
+            <button onClick={() => patchGate({ minPct: null })} disabled={disabled || minPct === null}
+              className="px-2 py-1 rounded text-[10px] disabled:opacity-30"
+              style={{ background:'rgba(255,255,255,0.04)', border:'1px solid rgba(255,255,255,0.1)', color:'rgba(255,255,255,0.5)', fontFamily:'JetBrains Mono, monospace' }}>
+              Clear min
+            </button>
+            <button onClick={() => patchGate({ maxPct: null })} disabled={disabled || maxPct === null}
+              className="px-2 py-1 rounded text-[10px] disabled:opacity-30"
+              style={{ background:'rgba(255,255,255,0.04)', border:'1px solid rgba(255,255,255,0.1)', color:'rgba(255,255,255,0.5)', fontFamily:'JetBrains Mono, monospace' }}>
+              Clear max
+            </button>
+          </div>
+        </>
+      )}
+
+      <p className="text-[10px]" style={{ color: enabled ? 'rgba(82,183,136,0.7)' : 'rgba(255,255,255,0.35)', fontFamily:'JetBrains Mono, monospace' }}>
+        → {preview}
+      </p>
     </div>
   )
 }

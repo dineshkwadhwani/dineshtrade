@@ -24,6 +24,18 @@ export interface StrategyExits {
   t2Pct: number               // second target as % gain from entry
 }
 
+// Optional GIFT Nifty pre-market gate. When `enabled: true`, the strategy
+// only fires if today's GIFT Nifty change% falls within [minPct, maxPct]
+// (either bound may be null → open-ended). Use cases:
+//   - Oscillator (mean-reversion): { enabled: true, maxPct: -0.5 } → only gap-down days
+//   - Market Boom (momentum): { enabled: true, minPct: 1.0 } → only strong-up days
+//   - Catalyst: { enabled: false } → fires every day, no gate
+export interface GiftNiftyGate {
+  enabled: boolean
+  minPct?: number | null    // null/undefined = no lower bound
+  maxPct?: number | null    // null/undefined = no upper bound
+}
+
 // Loose param shape — concrete fields depend on the strategy type. The cron /
 // strategy runners narrow this based on `type`.
 export type StrategyParams = Record<string, unknown>
@@ -59,6 +71,7 @@ export interface Strategy {
   watchlist: string[]         // list keys from config/watchlist.json (e.g. ["listA"])
   params: StrategyParams
   exits: StrategyExits
+  giftNiftyGate?: GiftNiftyGate  // optional pre-market mode gate; absent = no gate (always fire)
 }
 
 // ──────── ACCESSORS ────────
@@ -121,6 +134,14 @@ export function computeDeployable(available: number, deployed: number): Deployab
 function normalizeStrategy(raw: any): Strategy | null {
   if (!raw || typeof raw.id !== 'string') return null
   const type: StrategyType = raw.type === 'dip' ? 'dip' : 'momentum'
+  let giftNiftyGate: GiftNiftyGate | undefined
+  if (raw.giftNiftyGate && typeof raw.giftNiftyGate === 'object') {
+    giftNiftyGate = {
+      enabled: raw.giftNiftyGate.enabled === true,
+      minPct: typeof raw.giftNiftyGate.minPct === 'number' ? raw.giftNiftyGate.minPct : null,
+      maxPct: typeof raw.giftNiftyGate.maxPct === 'number' ? raw.giftNiftyGate.maxPct : null,
+    }
+  }
   return {
     id: raw.id,
     name: typeof raw.name === 'string' ? raw.name : raw.id,
@@ -134,5 +155,18 @@ function normalizeStrategy(raw: any): Strategy | null {
       t1Pct: typeof raw?.exits?.t1Pct === 'number' ? raw.exits.t1Pct : 1.5,
       t2Pct: typeof raw?.exits?.t2Pct === 'number' ? raw.exits.t2Pct : 2.0,
     },
+    giftNiftyGate,
   }
+}
+
+// Returns:
+//   { allowed: true }                   — strategy can fire
+//   { allowed: false, reason: '...' }   — gate blocks it
+export function checkGiftNiftyGate(gate: GiftNiftyGate | undefined, giftChangePct: number): { allowed: boolean; reason?: string } {
+  if (!gate || !gate.enabled) return { allowed: true }
+  const min = (gate.minPct === null || gate.minPct === undefined) ? -Infinity : gate.minPct
+  const max = (gate.maxPct === null || gate.maxPct === undefined) ?  Infinity : gate.maxPct
+  if (giftChangePct < min) return { allowed: false, reason: `GIFT Nifty ${giftChangePct.toFixed(2)}% < required min ${min}%` }
+  if (giftChangePct > max) return { allowed: false, reason: `GIFT Nifty ${giftChangePct.toFixed(2)}% > allowed max ${max}%` }
+  return { allowed: true }
 }
