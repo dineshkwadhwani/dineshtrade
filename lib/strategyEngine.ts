@@ -114,11 +114,16 @@ async function mapWithLimit<T, R>(items: T[], limit: number, fn: (item: T) => Pr
 // Find a connected account's creds — used by both strategies for /quote and /historical.
 // The data is account-agnostic (the same LTP, same candle); we just need someone's tokens.
 async function firstConnectedCreds(): Promise<KiteCreds | null> {
+  // Iterate ALL tokens (not just the first) and return creds for the first one
+  // that actually resolves. Without this, orphaned tokens in state.kiteTokens
+  // for accounts that have since been commented out of env would short-circuit
+  // the lookup and cause every strategy call to fail with "No Kite account".
   const state = await getState()
-  const account = Object.keys(state.kiteTokens)[0]
-  if (!account) return null
-  const r = await resolveAccountCreds(account)
-  return r.ok ? { apiKey: r.apiKey, accessToken: r.accessToken } : null
+  for (const account of Object.keys(state.kiteTokens)) {
+    const r = await resolveAccountCreds(account)
+    if (r.ok) return { apiKey: r.apiKey, accessToken: r.accessToken }
+  }
+  return null
 }
 
 // ──────── MARKET MODE (cached briefing) ────────

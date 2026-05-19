@@ -545,7 +545,9 @@ function EngineTilesSection({ firstAccount, accounts, connected, tradeMode }: {
 
       {tiles.length === 0 && !loading && !error && (
         <div className="text-center py-10">
-          <p className="text-[12px]" style={{ color:'rgba(255,255,255,0.35)' }}>No tiles available — connect Kite and reload.</p>
+          <p className="text-[12px]" style={{ color:'rgba(255,255,255,0.35)' }}>
+            {data?.message || 'No tiles available — connect Kite and reload.'}
+          </p>
         </div>
       )}
 
