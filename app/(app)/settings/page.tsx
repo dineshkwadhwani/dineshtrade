@@ -505,17 +505,28 @@ function StrategiesTab({ autoModeOn }: { autoModeOn: boolean }) {
     if (!confirm(`Remove strategy "${id}"? This will stop its cron task on save.`)) return
     setDraft({ ...draft, strategies: draft.strategies.filter(s => s.id !== id) })
   }
-  function createNewStrategy() {
+  // Two type-aware creators — pre-fill the correct param shape, exits,
+  // scan interval, color, and GIFT Nifty gate defaults so a new strategy
+  // starts in a sensible state. User can edit anything after.
+  function createNewStrategy(type: 'dip' | 'momentum') {
     if (!draft) return
-    let newId = 'new_strategy'
+    const prefix = type === 'dip' ? 'new_dip' : 'new_momentum'
+    let newId = prefix
     let n = 2
-    while (draft.strategies.some(s => s.id === newId)) { newId = `new_strategy_${n++}` }
-    const fresh: StrategyConfig = {
-      id: newId, name: 'New Strategy', type: 'momentum', active: false, color: '#a78bfa',
-      scanIntervalMin: 5, watchlist: ['listA'],
-      params: { ...DEFAULT_MOMENTUM_PARAMS }, exits: { t1Pct: 1.5, t2Pct: 2.0 },
-      giftNiftyGate: { enabled: false, minPct: null, maxPct: null },
-    }
+    while (draft.strategies.some(s => s.id === newId)) { newId = `${prefix}_${n++}` }
+    const fresh: StrategyConfig = type === 'dip'
+      ? {
+          id: newId, name: 'New Dip Strategy', type: 'dip', active: false, color: '#52b788',
+          scanIntervalMin: 30, watchlist: ['listA'],
+          params: { ...DEFAULT_DIP_PARAMS }, exits: { t1Pct: 5.0, t2Pct: 8.0 },
+          giftNiftyGate: { enabled: true, minPct: null, maxPct: -0.5 },
+        }
+      : {
+          id: newId, name: 'New Momentum Strategy', type: 'momentum', active: false, color: '#a78bfa',
+          scanIntervalMin: 5, watchlist: ['listA'],
+          params: { ...DEFAULT_MOMENTUM_PARAMS }, exits: { t1Pct: 1.5, t2Pct: 2.0 },
+          giftNiftyGate: { enabled: false, minPct: null, maxPct: null },
+        }
     setDraft({ ...draft, strategies: [...draft.strategies, fresh] })
     setExpanded(newId)
   }
@@ -592,16 +603,9 @@ function StrategiesTab({ autoModeOn }: { autoModeOn: boolean }) {
 
       {/* STRATEGY CARDS */}
       <div className="space-y-3">
-        <div className="flex items-center justify-between">
-          <p className="text-[11px] tracking-widest uppercase" style={{ color:'rgba(201,168,76,0.6)', fontFamily:'JetBrains Mono, monospace' }}>
-            Strategies ({draft.strategies.length})
-          </p>
-          <button onClick={createNewStrategy} disabled={locked}
-            className="px-3 py-1.5 rounded-lg text-[11px] font-medium tracking-wider transition-all disabled:opacity-40"
-            style={{ background:'rgba(167,139,250,0.12)', border:'1px solid rgba(167,139,250,0.4)', color:'#a78bfa', fontFamily:'JetBrains Mono, monospace' }}>
-            + Create New
-          </button>
-        </div>
+        <p className="text-[11px] tracking-widest uppercase" style={{ color:'rgba(201,168,76,0.6)', fontFamily:'JetBrains Mono, monospace' }}>
+          Strategies ({draft.strategies.length})
+        </p>
         {draft.strategies.map(s => (
           <StrategyCard key={s.id} s={s}
             expanded={expanded === s.id}
@@ -615,6 +619,26 @@ function StrategiesTab({ autoModeOn }: { autoModeOn: boolean }) {
             locked={locked}
           />
         ))}
+
+        {/* "Add another strategy" buttons — at the bottom, after all existing
+            cards. Two type-aware buttons so the new strategy starts with the
+            correct param shape, exits, and gate defaults. */}
+        <div className="rounded-xl p-4 flex items-center justify-between gap-3 flex-wrap"
+          style={{ background:'rgba(255,255,255,0.02)', border:'1px dashed rgba(255,255,255,0.1)' }}>
+          <p className="text-[11px]" style={{ color:'rgba(255,255,255,0.5)' }}>Add another strategy</p>
+          <div className="flex gap-2">
+            <button onClick={() => createNewStrategy('dip')} disabled={locked}
+              className="px-3 py-1.5 rounded-lg text-[11px] font-medium tracking-wider transition-all disabled:opacity-40"
+              style={{ background:'rgba(82,183,136,0.12)', border:'1px solid rgba(82,183,136,0.4)', color:'#52b788', fontFamily:'JetBrains Mono, monospace' }}>
+              + New Dip Strategy
+            </button>
+            <button onClick={() => createNewStrategy('momentum')} disabled={locked}
+              className="px-3 py-1.5 rounded-lg text-[11px] font-medium tracking-wider transition-all disabled:opacity-40"
+              style={{ background:'rgba(167,139,250,0.12)', border:'1px solid rgba(167,139,250,0.4)', color:'#a78bfa', fontFamily:'JetBrains Mono, monospace' }}>
+              + New Momentum Strategy
+            </button>
+          </div>
+        </div>
       </div>
 
       {/* SAVE BAR */}
@@ -728,12 +752,30 @@ function stringify(v: any): string {
   return String(v)
 }
 
+// Field layout: description on top (small + dim), then [label | value] on the
+// row below. Reads cleanly on both mobile and desktop. All editable field
+// components below follow the same pattern.
+function FieldDesc({ children }: { children?: React.ReactNode }) {
+  if (!children) return null
+  return <p className="text-[10px] mb-1 leading-snug" style={{ color:'rgba(255,255,255,0.4)' }}>{children}</p>
+}
+
+function FieldRow({ label, children }: { label: string; children: React.ReactNode }) {
+  return (
+    <div className="flex items-center justify-between gap-3">
+      <span className="text-[12px] flex-shrink-0" style={{ color:'rgba(255,255,255,0.7)' }}>{label}</span>
+      <div className="flex-shrink-0">{children}</div>
+    </div>
+  )
+}
+
 function Row({ label, value, desc }: { label: string; value: string; desc?: string }) {
   return (
-    <div className="grid items-baseline gap-3" style={{ gridTemplateColumns: '1.2fr 0.8fr 2fr' }}>
-      <span className="text-[12px]" style={{ color:'rgba(255,255,255,0.7)' }}>{label}</span>
-      <span className="text-[13px]" style={{ color:'#c9a84c', fontFamily:'JetBrains Mono, monospace', fontWeight: 600 }}>{value}</span>
-      {desc && <span className="text-[10px]" style={{ color:'rgba(255,255,255,0.4)' }}>{desc}</span>}
+    <div className="py-1">
+      <FieldDesc>{desc}</FieldDesc>
+      <FieldRow label={label}>
+        <span className="text-[13px]" style={{ color:'#c9a84c', fontFamily:'JetBrains Mono, monospace', fontWeight: 600 }}>{value}</span>
+      </FieldRow>
     </div>
   )
 }
@@ -802,6 +844,47 @@ function StrategyCard({ s, expanded, onToggle, watchlistKeys, onPatch, onReset, 
             <p className="text-[10px] tracking-widest uppercase" style={{ color:'rgba(255,255,255,0.4)', fontFamily:'JetBrains Mono, monospace' }}>Core</p>
             <TextField label="Name"  value={s.name}  onChange={v => onPatch({ name: v })}  disabled={locked} />
             <TextField label="ID (immutable after save)" value={s.id}    onChange={v => onPatch({ id: v.toLowerCase().replace(/[^a-z0-9_]/g, '_') })} disabled={locked || canReset} desc={canReset ? 'ID locked once saved.' : 'Lowercase, underscores only.'} />
+            {/* Type selector — changing replaces params + exits + GIFT gate
+                with the new type's defaults (with confirm). */}
+            <div className="py-1">
+              <FieldDesc>Dip = mean-reversion (EMA-stretched entry). Momentum = trending up (3 rising candles + volume). Changing type resets params to that type's defaults.</FieldDesc>
+              <FieldRow label="Type">
+                <div className="flex gap-1">
+                  {(['dip', 'momentum'] as const).map(t => {
+                    const active = s.type === t
+                    return (
+                      <button key={t} disabled={locked} onClick={() => {
+                        if (locked || s.type === t) return
+                        if (!confirm(`Switch type to "${t}"? This will reset params, exits, scan interval, and GIFT Nifty gate to ${t} defaults. The strategy ID, name, color, and active state stay.`)) return
+                        const patch: Partial<StrategyConfig> = t === 'dip'
+                          ? {
+                              type: 'dip',
+                              scanIntervalMin: 30,
+                              params: { ...DEFAULT_DIP_PARAMS },
+                              exits: { t1Pct: 5.0, t2Pct: 8.0 },
+                              giftNiftyGate: { enabled: true, minPct: null, maxPct: -0.5 },
+                            }
+                          : {
+                              type: 'momentum',
+                              scanIntervalMin: 5,
+                              params: { ...DEFAULT_MOMENTUM_PARAMS },
+                              exits: { t1Pct: 1.5, t2Pct: 2.0 },
+                              giftNiftyGate: { enabled: false, minPct: null, maxPct: null },
+                            }
+                        onPatch(patch)
+                      }}
+                        className="px-3 py-1 rounded text-[11px] disabled:opacity-50"
+                        style={{
+                          background: active ? `${s.color}22` : 'rgba(255,255,255,0.04)',
+                          border: `1px solid ${active ? s.color + '66' : 'rgba(255,255,255,0.1)'}`,
+                          color: active ? s.color : 'rgba(255,255,255,0.5)',
+                          fontFamily:'JetBrains Mono, monospace',
+                        }}>{active ? '✓ ' : ''}{t}</button>
+                    )
+                  })}
+                </div>
+              </FieldRow>
+            </div>
             <ColorField label="Color" value={s.color} onChange={v => onPatch({ color: v })} disabled={locked} />
             <NumField  label="Scan Interval (min)" value={s.scanIntervalMin} onChange={v => onPatch({ scanIntervalMin: Math.max(1, Math.round(v)) })} desc="Cron fires every N minutes during market hours." disabled={locked} />
             <div>
@@ -874,17 +957,18 @@ function NumField({ label, value, onChange, desc, prefix, suffix, disabled }: {
   label: string; value: number; onChange: (v: number) => void; desc?: string; prefix?: string; suffix?: string; disabled?: boolean
 }) {
   return (
-    <div className="grid items-baseline gap-3" style={{ gridTemplateColumns: '1.2fr 0.8fr 2fr' }}>
-      <span className="text-[12px]" style={{ color:'rgba(255,255,255,0.7)' }}>{label}</span>
-      <div className="flex items-center gap-1">
-        {prefix && <span className="text-[11px]" style={{ color:'rgba(255,255,255,0.4)' }}>{prefix}</span>}
-        <input type="number" step="any" value={value} disabled={disabled}
-          onChange={e => onChange(parseFloat(e.target.value))}
-          className="w-24 px-2 py-1 rounded text-[12px] outline-none disabled:opacity-50"
-          style={{ background:'rgba(255,255,255,0.04)', border:'1px solid rgba(201,168,76,0.25)', color:'#c9a84c', fontFamily:'JetBrains Mono, monospace' }} />
-        {suffix && <span className="text-[11px]" style={{ color:'rgba(255,255,255,0.4)' }}>{suffix}</span>}
-      </div>
-      {desc && <span className="text-[10px]" style={{ color:'rgba(255,255,255,0.4)' }}>{desc}</span>}
+    <div className="py-1">
+      <FieldDesc>{desc}</FieldDesc>
+      <FieldRow label={label}>
+        <div className="flex items-center gap-1">
+          {prefix && <span className="text-[11px]" style={{ color:'rgba(255,255,255,0.4)' }}>{prefix}</span>}
+          <input type="number" step="any" value={value} disabled={disabled}
+            onChange={e => onChange(parseFloat(e.target.value))}
+            className="w-24 px-2 py-1 rounded text-[12px] outline-none disabled:opacity-50"
+            style={{ background:'rgba(255,255,255,0.04)', border:'1px solid rgba(201,168,76,0.25)', color:'#c9a84c', fontFamily:'JetBrains Mono, monospace' }} />
+          {suffix && <span className="text-[11px]" style={{ color:'rgba(255,255,255,0.4)' }}>{suffix}</span>}
+        </div>
+      </FieldRow>
     </div>
   )
 }
@@ -893,13 +977,14 @@ function TextField({ label, value, onChange, desc, disabled }: {
   label: string; value: string; onChange: (v: string) => void; desc?: string; disabled?: boolean
 }) {
   return (
-    <div className="grid items-baseline gap-3" style={{ gridTemplateColumns: '1.2fr 0.8fr 2fr' }}>
-      <span className="text-[12px]" style={{ color:'rgba(255,255,255,0.7)' }}>{label}</span>
-      <input type="text" value={value} disabled={disabled}
-        onChange={e => onChange(e.target.value)}
-        className="px-2 py-1 rounded text-[12px] outline-none disabled:opacity-50"
-        style={{ background:'rgba(255,255,255,0.04)', border:'1px solid rgba(201,168,76,0.25)', color:'#c9a84c', fontFamily:'JetBrains Mono, monospace' }} />
-      {desc && <span className="text-[10px]" style={{ color:'rgba(255,255,255,0.4)' }}>{desc}</span>}
+    <div className="py-1">
+      <FieldDesc>{desc}</FieldDesc>
+      <FieldRow label={label}>
+        <input type="text" value={value} disabled={disabled}
+          onChange={e => onChange(e.target.value)}
+          className="px-2 py-1 rounded text-[12px] outline-none disabled:opacity-50 w-40"
+          style={{ background:'rgba(255,255,255,0.04)', border:'1px solid rgba(201,168,76,0.25)', color:'#c9a84c', fontFamily:'JetBrains Mono, monospace' }} />
+      </FieldRow>
     </div>
   )
 }
@@ -908,17 +993,18 @@ function BoolField({ label, value, onChange, desc, disabled }: {
   label: string; value: boolean; onChange: (v: boolean) => void; desc?: string; disabled?: boolean
 }) {
   return (
-    <div className="grid items-baseline gap-3" style={{ gridTemplateColumns: '1.2fr 0.8fr 2fr' }}>
-      <span className="text-[12px]" style={{ color:'rgba(255,255,255,0.7)' }}>{label}</span>
-      <button onClick={() => !disabled && onChange(!value)} disabled={disabled}
-        className="px-3 py-1 rounded text-[11px] disabled:opacity-50 w-fit"
-        style={{
-          background: value ? 'rgba(82,183,136,0.12)' : 'rgba(255,255,255,0.04)',
-          border: `1px solid ${value ? 'rgba(82,183,136,0.4)' : 'rgba(255,255,255,0.1)'}`,
-          color: value ? '#52b788' : 'rgba(255,255,255,0.5)',
-          fontFamily:'JetBrains Mono, monospace',
-        }}>{value ? 'true' : 'false'}</button>
-      {desc && <span className="text-[10px]" style={{ color:'rgba(255,255,255,0.4)' }}>{desc}</span>}
+    <div className="py-1">
+      <FieldDesc>{desc}</FieldDesc>
+      <FieldRow label={label}>
+        <button onClick={() => !disabled && onChange(!value)} disabled={disabled}
+          className="px-3 py-1 rounded text-[11px] disabled:opacity-50"
+          style={{
+            background: value ? 'rgba(82,183,136,0.12)' : 'rgba(255,255,255,0.04)',
+            border: `1px solid ${value ? 'rgba(82,183,136,0.4)' : 'rgba(255,255,255,0.1)'}`,
+            color: value ? '#52b788' : 'rgba(255,255,255,0.5)',
+            fontFamily:'JetBrains Mono, monospace',
+          }}>{value ? 'true' : 'false'}</button>
+      </FieldRow>
     </div>
   )
 }
@@ -927,14 +1013,15 @@ function ColorField({ label, value, onChange, disabled }: {
   label: string; value: string; onChange: (v: string) => void; disabled?: boolean
 }) {
   return (
-    <div className="grid items-baseline gap-3" style={{ gridTemplateColumns: '1.2fr 0.8fr 2fr' }}>
-      <span className="text-[12px]" style={{ color:'rgba(255,255,255,0.7)' }}>{label}</span>
-      <div className="flex items-center gap-2">
-        <input type="color" value={value} disabled={disabled} onChange={e => onChange(e.target.value)}
-          className="w-8 h-7 rounded cursor-pointer disabled:opacity-50"
-          style={{ background:'transparent', border:'1px solid rgba(255,255,255,0.1)', padding: 0 }} />
-        <span className="text-[11px]" style={{ color:'rgba(255,255,255,0.5)', fontFamily:'JetBrains Mono, monospace' }}>{value}</span>
-      </div>
+    <div className="py-1">
+      <FieldRow label={label}>
+        <div className="flex items-center gap-2">
+          <input type="color" value={value} disabled={disabled} onChange={e => onChange(e.target.value)}
+            className="w-8 h-7 rounded cursor-pointer disabled:opacity-50"
+            style={{ background:'transparent', border:'1px solid rgba(255,255,255,0.1)', padding: 0 }} />
+          <span className="text-[11px]" style={{ color:'rgba(255,255,255,0.5)', fontFamily:'JetBrains Mono, monospace' }}>{value}</span>
+        </div>
+      </FieldRow>
     </div>
   )
 }
