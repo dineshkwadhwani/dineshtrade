@@ -412,9 +412,55 @@ function registerStrategyTask(strategy: Strategy): void {
   const interval = Math.max(1, strategy.scanIntervalMin)
   const expr = `*/${interval} 9-15 * * 1-5`
   const task = cron.schedule(expr, () => {
-    runStrategyTaskBody(strategy).catch(err => console.error(`[cron strategy:${strategy.id}] error:`, err))
+    // Always re-resolve the strategy by id each tick — picks up any post-save
+    // params/watchlist/exits without needing to restart the cron task.
+    const fresh = require('./strategyConfig').getStrategyById(strategy.id) as Strategy | null
+    if (!fresh || !fresh.active) return
+    runStrategyTaskBody(fresh).catch(err => console.error(`[cron strategy:${strategy.id}] error:`, err))
   }, { timezone: 'Asia/Kolkata' })
   strategyTasks.set(strategy.id, task)
+}
+
+// HOT-RELOAD helpers used by POST /api/strategies. Compares the new active
+// set + scanIntervalMin against currently-registered tasks and adjusts:
+// new active strategies → register; deactivated strategies → unregister;
+// scanIntervalMin changes → restart (stop + register).
+export function reloadCronStrategies(): { added: string[]; removed: string[]; restarted: string[] } {
+  if (!started) return { added: [], removed: [], restarted: [] }
+  const active = getActiveStrategies()
+  const activeIds = new Set(active.map(s => s.id))
+  const added: string[] = []
+  const removed: string[] = []
+  const restarted: string[] = []
+
+  // Remove tasks for strategies that are no longer active
+  Array.from(strategyTasks.keys()).forEach(id => {
+    if (!activeIds.has(id)) {
+      strategyTasks.get(id)!.stop()
+      strategyTasks.delete(id)
+      removed.push(id)
+    }
+  })
+
+  // Add or restart per the new active list
+  for (const s of active) {
+    const existing = strategyTasks.get(s.id)
+    if (!existing) {
+      registerStrategyTask(s)
+      added.push(s.id)
+    } else {
+      // Restart so any scanIntervalMin change takes effect. The task body
+      // re-resolves the strategy each fire anyway, but the cron expression
+      // (which encodes the interval) must be rebuilt.
+      existing.stop()
+      strategyTasks.delete(s.id)
+      registerStrategyTask(s)
+      restarted.push(s.id)
+    }
+  }
+
+  console.log(`[cron] hot-reload: +${added.length} added, -${removed.length} removed, ~${restarted.length} restarted`)
+  return { added, removed, restarted }
 }
 
 export function stopCron(): void {

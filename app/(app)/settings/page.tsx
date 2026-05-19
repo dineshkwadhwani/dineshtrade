@@ -422,25 +422,42 @@ const MOMENTUM_PARAM_DESCRIPTIONS: Record<string, string> = {
   scanEndHHMM: 'Daily scan window end (IST 24-hr "HH:MM").',
 }
 
+// Default param sets for the Duplicate / Create-New / Reset flows
+const DEFAULT_DIP_PARAMS = {
+  emaPeriod: 20, entryBelowPct: 5, strongBuyBelowPct: 8, minDownDays: 3,
+  tranche2AboveEMAPct: 3.0, reactiveDrop: 3.0, reactiveIntervalMin: 30, firesOnAnyMode: true,
+}
+const DEFAULT_MOMENTUM_PARAMS = {
+  minDayGainPct: 0.5, maxDayGainPct: 1.5, consecutiveCandles: 3, emaProximityPct: 3.0,
+  volumeAvgDays: 10, scanStartHHMM: '09:30', scanEndHHMM: '14:30',
+}
+
 function StrategiesTab({ autoModeOn }: { autoModeOn: boolean }) {
-  const [data, setData] = useState<{ capital: CapitalConfig; strategies: StrategyConfig[]; watchlistKeys: string[] } | null>(null)
+  // The server response is the SOURCE; `draft` is the user's working copy.
+  const [source, setSource] = useState<{ capital: CapitalConfig; strategies: StrategyConfig[]; watchlistKeys: string[] } | null>(null)
+  const [draft, setDraft] = useState<{ capital: CapitalConfig; strategies: StrategyConfig[] } | null>(null)
   const [funds, setFunds] = useState<{ available: number; maxDeployable: number; reserve: number; remaining: number; deployed: number } | null>(null)
   const [error, setError] = useState('')
   const [expanded, setExpanded] = useState<string | null>(null)
+  const [confirming, setConfirming] = useState(false)
+  const [saving, setSaving] = useState(false)
+  const [okMsg, setOkMsg] = useState('')
+
+  // Auto-mode lock: when on, every edit input is disabled.
+  const locked = autoModeOn
 
   useEffect(() => {
     fetch('/api/strategies').then(r => r.json()).then(d => {
       if (d.error) setError(d.error)
-      else setData(d)
+      else { setSource(d); setDraft({ capital: d.capital, strategies: d.strategies }) }
     }).catch(() => setError('Failed to load strategies'))
 
-    // Also pull live funds for the capital block
     fetch('/api/state').then(r => r.json()).then(async s => {
       const accs: string[] = s.accountsWithToken || []
       if (accs.length === 0) return
       const r = await fetch(`/api/capital?account=${encodeURIComponent(accs[0])}`).then(r => r.json()).catch(() => null)
       if (r?.available !== undefined) setFunds(r)
-    }).catch(() => { /* best-effort */ })
+    }).catch(() => {})
   }, [])
 
   if (error) return (
@@ -448,22 +465,99 @@ function StrategiesTab({ autoModeOn }: { autoModeOn: boolean }) {
       <p className="text-[12px]" style={{ color:'rgba(224,90,94,0.9)' }}>✗ {error}</p>
     </div>
   )
-  if (!data) return <p className="text-[11px]" style={{ color:'rgba(255,255,255,0.4)' }}>Loading…</p>
+  if (!source || !draft) return <p className="text-[11px]" style={{ color:'rgba(255,255,255,0.4)' }}>Loading…</p>
+
+  const dirty = JSON.stringify({ capital: source.capital, strategies: source.strategies }) !== JSON.stringify(draft)
+  const diffLines = dirty ? buildDiff(source, draft) : []
+
+  function patchCapital(patch: Partial<CapitalConfig>) {
+    if (!draft) return
+    setDraft({ ...draft, capital: { ...draft.capital, ...patch } })
+  }
+  function patchStrategy(id: string, patch: Partial<StrategyConfig>) {
+    if (!draft) return
+    setDraft({ ...draft, strategies: draft.strategies.map(s => s.id === id ? { ...s, ...patch } : s) })
+  }
+  function resetStrategy(id: string) {
+    if (!source || !draft) return
+    const orig = source.strategies.find(s => s.id === id)
+    if (!orig) return
+    setDraft({ ...draft, strategies: draft.strategies.map(s => s.id === id ? orig : s) })
+  }
+  function duplicateStrategy(id: string) {
+    if (!draft) return
+    const orig = draft.strategies.find(s => s.id === id)
+    if (!orig) return
+    let newId = `${id}_copy`
+    let n = 2
+    while (draft.strategies.some(s => s.id === newId)) { newId = `${id}_copy_${n++}` }
+    const copy: StrategyConfig = { ...JSON.parse(JSON.stringify(orig)), id: newId, name: `${orig.name} (copy)`, active: false }
+    setDraft({ ...draft, strategies: [...draft.strategies, copy] })
+    setExpanded(newId)
+  }
+  function deleteStrategy(id: string) {
+    if (!draft) return
+    if (!confirm(`Remove strategy "${id}"? This will stop its cron task on save.`)) return
+    setDraft({ ...draft, strategies: draft.strategies.filter(s => s.id !== id) })
+  }
+  function createNewStrategy() {
+    if (!draft) return
+    let newId = 'new_strategy'
+    let n = 2
+    while (draft.strategies.some(s => s.id === newId)) { newId = `new_strategy_${n++}` }
+    const fresh: StrategyConfig = {
+      id: newId, name: 'New Strategy', type: 'momentum', active: false, color: '#a78bfa',
+      scanIntervalMin: 5, watchlist: ['listA'],
+      params: { ...DEFAULT_MOMENTUM_PARAMS }, exits: { t1Pct: 1.5, t2Pct: 2.0 },
+    }
+    setDraft({ ...draft, strategies: [...draft.strategies, fresh] })
+    setExpanded(newId)
+  }
+
+  async function doSave() {
+    if (!draft) return
+    setSaving(true); setError(''); setOkMsg('')
+    try {
+      const res = await fetch('/api/strategies', {
+        method: 'POST', headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ capital: draft.capital, strategies: draft.strategies }),
+      })
+      const data = await res.json()
+      if (res.ok) {
+        setSource({ capital: draft.capital, strategies: draft.strategies, watchlistKeys: source?.watchlistKeys || [] })
+        const r = data.reload
+        const parts: string[] = []
+        if (r?.added?.length)     parts.push(`+${r.added.length} added`)
+        if (r?.removed?.length)   parts.push(`-${r.removed.length} removed`)
+        if (r?.restarted?.length) parts.push(`~${r.restarted.length} restarted`)
+        setOkMsg(`Saved · cron ${parts.length ? parts.join(', ') : 'unchanged'}`)
+        setConfirming(false)
+        setTimeout(() => setOkMsg(''), 4000)
+      } else {
+        const detail = data.errors?.length ? ' — ' + data.errors.join('; ') : ''
+        setError((data.error || 'Save failed') + detail)
+      }
+    } catch (e) {
+      setError('Network error')
+    } finally {
+      setSaving(false)
+    }
+  }
 
   return (
     <div className="space-y-5">
-      {autoModeOn && (
+      {locked && (
         <div className="rounded-lg p-3" style={{ background:'rgba(245,158,11,0.06)', border:'1px solid rgba(245,158,11,0.3)' }}>
-          <p className="text-[12px]" style={{ color:'#f59e0b' }}>
-            ⚠ Auto mode is active. Editing strategy parameters will be disabled until you pause Auto.
-          </p>
-          <p className="text-[10px] mt-1" style={{ color:'rgba(255,255,255,0.4)' }}>
-            (This tab is currently read-only in Phase 2 — editing comes in Phase 4.)
-          </p>
+          <p className="text-[12px]" style={{ color:'#f59e0b' }}>⚠ Auto mode is active — editing is disabled. Switch to Manual mode above to tune strategies.</p>
+        </div>
+      )}
+      {okMsg && (
+        <div className="rounded-lg p-3" style={{ background:'rgba(82,183,136,0.06)', border:'1px solid rgba(82,183,136,0.3)' }}>
+          <p className="text-[12px]" style={{ color:'#52b788' }}>✓ {okMsg}</p>
         </div>
       )}
 
-      {/* CAPITAL BLOCK */}
+      {/* CAPITAL BLOCK — editable */}
       <div className="rounded-xl overflow-hidden" style={{ background:'rgba(201,168,76,0.04)', border:'1px solid rgba(201,168,76,0.2)' }}>
         <div className="px-4 py-2.5" style={{ borderBottom:'1px solid rgba(201,168,76,0.12)' }}>
           <p className="text-[11px] tracking-widest uppercase" style={{ color:'#c9a84c', fontFamily:'JetBrains Mono, monospace' }}>
@@ -471,15 +565,13 @@ function StrategiesTab({ autoModeOn }: { autoModeOn: boolean }) {
           </p>
         </div>
         <div className="p-4 space-y-2.5">
-          <Row label="Per Trade Amount"     value={`₹${data.capital.perTrade.toLocaleString('en-IN')}`} desc={CAPITAL_DESCRIPTIONS.perTrade} />
-          <Row label="Max Buys / Day"        value={String(data.capital.maxBuysPerDay)}                  desc={CAPITAL_DESCRIPTIONS.maxBuysPerDay} />
-          <Row label="Max Sells / Day"       value={String(data.capital.maxSellsPerDay)}                 desc={CAPITAL_DESCRIPTIONS.maxSellsPerDay} />
-          <Row label="Circuit Breaker %"     value={`${data.capital.circuitBreakerPct}%`}                desc={CAPITAL_DESCRIPTIONS.circuitBreakerPct} />
-          <Row label="Max Deploy %"          value={`${data.capital.maxDeployPct}%`}                     desc={CAPITAL_DESCRIPTIONS.maxDeployPct} />
-          <Row label="Max Open Positions"    value={String(data.capital.maxPositions)}                   desc={CAPITAL_DESCRIPTIONS.maxPositions} />
-          <Row label="Source"                value={data.capital.source}                                  desc={CAPITAL_DESCRIPTIONS.source} />
+          <NumField label="Per Trade Amount"  value={draft.capital.perTrade}        onChange={v => patchCapital({ perTrade: v })}        desc={CAPITAL_DESCRIPTIONS.perTrade}     prefix="₹"  disabled={locked} />
+          <NumField label="Max Buys / Day"     value={draft.capital.maxBuysPerDay}   onChange={v => patchCapital({ maxBuysPerDay: v })}   desc={CAPITAL_DESCRIPTIONS.maxBuysPerDay}            disabled={locked} />
+          <NumField label="Max Sells / Day"    value={draft.capital.maxSellsPerDay}  onChange={v => patchCapital({ maxSellsPerDay: v })}  desc={CAPITAL_DESCRIPTIONS.maxSellsPerDay}           disabled={locked} />
+          <NumField label="Circuit Breaker %"  value={draft.capital.circuitBreakerPct} onChange={v => patchCapital({ circuitBreakerPct: v })} desc={CAPITAL_DESCRIPTIONS.circuitBreakerPct} suffix="%" disabled={locked} />
+          <NumField label="Max Deploy %"       value={draft.capital.maxDeployPct}    onChange={v => patchCapital({ maxDeployPct: v })}    desc={CAPITAL_DESCRIPTIONS.maxDeployPct}      suffix="%" disabled={locked} />
+          <NumField label="Max Open Positions" value={draft.capital.maxPositions}    onChange={v => patchCapital({ maxPositions: v })}    desc={CAPITAL_DESCRIPTIONS.maxPositions}             disabled={locked} />
         </div>
-
         {funds && (
           <div className="grid grid-cols-2 sm:grid-cols-4 gap-px" style={{ background:'rgba(255,255,255,0.04)', borderTop:'1px solid rgba(201,168,76,0.12)' }}>
             <Stat label="Live Available" value={`₹${Math.round(funds.available).toLocaleString('en-IN')}`} color="#c9a84c" />
@@ -492,19 +584,140 @@ function StrategiesTab({ autoModeOn }: { autoModeOn: boolean }) {
 
       {/* STRATEGY CARDS */}
       <div className="space-y-3">
-        <p className="text-[11px] tracking-widest uppercase" style={{ color:'rgba(201,168,76,0.6)', fontFamily:'JetBrains Mono, monospace' }}>
-          Strategies ({data.strategies.length})
-        </p>
-        {data.strategies.map(s => (
-          <StrategyCard key={s.id} s={s} expanded={expanded === s.id} onToggle={() => setExpanded(expanded === s.id ? null : s.id)} watchlistKeys={data.watchlistKeys} />
+        <div className="flex items-center justify-between">
+          <p className="text-[11px] tracking-widest uppercase" style={{ color:'rgba(201,168,76,0.6)', fontFamily:'JetBrains Mono, monospace' }}>
+            Strategies ({draft.strategies.length})
+          </p>
+          <button onClick={createNewStrategy} disabled={locked}
+            className="px-3 py-1.5 rounded-lg text-[11px] font-medium tracking-wider transition-all disabled:opacity-40"
+            style={{ background:'rgba(167,139,250,0.12)', border:'1px solid rgba(167,139,250,0.4)', color:'#a78bfa', fontFamily:'JetBrains Mono, monospace' }}>
+            + Create New
+          </button>
+        </div>
+        {draft.strategies.map(s => (
+          <StrategyCard key={s.id} s={s}
+            expanded={expanded === s.id}
+            onToggle={() => setExpanded(expanded === s.id ? null : s.id)}
+            watchlistKeys={source.watchlistKeys}
+            onPatch={p => patchStrategy(s.id, p)}
+            onReset={() => resetStrategy(s.id)}
+            onDuplicate={() => duplicateStrategy(s.id)}
+            onDelete={() => deleteStrategy(s.id)}
+            canReset={!!source.strategies.find(o => o.id === s.id)}
+            locked={locked}
+          />
         ))}
       </div>
 
-      <p className="text-[10px] text-center" style={{ color:'rgba(255,255,255,0.3)' }}>
-        Phase 2 · read-only. Editing + validation + hot-reload arrives in Phase 4.
-      </p>
+      {/* SAVE BAR */}
+      {dirty && (
+        <div className="rounded-xl p-3 flex items-center justify-between sticky bottom-2"
+          style={{ background:'rgba(201,168,76,0.1)', border:'1px solid rgba(201,168,76,0.4)', backdropFilter: 'blur(8px)' }}>
+          <p className="text-[12px]" style={{ color:'#c9a84c' }}>
+            ● {diffLines.length} change{diffLines.length === 1 ? '' : 's'} pending
+          </p>
+          <div className="flex gap-2">
+            <button onClick={() => setDraft({ capital: source.capital, strategies: source.strategies })}
+              className="px-3 py-1.5 rounded-md text-[11px]"
+              style={{ background:'rgba(255,255,255,0.04)', border:'1px solid rgba(255,255,255,0.1)', color:'rgba(255,255,255,0.6)' }}>
+              Discard
+            </button>
+            <button onClick={() => setConfirming(true)} disabled={locked}
+              className="px-4 py-1.5 rounded-md text-[11px] font-semibold tracking-wider disabled:opacity-40"
+              style={{ background:'linear-gradient(135deg, #8a6a1a, #c9a84c)', color:'#080604' }}>
+              Review & Save
+            </button>
+          </div>
+        </div>
+      )}
+
+      {/* CONFIRMATION DIALOG */}
+      {confirming && (
+        <div className="fixed inset-0 z-50 flex items-center justify-center px-4 py-8"
+          style={{ background:'rgba(0,0,0,0.7)', backdropFilter:'blur(4px)' }} onClick={() => setConfirming(false)}>
+          <div className="w-full max-w-xl rounded-xl overflow-hidden" onClick={e => e.stopPropagation()}
+            style={{ background:'#100e0a', border:'1px solid rgba(201,168,76,0.3)' }}>
+            <div className="px-5 py-3 flex items-center justify-between"
+              style={{ borderBottom:'1px solid rgba(201,168,76,0.15)' }}>
+              <p className="text-[12px] tracking-widest uppercase" style={{ color:'#c9a84c', fontFamily:'JetBrains Mono, monospace' }}>
+                Confirm {diffLines.length} change{diffLines.length === 1 ? '' : 's'}
+              </p>
+              <button onClick={() => setConfirming(false)} className="text-white/40 hover:text-white/80">✕</button>
+            </div>
+            <div className="p-5 max-h-[60vh] overflow-y-auto space-y-1.5">
+              {diffLines.map((d, i) => (
+                <div key={i} className="text-[11px] flex gap-2" style={{ fontFamily:'JetBrains Mono, monospace' }}>
+                  <span style={{ color:'rgba(255,255,255,0.4)' }}>•</span>
+                  <span style={{ color:'rgba(255,255,255,0.85)' }}>{d.path}</span>
+                  <span style={{ color:'rgba(224,90,94,0.7)', textDecoration:'line-through' }}>{d.from}</span>
+                  <span style={{ color:'rgba(255,255,255,0.4)' }}>→</span>
+                  <span style={{ color:'#52b788' }}>{d.to}</span>
+                </div>
+              ))}
+            </div>
+            {error && <p className="px-5 pb-2 text-[11px]" style={{ color:'rgba(224,90,94,0.9)' }}>✗ {error}</p>}
+            <div className="px-5 py-3 flex justify-end gap-2" style={{ borderTop:'1px solid rgba(255,255,255,0.06)' }}>
+              <button onClick={() => setConfirming(false)} disabled={saving}
+                className="px-3 py-1.5 rounded-md text-[11px]"
+                style={{ background:'rgba(255,255,255,0.04)', border:'1px solid rgba(255,255,255,0.1)', color:'rgba(255,255,255,0.6)' }}>
+                Cancel
+              </button>
+              <button onClick={doSave} disabled={saving}
+                className="px-4 py-1.5 rounded-md text-[11px] font-semibold tracking-wider"
+                style={{ background:'linear-gradient(135deg, #8a6a1a, #c9a84c)', color:'#080604' }}>
+                {saving ? 'Saving…' : 'Confirm & Save'}
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {error && !confirming && (
+        <div className="rounded-lg p-3" style={{ background:'rgba(224,90,94,0.06)', border:'1px solid rgba(224,90,94,0.25)' }}>
+          <p className="text-[12px]" style={{ color:'rgba(224,90,94,0.9)' }}>✗ {error}</p>
+        </div>
+      )}
     </div>
   )
+}
+
+// Builds a flat list of {path, from, to} entries for the confirm dialog.
+function buildDiff(
+  source: { capital: CapitalConfig; strategies: StrategyConfig[] },
+  draft:  { capital: CapitalConfig; strategies: StrategyConfig[] },
+): Array<{ path: string; from: string; to: string }> {
+  const out: Array<{ path: string; from: string; to: string }> = []
+  const compareObj = (prefix: string, a: any, b: any) => {
+    const keys = new Set([...Object.keys(a || {}), ...Object.keys(b || {})])
+    keys.forEach(k => {
+      const va = a?.[k]; const vb = b?.[k]
+      if (typeof va === 'object' && va !== null && !Array.isArray(va)) {
+        compareObj(`${prefix}.${k}`, va, vb)
+      } else if (JSON.stringify(va) !== JSON.stringify(vb)) {
+        out.push({ path: `${prefix}.${k}`, from: stringify(va), to: stringify(vb) })
+      }
+    })
+  }
+  compareObj('capital', source.capital, draft.capital)
+  // strategies: by id, plus added/removed
+  const srcById = new Map(source.strategies.map(s => [s.id, s]))
+  const dstById = new Map(draft.strategies.map(s => [s.id, s]))
+  Array.from(srcById.keys()).forEach(id => {
+    if (!dstById.has(id)) out.push({ path: `strategies.${id}`, from: 'present', to: 'REMOVED' })
+  })
+  Array.from(dstById.keys()).forEach(id => {
+    const a = srcById.get(id); const b = dstById.get(id)!
+    if (!a) { out.push({ path: `strategies.${id}`, from: '—', to: 'CREATED' }); return }
+    compareObj(`strategies.${id}`, a, b)
+  })
+  return out
+}
+
+function stringify(v: any): string {
+  if (v === undefined || v === null) return '—'
+  if (Array.isArray(v)) return v.join(',')
+  if (typeof v === 'boolean') return v ? 'true' : 'false'
+  return String(v)
 }
 
 function Row({ label, value, desc }: { label: string; value: string; desc?: string }) {
@@ -526,67 +739,117 @@ function Stat({ label, value, color }: { label: string; value: string; color: st
   )
 }
 
-function StrategyCard({ s, expanded, onToggle, watchlistKeys }: {
+function StrategyCard({ s, expanded, onToggle, watchlistKeys, onPatch, onReset, onDuplicate, onDelete, canReset, locked }: {
   s: StrategyConfig
   expanded: boolean
   onToggle: () => void
   watchlistKeys: string[]
+  onPatch: (patch: Partial<StrategyConfig>) => void
+  onReset: () => void
+  onDuplicate: () => void
+  onDelete: () => void
+  canReset: boolean
+  locked: boolean
 }) {
   const paramDescs = s.type === 'dip' ? DIP_PARAM_DESCRIPTIONS : MOMENTUM_PARAM_DESCRIPTIONS
+  function toggleListKey(k: string) {
+    const next = s.watchlist.includes(k) ? s.watchlist.filter(x => x !== k) : [...s.watchlist, k]
+    onPatch({ watchlist: next.length > 0 ? next : [k] })   // never go empty
+  }
+  function patchParam(k: string, v: unknown) {
+    onPatch({ params: { ...s.params, [k]: v } })
+  }
   return (
     <div className="rounded-xl overflow-hidden"
       style={{ background:'rgba(255,255,255,0.02)', border:`1px solid ${s.active ? s.color + '55' : 'rgba(255,255,255,0.08)'}` }}>
-      {/* Header — clickable to expand */}
-      <button onClick={onToggle}
-        className="w-full px-4 py-3 flex items-center justify-between gap-3 hover:bg-white/5 transition-all">
-        <div className="flex items-center gap-3 min-w-0">
-          <span className="w-2 h-2 rounded-full" style={{ background: s.active ? s.color : 'rgba(255,255,255,0.2)' }}></span>
+      <div className="w-full px-4 py-3 flex items-center justify-between gap-3" style={{ background:'rgba(255,255,255,0.01)' }}>
+        <button onClick={onToggle} className="flex items-center gap-3 min-w-0 flex-1 text-left">
+          <span className="w-2 h-2 rounded-full flex-shrink-0" style={{ background: s.active ? s.color : 'rgba(255,255,255,0.2)' }}></span>
           <span style={{ color:'rgba(255,255,255,0.9)', fontWeight: 600 }}>{s.name}</span>
           <span className="text-[9px] tracking-widest uppercase px-1.5 py-0.5 rounded"
             style={{ background:`${s.color}15`, color: s.color, border:`1px solid ${s.color}40`, fontFamily:'JetBrains Mono, monospace' }}>
             {s.type}
           </span>
-          <span className="text-[9px] tracking-widest uppercase px-1.5 py-0.5 rounded"
+        </button>
+        <div className="flex items-center gap-2 flex-shrink-0">
+          {/* Active toggle */}
+          <button onClick={() => !locked && onPatch({ active: !s.active })} disabled={locked}
+            className="text-[9px] tracking-widest uppercase px-2 py-1 rounded transition-all disabled:opacity-50"
             style={{
-              background: s.active ? 'rgba(82,183,136,0.12)' : 'rgba(255,255,255,0.05)',
+              background: s.active ? 'rgba(82,183,136,0.15)' : 'rgba(255,255,255,0.04)',
               color: s.active ? '#52b788' : 'rgba(255,255,255,0.4)',
-              border: `1px solid ${s.active ? 'rgba(82,183,136,0.35)' : 'rgba(255,255,255,0.1)'}`,
+              border: `1px solid ${s.active ? 'rgba(82,183,136,0.4)' : 'rgba(255,255,255,0.1)'}`,
               fontFamily:'JetBrains Mono, monospace',
             }}>
-            {s.active ? 'active' : 'inactive'}
-          </span>
+            {s.active ? '● Active' : '○ Inactive'}
+          </button>
+          <button onClick={onToggle} className="text-[12px] px-2" style={{ color:'rgba(255,255,255,0.4)' }}>{expanded ? '−' : '+'}</button>
         </div>
-        <div className="flex items-center gap-3 text-[10px]" style={{ color:'rgba(255,255,255,0.4)', fontFamily:'JetBrains Mono, monospace' }}>
-          <span>{s.scanIntervalMin} min</span>
-          <span>{s.watchlist.join(', ')}</span>
-          <span style={{ fontSize: 14 }}>{expanded ? '−' : '+'}</span>
-        </div>
-      </button>
+      </div>
 
       {expanded && (
         <div className="p-4 space-y-4" style={{ borderTop:'1px solid rgba(255,255,255,0.06)' }}>
-          {/* Core */}
-          <div className="space-y-2">
+          {/* Core editable */}
+          <div className="space-y-2.5">
             <p className="text-[10px] tracking-widest uppercase" style={{ color:'rgba(255,255,255,0.4)', fontFamily:'JetBrains Mono, monospace' }}>Core</p>
-            <Row label="ID"               value={s.id} />
-            <Row label="Color"            value={s.color} />
-            <Row label="Scan Interval"    value={`${s.scanIntervalMin} min`} desc={`Cron fires every ${s.scanIntervalMin} minute(s) during market hours.`} />
-            <Row label="Watchlist"        value={s.watchlist.join(', ')} desc={`Lists scanned. Available keys: ${watchlistKeys.join(', ')}`} />
+            <TextField label="Name"  value={s.name}  onChange={v => onPatch({ name: v })}  disabled={locked} />
+            <TextField label="ID (immutable after save)" value={s.id}    onChange={v => onPatch({ id: v.toLowerCase().replace(/[^a-z0-9_]/g, '_') })} disabled={locked || canReset} desc={canReset ? 'ID locked once saved.' : 'Lowercase, underscores only.'} />
+            <ColorField label="Color" value={s.color} onChange={v => onPatch({ color: v })} disabled={locked} />
+            <NumField  label="Scan Interval (min)" value={s.scanIntervalMin} onChange={v => onPatch({ scanIntervalMin: Math.max(1, Math.round(v)) })} desc="Cron fires every N minutes during market hours." disabled={locked} />
+            <div>
+              <p className="text-[10px] mb-1.5" style={{ color:'rgba(255,255,255,0.6)' }}>Watchlist (select one or more)</p>
+              <div className="flex gap-2 flex-wrap">
+                {watchlistKeys.map(k => {
+                  const on = s.watchlist.includes(k)
+                  return (
+                    <button key={k} onClick={() => !locked && toggleListKey(k)} disabled={locked}
+                      className="px-2.5 py-1 rounded-md text-[10px] disabled:opacity-50"
+                      style={{
+                        background: on ? `${s.color}22` : 'rgba(255,255,255,0.03)',
+                        border: `1px solid ${on ? s.color + '66' : 'rgba(255,255,255,0.1)'}`,
+                        color: on ? s.color : 'rgba(255,255,255,0.5)',
+                        fontFamily:'JetBrains Mono, monospace',
+                      }}>{on ? '✓ ' : ''}{k}</button>
+                  )
+                })}
+              </div>
+            </div>
           </div>
 
-          {/* Params */}
-          <div className="space-y-2">
+          {/* Params editable */}
+          <div className="space-y-2.5">
             <p className="text-[10px] tracking-widest uppercase" style={{ color:'rgba(255,255,255,0.4)', fontFamily:'JetBrains Mono, monospace' }}>Params</p>
-            {Object.entries(s.params).map(([k, v]) => (
-              <Row key={k} label={k} value={fmtParamValue(v)} desc={paramDescs[k]} />
-            ))}
+            {Object.entries(s.params).map(([k, v]) => {
+              if (typeof v === 'boolean') return <BoolField key={k} label={k} value={v} onChange={x => patchParam(k, x)} desc={paramDescs[k]} disabled={locked} />
+              if (typeof v === 'number')  return <NumField  key={k} label={k} value={v} onChange={x => patchParam(k, x)} desc={paramDescs[k]} disabled={locked} />
+              return <TextField key={k} label={k} value={String(v)} onChange={x => patchParam(k, x)} desc={paramDescs[k]} disabled={locked} />
+            })}
           </div>
 
-          {/* Exits */}
-          <div className="space-y-2">
+          {/* Exits editable */}
+          <div className="space-y-2.5">
             <p className="text-[10px] tracking-widest uppercase" style={{ color:'rgba(255,255,255,0.4)', fontFamily:'JetBrains Mono, monospace' }}>Exit Targets</p>
-            <Row label="T1 (first target)"  value={`+${s.exits.t1Pct}%`} desc="First take-profit target as % gain from entry." />
-            <Row label="T2 (second target)" value={`+${s.exits.t2Pct}%`} desc="Second take-profit target. For Strategy 1, T1 sells 50% and T2 sells the remaining." />
+            <NumField label="T1 % (first target)"  value={s.exits.t1Pct} onChange={v => onPatch({ exits: { ...s.exits, t1Pct: v } })} suffix="%" desc="First take-profit target as % gain from entry." disabled={locked} />
+            <NumField label="T2 % (second target)" value={s.exits.t2Pct} onChange={v => onPatch({ exits: { ...s.exits, t2Pct: v } })} suffix="%" desc="Second take-profit target. For Strategy 1, T1 sells 50% and T2 sells the remaining." disabled={locked} />
+          </div>
+
+          {/* Actions */}
+          <div className="flex gap-2 flex-wrap pt-2" style={{ borderTop:'1px solid rgba(255,255,255,0.05)' }}>
+            <button onClick={onReset} disabled={locked || !canReset}
+              className="px-3 py-1.5 rounded-md text-[10px] tracking-wider transition-all disabled:opacity-30"
+              style={{ background:'rgba(255,255,255,0.04)', border:'1px solid rgba(255,255,255,0.1)', color:'rgba(255,255,255,0.6)', fontFamily:'JetBrains Mono, monospace' }}>
+              Reset to Saved
+            </button>
+            <button onClick={onDuplicate} disabled={locked}
+              className="px-3 py-1.5 rounded-md text-[10px] tracking-wider transition-all disabled:opacity-30"
+              style={{ background:'rgba(96,165,250,0.1)', border:'1px solid rgba(96,165,250,0.3)', color:'#60a5fa', fontFamily:'JetBrains Mono, monospace' }}>
+              Duplicate
+            </button>
+            <button onClick={onDelete} disabled={locked}
+              className="ml-auto px-3 py-1.5 rounded-md text-[10px] tracking-wider transition-all disabled:opacity-30"
+              style={{ background:'rgba(224,90,94,0.08)', border:'1px solid rgba(224,90,94,0.3)', color:'#e05a5e', fontFamily:'JetBrains Mono, monospace' }}>
+              Remove
+            </button>
           </div>
         </div>
       )}
@@ -594,9 +857,73 @@ function StrategyCard({ s, expanded, onToggle, watchlistKeys }: {
   )
 }
 
-function fmtParamValue(v: unknown): string {
-  if (typeof v === 'boolean') return v ? 'true' : 'false'
-  if (typeof v === 'number') return String(v)
-  if (typeof v === 'string') return v
-  return JSON.stringify(v)
+// ──────── EDITABLE FIELD COMPONENTS ────────
+
+function NumField({ label, value, onChange, desc, prefix, suffix, disabled }: {
+  label: string; value: number; onChange: (v: number) => void; desc?: string; prefix?: string; suffix?: string; disabled?: boolean
+}) {
+  return (
+    <div className="grid items-baseline gap-3" style={{ gridTemplateColumns: '1.2fr 0.8fr 2fr' }}>
+      <span className="text-[12px]" style={{ color:'rgba(255,255,255,0.7)' }}>{label}</span>
+      <div className="flex items-center gap-1">
+        {prefix && <span className="text-[11px]" style={{ color:'rgba(255,255,255,0.4)' }}>{prefix}</span>}
+        <input type="number" step="any" value={value} disabled={disabled}
+          onChange={e => onChange(parseFloat(e.target.value))}
+          className="w-24 px-2 py-1 rounded text-[12px] outline-none disabled:opacity-50"
+          style={{ background:'rgba(255,255,255,0.04)', border:'1px solid rgba(201,168,76,0.25)', color:'#c9a84c', fontFamily:'JetBrains Mono, monospace' }} />
+        {suffix && <span className="text-[11px]" style={{ color:'rgba(255,255,255,0.4)' }}>{suffix}</span>}
+      </div>
+      {desc && <span className="text-[10px]" style={{ color:'rgba(255,255,255,0.4)' }}>{desc}</span>}
+    </div>
+  )
+}
+
+function TextField({ label, value, onChange, desc, disabled }: {
+  label: string; value: string; onChange: (v: string) => void; desc?: string; disabled?: boolean
+}) {
+  return (
+    <div className="grid items-baseline gap-3" style={{ gridTemplateColumns: '1.2fr 0.8fr 2fr' }}>
+      <span className="text-[12px]" style={{ color:'rgba(255,255,255,0.7)' }}>{label}</span>
+      <input type="text" value={value} disabled={disabled}
+        onChange={e => onChange(e.target.value)}
+        className="px-2 py-1 rounded text-[12px] outline-none disabled:opacity-50"
+        style={{ background:'rgba(255,255,255,0.04)', border:'1px solid rgba(201,168,76,0.25)', color:'#c9a84c', fontFamily:'JetBrains Mono, monospace' }} />
+      {desc && <span className="text-[10px]" style={{ color:'rgba(255,255,255,0.4)' }}>{desc}</span>}
+    </div>
+  )
+}
+
+function BoolField({ label, value, onChange, desc, disabled }: {
+  label: string; value: boolean; onChange: (v: boolean) => void; desc?: string; disabled?: boolean
+}) {
+  return (
+    <div className="grid items-baseline gap-3" style={{ gridTemplateColumns: '1.2fr 0.8fr 2fr' }}>
+      <span className="text-[12px]" style={{ color:'rgba(255,255,255,0.7)' }}>{label}</span>
+      <button onClick={() => !disabled && onChange(!value)} disabled={disabled}
+        className="px-3 py-1 rounded text-[11px] disabled:opacity-50 w-fit"
+        style={{
+          background: value ? 'rgba(82,183,136,0.12)' : 'rgba(255,255,255,0.04)',
+          border: `1px solid ${value ? 'rgba(82,183,136,0.4)' : 'rgba(255,255,255,0.1)'}`,
+          color: value ? '#52b788' : 'rgba(255,255,255,0.5)',
+          fontFamily:'JetBrains Mono, monospace',
+        }}>{value ? 'true' : 'false'}</button>
+      {desc && <span className="text-[10px]" style={{ color:'rgba(255,255,255,0.4)' }}>{desc}</span>}
+    </div>
+  )
+}
+
+function ColorField({ label, value, onChange, disabled }: {
+  label: string; value: string; onChange: (v: string) => void; disabled?: boolean
+}) {
+  return (
+    <div className="grid items-baseline gap-3" style={{ gridTemplateColumns: '1.2fr 0.8fr 2fr' }}>
+      <span className="text-[12px]" style={{ color:'rgba(255,255,255,0.7)' }}>{label}</span>
+      <div className="flex items-center gap-2">
+        <input type="color" value={value} disabled={disabled} onChange={e => onChange(e.target.value)}
+          className="w-8 h-7 rounded cursor-pointer disabled:opacity-50"
+          style={{ background:'transparent', border:'1px solid rgba(255,255,255,0.1)', padding: 0 }} />
+        <span className="text-[11px]" style={{ color:'rgba(255,255,255,0.5)', fontFamily:'JetBrains Mono, monospace' }}>{value}</span>
+      </div>
+    </div>
+  )
 }

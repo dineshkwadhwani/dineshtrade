@@ -4,7 +4,7 @@
 // callers that still read strategyCfg.targets.* / strategyCfg.ema.* / etc.
 // keep working unchanged because those legacy keys are preserved in the JSON.
 
-import strategyCfg from '@/config/strategy.json'
+import { getRuntimeStrategyConfig } from './strategyConfigStore'
 
 export type StrategyType = 'dip' | 'momentum'
 
@@ -66,7 +66,7 @@ export interface Strategy {
 export function getCapital(): CapitalConfig {
   // Belt-and-braces defaults so a partially-edited strategy.json never crashes
   // the engine at runtime.
-  const c = (strategyCfg as any).capital || {}
+  const c = (getRuntimeStrategyConfig() as any).capital || {}
   return {
     source: c.source === 'live' ? 'live' : 'live',
     perTrade: typeof c.perTrade === 'number' ? c.perTrade : 5000,
@@ -80,7 +80,7 @@ export function getCapital(): CapitalConfig {
 }
 
 export function getStrategies(): Strategy[] {
-  const arr = (strategyCfg as any).strategies
+  const arr = (getRuntimeStrategyConfig() as any).strategies
   if (!Array.isArray(arr)) return []
   return arr.map(normalizeStrategy).filter(Boolean) as Strategy[]
 }
