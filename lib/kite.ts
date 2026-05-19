@@ -56,6 +56,7 @@ export async function kiteRequest<T = any>(
       'Content-Type': 'application/x-www-form-urlencoded',
     },
     body: body ? new URLSearchParams(body).toString() : undefined,
+    cache: 'no-store',   // Kite data must be live — never cached by Next.js fetch
   })
   const data = await res.json().catch(() => ({} as any))
   return { status: res.status, ok: res.ok, data: data as T }
@@ -76,6 +77,7 @@ export interface KitePosition {
   day_buy_value?: number
   average_price: number
   last_price: number
+  close_price?: number   // previous trading day's close — used to compute today's %
   pnl?: number
   m2m?: number
 }

@@ -38,6 +38,7 @@ async function kiteRequest(endpoint: string, apiKey: string, accessToken: string
       'Content-Type': 'application/x-www-form-urlencoded',
     },
     body: body ? new URLSearchParams(body).toString() : undefined,
+    cache: 'no-store',   // Kite data must be live — never cached by Next.js fetch
   })
   const data = await res.json().catch(() => ({}))
   return { status: res.status, ok: res.ok, data }

@@ -72,15 +72,18 @@ export async function GET(req: Request) {
     getOrders(creds).catch(() => [] as KiteOrder[]),
   ])
 
-  // Fetch today's quotes for every symbol we hold/traded so we can compute
-  // today's % change from previous close. Best-effort — falls back to no
-  // change-pct on the row if /quote fails (Kite plan tier or token issue).
-  const allSymbols = Array.from(new Set([
-    ...positions.net.map(p => p.tradingsymbol),
-    ...positions.day.map(p => p.tradingsymbol),
+  // We use the position object's own last_price + close_price for LTP and
+  // today's % — those are the same values Zerodha shows, and they stay
+  // consistent with the position's pnl (which is recomputed against last_price
+  // by the broker). Earlier we used /quote here, which can drift a few rupees
+  // out of sync with /portfolio/positions and made the LTP look wrong.
+  // /quote is now only used as a fallback when close_price is 0 (rare).
+  const symbolsMissingClose = Array.from(new Set([
+    ...positions.net.filter(p => !p.close_price).map(p => p.tradingsymbol),
+    ...positions.day.filter(p => !p.close_price).map(p => p.tradingsymbol),
   ]))
-  const quotes = allSymbols.length > 0
-    ? await getQuotes(creds, allSymbols).catch(() => ({} as Awaited<ReturnType<typeof getQuotes>>))
+  const quotes = symbolsMissingClose.length > 0
+    ? await getQuotes(creds, symbolsMissingClose).catch(() => ({} as Awaited<ReturnType<typeof getQuotes>>))
     : ({} as Awaited<ReturnType<typeof getQuotes>>)
 
   // Index today's filled orders by symbol → tags + ids + buy/sell-side avgs.
@@ -129,10 +132,15 @@ export async function GET(req: Request) {
       const sellVwap = sellAgg.notional / sellAgg.qty
       realized = closedQty * (sellVwap - buyVwap)
     }
-    const unrealized = p.quantity * ((p.last_price || 0) - (p.average_price || 0))
+    const liveLtp = p.last_price || 0   // authoritative — matches Zerodha + the pnl Kite reports
+    const unrealized = p.quantity * (liveLtp - (p.average_price || 0))
+    // prevClose: prefer position's own close_price (always current). Fall back
+    // to the /quote ohlc.close only when close_price is 0 (typically MIS-only
+    // intraday positions with no prior-day close).
     const quote = quotes[`NSE:${sym}`]
-    const liveLtp = Number(quote?.last_price) || p.last_price || 0
-    const prevClose = Number((quote as any)?.ohlc?.close)
+    const prevClose = (p.close_price && p.close_price > 0)
+      ? p.close_price
+      : Number((quote as any)?.ohlc?.close) || 0
     const dayChangePct = prevClose > 0 && liveLtp > 0 ? ((liveLtp - prevClose) / prevClose) * 100 : undefined
     return {
       symbol: sym,
