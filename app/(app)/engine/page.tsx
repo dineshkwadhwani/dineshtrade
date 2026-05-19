@@ -2,6 +2,7 @@
 import { useEffect, useState } from 'react'
 import OrderModal from '@/components/OrderModal'
 import FundsCard from '@/components/FundsCard'
+import CapitalBar from '@/components/CapitalBar'
 
 interface AccountDisplay { name: string; displayName: string; initials: string; color: string; note: string }
 
@@ -237,6 +238,11 @@ export default function EnginePage() {
           </p>
         </div>
       )}
+
+      {/* CAPITAL HEADER BAR — live: Available · Deployed · Reserve · Remaining
+          deployable. Reads /api/capital which pulls Kite getMargins + open
+          positions; applies the maxDeployPct cap from strategy.json. */}
+      <CapitalBar account={selected[0] || connected[0] || null} />
 
       {/* TODAY'S ACTIVITY — persistent (fetched on mount + after every execute).
           Uses live Kite orders for the first selected account, NOT the config max,

@@ -1,6 +1,89 @@
 {
-  "version": "1.0",
+  "version": "2.0",
+  "_comment": "Schema 2.0 — multi-strategy framework. The top-level `capital` and `strategies` are the new source of truth. The remaining keys (capital_legacy, limits, targets, strategy2_momentum, ema, strategy1_reactive, sources) are kept for backwards-compatibility with existing consumers in Phase 1; they will be removed in Phase 3 once all callers migrate to lib/strategyConfig.ts.",
+
   "capital": {
+    "source": "live",
+    "perTrade": 5000,
+    "maxBuysPerDay": 3,
+    "maxSellsPerDay": 3,
+    "circuitBreakerPct": -5,
+    "maxDeployPct": 80,
+    "sharedPool": true,
+    "maxPositions": 10
+  },
+
+  "strategies": [
+    {
+      "id": "oscillator",
+      "name": "Oscillator (EMA Dip)",
+      "type": "dip",
+      "active": true,
+      "color": "#52b788",
+      "scanIntervalMin": 30,
+      "watchlist": ["listA"],
+      "params": {
+        "emaPeriod": 20,
+        "entryBelowPct": 5,
+        "strongBuyBelowPct": 8,
+        "minDownDays": 3,
+        "tranche2AboveEMAPct": 3.0,
+        "reactiveDrop": 3.0,
+        "reactiveIntervalMin": 30,
+        "firesOnAnyMode": true
+      },
+      "exits": {
+        "t1Pct": 5.0,
+        "t2Pct": 8.0
+      }
+    },
+    {
+      "id": "catalyst",
+      "name": "Catalyst (Momentum)",
+      "type": "momentum",
+      "active": true,
+      "color": "#c9a84c",
+      "scanIntervalMin": 5,
+      "watchlist": ["listA"],
+      "params": {
+        "minDayGainPct": 0.5,
+        "maxDayGainPct": 1.5,
+        "consecutiveCandles": 3,
+        "emaProximityPct": 3.0,
+        "volumeAvgDays": 10,
+        "scanStartHHMM": "09:30",
+        "scanEndHHMM": "14:30"
+      },
+      "exits": {
+        "t1Pct": 1.5,
+        "t2Pct": 2.0
+      }
+    },
+    {
+      "id": "market_boom",
+      "name": "Market Boom",
+      "type": "momentum",
+      "active": false,
+      "color": "#60a5fa",
+      "scanIntervalMin": 5,
+      "watchlist": ["listA", "listB"],
+      "params": {
+        "minDayGainPct": 1.5,
+        "maxDayGainPct": 3.0,
+        "consecutiveCandles": 2,
+        "emaProximityPct": 5.0,
+        "volumeAvgDays": 5,
+        "scanStartHHMM": "09:30",
+        "scanEndHHMM": "14:30"
+      },
+      "exits": {
+        "t1Pct": 2.0,
+        "t2Pct": 3.0
+      }
+    }
+  ],
+
+  "capital_legacy": {
     "total": 50000,
     "perTrade": 5000,
     "maxPositions": 10
