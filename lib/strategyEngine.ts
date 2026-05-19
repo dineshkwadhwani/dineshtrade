@@ -5,6 +5,7 @@
 
 import { getWatchlist } from './watchlistStore'
 import strategyCfg from '@/config/strategy.json'
+import { getStrategyById, getActiveStrategies, type Strategy } from './strategyConfig'
 import { getMarketBriefing } from './marketBriefing'
 import { getState } from './state'
 import {
@@ -188,11 +189,25 @@ export async function generateRecommendations(): Promise<StrategyResult> {
 //   3. Today's volume so far > 10-day avg daily volume × (elapsed / 375 min session)
 //   4. Current price within ±3% of 20-day EMA
 
-async function runStrategy2(now: string, giftChangePct: number): Promise<StrategyResult> {
-  const cfg = strategyCfg.strategy2_momentum ?? {
-    minDayGainPct: 0.5, maxDayGainPct: 1.5, emaProximityPct: 3.0,
-    consecutiveCandles: 3, scanStartHHMM: '09:30', scanEndHHMM: '14:30', volumeAvgDays: 10,
+// Pulls Strategy 2 params from the optional `strategy` argument; falls back
+// to the canonical 'catalyst' entry in strategy.json. Allowing this lets
+// multiple momentum strategies (Catalyst, Market Boom, …) share this engine
+// while running with their own per-strategy params + watchlist + exits.
+async function runStrategy2(now: string, giftChangePct: number, strategyOverride?: Strategy): Promise<StrategyResult> {
+  const strategy = strategyOverride || getStrategyById('catalyst')
+  const params = (strategy?.params || {}) as Record<string, any>
+  const cfg = {
+    minDayGainPct: params.minDayGainPct ?? strategyCfg.strategy2_momentum?.minDayGainPct ?? 0.5,
+    maxDayGainPct: params.maxDayGainPct ?? strategyCfg.strategy2_momentum?.maxDayGainPct ?? 1.5,
+    emaProximityPct: params.emaProximityPct ?? strategyCfg.strategy2_momentum?.emaProximityPct ?? 3.0,
+    consecutiveCandles: params.consecutiveCandles ?? strategyCfg.strategy2_momentum?.consecutiveCandles ?? 3,
+    scanStartHHMM: params.scanStartHHMM ?? strategyCfg.strategy2_momentum?.scanStartHHMM ?? '09:30',
+    scanEndHHMM: params.scanEndHHMM ?? strategyCfg.strategy2_momentum?.scanEndHHMM ?? '14:30',
+    volumeAvgDays: params.volumeAvgDays ?? strategyCfg.strategy2_momentum?.volumeAvgDays ?? 10,
   }
+  const exitT1 = strategy?.exits?.t1Pct ?? strategyCfg.targets.intraday_t1_pct ?? 1.5
+  const exitT2 = strategy?.exits?.t2Pct ?? strategyCfg.targets.intraday_t2_pct ?? 2.0
+  const watchlistKeys = strategy?.watchlist || ['listA']
   const SESSION_MINUTES = 375  // 9:15 → 15:30
 
   // Window check — only run BUY scan between scanStart and scanEnd
@@ -224,10 +239,11 @@ async function runStrategy2(now: string, giftChangePct: number): Promise<Strateg
     }
   }
 
-  // 2. List A universe
-  const listA: WatchlistStock[] = (await getWatchlist()).listA || []
-  const symbols = listA.map(s => s.nse.toUpperCase())
-  const nameBySymbol = new Map(listA.map(s => [s.nse.toUpperCase(), s.name || s.nse]))
+  // 2. Universe from strategy.watchlist (default ['listA'])
+  const wl = await getWatchlist()
+  const universe: WatchlistStock[] = watchlistKeys.flatMap(k => (wl as any)[k] || []) as any[]
+  const symbols = universe.map(s => s.nse.toUpperCase())
+  const nameBySymbol = new Map(universe.map(s => [s.nse.toUpperCase(), s.name || s.nse]))
 
   // 3. Load daily aggregates (EMA + 10-day avg vol + prev close) — cached per IST date
   await ensureDailyAggregates(creds, symbols, cfg.volumeAvgDays)
@@ -313,8 +329,8 @@ async function runStrategy2(now: string, giftChangePct: number): Promise<Strateg
     const qty = Math.floor(perTrade / s.ltp)
     if (qty < 1) continue
 
-    const t1 = +(s.ltp * (1 + strategyCfg.targets.intraday_t1_pct / 100)).toFixed(2)
-    const t2 = +(s.ltp * (1 + strategyCfg.targets.intraday_t2_pct / 100)).toFixed(2)
+    const t1 = +(s.ltp * (1 + exitT1 / 100)).toFixed(2)
+    const t2 = +(s.ltp * (1 + exitT2 / 100)).toFixed(2)
     const sl = +(s.ltp * 0.985).toFixed(2)
 
     recs.push({
@@ -427,10 +443,16 @@ export interface Tile {
 export interface TileEvalResult {
   catalyst: Tile[]
   oscillator: Tile[]
-  recommendedTab: 'catalyst' | 'oscillator'
+  // Tiles keyed by strategy id — populated for every ACTIVE strategy. Built
+  // strategies (oscillator, catalyst) share these arrays; new active
+  // strategies get their own slot here. Engine page reads this to render
+  // one tab per active strategy.
+  tilesByStrategy: Record<string, Tile[]>
+  activeStrategies: Array<{ id: string; name: string; color: string; type: string; scanIntervalMin: number }>
+  recommendedTab: string       // strategy id (was: 'catalyst' | 'oscillator')
   giftChangePct: number
   generatedAt: string
-  catalystScanOpen: boolean    // is the time window for Strategy 2 currently active?
+  catalystScanOpen: boolean
   message?: string
 }
 
@@ -441,10 +463,17 @@ function fmtPct(v: number): string {
 export async function evaluateAllForTiles(): Promise<TileEvalResult> {
   const generatedAt = new Date().toISOString()
 
+  const active = getActiveStrategies()
+  const activeSummary = active.map(s => ({
+    id: s.id, name: s.name, color: s.color, type: s.type, scanIntervalMin: s.scanIntervalMin,
+  }))
+
   // Default empty result (returned on early exits)
   const empty: TileEvalResult = {
     catalyst: [], oscillator: [],
-    recommendedTab: 'catalyst',
+    tilesByStrategy: Object.fromEntries(active.map(s => [s.id, []])),
+    activeStrategies: activeSummary,
+    recommendedTab: active[0]?.id || 'catalyst',
     giftChangePct: 0,
     catalystScanOpen: false,
     generatedAt,
@@ -464,7 +493,7 @@ export async function evaluateAllForTiles(): Promise<TileEvalResult> {
     const mode = await getMarketMode()
     if (mode) giftChangePct = mode.giftChangePct
   } catch { /* fallback to 0 */ }
-  const recommendedTab: 'catalyst' | 'oscillator' = giftChangePct < -0.5 ? 'oscillator' : 'catalyst'
+  // recommendedTab is now computed at the end against active strategies — see bottom of fn.
 
   // Live quotes (batched) + daily aggregates (cached)
   const s2cfg = strategyCfg.strategy2_momentum
@@ -715,15 +744,66 @@ export async function evaluateAllForTiles(): Promise<TileEvalResult> {
   catalyst.sort(byScore)
   oscillator.sort(byScore)
 
+  // tilesByStrategy: each active strategy gets a tile array. For the canonical
+  // 'catalyst' / 'oscillator' strategies, reuse the arrays we just built. For
+  // any other active momentum strategy (e.g. Market Boom), we surface the
+  // catalyst tiles as a *starting* approximation — Phase 3 doesn't yet rebuild
+  // tile evaluation per strategy params; that's Phase 4. The cron framework
+  // already uses the strategy's own params for BUY decisions, so behaviour-
+  // wise auto-mode is correct; only the per-tab tile rule display is shared.
+  const tilesByStrategy: Record<string, Tile[]> = {}
+  for (const s of active) {
+    if (s.id === 'oscillator') tilesByStrategy[s.id] = oscillator
+    else if (s.id === 'catalyst') tilesByStrategy[s.id] = catalyst
+    else if (s.type === 'momentum') tilesByStrategy[s.id] = catalyst
+    else if (s.type === 'dip') tilesByStrategy[s.id] = oscillator
+    else tilesByStrategy[s.id] = []
+  }
+
+  // Pick recommended tab: the one matching market mode if among active,
+  // else the first active strategy.
+  let chosenTab = active[0]?.id || 'catalyst'
+  if (giftChangePct < -0.5) {
+    const dipStrat = active.find(s => s.type === 'dip')
+    if (dipStrat) chosenTab = dipStrat.id
+  } else {
+    const momStrat = active.find(s => s.type === 'momentum')
+    if (momStrat) chosenTab = momStrat.id
+  }
+
   return {
-    catalyst, oscillator, recommendedTab, giftChangePct,
-    catalystScanOpen, generatedAt,
+    catalyst, oscillator,
+    tilesByStrategy,
+    activeStrategies: activeSummary,
+    recommendedTab: chosenTab,
+    giftChangePct, catalystScanOpen, generatedAt,
+  }
+}
+
+// ──────── GENERIC DISPATCHER ────────
+// Picks the right inner scanner based on the strategy's type. Used by the
+// per-strategy cron tasks — each active strategy is scanned on its own
+// schedule by calling this. New strategy types (e.g. 'mean_reversion') can
+// be added by extending the switch.
+export async function runStrategyScan(strategy: Strategy): Promise<StrategyResult> {
+  const now = new Date().toISOString()
+  const giftChangePct = (await getMarketMode())?.giftChangePct ?? 0
+  if (strategy.type === 'momentum') return runStrategy2(now, giftChangePct, strategy)
+  if (strategy.type === 'dip')      return runStrategy1(now, giftChangePct, strategy)
+  return {
+    mode: 'error', recommendations: [], giftChangePct,
+    message: `Unknown strategy type "${strategy.type}" for "${strategy.id}".`,
+    generatedAt: now,
   }
 }
 
 // ──────── STRATEGY 1 — OSCILLATOR (EMA dip) ────────
 
-async function runStrategy1(now: string, giftChangePct: number): Promise<StrategyResult> {
+async function runStrategy1(now: string, giftChangePct: number, strategyOverride?: Strategy): Promise<StrategyResult> {
+  const strategy = strategyOverride || getStrategyById('oscillator')
+  const params = (strategy?.params || {}) as Record<string, any>
+  const watchlistKeys = strategy?.watchlist || ['listA']
+
   const creds = await firstConnectedCreds()
   if (!creds) {
     return {
@@ -733,9 +813,10 @@ async function runStrategy1(now: string, giftChangePct: number): Promise<Strateg
     }
   }
 
-  const listA: WatchlistStock[] = (await getWatchlist()).listA || []
-  const symbols = listA.map(s => s.nse.toUpperCase())
-  const nameBySymbol = new Map(listA.map(s => [s.nse.toUpperCase(), s.name || s.nse]))
+  const wl = await getWatchlist()
+  const universe: WatchlistStock[] = watchlistKeys.flatMap(k => (wl as any)[k] || []) as any[]
+  const symbols = universe.map(s => s.nse.toUpperCase())
+  const nameBySymbol = new Map(universe.map(s => [s.nse.toUpperCase(), s.name || s.nse]))
 
   // 1. Resolve instrument tokens
   let tokens: Record<string, number> = {}
@@ -751,10 +832,12 @@ async function runStrategy1(now: string, giftChangePct: number): Promise<Strateg
 
   const from = ymdIST(-60)
   const to = ymdIST(-1)   // yesterday — exclude today's incomplete bar
-  const entryBelowPct = strategyCfg.ema?.entryBelowPct ?? 5
-  const strongBuyBelowPct = strategyCfg.ema?.strongBuyBelowPct ?? 8
-  const minDownDays = strategyCfg.ema?.minDownDays ?? 3
-  const emaPeriod = strategyCfg.ema?.period ?? 20
+  // Params from the strategy object — fall back to legacy strategy.json keys
+  const entryBelowPct     = params.entryBelowPct      ?? strategyCfg.ema?.entryBelowPct      ?? 5
+  const strongBuyBelowPct = params.strongBuyBelowPct  ?? strategyCfg.ema?.strongBuyBelowPct  ?? 8
+  const minDownDays       = params.minDownDays        ?? strategyCfg.ema?.minDownDays        ?? 3
+  const emaPeriod         = params.emaPeriod          ?? strategyCfg.ema?.period             ?? 20
+  const tranche2AbovePct  = params.tranche2AboveEMAPct ?? strategyCfg.targets?.strategy1_tranche2_above_ema_pct ?? 3
 
   let skippedNoToken = 0
   let skippedNoHistorical = 0
@@ -820,7 +903,7 @@ async function runStrategy1(now: string, giftChangePct: number): Promise<Strateg
       source: 'EMA stretch signal',
       reason: `${Math.abs(dev).toFixed(1)}% below 20-EMA (₹${v.ema.toFixed(2)}); ${v.downDays} consecutive down days`,
       target1: +v.ema.toFixed(2),                                                        // exit 50% on EMA recovery
-      target2: +(v.ema * (1 + (strategyCfg.targets.strategy1_tranche2_above_ema_pct ?? 3) / 100)).toFixed(2),  // exit remaining when price hits EMA + 3% (no time stop)
+      target2: +(v.ema * (1 + tranche2AbovePct / 100)).toFixed(2),  // exit remaining when price hits EMA + tranche2% (no time stop)
       stopLoss: +(ltp * 0.975).toFixed(2),                                              // -2.5% SL (wider than Strategy 2; we expect retrace)
       suggestedQty: qty,
       confidence: dev <= -strongBuyBelowPct ? 'high' : 'normal',
@@ -873,16 +956,21 @@ export interface ReactiveDipResult {
   skipReason?: string
 }
 
-export async function runReactiveDipScan(): Promise<ReactiveDipResult> {
-  const cfg = (strategyCfg as any).strategy1_reactive
-  const dropPct = cfg?.dropPct ?? 3.0
+export async function runReactiveDipScan(strategyOverride?: Strategy): Promise<ReactiveDipResult> {
+  const strategy = strategyOverride || getStrategyById('oscillator')
+  const params = (strategy?.params || {}) as Record<string, any>
+  const watchlistKeys = strategy?.watchlist || ['listA']
+  const dropPct = params.reactiveDrop ?? (strategyCfg as any).strategy1_reactive?.dropPct ?? 3.0
+  const tranche2AbovePct = params.tranche2AboveEMAPct ?? strategyCfg.targets?.strategy1_tranche2_above_ema_pct ?? 3
+
   const creds = await firstConnectedCreds()
   if (!creds) return { recommendations: [], scanned: 0, triggered: [], evaluated: 0, skipReason: 'No Kite account connected' }
 
-  const listA: WatchlistStock[] = (await getWatchlist()).listA || []
-  const symbols = listA.map(s => s.nse.toUpperCase())
+  const wl = await getWatchlist()
+  const universe: WatchlistStock[] = watchlistKeys.flatMap(k => (wl as any)[k] || []) as any[]
+  const symbols = universe.map(s => s.nse.toUpperCase())
   if (symbols.length === 0) return { recommendations: [], scanned: 0, triggered: [], evaluated: 0 }
-  const nameBySymbol = new Map(listA.map(s => [s.nse.toUpperCase(), s.name || s.nse]))
+  const nameBySymbol = new Map(universe.map(s => [s.nse.toUpperCase(), s.name || s.nse]))
 
   // 1. Batch-fetch live LTPs + yesterday's close (from ohlc.close)
   const quotes = await getQuotes(creds, symbols).catch(() => ({} as Awaited<ReturnType<typeof getQuotes>>))
@@ -919,10 +1007,10 @@ export async function runReactiveDipScan(): Promise<ReactiveDipResult> {
   //    today's incomplete bar) so it's not polluted by intraday volatility.
   const from = ymdIST(-60)
   const to = ymdIST(-1)
-  const entryBelowPct = strategyCfg.ema?.entryBelowPct ?? 5
-  const strongBuyBelowPct = strategyCfg.ema?.strongBuyBelowPct ?? 8
-  const minDownDays = strategyCfg.ema?.minDownDays ?? 3
-  const emaPeriod = strategyCfg.ema?.period ?? 20
+  const entryBelowPct     = params.entryBelowPct      ?? strategyCfg.ema?.entryBelowPct      ?? 5
+  const strongBuyBelowPct = params.strongBuyBelowPct  ?? strategyCfg.ema?.strongBuyBelowPct  ?? 8
+  const minDownDays       = params.minDownDays        ?? strategyCfg.ema?.minDownDays        ?? 3
+  const emaPeriod         = params.emaPeriod          ?? strategyCfg.ema?.period             ?? 20
 
   const evaluated = await mapWithLimit(triggered, 3, async (symbol): Promise<Recommendation | null> => {
     const token = tokens[symbol]
@@ -964,7 +1052,7 @@ export async function runReactiveDipScan(): Promise<ReactiveDipResult> {
         source: 'Reactive dip (intraday −3%+)',
         reason: `Intraday ${dayChgPct.toFixed(2)}% drop · ${Math.abs(dev).toFixed(1)}% below 20-EMA (₹${ema.toFixed(2)}) · ${downDays} consecutive down days (today counted)`,
         target1: +ema.toFixed(2),
-        target2: +(ema * (1 + (strategyCfg.targets.strategy1_tranche2_above_ema_pct ?? 3) / 100)).toFixed(2),
+        target2: +(ema * (1 + tranche2AbovePct / 100)).toFixed(2),
         stopLoss: +(ltp * 0.975).toFixed(2),
         suggestedQty: qty,
         confidence: dev <= -strongBuyBelowPct ? 'high' : 'normal',

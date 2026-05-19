@@ -18,7 +18,8 @@ import { getState } from './state'
 import { isMarketOpen, NSE_HOLIDAYS } from './market'
 import { getAccountList } from './accounts'
 import { sendEmail, sendDailyReport, sendMonthlyReport, isEmailConfigured, type EODLineItem } from './email'
-import { generateRecommendations, getMarketMode, runReactiveDipScan, type Recommendation } from './strategyEngine'
+import { generateRecommendations, getMarketMode, runReactiveDipScan, runStrategyScan, type Recommendation } from './strategyEngine'
+import { getActiveStrategies, type Strategy } from './strategyConfig'
 import strategyCfg from '@/config/strategy.json'
 import { monitorAllConnected, STRATEGY_2_BUY_TAG } from './strategy2'
 import {
@@ -32,6 +33,12 @@ import { buildDailyReport, buildMonthlyReport, isLastWeekdayOfMonth } from './re
 let started = false
 let tickTask: ScheduledTask | null = null
 let eodTask: ScheduledTask | null = null
+
+// Per-strategy scan tasks. Each active strategy in strategy.json gets its own
+// cron task at its scanIntervalMin. The map keys are strategy ids so we can
+// start/stop individual tasks when the user toggles a strategy in Settings
+// (Phase 4). For Phase 3 the registry is populated once at startCron() time.
+const strategyTasks = new Map<string, ScheduledTask>()
 
 // ──────── DAY-OF STATS (in-process) ────────
 
@@ -267,43 +274,48 @@ async function tick(): Promise<void> {
     console.error('[cron tick] reactive dip scan failed:', err)
   }
 
-  // 2. BUY scan — Strategy 2 (catalyst) every tick; Strategy 1 (dip) first of day only.
+  // BUY scans are now handled by per-strategy cron tasks (see strategyTasks
+  // registry in startCron). The 5-min tick only handles SELL monitors + the
+  // reactive dip trigger above. This means a strategy with scanIntervalMin=5
+  // and scanIntervalMin=30 each run at their own cadence, independent of
+  // GIFT-Nifty market mode — the user controls activation explicitly in
+  // strategy.json.
+}
+
+// Per-strategy task body. Runs the strategy's scanner with its own params
+// and watchlist, then auto-BUYs the resulting recommendations on every
+// selected account. Idempotency in preflight prevents duplicates across
+// strategies (one BUY per symbol per account per day).
+async function runStrategyTaskBody(strategy: Strategy): Promise<void> {
+  maybeRollDay()
+  const market = isMarketOpen()
+  if (!market.open) return
+  const state = await getState()
+  if (state.mode !== 'auto') return
+  if (Object.keys(state.kiteTokens).length === 0) return
+
+  const t = istHHMM()
+  console.log(`[cron strategy:${strategy.id}] ${t} IST — scan firing (every ${strategy.scanIntervalMin} min)`)
+
   try {
-    const modeInfo = await getMarketMode()
-    if (!modeInfo) {
-      console.log('[cron tick] BUY scan skipped — no market mode (briefing fetch failed?)')
-      return
-    }
-    if (modeInfo.mode === 'circuit') return
-    if (modeInfo.mode === 'error') return
-
-    let shouldScan = false
-    if (modeInfo.mode === 'catalyst') {
-      shouldScan = true   // every tick; runStrategy2's internal window check gates 9:30-14:30
-    } else if (modeInfo.mode === 'dip' && dipScanDoneDate !== currentDateKey) {
-      dipScanDoneDate = currentDateKey
-      shouldScan = true
-    }
-
-    if (!shouldScan) return
-
-    const result = await generateRecommendations()
+    const result = await runStrategyScan(strategy)
     if (result.recommendations.length === 0) {
-      if (result.message) console.log(`[cron tick] BUY scan — ${result.mode}, 0 recs: ${result.message}`)
+      if (result.message) console.log(`[cron strategy:${strategy.id}] 0 recs: ${result.message}`)
       return
     }
     const accounts = getAccountList()
     const targetAccounts = state.selectedAccounts.filter(a => !!state.kiteTokens[a])
     if (targetAccounts.length === 0) {
-      console.log('[cron tick] BUY scan — no selectedAccounts with tokens')
+      console.log(`[cron strategy:${strategy.id}] no selectedAccounts with tokens`)
       return
     }
+    console.log(`[cron strategy:${strategy.id}] ${result.recommendations.length} rec(s) → ${targetAccounts.length} account(s)`)
     for (const account of targetAccounts) {
       const display = accounts.find(a => a.name === account)?.displayName
       await autoBuyOnAccount(account, display, result.recommendations)
     }
   } catch (err) {
-    console.error('[cron tick] BUY scan failed:', err)
+    console.error(`[cron strategy:${strategy.id}] scan failed:`, err)
   }
 }
 
@@ -371,19 +383,44 @@ export function startCron(): void {
     return
   }
   started = true
-  console.log('[cron] starting — tick every 5 min during 9:15–15:30 IST Mon–Fri; daily retrospective at 15:35 IST')
 
+  // Core 5-min tick: SELL monitors + reactive dip scan only. BUY scans live
+  // on per-strategy schedules below.
   tickTask = cron.schedule('*/5 9-15 * * 1-5', () => {
     tick().catch(err => console.error('[cron tick] error:', err))
   }, { timezone: 'Asia/Kolkata' })
 
+  // Daily retrospective email
   eodTask = cron.schedule('35 15 * * 1-5', () => {
     dailyRetrospective().catch(err => console.error('[cron retro] error:', err))
   }, { timezone: 'Asia/Kolkata' })
+
+  // Per-strategy BUY-scan tasks. Each active strategy registers its own cron
+  // at its scanIntervalMin. Inactive strategies are skipped here; toggling
+  // active=true in strategy.json + a process restart will pick them up. Phase
+  // 4 will add hot-toggle without restart.
+  const active = getActiveStrategies()
+  for (const strategy of active) {
+    registerStrategyTask(strategy)
+  }
+  const summary = active.map(s => `${s.id}@${s.scanIntervalMin}m`).join(', ')
+  console.log(`[cron] starting — core tick every 5 min · retro 15:35 IST · per-strategy: ${summary || 'none'}`)
+}
+
+function registerStrategyTask(strategy: Strategy): void {
+  if (strategyTasks.has(strategy.id)) return
+  const interval = Math.max(1, strategy.scanIntervalMin)
+  const expr = `*/${interval} 9-15 * * 1-5`
+  const task = cron.schedule(expr, () => {
+    runStrategyTaskBody(strategy).catch(err => console.error(`[cron strategy:${strategy.id}] error:`, err))
+  }, { timezone: 'Asia/Kolkata' })
+  strategyTasks.set(strategy.id, task)
 }
 
 export function stopCron(): void {
   if (tickTask) { tickTask.stop(); tickTask = null }
   if (eodTask)  { eodTask.stop();  eodTask = null }
+  Array.from(strategyTasks.values()).forEach(t => t.stop())
+  strategyTasks.clear()
   started = false
 }

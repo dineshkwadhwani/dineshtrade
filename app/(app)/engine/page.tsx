@@ -592,10 +592,16 @@ interface Tile {
   holding?: { qty: number; avgPrice: number; pnl: number }
 }
 
+interface ActiveStrategySummary {
+  id: string; name: string; color: string; type: string; scanIntervalMin: number
+}
+
 interface TilesResponse {
   catalyst: Tile[]
   oscillator: Tile[]
-  recommendedTab: 'catalyst' | 'oscillator'
+  tilesByStrategy?: Record<string, Tile[]>
+  activeStrategies?: ActiveStrategySummary[]
+  recommendedTab: string
   giftChangePct: number
   catalystScanOpen: boolean
   generatedAt: string
@@ -609,7 +615,7 @@ function EngineTilesSection({ firstAccount, accounts, connected, tradeMode }: {
   connected: string[]
   tradeMode: TradeMode
 }) {
-  const [tab, setTab] = useState<'catalyst' | 'oscillator'>('catalyst')
+  const [tab, setTab] = useState<string>('catalyst')
   const [tabManuallySet, setTabManuallySet] = useState(false)
   const [data, setData] = useState<TilesResponse | null>(null)
   const [loading, setLoading] = useState(false)
@@ -656,8 +662,22 @@ function EngineTilesSection({ firstAccount, accounts, connected, tradeMode }: {
     )
   }
 
-  const tiles = data ? (tab === 'catalyst' ? data.catalyst : data.oscillator) : []
+  // Pick tile array for active tab: prefer tilesByStrategy (new shape); fall
+  // back to the legacy catalyst/oscillator arrays if server hasn't been
+  // redeployed yet.
+  const tilesByStrategy = data?.tilesByStrategy || {}
+  const legacyMap: Record<string, Tile[]> = data ? { catalyst: data.catalyst, oscillator: data.oscillator } : {}
+  const tiles = tilesByStrategy[tab] || legacyMap[tab] || []
   const fullScore = tiles[0]?.total || 8
+
+  // Strategies to render as tabs — from active list when present, else the
+  // legacy two-tab default.
+  const tabStrategies: ActiveStrategySummary[] = data?.activeStrategies?.length
+    ? data.activeStrategies
+    : [
+        { id: 'catalyst',   name: 'Catalyst',   color: '#c9a84c', type: 'momentum', scanIntervalMin: 5  },
+        { id: 'oscillator', name: 'Oscillator', color: '#52b788', type: 'dip',      scanIntervalMin: 30 },
+      ]
 
   return (
     <div className="space-y-4 pt-2">
@@ -672,21 +692,22 @@ function EngineTilesSection({ firstAccount, accounts, connected, tradeMode }: {
           </p>
         </div>
         <div className="flex items-center gap-2">
-          <div className="flex gap-1 rounded-lg p-1" style={{ background:'rgba(255,255,255,0.03)', border:'1px solid rgba(255,255,255,0.06)' }}>
-            {(['catalyst', 'oscillator'] as const).map(t => {
-              const active = tab === t
-              const isDefault = data?.recommendedTab === t
+          <div className="flex gap-1 rounded-lg p-1 flex-wrap" style={{ background:'rgba(255,255,255,0.03)', border:'1px solid rgba(255,255,255,0.06)' }}>
+            {tabStrategies.map(t => {
+              const active = tab === t.id
+              const isDefault = data?.recommendedTab === t.id
               return (
-                <button key={t} onClick={() => { setTab(t); setTabManuallySet(true) }}
-                  className="px-3 py-1.5 rounded-md text-[11px] transition-all"
+                <button key={t.id} onClick={() => { setTab(t.id); setTabManuallySet(true) }}
+                  className="px-3 py-1.5 rounded-md text-[11px] transition-all flex items-center gap-1.5"
                   style={{
-                    background: active ? 'rgba(201,168,76,0.12)' : 'transparent',
-                    border: active ? '1px solid rgba(201,168,76,0.3)' : '1px solid transparent',
-                    color: active ? '#c9a84c' : 'rgba(255,255,255,0.5)',
+                    background: active ? `${t.color}1c` : 'transparent',
+                    border: active ? `1px solid ${t.color}50` : '1px solid transparent',
+                    color: active ? t.color : 'rgba(255,255,255,0.5)',
                     fontFamily:'JetBrains Mono, monospace',
                   }}>
-                  {t === 'catalyst' ? 'Catalyst' : 'Oscillator'}
-                  {isDefault && !active && <span className="ml-1 text-[8px]" style={{ color:'rgba(201,168,76,0.6)' }}>·default</span>}
+                  <span>{t.name}</span>
+                  <span className="text-[8px]" style={{ color: active ? t.color : 'rgba(255,255,255,0.3)' }}>{t.scanIntervalMin}m</span>
+                  {isDefault && !active && <span className="text-[8px]" style={{ color:'rgba(201,168,76,0.6)' }}>·default</span>}
                 </button>
               )
             })}
