@@ -2,6 +2,7 @@ import { NextRequest, NextResponse } from 'next/server'
 import { cookies } from 'next/headers'
 import { verifySession } from '@/lib/auth'
 import { getState, saveState, clearState, SessionState } from '@/lib/state'
+import { isAccountConfigured } from '@/lib/accounts'
 
 async function requireAuth(): Promise<boolean> {
   const token = cookies().get('dt_session')?.value
@@ -10,11 +11,15 @@ async function requireAuth(): Promise<boolean> {
 }
 
 // Client-safe projection — never return Kite tokens, only which accounts have one set.
+// Filters out orphaned tokens for accounts that are no longer configured in env
+// (e.g. an account was commented out of .env.local but its stale token still sits
+// in state.json). Without this filter, the UI thinks that account is "connected"
+// and routes API calls to it, which then 403 with "Incorrect api_key or access_token".
 function projectForClient(s: SessionState) {
   return {
     mode: s.mode,
-    selectedAccounts: s.selectedAccounts,
-    accountsWithToken: Object.keys(s.kiteTokens),
+    selectedAccounts: s.selectedAccounts.filter(isAccountConfigured),
+    accountsWithToken: Object.keys(s.kiteTokens).filter(isAccountConfigured),
   }
 }
 
