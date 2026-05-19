@@ -31,6 +31,13 @@
     "strongBuyBelowPct": 8,
     "minDownDays": 3
   },
+  "strategy1_reactive": {
+    "dropPct": 3.0,
+    "scanStartHHMM": "09:15",
+    "scanEndHHMM": "14:00",
+    "intervalMin": 30,
+    "firesOnAnyMode": true
+  },
   "sources": {
     "brokerRecommendations": [
       { "name": "ICICI Direct",    "url": "https://www.icicidirect.com/research/equity/stock-picks" },

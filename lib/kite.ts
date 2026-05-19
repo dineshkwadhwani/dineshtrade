@@ -118,6 +118,25 @@ export async function getPositions(creds: KiteCreds): Promise<{ net: KitePositio
   }
 }
 
+export interface KiteHolding {
+  tradingsymbol: string
+  exchange: string
+  product: string
+  quantity: number
+  average_price: number
+  last_price: number
+  close_price?: number
+  pnl: number
+  day_change?: number
+  day_change_percentage?: number
+}
+
+// /portfolio/holdings — long-term holdings (delivery / CNC) carried across days
+export async function getHoldings(creds: KiteCreds): Promise<KiteHolding[]> {
+  const r = await kiteRequest<{ data?: KiteHolding[] }>('/portfolio/holdings', creds)
+  return r.data?.data || []
+}
+
 // /orders — today's order book
 export async function getOrders(creds: KiteCreds): Promise<KiteOrder[]> {
   const r = await kiteRequest<{ data?: KiteOrder[] }>('/orders', creds)

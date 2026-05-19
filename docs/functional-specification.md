@@ -88,16 +88,33 @@ This spec documents the *user-visible* behaviour: what the app does, when, and w
 **Goal:** Two clearly-defined strategies, one for catalyst days, one for dip days. Each strategy owns its order tag, its monitor, and its journal.
 
 ### F4.1 — Strategy 1: The Oscillator (mean reversion)
-**Used when:** GIFT Nifty < −0.5% (dip mode). Runs once per day at the first dip-mode tick.
 
+Strategy 1 has **two trigger paths** — a once-per-day morning scan and a reactive intraday scan.
+
+#### F4.1a — Morning scan
+**Used when:** GIFT Nifty < −0.5% (dip mode). Runs once per day at the first dip-mode tick.
 - **Entry filter:**
   - Stock 5–8% below 20-day EMA
-  - 3+ consecutive down days
+  - 3+ consecutive down days (from historical daily candles only)
+
+#### F4.1b — Reactive intraday scan
+**Used when:** Always (regardless of market mode). Runs every **30 minutes** between **09:15 and 14:00 IST**.
+- **Trigger:** Any List A stock down **≥3% from yesterday's close** intraday.
+- **Re-evaluation:** Full Strategy 1 entry check on the triggered symbol, with one twist — today is **counted as a down day** for the consecutive-down-days check (since we already know the price has dropped ≥3%, today qualifies as down).
+- **Why:** Catches single-stock capitulation moves that the morning scan would have missed because the stock hadn't dropped enough at 9:15 yet.
+- **Mode-independence:** Fires on dip days, catalyst days, even flat days. A single-stock 3% intraday drop is a valid Strategy 1 entry signal in its own right.
+- **Idempotency:** Shares the standard per-account+date+symbol BUY ledger with the morning scan — no symbol can fire twice in one day across both paths.
+
+#### Exits + persistence (shared between both paths)
 - **Two-tranche exit:**
   - **Tranche 1:** SELL 50% when LTP ≥ EMA
   - **Tranche 2:** SELL remaining 50% when LTP ≥ EMA × 1.03 (i.e. **EMA + 3%, no time stop**)
 - **Order tags:** `dt-s1` (BUY), `dt-s1-t1` (tranche 1 SELL), `dt-s1-t2` (tranche 2 SELL)
 - **Persistence:** every Strategy 1 BUY is recorded in `data/strategy1.json` with `{ account, symbol, qty, entryPrice, tranche1Done }`. Monitor re-hydrates from this file every tick, so positions survive restarts and span days.
+
+#### Visibility
+- **Auto mode:** cron places the BUY automatically (same `dt-s1` tag, same exit monitor).
+- **Manual mode:** every Engine page Refresh runs both `generateRecommendations()` and `runReactiveDipScan()` in parallel and merges the results — so a reactive dip rec appears as a flagged recommendation alongside any catalyst/dip recs from the regular mode.
 
 ### F4.2 — Strategy 2: The Daily Catalyst (intraday momentum)
 **Used when:** Catalyst mode (GIFT Nifty positive/flat). Scans every tick during 9:30–14:30 IST.
@@ -122,9 +139,48 @@ This spec documents the *user-visible* behaviour: what the app does, when, and w
 Mode is computed once per tick via `getMarketMode()`, cached briefly, and shown as a chip on the Dashboard + Engine page.
 
 ### F4.4 — Engine page
+Two stacked sections — Recommendations (top) and Full Scan tiles (bottom).
+
+#### Recommendations section (unchanged)
 - "Refresh" button runs `generateRecommendations()` — dispatches by current mode.
 - Each recommendation shows: symbol, price, T1, T2, stop loss, suggested qty (computed from per-trade cap), reason text, source.
 - In **Manual mode**, each rec has an Execute button. In **Auto mode**, the cron is already firing them; the page is informational.
+
+#### Full Scan tiles section
+A richer UI layer over the **same** scan logic — no change to the underlying strategies or cron. Surfaces *every* List A stock as a tile so you can see **why** filtered-out stocks didn't make it to recommendations.
+
+- **Two tabs:** Catalyst (Strategy 2) and Oscillator (Strategy 1). Default tab is determined by market mode — GIFT Nifty < −0.5% opens on Oscillator, otherwise Catalyst. User can switch tabs manually.
+- **Per-tile content:** symbol + name, live LTP + today's % (▲/▼), per-rule checklist (8 rules with green ✓ / red ✗ / dim ○ for "not evaluated"), each row showing the actual measured value, score line `X / 8`, holding annotation (qty · avg · live P&L) when the account currently holds the stock.
+- **Buttons:** every tile has a **BUY** button. The button styling reflects readiness:
+  - Full score (e.g. 8/8) → **gold filled** background
+  - Near-full (within 2 of max) → **amber outlined**
+  - Below that → **dim grey outlined**
+  - SELL button appears **only when the account holds the stock**.
+- **Auto-fires badge:** in Auto mode, full-score tiles show a green `AUTO-FIRES` chip so the user knows the cron will pick it up.
+- **Sort:** tiles sorted by score descending; within same score, alphabetical.
+- **Auto-refresh:** every 5 minutes, plus on demand via the Refresh button.
+- **Card border colour:** gold (full score), amber (near-full), dim (below).
+- **Auto execution behaviour (unchanged from scan logic):** only stocks that pass all rules are auto-traded by the cron. Manual users can click BUY on any tile regardless of score — OrderModal opens pre-filled, all preflight gates still apply.
+
+#### Catalyst rules (8)
+1. Within scan window (09:30–14:30 IST)
+2. Day gain ≥ +0.5%
+3. Day gain ≤ +1.5%
+4. ≥3 rising 5-min candles (evaluated only for stocks passing rules 1–3 + 6 + EMA; otherwise dim "not evaluated")
+5. Volume > prorated 10-day average
+6. LTP within ±3% of 20-EMA
+7. Live quote + 20-EMA available
+8. Per-trade cap configured
+
+#### Oscillator rules (8)
+1. Market open (09:15–15:30 IST)
+2. 20-day EMA computable
+3. LTP ≥ 5% below 20-EMA (stretched)
+4. LTP ≤ 12% below 20-EMA (not panic zone)
+5. Today ≥3% drop (reactive trigger — same threshold as the intraday scan)
+6. Live LTP available
+7. Per-trade cap configured
+8. Position cap configured
 
 ### Nuances
 - **Tranche 2 rule change:** originally "next day above EMA". Changed to "EMA + 3% same-day, no time stop" on user request (18 May 2026) — captures more upside on momentum names.

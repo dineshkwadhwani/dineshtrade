@@ -167,7 +167,7 @@ export default function SettingsPage() {
         <p className="text-[11px] mt-3" style={{ color:'rgba(255,255,255,0.3)' }}>
           {mode === 'manual'
             ? 'Manual: recommendations shown with Execute button. You approve each trade.'
-            : 'Auto: trades execute automatically every 5 min during market hours (Phase 2 only — on Vercel the cron does not run).'}
+            : 'Auto: trades execute automatically every 5 min during market hours.'}
         </p>
       </div>
 

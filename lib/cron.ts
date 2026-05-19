@@ -18,7 +18,8 @@ import { getState } from './state'
 import { isMarketOpen, NSE_HOLIDAYS } from './market'
 import { getAccountList } from './accounts'
 import { sendEmail, sendDailyReport, sendMonthlyReport, isEmailConfigured, type EODLineItem } from './email'
-import { generateRecommendations, getMarketMode, type Recommendation } from './strategyEngine'
+import { generateRecommendations, getMarketMode, runReactiveDipScan, type Recommendation } from './strategyEngine'
+import strategyCfg from '@/config/strategy.json'
 import { monitorAllConnected, STRATEGY_2_BUY_TAG } from './strategy2'
 import {
   monitorAllAccountsStrategy1, recordStrategy1Buy, STRATEGY_1_BUY_TAG,
@@ -78,6 +79,27 @@ function isMarketDay(): boolean {
   const dow = ist.getDay()
   if (dow === 0 || dow === 6) return false
   return !NSE_HOLIDAYS.includes(istDateKey())
+}
+
+// Reactive dip cadence check. Cron tick fires every 5 min; we want the
+// reactive scan to fire every `intervalMin` (default 30) within
+// [scanStartHHMM, scanEndHHMM]. Anchored to scanStartHHMM, so with start
+// 09:15 + interval 30, fires at 09:15, 09:45, 10:15, …, 13:45.
+function shouldRunReactiveDip(nowHHMM: string, cfg: {
+  scanStartHHMM?: string; scanEndHHMM?: string; intervalMin?: number
+}): boolean {
+  const startHHMM = cfg.scanStartHHMM || '09:15'
+  const endHHMM   = cfg.scanEndHHMM   || '14:00'
+  const interval  = cfg.intervalMin   || 30
+  const toMin = (s: string) => {
+    const [h, m] = s.split(':').map(n => parseInt(n, 10))
+    return h * 60 + m
+  }
+  const now = toMin(nowHHMM)
+  const start = toMin(startHHMM)
+  const end = toMin(endHHMM)
+  if (now < start || now > end) return false
+  return ((now - start) % interval) === 0
 }
 
 export function recordExecuted(item: EODLineItem) { maybeRollDay(); dayStats.executed.push(item) }
@@ -209,6 +231,38 @@ async function tick(): Promise<void> {
     }
   } catch (err) {
     console.error('[cron tick] Strategy 1 monitor failed:', err)
+  }
+
+  // 1c. REACTIVE DIP scan — Strategy 1 intraday trigger.
+  // Fires every 30 min between 09:15 and 14:00 IST (independent of market mode
+  // and of the dip-mode once-per-day BUY scan). Looks for List A stocks that
+  // dropped ≥3% intraday, re-evaluates Strategy 1 with today counted as a down
+  // day, and auto-BUYs anything that qualifies. Idempotency in preflight
+  // prevents the same symbol from firing on both the morning scan + reactive,
+  // OR on consecutive 30-min reactive ticks.
+  try {
+    const rcfg = (strategyCfg as any).strategy1_reactive
+    if (rcfg && shouldRunReactiveDip(t, rcfg)) {
+      console.log(`[cron tick] ${t} IST — reactive dip scan window`)
+      const reactive = await runReactiveDipScan()
+      if (reactive.recommendations.length > 0) {
+        const accounts = getAccountList()
+        const targetAccounts = state.selectedAccounts.filter(a => !!state.kiteTokens[a])
+        if (targetAccounts.length === 0) {
+          console.log('[cron tick] reactive dip — no selectedAccounts with tokens; skipping auto-BUY')
+        } else {
+          console.log(`[cron tick] reactive dip — ${reactive.recommendations.length} rec(s): ${reactive.recommendations.map(r => r.symbol).join(', ')} (triggered: ${reactive.triggered.length})`)
+          for (const account of targetAccounts) {
+            const display = accounts.find(a => a.name === account)?.displayName
+            await autoBuyOnAccount(account, display, reactive.recommendations)
+          }
+        }
+      } else if (reactive.triggered.length > 0) {
+        console.log(`[cron tick] reactive dip — ${reactive.triggered.length} stocks at −3%+ but none met Strategy 1 entry criteria`)
+      }
+    }
+  } catch (err) {
+    console.error('[cron tick] reactive dip scan failed:', err)
   }
 
   // 2. BUY scan — Strategy 2 (catalyst) every tick; Strategy 1 (dip) first of day only.
