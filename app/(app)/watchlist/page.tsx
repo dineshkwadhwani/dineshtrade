@@ -1,13 +1,15 @@
 'use client'
 import { useState, useEffect } from 'react'
 import OrderModal from '@/components/OrderModal'
+import { isMarketOpen } from '@/lib/market'
 
 interface AccountDisplay { name: string; displayName: string; initials: string; color: string; note: string }
 
 interface WatchlistEntry { nse: string; name: string; trades?: number; lastTraded?: string }
+interface ListMeta { name: string }
 
 export default function WatchlistPage() {
-  const [activeTab, setActiveTab] = useState<'A'|'B'>('A')
+  const [activeTab, setActiveTab] = useState<string>('listA')
   const [search, setSearch] = useState('')
   const [accounts, setAccounts] = useState<AccountDisplay[]>([])
   const [connected, setConnected] = useState<string[]>([])
@@ -22,18 +24,41 @@ export default function WatchlistPage() {
     open: boolean; symbol: string; name?: string; side: 'BUY' | 'SELL'; ltp?: number; dayChangePct?: number
   }>({ open: false, symbol: '', side: 'BUY' })
 
+  // Market hours gate — buy/sell hidden outside NSE hours. Re-evaluated each
+  // minute so the buttons appear at 9:15 / disappear at 15:30 without a refresh.
+  const [market, setMarket] = useState(() => isMarketOpen())
+  useEffect(() => {
+    const id = setInterval(() => setMarket(isMarketOpen()), 60_000)
+    return () => clearInterval(id)
+  }, [])
+
   // Watchlist now lives in data/watchlist.json (editable from Manage Lists UI),
   // falling back to the bundled seed. Fetched via /api/watchlist on mount.
-  const [listA, setListA] = useState<WatchlistEntry[]>([])
-  const [listB, setListB] = useState<WatchlistEntry[]>([])
+  const [lists, setLists] = useState<Record<string, WatchlistEntry[]>>({})
+  const [meta, setMeta] = useState<Record<string, ListMeta>>({})
   useEffect(() => {
     fetch('/api/watchlist').then(r => r.json()).then(d => {
-      setListA(d.listA || [])
-      setListB(d.listB || [])
+      setLists(d.lists || {})
+      setMeta(d.meta || {})
     }).catch(() => {})
   }, [])
 
-  const raw = activeTab === 'A' ? listA : listB
+  // Display order: listA, listB, then any custom lists alphabetically
+  const orderedKeys = Object.keys(lists).sort((a, b) => {
+    if (a === 'listA') return -1
+    if (b === 'listA') return 1
+    if (a === 'listB') return -1
+    if (b === 'listB') return 1
+    return a.localeCompare(b)
+  })
+
+  // If activeTab no longer exists (list was deleted), fall back to first available
+  useEffect(() => {
+    if (orderedKeys.length > 0 && !orderedKeys.includes(activeTab)) setActiveTab(orderedKeys[0])
+  // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [orderedKeys.join(',')])
+
+  const raw = lists[activeTab] || []
   const filtered = raw.filter(s =>
     s.name.toLowerCase().includes(search.toLowerCase()) ||
     s.nse.toLowerCase().includes(search.toLowerCase())
@@ -81,10 +106,11 @@ export default function WatchlistPage() {
   // Kite's /quote endpoint sometimes rejects the whole request if any symbol is
   // unrecognised — smaller batches isolate the bad ones so the rest still load.
   async function loadQuotes(account: string) {
-    const rawSymbols = [
-      ...listA.map(s => s.nse.toUpperCase()),
-      ...listB.map(s => s.nse.toUpperCase()),
-    ]
+    // De-dupe across all lists; a symbol can technically exist in only one list
+    // anyway (POST enforces this) but defensive set in case data drifts.
+    const setSym = new Set<string>()
+    for (const k of Object.keys(lists)) for (const s of lists[k]) setSym.add(s.nse.toUpperCase())
+    const rawSymbols = Array.from(setSym)
     const invalid = rawSymbols.filter(s => !isValidKiteSymbol(s))
     const allSymbols = rawSymbols.filter(isValidKiteSymbol)
     setInvalidSymbols(invalid)
@@ -132,12 +158,13 @@ export default function WatchlistPage() {
     setQuotesLoading(false)
   }
 
+  const totalSymbols = Object.values(lists).reduce((s, arr) => s + arr.length, 0)
   useEffect(() => {
     if (!activeAccount) { setQuotes({}); setQuotesError(''); return }
-    if (listA.length === 0 && listB.length === 0) return  // wait for /api/watchlist response
+    if (totalSymbols === 0) return  // wait for /api/watchlist response
     loadQuotes(activeAccount)
   // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [activeAccount, listA.length, listB.length])
+  }, [activeAccount, totalSymbols])
 
   const connectedAccounts = accounts.filter(a => connected.includes(a.name))
   const activeColor = accounts.find(a => a.name === activeAccount)?.color || '#c9a84c'
@@ -150,7 +177,7 @@ export default function WatchlistPage() {
         </h1>
         <div className="flex items-center gap-3">
           <p className="text-[10px]" style={{ color:'rgba(255,255,255,0.25)', fontFamily:'JetBrains Mono, monospace' }}>
-            Config-locked · Edit watchlist.json to add stocks
+            Edit lists from Manage Lists
           </p>
           {activeAccount && (
             <button onClick={() => loadQuotes(activeAccount)} disabled={quotesLoading}
@@ -211,18 +238,23 @@ export default function WatchlistPage() {
         </div>
       )}
 
-      {/* List A / B tabs */}
-      <div className="flex gap-2">
-        {(['A','B'] as const).map(tab => (
-          <button key={tab} onClick={() => setActiveTab(tab)}
-            className={`px-5 py-2 rounded-lg text-[12px] font-medium tracking-wider transition-all ${activeTab === tab ? 'text-[#080604]' : 'text-white/40 hover:text-white/60'}`}
-            style={{
-              background: activeTab === tab ? 'linear-gradient(135deg, #8a6a1a, #c9a84c)' : 'rgba(255,255,255,0.04)',
-              border: activeTab === tab ? 'none' : '1px solid rgba(255,255,255,0.08)',
-            }}>
-            List {tab} <span className="ml-1.5 opacity-60">({tab === 'A' ? listA.length : listB.length})</span>
-          </button>
-        ))}
+      {/* Dynamic list tabs — driven by watchlist.meta */}
+      <div className="flex gap-2 flex-wrap">
+        {orderedKeys.map(key => {
+          const active = activeTab === key
+          const label = meta[key]?.name || key
+          const count = (lists[key] || []).length
+          return (
+            <button key={key} onClick={() => setActiveTab(key)}
+              className={`px-5 py-2 rounded-lg text-[12px] font-medium tracking-wider transition-all ${active ? 'text-[#080604]' : 'text-white/40 hover:text-white/60'}`}
+              style={{
+                background: active ? 'linear-gradient(135deg, #8a6a1a, #c9a84c)' : 'rgba(255,255,255,0.04)',
+                border: active ? 'none' : '1px solid rgba(255,255,255,0.08)',
+              }}>
+              {label} <span className="ml-1.5 opacity-60">({count})</span>
+            </button>
+          )
+        })}
       </div>
 
       {/* Search */}
@@ -245,20 +277,22 @@ export default function WatchlistPage() {
         {!quotesLoading && Object.keys(quotes).length > 0 && (
           <span style={{ color:'#52b788', fontFamily:'JetBrains Mono, monospace' }}>· {Object.keys(quotes).length} live</span>
         )}
+        {!market.open && (
+          <span style={{ color:'rgba(245,158,11,0.85)', fontFamily:'JetBrains Mono, monospace' }}>· {market.status} — trading disabled</span>
+        )}
       </div>
 
       {/* Stock list */}
       <div className="rounded-xl overflow-hidden" style={{ border:'1px solid rgba(255,255,255,0.06)' }}>
-        <div className="grid px-4 py-2 text-[9px] tracking-widest uppercase items-center"
+        <div className="grid gap-2 px-4 py-2 text-[9px] tracking-widest uppercase items-center"
           style={{
-            gridTemplateColumns: '2fr 0.9fr 0.8fr 0.5fr 0.9fr',
+            gridTemplateColumns: '2fr 0.9fr 0.8fr 0.9fr',
             background:'rgba(255,255,255,0.02)', color:'rgba(255,255,255,0.25)',
             fontFamily:'JetBrains Mono, monospace', borderBottom:'1px solid rgba(255,255,255,0.06)',
           }}>
           <span>Name</span>
           <span className="text-right">LTP</span>
           <span className="text-right">Today</span>
-          <span className="text-right">Trades</span>
           <span className="text-right">Action</span>
         </div>
         {filtered.map((s, i) => {
@@ -270,9 +304,9 @@ export default function WatchlistPage() {
           const priceColor = dir === 'up' ? '#52b788' : dir === 'down' ? '#e05a5e' : 'rgba(255,255,255,0.55)'
           return (
             <div key={s.nse}
-              className="grid px-4 py-3 items-center transition-all hover:bg-white/5"
+              className="grid gap-2 px-4 py-3 items-center transition-all hover:bg-white/5"
               style={{
-                gridTemplateColumns: '2fr 0.9fr 0.8fr 0.5fr 0.9fr',
+                gridTemplateColumns: '2fr 0.9fr 0.8fr 0.9fr',
                 borderBottom: i < filtered.length-1 ? '1px solid rgba(255,255,255,0.04)' : 'none',
                 background: held ? `${activeColor}12` : 'transparent',
               }}>
@@ -288,28 +322,27 @@ export default function WatchlistPage() {
               <span className="text-right text-sm" style={{ fontFamily:'JetBrains Mono, monospace', color: symInvalid ? '#f59e0b' : priceColor }}>
                 {symInvalid ? 'INVALID' : q ? `₹${q.ltp.toFixed(2)}` : '—'}
               </span>
-              <span className="text-right text-[11px]" style={{ fontFamily:'JetBrains Mono, monospace', color: symInvalid ? 'rgba(245,158,11,0.7)' : priceColor }}>
+              <span className="text-right text-[11px] whitespace-nowrap" style={{ fontFamily:'JetBrains Mono, monospace', color: symInvalid ? 'rgba(245,158,11,0.7)' : priceColor }}>
                 {symInvalid
                   ? 'fix in json'
                   : q
-                  ? `${dir === 'up' ? '▲' : dir === 'down' ? '▼' : '─'} ${Math.abs(q.changePct).toFixed(2)}%`
+                  ? `${Math.abs(q.changePct).toFixed(2)}%`
                   : '—'}
-              </span>
-              <span className="text-right text-[11px]" style={{ color:'rgba(255,255,255,0.25)', fontFamily:'JetBrains Mono, monospace' }}>
-                {s.trades}
               </span>
               <div className="flex gap-1 justify-end">
                 <button onClick={() => setOrderModal({ open: true, symbol: sym, name: s.name, side: 'BUY', ltp: q?.ltp, dayChangePct: q?.changePct })}
-                  disabled={!activeAccount}
-                  className="px-2 py-1 rounded text-[10px] font-semibold tracking-wider transition-all disabled:opacity-30"
+                  disabled={!activeAccount || !market.open}
+                  title={!market.open ? 'Market closed' : undefined}
+                  className="px-2 py-1 rounded text-[10px] font-semibold tracking-wider transition-all disabled:opacity-30 disabled:cursor-not-allowed"
                   style={{ background: 'rgba(82,183,136,0.12)', border: '1px solid rgba(82,183,136,0.3)', color: '#52b788' }}>
-                  Buy
+                  <span className="sm:hidden">B</span><span className="hidden sm:inline">Buy</span>
                 </button>
                 <button onClick={() => setOrderModal({ open: true, symbol: sym, name: s.name, side: 'SELL', ltp: q?.ltp, dayChangePct: q?.changePct })}
-                  disabled={!activeAccount}
-                  className="px-2 py-1 rounded text-[10px] font-semibold tracking-wider transition-all disabled:opacity-30"
+                  disabled={!activeAccount || !market.open}
+                  title={!market.open ? 'Market closed' : undefined}
+                  className="px-2 py-1 rounded text-[10px] font-semibold tracking-wider transition-all disabled:opacity-30 disabled:cursor-not-allowed"
                   style={{ background: 'rgba(224,90,94,0.12)', border: '1px solid rgba(224,90,94,0.3)', color: '#e05a5e' }}>
-                  Sell
+                  <span className="sm:hidden">S</span><span className="hidden sm:inline">Sell</span>
                 </button>
               </div>
             </div>

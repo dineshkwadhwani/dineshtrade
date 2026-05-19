@@ -1,6 +1,7 @@
 'use client'
 import { useEffect, useState } from 'react'
 import OrderModal from '@/components/OrderModal'
+import { isMarketOpen } from '@/lib/market'
 
 interface AccountDisplay { name: string; displayName: string; initials: string; color: string; note: string }
 
@@ -40,6 +41,12 @@ export default function HoldingsPage() {
   const [orderModal, setOrderModal] = useState<{
     open: boolean; symbol: string; name?: string; side: 'BUY' | 'SELL'; ltp?: number; initialQty?: number; dayChangePct?: number
   }>({ open: false, symbol: '', side: 'SELL' })
+
+  const [market, setMarket] = useState(() => isMarketOpen())
+  useEffect(() => {
+    const id = setInterval(() => setMarket(isMarketOpen()), 60_000)
+    return () => clearInterval(id)
+  }, [])
 
   // Initial load — accounts + connection set
   useEffect(() => {
@@ -229,14 +236,18 @@ export default function HoldingsPage() {
                     </span>
                     <div className="flex gap-1 justify-end">
                       <button onClick={() => setOrderModal({ open: true, symbol: h.tradingsymbol, side: 'BUY', ltp: h.last_price, dayChangePct: h.day_change_percentage })}
-                        className="px-2 py-1 rounded text-[10px] font-semibold tracking-wider transition-all"
+                        disabled={!market.open}
+                        title={!market.open ? 'Market closed' : undefined}
+                        className="px-2 py-1 rounded text-[10px] font-semibold tracking-wider transition-all disabled:opacity-30 disabled:cursor-not-allowed"
                         style={{ background:'rgba(82,183,136,0.12)', border:'1px solid rgba(82,183,136,0.3)', color:'#52b788' }}>
-                        Buy
+                        <span className="sm:hidden">B</span><span className="hidden sm:inline">Buy</span>
                       </button>
                       <button onClick={() => setOrderModal({ open: true, symbol: h.tradingsymbol, side: 'SELL', ltp: h.last_price, initialQty: h.quantity, dayChangePct: h.day_change_percentage })}
-                        className="px-2 py-1 rounded text-[10px] font-semibold tracking-wider transition-all"
+                        disabled={!market.open}
+                        title={!market.open ? 'Market closed' : undefined}
+                        className="px-2 py-1 rounded text-[10px] font-semibold tracking-wider transition-all disabled:opacity-30 disabled:cursor-not-allowed"
                         style={{ background:'rgba(224,90,94,0.12)', border:'1px solid rgba(224,90,94,0.3)', color:'#e05a5e' }}>
-                        Sell
+                        <span className="sm:hidden">S</span><span className="hidden sm:inline">Sell</span>
                       </button>
                     </div>
                   </div>

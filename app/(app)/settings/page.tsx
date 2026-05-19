@@ -439,7 +439,7 @@ const DEFAULT_MOMENTUM_PARAMS = {
 
 function StrategiesTab({ autoModeOn }: { autoModeOn: boolean }) {
   // The server response is the SOURCE; `draft` is the user's working copy.
-  const [source, setSource] = useState<{ capital: CapitalConfig; strategies: StrategyConfig[]; watchlistKeys: string[] } | null>(null)
+  const [source, setSource] = useState<{ capital: CapitalConfig; strategies: StrategyConfig[]; watchlistOptions: { key: string; name: string }[] } | null>(null)
   const [draft, setDraft] = useState<{ capital: CapitalConfig; strategies: StrategyConfig[] } | null>(null)
   const [funds, setFunds] = useState<{ available: number; maxDeployable: number; reserve: number; remaining: number; deployed: number } | null>(null)
   const [error, setError] = useState('')
@@ -454,7 +454,14 @@ function StrategiesTab({ autoModeOn }: { autoModeOn: boolean }) {
   useEffect(() => {
     fetch('/api/strategies').then(r => r.json()).then(d => {
       if (d.error) setError(d.error)
-      else { setSource(d); setDraft({ capital: d.capital, strategies: d.strategies }) }
+      else {
+        // Prefer rich watchlistOptions (new); fall back to mapping legacy watchlistKeys.
+        const opts = Array.isArray(d.watchlistOptions) && d.watchlistOptions.length > 0
+          ? d.watchlistOptions
+          : (Array.isArray(d.watchlistKeys) ? d.watchlistKeys.map((k: string) => ({ key: k, name: k })) : [])
+        setSource({ capital: d.capital, strategies: d.strategies, watchlistOptions: opts })
+        setDraft({ capital: d.capital, strategies: d.strategies })
+      }
     }).catch(() => setError('Failed to load strategies'))
 
     fetch('/api/state').then(r => r.json()).then(async s => {
@@ -541,7 +548,7 @@ function StrategiesTab({ autoModeOn }: { autoModeOn: boolean }) {
       })
       const data = await res.json()
       if (res.ok) {
-        setSource({ capital: draft.capital, strategies: draft.strategies, watchlistKeys: source?.watchlistKeys || [] })
+        setSource({ capital: draft.capital, strategies: draft.strategies, watchlistOptions: source?.watchlistOptions || [] })
         const r = data.reload
         const parts: string[] = []
         if (r?.added?.length)     parts.push(`+${r.added.length} added`)
@@ -610,7 +617,7 @@ function StrategiesTab({ autoModeOn }: { autoModeOn: boolean }) {
           <StrategyCard key={s.id} s={s}
             expanded={expanded === s.id}
             onToggle={() => setExpanded(expanded === s.id ? null : s.id)}
-            watchlistKeys={source.watchlistKeys}
+            watchlistOptions={source.watchlistOptions}
             onPatch={p => patchStrategy(s.id, p)}
             onReset={() => resetStrategy(s.id)}
             onDuplicate={() => duplicateStrategy(s.id)}
@@ -789,11 +796,11 @@ function Stat({ label, value, color }: { label: string; value: string; color: st
   )
 }
 
-function StrategyCard({ s, expanded, onToggle, watchlistKeys, onPatch, onReset, onDuplicate, onDelete, canReset, locked }: {
+function StrategyCard({ s, expanded, onToggle, watchlistOptions, onPatch, onReset, onDuplicate, onDelete, canReset, locked }: {
   s: StrategyConfig
   expanded: boolean
   onToggle: () => void
-  watchlistKeys: string[]
+  watchlistOptions: { key: string; name: string }[]
   onPatch: (patch: Partial<StrategyConfig>) => void
   onReset: () => void
   onDuplicate: () => void
@@ -890,17 +897,18 @@ function StrategyCard({ s, expanded, onToggle, watchlistKeys, onPatch, onReset, 
             <div>
               <p className="text-[10px] mb-1.5" style={{ color:'rgba(255,255,255,0.6)' }}>Watchlist (select one or more)</p>
               <div className="flex gap-2 flex-wrap">
-                {watchlistKeys.map(k => {
-                  const on = s.watchlist.includes(k)
+                {watchlistOptions.map(opt => {
+                  const on = s.watchlist.includes(opt.key)
                   return (
-                    <button key={k} onClick={() => !locked && toggleListKey(k)} disabled={locked}
+                    <button key={opt.key} onClick={() => !locked && toggleListKey(opt.key)} disabled={locked}
+                      title={opt.key}
                       className="px-2.5 py-1 rounded-md text-[10px] disabled:opacity-50"
                       style={{
                         background: on ? `${s.color}22` : 'rgba(255,255,255,0.03)',
                         border: `1px solid ${on ? s.color + '66' : 'rgba(255,255,255,0.1)'}`,
                         color: on ? s.color : 'rgba(255,255,255,0.5)',
                         fontFamily:'JetBrains Mono, monospace',
-                      }}>{on ? '✓ ' : ''}{k}</button>
+                      }}>{on ? '✓ ' : ''}{opt.name}</button>
                   )
                 })}
               </div>

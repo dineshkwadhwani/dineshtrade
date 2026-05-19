@@ -241,7 +241,7 @@ async function runStrategy2(now: string, giftChangePct: number, strategyOverride
 
   // 2. Universe from strategy.watchlist (default ['listA'])
   const wl = await getWatchlist()
-  const universe: WatchlistStock[] = watchlistKeys.flatMap(k => (wl as any)[k] || []) as any[]
+  const universe: WatchlistStock[] = watchlistKeys.flatMap(k => wl.lists[k] || []) as any[]
   const symbols = universe.map(s => s.nse.toUpperCase())
   const nameBySymbol = new Map(universe.map(s => [s.nse.toUpperCase(), s.name || s.nse]))
 
@@ -482,7 +482,7 @@ export async function evaluateAllForTiles(): Promise<TileEvalResult> {
   const creds = await firstConnectedCreds()
   if (!creds) return { ...empty, message: 'No Kite account connected — Login with Kite in Settings.' }
 
-  const listA: WatchlistStock[] = (await getWatchlist()).listA || []
+  const listA: WatchlistStock[] = (await getWatchlist()).lists.listA || []
   if (listA.length === 0) return { ...empty, message: 'List A is empty.' }
   const symbols = listA.map(s => s.nse.toUpperCase())
   const nameBySymbol = new Map(listA.map(s => [s.nse.toUpperCase(), s.name || s.nse]))
@@ -827,7 +827,7 @@ async function runStrategy1(now: string, giftChangePct: number, strategyOverride
   }
 
   const wl = await getWatchlist()
-  const universe: WatchlistStock[] = watchlistKeys.flatMap(k => (wl as any)[k] || []) as any[]
+  const universe: WatchlistStock[] = watchlistKeys.flatMap(k => wl.lists[k] || []) as any[]
   const symbols = universe.map(s => s.nse.toUpperCase())
   const nameBySymbol = new Map(universe.map(s => [s.nse.toUpperCase(), s.name || s.nse]))
 
@@ -980,7 +980,7 @@ export async function runReactiveDipScan(strategyOverride?: Strategy): Promise<R
   if (!creds) return { recommendations: [], scanned: 0, triggered: [], evaluated: 0, skipReason: 'No Kite account connected' }
 
   const wl = await getWatchlist()
-  const universe: WatchlistStock[] = watchlistKeys.flatMap(k => (wl as any)[k] || []) as any[]
+  const universe: WatchlistStock[] = watchlistKeys.flatMap(k => wl.lists[k] || []) as any[]
   const symbols = universe.map(s => s.nse.toUpperCase())
   if (symbols.length === 0) return { recommendations: [], scanned: 0, triggered: [], evaluated: 0 }
   const nameBySymbol = new Map(universe.map(s => [s.nse.toUpperCase(), s.name || s.nse]))

@@ -8,10 +8,12 @@ interface Entry {
   lastTraded?: string
 }
 
+interface ListMeta { name: string }
+
 interface Watchlist {
   generated?: string
-  listA: Entry[]
-  listB: Entry[]
+  meta: Record<string, ListMeta>
+  lists: Record<string, Entry[]>
 }
 
 interface SearchResult {
@@ -19,8 +21,6 @@ interface SearchResult {
   symbol: string
   name: string
 }
-
-type ListKey = 'listA' | 'listB'
 
 export default function ManageListsPage() {
   const [wl, setWl] = useState<Watchlist | null>(null)
@@ -37,13 +37,18 @@ export default function ManageListsPage() {
   const [query, setQuery] = useState('')
   const [results, setResults] = useState<SearchResult[]>([])
   const [searching, setSearching] = useState(false)
-  const [addTarget, setAddTarget] = useState<ListKey>('listA')
+  const [addTarget, setAddTarget] = useState<string>('listA')
 
   // Initial load — watchlist + holdings in parallel
-  useEffect(() => {
-    fetch('/api/watchlist').then(r => r.json()).then((d: Watchlist) => {
-      setWl({ listA: d.listA || [], listB: d.listB || [], generated: d.generated })
-    }).catch(() => setError('Failed to load watchlist'))
+  useEffect(() => { void reload() }, [])
+
+  async function reload() {
+    try {
+      const d = await fetch('/api/watchlist').then(r => r.json())
+      setWl({ meta: d.meta || {}, lists: d.lists || {}, generated: d.generated })
+      // Make sure addTarget remains valid after a list is deleted/renamed
+      if (d.lists && !d.lists[addTarget]) setAddTarget('listA')
+    } catch { setError('Failed to load watchlist') }
     fetch('/api/state').then(r => r.json()).then(async s => {
       const accs: string[] = s.accountsWithToken || []
       if (accs.length === 0) return
@@ -52,7 +57,7 @@ export default function ManageListsPage() {
         setHeldSymbols(new Set(r.data.map((h: any) => String(h.tradingsymbol).toUpperCase())))
       }
     }).catch(() => { /* holdings is best-effort decoration */ })
-  }, [])
+  }
 
   // Debounced search
   useEffect(() => {
@@ -70,40 +75,105 @@ export default function ManageListsPage() {
     return () => clearTimeout(t)
   }, [query])
 
-  const existingSet = useMemo(() => {
-    if (!wl) return new Set<string>()
-    return new Set([...wl.listA.map(e => e.nse), ...wl.listB.map(e => e.nse)])
+  const orderedKeys = useMemo(() => {
+    if (!wl) return [] as string[]
+    const keys = Object.keys(wl.lists)
+    // Stable order: listA, listB, then numeric/lexical
+    return keys.sort((a, b) => {
+      if (a === 'listA') return -1
+      if (b === 'listA') return 1
+      if (a === 'listB') return -1
+      if (b === 'listB') return 1
+      return a.localeCompare(b)
+    })
   }, [wl])
 
-  function add(target: ListKey, r: SearchResult) {
+  const existingSet = useMemo(() => {
+    if (!wl) return new Set<string>()
+    const s = new Set<string>()
+    for (const k of orderedKeys) wl.lists[k].forEach(e => s.add(e.nse))
+    return s
+  }, [wl, orderedKeys])
+
+  function listContaining(symbol: string): string | null {
+    if (!wl) return null
+    for (const k of orderedKeys) if (wl.lists[k].some(e => e.nse === symbol)) return k
+    return null
+  }
+
+  function add(target: string, r: SearchResult) {
     if (!wl) return
     if (existingSet.has(r.symbol)) {
-      setError(`${r.symbol} already in ${wl.listA.find(e => e.nse === r.symbol) ? 'List A' : 'List B'}`)
+      const inList = listContaining(r.symbol)
+      const display = (inList && wl.meta[inList]?.name) || inList || 'another list'
+      setError(`${r.symbol} already in ${display}`)
       setTimeout(() => setError(''), 2500)
       return
     }
     const entry: Entry = { nse: r.symbol, name: r.name || r.symbol }
-    const next = { ...wl, [target]: [...wl[target], entry] }
+    const next: Watchlist = { ...wl, lists: { ...wl.lists, [target]: [...wl.lists[target], entry] } }
     setWl(next); setDirty(true)
     setQuery(''); setResults([])
   }
 
-  function remove(list: ListKey, symbol: string) {
+  function remove(list: string, symbol: string) {
     if (!wl) return
-    const next = { ...wl, [list]: wl[list].filter(e => e.nse !== symbol) }
+    const next: Watchlist = { ...wl, lists: { ...wl.lists, [list]: wl.lists[list].filter(e => e.nse !== symbol) } }
     setWl(next); setDirty(true)
   }
 
-  function move(from: ListKey, to: ListKey, symbol: string) {
+  function rename(key: string, newName: string) {
     if (!wl) return
-    const entry = wl[from].find(e => e.nse === symbol)
-    if (!entry) return
-    const next = {
+    const trimmed = newName.trim().slice(0, 40)
+    if (!trimmed) return
+    const next: Watchlist = { ...wl, meta: { ...wl.meta, [key]: { name: trimmed } } }
+    setWl(next); setDirty(true)
+  }
+
+  function createList(name: string) {
+    if (!wl) return
+    // Find next free key: listA, listB, list3, list4, ...
+    const used = new Set(Object.keys(wl.lists))
+    let key = ''
+    if (!used.has('listA')) key = 'listA'
+    else if (!used.has('listB')) key = 'listB'
+    else {
+      for (let n = 3; n < 1000; n++) { if (!used.has(`list${n}`)) { key = `list${n}`; break } }
+    }
+    if (!key) { setError('No list slots available'); return }
+    const next: Watchlist = {
       ...wl,
-      [from]: wl[from].filter(e => e.nse !== symbol),
-      [to]: [...wl[to], entry],
+      lists: { ...wl.lists, [key]: [] },
+      meta: { ...wl.meta, [key]: { name: name.trim().slice(0, 40) || key } },
     }
     setWl(next); setDirty(true)
+    setAddTarget(key)
+  }
+
+  async function deleteList(key: string) {
+    if (!wl) return
+    if (key === 'listA' || key === 'listB') {
+      setError('List A and List B cannot be deleted.')
+      setTimeout(() => setError(''), 2500); return
+    }
+    if (dirty) {
+      setError('Save unsaved changes first, then delete.')
+      setTimeout(() => setError(''), 2500); return
+    }
+    if (!confirm(`Delete "${wl.meta[key]?.name || key}"? Symbols in it will be removed.`)) return
+    setSaving(true); setError(''); setOkMsg('')
+    try {
+      const res = await fetch(`/api/watchlist?key=${encodeURIComponent(key)}`, { method: 'DELETE' })
+      const data = await res.json()
+      if (res.ok) {
+        setOkMsg(`Deleted "${wl.meta[key]?.name || key}"`)
+        setTimeout(() => setOkMsg(''), 3000)
+        await reload()
+      } else {
+        setError(data.error || `HTTP ${res.status}`)
+      }
+    } catch { setError('Network error') }
+    finally { setSaving(false) }
   }
 
   async function save() {
@@ -113,21 +183,19 @@ export default function ManageListsPage() {
       const res = await fetch('/api/watchlist', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ listA: wl.listA, listB: wl.listB }),
+        body: JSON.stringify({ meta: wl.meta, lists: wl.lists }),
       })
       const data = await res.json()
       if (res.ok) {
         setDirty(false)
-        setOkMsg(`Saved · ${data.counts.listA} in A, ${data.counts.listB} in B`)
+        const counts = Object.entries(data.counts || {}).map(([k, n]) => `${wl.meta[k]?.name || k}: ${n}`).join(' · ')
+        setOkMsg(`Saved · ${counts}`)
         setTimeout(() => setOkMsg(''), 3000)
       } else {
         setError(data.error || `HTTP ${res.status}`)
       }
-    } catch (e) {
-      setError('Network error')
-    } finally {
-      setSaving(false)
-    }
+    } catch { setError('Network error') }
+    finally { setSaving(false) }
   }
 
   if (!wl) {
@@ -146,7 +214,7 @@ export default function ManageListsPage() {
             Manage <span className="gold-text">Lists</span>
           </h1>
           <p className="text-[10px] mt-1" style={{ color:'rgba(255,255,255,0.35)', fontFamily:'JetBrains Mono, monospace' }}>
-            List A is scanned by strategies · List B is the reserve · saves take effect immediately, no restart
+            Strategies pick which lists they scan · saves take effect immediately
           </p>
         </div>
         <div className="flex items-center gap-3">
@@ -189,11 +257,14 @@ export default function ManageListsPage() {
             placeholder="Type symbol or company name (e.g. BAJFINANCE, Reliance, HDFC)…"
             className="flex-1 px-3 py-2 rounded-lg text-[13px] outline-none"
             style={{ background:'rgba(255,255,255,0.04)', border:'1px solid rgba(255,255,255,0.08)', color:'rgba(255,255,255,0.85)' }} />
-          <select value={addTarget} onChange={e => setAddTarget(e.target.value as ListKey)}
+          <select value={addTarget} onChange={e => setAddTarget(e.target.value)}
             className="px-3 py-2 rounded-lg text-[12px]"
             style={{ background:'rgba(255,255,255,0.04)', border:'1px solid rgba(255,255,255,0.08)', color:'#c9a84c', fontFamily:'JetBrains Mono, monospace' }}>
-            <option value="listA" style={{ background:'#100e0a' }}>Add to List A</option>
-            <option value="listB" style={{ background:'#100e0a' }}>Add to List B</option>
+            {orderedKeys.map(k => (
+              <option key={k} value={k} style={{ background:'#100e0a' }}>
+                Add to {wl.meta[k]?.name || k}
+              </option>
+            ))}
           </select>
         </div>
         {searching && (
@@ -231,51 +302,88 @@ export default function ManageListsPage() {
         )}
       </div>
 
-      {/* TWO LIST COLUMNS */}
+      {/* LIST PANELS — N columns, grid wraps */}
       <div className="grid grid-cols-1 lg:grid-cols-2 gap-4">
-        <ListPanel name="List A" listKey="listA" entries={wl.listA} otherKey="listB"
-          onRemove={remove} onMove={move} heldSymbols={heldSymbols} />
-        <ListPanel name="List B" listKey="listB" entries={wl.listB} otherKey="listA"
-          onRemove={remove} onMove={move} heldSymbols={heldSymbols} />
+        {orderedKeys.map(key => (
+          <ListPanel key={key} listKey={key} meta={wl.meta[key]} entries={wl.lists[key]}
+            onRemove={remove} onRename={rename} onDelete={deleteList}
+            heldSymbols={heldSymbols} />
+        ))}
+
+        {/* New list card */}
+        <NewListCard onCreate={createList} />
       </div>
 
       <p className="text-[10px] text-center" style={{ color:'rgba(255,255,255,0.25)', fontFamily:'JetBrains Mono, monospace' }}>
-        {wl.generated && `Generated ${wl.generated} · `}List A scanned by strategies · List B is reserve
+        {wl.generated && `Generated ${wl.generated} · `}Lists are linked to strategies on the Settings page · List A and List B can be renamed but not deleted
       </p>
     </div>
   )
 }
 
-function ListPanel({ name, listKey, entries, otherKey, onRemove, onMove, heldSymbols }: {
-  name: string
-  listKey: ListKey
+function ListPanel({ listKey, meta, entries, onRemove, onRename, onDelete, heldSymbols }: {
+  listKey: string
+  meta?: ListMeta
   entries: Entry[]
-  otherKey: ListKey
-  onRemove: (list: ListKey, symbol: string) => void
-  onMove: (from: ListKey, to: ListKey, symbol: string) => void
+  onRemove: (list: string, symbol: string) => void
+  onRename: (list: string, newName: string) => void
+  onDelete: (list: string) => void
   heldSymbols: Set<string>
 }) {
   const [filter, setFilter] = useState('')
-  // Sort alphabetically by symbol so the list is scannable; held symbols
-  // already get visually emphasised by the suitcase icon so no separate
-  // sort by held/unheld is needed.
+  const [editing, setEditing] = useState(false)
+  const [draftName, setDraftName] = useState(meta?.name || listKey)
+  useEffect(() => { setDraftName(meta?.name || listKey) }, [meta, listKey])
+
   const sorted = [...entries].sort((a, b) => a.nse.localeCompare(b.nse))
   const filtered = sorted.filter(e =>
     e.nse.toLowerCase().includes(filter.toLowerCase()) ||
     (e.name || '').toLowerCase().includes(filter.toLowerCase())
   )
+
+  const canDelete = listKey !== 'listA' && listKey !== 'listB'
+
+  function commitName() {
+    setEditing(false)
+    const next = draftName.trim()
+    if (next && next !== meta?.name) onRename(listKey, next)
+    else setDraftName(meta?.name || listKey)
+  }
+
   return (
     <div className="rounded-xl overflow-hidden" style={{ background:'rgba(255,255,255,0.02)', border:'1px solid rgba(255,255,255,0.08)' }}>
-      <div className="px-4 py-3 flex items-center justify-between"
+      <div className="px-4 py-3 flex items-center justify-between gap-2"
         style={{ borderBottom:'1px solid rgba(255,255,255,0.06)' }}>
-        <div>
-          <p className="text-[11px] tracking-widest uppercase" style={{ color:'#c9a84c', fontFamily:'JetBrains Mono, monospace' }}>{name}</p>
-          <p className="text-[10px] mt-0.5" style={{ color:'rgba(255,255,255,0.35)' }}>{entries.length} symbols</p>
+        <div className="min-w-0 flex-1">
+          {editing ? (
+            <input autoFocus value={draftName}
+              onChange={e => setDraftName(e.target.value)}
+              onBlur={commitName}
+              onKeyDown={e => { if (e.key === 'Enter') commitName(); if (e.key === 'Escape') { setEditing(false); setDraftName(meta?.name || listKey) } }}
+              maxLength={40}
+              className="text-[11px] tracking-widest uppercase px-2 py-1 rounded outline-none w-full"
+              style={{ background:'rgba(255,255,255,0.06)', border:'1px solid rgba(201,168,76,0.4)', color:'#c9a84c', fontFamily:'JetBrains Mono, monospace' }} />
+          ) : (
+            <button onClick={() => setEditing(true)}
+              title="Click to rename"
+              className="text-[11px] tracking-widest uppercase text-left hover:underline truncate block w-full"
+              style={{ color:'#c9a84c', fontFamily:'JetBrains Mono, monospace' }}>
+              {meta?.name || listKey} <span style={{ opacity:0.5 }}>✎</span>
+            </button>
+          )}
+          <p className="text-[10px] mt-0.5" style={{ color:'rgba(255,255,255,0.35)' }}>{entries.length} symbols · key {listKey}</p>
         </div>
         <input value={filter} onChange={e => setFilter(e.target.value)}
           placeholder="Filter…"
-          className="px-2 py-1 rounded text-[11px] outline-none"
-          style={{ background:'rgba(255,255,255,0.04)', border:'1px solid rgba(255,255,255,0.08)', color:'rgba(255,255,255,0.7)', maxWidth: 140 }} />
+          className="px-2 py-1 rounded text-[11px] outline-none shrink-0"
+          style={{ background:'rgba(255,255,255,0.04)', border:'1px solid rgba(255,255,255,0.08)', color:'rgba(255,255,255,0.7)', maxWidth: 100 }} />
+        {canDelete && (
+          <button onClick={() => onDelete(listKey)} title="Delete list"
+            className="text-[10px] px-2 py-1 rounded shrink-0"
+            style={{ background:'rgba(224,90,94,0.1)', border:'1px solid rgba(224,90,94,0.3)', color:'#e05a5e', fontFamily:'JetBrains Mono, monospace' }}>
+            🗑
+          </button>
+        )}
       </div>
       <div style={{ maxHeight: '60vh', overflowY: 'auto' }}>
         {filtered.length === 0 && (
@@ -289,7 +397,7 @@ function ListPanel({ name, listKey, entries, otherKey, onRemove, onMove, heldSym
           <div key={e.nse}
             className="grid items-center px-4 py-2.5 transition-all hover:bg-white/5"
             style={{
-              gridTemplateColumns: '1fr 1.6fr 0.7fr 0.6fr',
+              gridTemplateColumns: '1fr 1.6fr 0.6fr',
               borderBottom: i < filtered.length - 1 ? '1px solid rgba(255,255,255,0.04)' : 'none',
               background: held ? 'rgba(96,165,250,0.05)' : 'transparent',
             }}>
@@ -301,13 +409,8 @@ function ListPanel({ name, listKey, entries, otherKey, onRemove, onMove, heldSym
               {e.nse}
             </span>
             <span className="text-[11px] truncate" style={{ color:'rgba(255,255,255,0.5)' }}>{e.name}</span>
-            <button onClick={() => onMove(listKey, otherKey, e.nse)}
-              className="text-[10px] px-2 py-1 rounded transition-all"
-              style={{ background:'rgba(96,165,250,0.1)', border:'1px solid rgba(96,165,250,0.3)', color:'#60a5fa', fontFamily:'JetBrains Mono, monospace' }}>
-              → {otherKey === 'listA' ? 'A' : 'B'}
-            </button>
             <button onClick={() => onRemove(listKey, e.nse)}
-              className="text-[10px] px-2 py-1 rounded transition-all"
+              className="text-[10px] px-2 py-1 rounded transition-all justify-self-end"
               style={{ background:'rgba(224,90,94,0.1)', border:'1px solid rgba(224,90,94,0.3)', color:'#e05a5e', fontFamily:'JetBrains Mono, monospace' }}>
               ✕
             </button>
@@ -315,6 +418,33 @@ function ListPanel({ name, listKey, entries, otherKey, onRemove, onMove, heldSym
           )
         })}
       </div>
+    </div>
+  )
+}
+
+function NewListCard({ onCreate }: { onCreate: (name: string) => void }) {
+  const [name, setName] = useState('')
+  return (
+    <div className="rounded-xl p-4 flex flex-col items-center justify-center gap-3 min-h-[180px]"
+      style={{ background:'rgba(255,255,255,0.01)', border:'1px dashed rgba(201,168,76,0.3)' }}>
+      <p className="text-[11px] tracking-widest uppercase" style={{ color:'rgba(201,168,76,0.6)', fontFamily:'JetBrains Mono, monospace' }}>
+        + new list
+      </p>
+      <input value={name} onChange={e => setName(e.target.value)}
+        placeholder="List name (e.g. Dip Candidates)"
+        maxLength={40}
+        onKeyDown={e => { if (e.key === 'Enter' && name.trim()) { onCreate(name); setName('') } }}
+        className="w-full px-3 py-2 rounded-lg text-[12px] outline-none text-center"
+        style={{ background:'rgba(255,255,255,0.04)', border:'1px solid rgba(255,255,255,0.08)', color:'rgba(255,255,255,0.85)' }} />
+      <button onClick={() => { if (name.trim()) { onCreate(name); setName('') } }}
+        disabled={!name.trim()}
+        className="px-4 py-1.5 rounded text-[11px] font-semibold tracking-wider transition-all disabled:opacity-30"
+        style={{ background:'rgba(201,168,76,0.15)', border:'1px solid rgba(201,168,76,0.35)', color:'#c9a84c', fontFamily:'JetBrains Mono, monospace' }}>
+        + Create
+      </button>
+      <p className="text-[9px] text-center" style={{ color:'rgba(255,255,255,0.3)' }}>
+        Empty list. Add symbols, then link it from a strategy in Settings.
+      </p>
     </div>
   )
 }

@@ -159,34 +159,36 @@ function OrdersView() {
 
           {orders.length > 0 && (
             <div className="rounded-xl overflow-hidden" style={{ border:'1px solid rgba(255,255,255,0.06)' }}>
-              <div className="grid grid-cols-6 px-4 py-2 text-[9px] tracking-widest uppercase"
+              <div className="grid grid-cols-6 gap-2 px-4 py-2 text-[9px] tracking-widest uppercase"
                 style={{ background:'rgba(255,255,255,0.02)', color:'rgba(255,255,255,0.25)', fontFamily:'JetBrains Mono, monospace', borderBottom:'1px solid rgba(255,255,255,0.06)' }}>
                 <span>Time</span>
                 <span>Symbol</span>
-                <span>Type</span>
+                <span className="text-center">Type</span>
                 <span className="text-right">Qty</span>
                 <span className="text-right">Price</span>
-                <span className="text-right">Status</span>
+                <span className="text-center">Status</span>
               </div>
               {orders.map((o, i) => (
                 <div key={o.order_id}
-                  className="grid grid-cols-6 px-4 py-3 items-center text-[12px] transition-all hover:bg-white/5"
+                  className="grid grid-cols-6 gap-2 px-4 py-3 items-center text-[12px] transition-all hover:bg-white/5"
                   style={{ borderBottom: i < orders.length-1 ? '1px solid rgba(255,255,255,0.04)' : 'none' }}>
                   <span className="text-white/40 text-[10px]" style={{ fontFamily:'JetBrains Mono, monospace' }}>
                     {fmtTime(o.order_timestamp)}
                   </span>
-                  <span className="font-semibold text-white/80" style={{ fontFamily:'JetBrains Mono, monospace' }}>{o.tradingsymbol}</span>
-                  <span className="font-medium" style={{ color: o.transaction_type === 'BUY' ? '#52b788' : '#e05a5e' }}>
-                    {o.transaction_type === 'BUY' ? '▲ BUY' : '▼ SELL'}
+                  <span className="font-semibold text-white/80 truncate" style={{ fontFamily:'JetBrains Mono, monospace' }}>{o.tradingsymbol}</span>
+                  <span className="text-center font-semibold" style={{ color: o.transaction_type === 'BUY' ? '#52b788' : '#e05a5e', fontFamily:'JetBrains Mono, monospace' }}
+                    title={o.transaction_type}>
+                    {o.transaction_type === 'BUY' ? 'B' : 'S'}
                   </span>
                   <span className="text-right text-white/60" style={{ fontFamily:'JetBrains Mono, monospace' }}>
                     {o.filled_quantity ?? o.quantity}{o.filled_quantity !== undefined && o.filled_quantity !== o.quantity ? `/${o.quantity}` : ''}
                   </span>
-                  <span className="text-right text-white/60" style={{ fontFamily:'JetBrains Mono, monospace' }}>
+                  <span className="text-right text-white/60 whitespace-nowrap" style={{ fontFamily:'JetBrains Mono, monospace' }}>
                     {o.average_price ? `₹${o.average_price.toFixed(2)}` : '—'}
                   </span>
-                  <span className="text-right text-[10px]" style={{ color: statusColor(o.status), fontFamily:'JetBrains Mono, monospace' }}>
-                    {o.status}
+                  <span className="text-center text-[14px] font-semibold" style={{ color: statusColor(o.status), fontFamily:'JetBrains Mono, monospace' }}
+                    title={o.status_message || o.status}>
+                    {statusGlyph(o.status)}
                   </span>
                 </div>
               ))}
@@ -576,8 +578,16 @@ function rateColor(v: number | null, good: number, ok: number): string {
 
 function statusColor(s: string): string {
   if (s === 'COMPLETE') return '#52b788'
-  if (s === 'REJECTED' || s === 'CANCELLED') return '#e05a5e'
+  if (s === 'REJECTED') return '#e05a5e'
+  if (s === 'CANCELLED') return 'rgba(255,255,255,0.4)'
   return '#c9a84c'
+}
+
+function statusGlyph(s: string): string {
+  if (s === 'COMPLETE') return '✓'
+  if (s === 'REJECTED') return '✗'
+  if (s === 'CANCELLED') return 'C'
+  return '·'   // OPEN / TRIGGER_PENDING / MODIFY_PENDING etc.
 }
 
 function fmtTime(ts?: string): string {

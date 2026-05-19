@@ -2,6 +2,7 @@
 import { useEffect, useState } from 'react'
 import OrderModal, { type AccountDisplay } from '@/components/OrderModal'
 import type { EnrichedPosition, PositionTag } from '@/app/api/positions/route'
+import { isMarketOpen } from '@/lib/market'
 
 export default function PositionsPage() {
   const [accounts, setAccounts] = useState<AccountDisplay[]>([])
@@ -14,6 +15,12 @@ export default function PositionsPage() {
   // Square-off modal — uses OrderModal pre-filled with SELL + held qty + the
   // position's product so it lines up with what's actually held in Kite.
   const [squareOff, setSquareOff] = useState<EnrichedPosition | null>(null)
+
+  const [market, setMarket] = useState(() => isMarketOpen())
+  useEffect(() => {
+    const id = setInterval(() => setMarket(isMarketOpen()), 60_000)
+    return () => clearInterval(id)
+  }, [])
 
   useEffect(() => {
     Promise.all([
@@ -67,6 +74,11 @@ export default function PositionsPage() {
         </h1>
         {activeTab && (
           <div className="flex items-center gap-3">
+            {!market.open && (
+              <span className="text-[10px]" style={{ color:'rgba(245,158,11,0.85)', fontFamily:'JetBrains Mono, monospace' }}>
+                {market.status} — trading disabled
+              </span>
+            )}
             {fetchedAt && (
               <span className="text-[10px]" style={{ color:'rgba(255,255,255,0.4)', fontFamily:'JetBrains Mono, monospace' }}>
                 fetched {new Date(fetchedAt).toLocaleTimeString('en-IN', { hour12: false, timeZone: 'Asia/Kolkata' })}
@@ -116,7 +128,8 @@ export default function PositionsPage() {
 
           {positions.length > 0 && (
             <div className="rounded-xl overflow-hidden" style={{ border:'1px solid rgba(255,255,255,0.06)' }}>
-              <div className="grid grid-cols-12 px-4 py-2.5 text-[9px] tracking-widest uppercase"
+              {/* Header — desktop only; mobile uses inline labels per cell */}
+              <div className="hidden sm:grid grid-cols-12 px-4 py-2.5 text-[9px] tracking-widest uppercase"
                 style={{ background:'rgba(255,255,255,0.02)', color:'rgba(255,255,255,0.25)', fontFamily:'JetBrains Mono, monospace', borderBottom:'1px solid rgba(255,255,255,0.06)' }}>
                 <span className="col-span-3">Symbol</span>
                 <span className="col-span-1 text-right">Qty</span>
@@ -127,7 +140,7 @@ export default function PositionsPage() {
               </div>
               {positions.map((p, i) => (
                 <PositionRow key={p.symbol + i} p={p} last={i === positions.length - 1}
-                  onSquareOff={() => setSquareOff(p)} />
+                  marketOpen={market.open} onSquareOff={() => setSquareOff(p)} />
               ))}
             </div>
           )}
@@ -160,80 +173,105 @@ export default function PositionsPage() {
   )
 }
 
-function PositionRow({ p, last, onSquareOff }: {
-  p: EnrichedPosition; last: boolean; onSquareOff: () => void
+function PositionRow({ p, last, marketOpen, onSquareOff }: {
+  p: EnrichedPosition; last: boolean; marketOpen: boolean; onSquareOff: () => void
 }) {
   const isOpen = p.qty !== 0
   const uColor = p.unrealized >= 0 ? '#52b788' : '#e05a5e'
   const rColor = p.realized > 0 ? '#52b788' : p.realized < 0 ? '#e05a5e' : 'rgba(255,255,255,0.35)'
-  const chgPct = p.avgPrice > 0 ? ((p.ltp - p.avgPrice) / p.avgPrice) * 100 : 0
+  const dc = p.dayChangePct
+  const dColor = dc === undefined ? 'rgba(255,255,255,0.8)'
+    : dc > 0 ? '#52b788' : dc < 0 ? '#e05a5e' : 'rgba(255,255,255,0.7)'
+
+  const SquareOffBtn = isOpen ? (
+    <button onClick={onSquareOff} disabled={!marketOpen}
+      title={!marketOpen ? 'Market closed — square-off disabled' : undefined}
+      className="px-3 py-1.5 rounded-md text-[10px] font-semibold tracking-wider transition-all hover:scale-105 whitespace-nowrap disabled:cursor-not-allowed disabled:hover:scale-100"
+      style={{
+        background: marketOpen ? 'rgba(224,90,94,0.12)' : 'rgba(255,255,255,0.04)',
+        border: `1px solid ${marketOpen ? 'rgba(224,90,94,0.4)' : 'rgba(255,255,255,0.1)'}`,
+        color: marketOpen ? '#e05a5e' : 'rgba(255,255,255,0.3)',
+        fontFamily: 'JetBrains Mono, monospace',
+      }}>
+      <span className="sm:hidden">× SQ</span><span className="hidden sm:inline">× SQUARE OFF</span>
+    </button>
+  ) : (
+    <span className="text-[10px]" style={{ color:'rgba(255,255,255,0.25)' }}>—</span>
+  )
+
   return (
-    <div className="grid grid-cols-12 px-4 py-3 items-center text-[12px] transition-all hover:bg-white/5"
+    <div className="px-4 py-3 transition-all hover:bg-white/5 text-[12px]"
       style={{ borderBottom: last ? 'none' : '1px solid rgba(255,255,255,0.04)', opacity: isOpen ? 1 : 0.55 }}>
-      <div className="col-span-3 flex items-center gap-2 flex-wrap">
-        <span className="font-semibold text-white/85" style={{ fontFamily:'JetBrains Mono, monospace' }}>{p.symbol}</span>
-        <TagPill tag={p.tag} />
-        {!isOpen && (
-          <span className="text-[8px] tracking-widest uppercase px-1.5 py-0.5 rounded"
-            style={{ background:'rgba(255,255,255,0.06)', color:'rgba(255,255,255,0.4)', fontFamily:'JetBrains Mono, monospace' }}>
-            CLOSED
-          </span>
-        )}
-        <span className="text-[8px] tracking-widest uppercase px-1.5 py-0.5 rounded"
-          style={{ background:'rgba(255,255,255,0.04)', color:'rgba(255,255,255,0.4)', fontFamily:'JetBrains Mono, monospace' }}>
-          {p.product}
-        </span>
-      </div>
-      <span className="col-span-1 text-right text-white/70" style={{ fontFamily:'JetBrains Mono, monospace' }}>{p.qty}</span>
-      <span className="col-span-2 text-right text-white/70" style={{ fontFamily:'JetBrains Mono, monospace' }}>
-        {p.avgPrice > 0 ? `₹${p.avgPrice.toFixed(2)}` : '—'}
-      </span>
-      <span className="col-span-2 text-right" style={{ fontFamily:'JetBrains Mono, monospace' }}>
-        {(() => {
-          const dc = p.dayChangePct
-          const dColor = dc === undefined ? 'rgba(255,255,255,0.8)'
-            : dc > 0 ? '#52b788' : dc < 0 ? '#e05a5e' : 'rgba(255,255,255,0.7)'
-          const arrow = dc === undefined ? '' : dc > 0 ? '▲' : dc < 0 ? '▼' : '─'
-          return (
-            <>
-              <div style={{ color: dColor }}>{p.ltp > 0 ? `₹${p.ltp.toFixed(2)}` : '—'}</div>
-              {dc !== undefined && (
-                <div className="text-[9px] mt-0.5" style={{ color: dColor }}>
-                  {arrow} {Math.abs(dc).toFixed(2)}% today
-                </div>
-              )}
-              {isOpen && p.avgPrice > 0 && (
-                <div className="text-[9px]" style={{ color: chgPct >= 0 ? 'rgba(82,183,136,0.7)' : 'rgba(224,90,94,0.7)' }}>
-                  {chgPct >= 0 ? '+' : ''}{chgPct.toFixed(2)}% vs avg
-                </div>
-              )}
-            </>
-          )
-        })()}
-      </span>
-      <span className="col-span-2 text-right" style={{ fontFamily:'JetBrains Mono, monospace' }}>
-        <div className="font-semibold" style={{ color: isOpen ? uColor : 'rgba(255,255,255,0.35)' }}>
-          {isOpen ? signedRupees(p.unrealized) : '—'}
-        </div>
-        {p.realized !== 0 && (
-          <div className="text-[9px] mt-0.5" style={{ color: rColor }}>
-            realized {signedRupees(p.realized)}
+
+      {/* ── Mobile layout: 3-line two-column card ──────────────────────────── */}
+      <div className="sm:hidden flex items-start justify-between gap-3">
+        {/* Left — symbol + tags, avg, qty */}
+        <div className="min-w-0 flex flex-col gap-1" style={{ fontFamily:'JetBrains Mono, monospace' }}>
+          <div className="flex items-center gap-1.5 flex-wrap">
+            <span className="text-[16px] font-semibold truncate" style={{ color:'rgba(255,255,255,0.9)' }}>{p.symbol}</span>
+            <TagPill tag={p.tag} />
+            {!isOpen && (
+              <span className="text-[8px] tracking-widest uppercase px-1.5 py-0.5 rounded"
+                style={{ background:'rgba(255,255,255,0.06)', color:'rgba(255,255,255,0.4)' }}>CLOSED</span>
+            )}
+            <span className="text-[8px] tracking-widest uppercase px-1.5 py-0.5 rounded"
+              style={{ background:'rgba(255,255,255,0.04)', color:'rgba(255,255,255,0.4)' }}>{p.product}</span>
           </div>
-        )}
-      </span>
-      <div className="col-span-2 text-right">
-        {isOpen ? (
-          <button onClick={onSquareOff}
-            className="px-3 py-1.5 rounded-md text-[10px] font-semibold tracking-wider transition-all hover:scale-105"
-            style={{
-              background:'rgba(224,90,94,0.12)', border:'1px solid rgba(224,90,94,0.4)',
-              color:'#e05a5e', fontFamily:'JetBrains Mono, monospace',
-            }}>
-            × SQUARE OFF
-          </button>
-        ) : (
-          <span className="text-[10px]" style={{ color:'rgba(255,255,255,0.25)' }}>—</span>
-        )}
+          <div className="text-[11px]" style={{ color:'rgba(255,255,255,0.4)' }}>
+            Avg <span style={{ color:'rgba(255,255,255,0.75)' }}>{p.avgPrice > 0 ? `₹${p.avgPrice.toFixed(2)}` : '—'}</span>
+          </div>
+          <div className="text-[11px]" style={{ color:'rgba(255,255,255,0.4)' }}>
+            Qty <span style={{ color:'rgba(255,255,255,0.75)' }}>{p.qty}</span>
+          </div>
+        </div>
+
+        {/* Right — P&L, LTP, button */}
+        <div className="shrink-0 flex flex-col items-end gap-1" style={{ fontFamily:'JetBrains Mono, monospace' }}>
+          <div className="text-[15px] font-semibold whitespace-nowrap" style={{ color: isOpen ? uColor : 'rgba(255,255,255,0.35)' }}>
+            {isOpen ? signedRupees(p.unrealized) : '—'}
+          </div>
+          <div className="text-[11px] whitespace-nowrap" style={{ color:'rgba(255,255,255,0.4)' }}>
+            LTP <span style={{ color: dColor }}>{p.ltp > 0 ? `₹${p.ltp.toFixed(2)}` : '—'}</span>
+            {dc !== undefined && <span className="ml-1.5" style={{ color: dColor }}>{Math.abs(dc).toFixed(2)}%</span>}
+          </div>
+          <div className="pt-0.5">{SquareOffBtn}</div>
+          {p.realized !== 0 && (
+            <div className="text-[9px] whitespace-nowrap" style={{ color: rColor }}>realized {signedRupees(p.realized)}</div>
+          )}
+        </div>
+      </div>
+
+      {/* ── Desktop layout (sm+) ───────────────────────────────────────────── */}
+      <div className="hidden sm:grid grid-cols-12 items-center">
+        <div className="col-span-3 flex items-center gap-2 flex-wrap">
+          <span className="font-semibold text-white/85" style={{ fontFamily:'JetBrains Mono, monospace' }}>{p.symbol}</span>
+          <TagPill tag={p.tag} />
+          {!isOpen && (
+            <span className="text-[8px] tracking-widest uppercase px-1.5 py-0.5 rounded"
+              style={{ background:'rgba(255,255,255,0.06)', color:'rgba(255,255,255,0.4)', fontFamily:'JetBrains Mono, monospace' }}>CLOSED</span>
+          )}
+          <span className="text-[8px] tracking-widest uppercase px-1.5 py-0.5 rounded"
+            style={{ background:'rgba(255,255,255,0.04)', color:'rgba(255,255,255,0.4)', fontFamily:'JetBrains Mono, monospace' }}>{p.product}</span>
+        </div>
+        <span className="col-span-1 text-right text-white/70" style={{ fontFamily:'JetBrains Mono, monospace' }}>{p.qty}</span>
+        <span className="col-span-2 text-right text-white/70" style={{ fontFamily:'JetBrains Mono, monospace' }}>
+          {p.avgPrice > 0 ? `₹${p.avgPrice.toFixed(2)}` : '—'}
+        </span>
+        <span className="col-span-2 text-right whitespace-nowrap" style={{ fontFamily:'JetBrains Mono, monospace' }}>
+          <div style={{ color: dColor }}>{p.ltp > 0 ? `₹${p.ltp.toFixed(2)}` : '—'}</div>
+          {dc !== undefined && (
+            <div className="text-[9px] mt-0.5" style={{ color: dColor }}>{Math.abs(dc).toFixed(2)}%</div>
+          )}
+        </span>
+        <span className="col-span-2 text-right" style={{ fontFamily:'JetBrains Mono, monospace' }}>
+          <div className="font-semibold" style={{ color: isOpen ? uColor : 'rgba(255,255,255,0.35)' }}>
+            {isOpen ? signedRupees(p.unrealized) : '—'}
+          </div>
+          {p.realized !== 0 && (
+            <div className="text-[9px] mt-0.5" style={{ color: rColor }}>realized {signedRupees(p.realized)}</div>
+          )}
+        </span>
+        <div className="col-span-2 text-right">{SquareOffBtn}</div>
       </div>
     </div>
   )

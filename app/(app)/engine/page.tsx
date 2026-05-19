@@ -3,6 +3,7 @@ import { useEffect, useState } from 'react'
 import OrderModal from '@/components/OrderModal'
 import FundsCard from '@/components/FundsCard'
 import CapitalBar from '@/components/CapitalBar'
+import { isMarketOpen } from '@/lib/market'
 
 interface AccountDisplay { name: string; displayName: string; initials: string; color: string; note: string }
 
@@ -624,6 +625,22 @@ function EngineTilesSection({ firstAccount, accounts, connected, tradeMode }: {
     open: boolean; symbol: string; side: 'BUY' | 'SELL'; ltp?: number; dayChangePct?: number; initialQty?: number
   }>({ open: false, symbol: '', side: 'BUY' })
 
+  const [market, setMarket] = useState(() => isMarketOpen())
+  useEffect(() => {
+    const id = setInterval(() => setMarket(isMarketOpen()), 60_000)
+    return () => clearInterval(id)
+  }, [])
+
+  // Pick up the user-renamed display name for listA so the "Full Scan" subtitle
+  // reflects whatever the user called their primary list (default "List A").
+  const [listAName, setListAName] = useState('List A')
+  useEffect(() => {
+    fetch('/api/watchlist').then(r => r.json()).then(d => {
+      const name = d?.meta?.listA?.name
+      if (typeof name === 'string' && name.trim()) setListAName(name)
+    }).catch(() => {})
+  }, [])
+
   async function load() {
     if (!firstAccount) return
     setLoading(true); setError('')
@@ -687,7 +704,7 @@ function EngineTilesSection({ firstAccount, accounts, connected, tradeMode }: {
             Full <span className="gold-text">Scan</span>
           </h2>
           <p className="text-[10px] mt-0.5" style={{ color:'rgba(255,255,255,0.35)', fontFamily:'JetBrains Mono, monospace' }}>
-            Every List A stock · per-rule pass/fail · auto-refreshes every 5 min
+            Every {listAName} stock · per-rule pass/fail · auto-refreshes every 5 min
             {data?.fetchedAt && ` · fetched ${new Date(data.fetchedAt).toLocaleTimeString('en-IN', { hour12: false, timeZone: 'Asia/Kolkata' })}`}
           </p>
         </div>
@@ -737,6 +754,7 @@ function EngineTilesSection({ firstAccount, accounts, connected, tradeMode }: {
       <div className="grid gap-3 grid-cols-1 sm:grid-cols-2 lg:grid-cols-3">
         {tiles.map(tile => (
           <TileCard key={tile.symbol} tile={tile} fullScore={fullScore} tradeMode={tradeMode}
+            marketOpen={market.open}
             onBuy={() => setOrderModal({
               open: true, symbol: tile.symbol, side: 'BUY',
               ltp: tile.ltp, dayChangePct: tile.dayChangePct,
@@ -768,10 +786,11 @@ function EngineTilesSection({ firstAccount, accounts, connected, tradeMode }: {
   )
 }
 
-function TileCard({ tile, fullScore, tradeMode, onBuy, onSell }: {
+function TileCard({ tile, fullScore, tradeMode, marketOpen, onBuy, onSell }: {
   tile: Tile
   fullScore: number
   tradeMode: TradeMode
+  marketOpen: boolean
   onBuy: () => void
   onSell: () => void
 }) {
@@ -866,14 +885,16 @@ function TileCard({ tile, fullScore, tradeMode, onBuy, onSell }: {
 
       {/* Actions */}
       <div className="px-4 py-3 flex gap-2" style={{ borderTop:'1px solid rgba(255,255,255,0.05)' }}>
-        <button onClick={onBuy}
-          className="flex-1 py-2 rounded-md text-[11px] font-semibold tracking-wider transition-all"
+        <button onClick={onBuy} disabled={!marketOpen}
+          title={!marketOpen ? 'Market closed' : undefined}
+          className="flex-1 py-2 rounded-md text-[11px] font-semibold tracking-wider transition-all disabled:opacity-30 disabled:cursor-not-allowed"
           style={{ background: buyBg, border: `1px solid ${buyBd}`, color: buyColor }}>
           ▲ BUY
         </button>
         {tile.holding && (
-          <button onClick={onSell}
-            className="flex-1 py-2 rounded-md text-[11px] font-semibold tracking-wider transition-all"
+          <button onClick={onSell} disabled={!marketOpen}
+            title={!marketOpen ? 'Market closed' : undefined}
+            className="flex-1 py-2 rounded-md text-[11px] font-semibold tracking-wider transition-all disabled:opacity-30 disabled:cursor-not-allowed"
             style={{ background:'rgba(224,90,94,0.12)', border:'1px solid rgba(224,90,94,0.35)', color:'#e05a5e' }}>
             ▼ SELL
           </button>

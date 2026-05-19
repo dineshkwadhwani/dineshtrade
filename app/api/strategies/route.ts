@@ -16,17 +16,17 @@ export async function GET() {
   const t = cookies().get('dt_session')?.value
   if (!t || !(await verifySession(t))) return NextResponse.json({ error: 'Unauthorized' }, { status: 401 })
 
-  // Watchlist keys are derived dynamically so a future `listC` shows up in
-  // the Strategies UI dropdown with no code change required.
+  // Watchlist keys + display names are derived dynamically so newly created
+  // lists show up in the Strategies UI multi-select with no code change.
   const wl = await getWatchlist()
-  const watchlistKeys = Object.keys(wl).filter(k =>
-    Array.isArray((wl as any)[k]) && (k === 'listA' || k === 'listB' || k.startsWith('list'))
-  )
+  const watchlistKeys = Object.keys(wl.lists)
+  const watchlistOptions = watchlistKeys.map(k => ({ key: k, name: wl.meta[k]?.name || k }))
 
   return NextResponse.json({
     capital: getCapital(),
     strategies: getStrategies(),
     watchlistKeys,
+    watchlistOptions,
   }, { headers: { 'Cache-Control': 'no-store' } })
 }
 
