@@ -20,7 +20,7 @@ import {
 } from './kite'
 import { runPreflight, markPlaced } from './preflight'
 import { sendEmail } from './email'
-import { appendJournal, istDateString } from './journal'
+import { appendJournal, journalOrder, istDateString } from './journal'
 import { getStrategyById, getStrategies } from './strategyConfig'
 import * as positions from './positions'
 import type { Position } from './positions'
@@ -167,6 +167,8 @@ export async function monitorAccountStrategy1(account: string): Promise<Strategy
       const placed = await placeKiteOrder(creds, { symbol, side: 'SELL', quantity: actualQty, tag: STRATEGY_1_TRANCHE2_TAG })
       if (placed.ok && placed.data?.data?.order_id) {
         await markPlaced(account, symbol, 'SELL', { price: ltp, manual: false })
+        journalOrder({ account, symbol, side: 'SELL', qty: actualQty, price: ltp, tag: STRATEGY_1_TRANCHE2_TAG, orderId: placed.data.data.order_id })
+          .catch(err => console.error('[strategy1] journalOrder failed:', err))
         await positions.removePosition(account, symbol)
         const pnlR = (ltp - pos.firstBuyPrice) * actualQty
         appendJournal({
@@ -236,6 +238,8 @@ export async function monitorAccountStrategy1(account: string): Promise<Strategy
       const placed = await placeKiteOrder(creds, { symbol, side: 'SELL', quantity: actualQty, tag: STRATEGY_1_TRANCHE1_TAG })
       if (placed.ok && placed.data?.data?.order_id) {
         await markPlaced(account, symbol, 'SELL', { price: ltp, manual: false })
+        journalOrder({ account, symbol, side: 'SELL', qty: actualQty, price: ltp, tag: STRATEGY_1_TRANCHE1_TAG, orderId: placed.data.data.order_id })
+          .catch(err => console.error('[strategy1] journalOrder failed:', err))
         const adjusted = pre.adjustedQty !== undefined
         if (adjusted) {
           // Held less than intended 50% — selling what's there closes the position

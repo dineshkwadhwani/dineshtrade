@@ -244,7 +244,21 @@ async function runStrategy2(now: string, giftChangePct: number, strategyOverride
 
   // 2. Universe from strategy.watchlist (default ['listA'])
   const wl = await getWatchlist()
-  const universe: WatchlistStock[] = watchlistKeys.flatMap(k => wl.lists[k] || []) as any[]
+  // Flat-map across selected lists, then de-dupe by NSE symbol — a symbol may
+  // legitimately live in multiple lists and we only want to scan it once per tick.
+  const universe: WatchlistStock[] = (() => {
+    const seen = new Set<string>()
+    const out: WatchlistStock[] = []
+    for (const k of watchlistKeys) {
+      for (const s of (wl.lists[k] || []) as any[]) {
+        const sym = String(s.nse || '').toUpperCase()
+        if (!sym || seen.has(sym)) continue
+        seen.add(sym)
+        out.push(s)
+      }
+    }
+    return out
+  })()
   const symbols = universe.map(s => s.nse.toUpperCase())
   const nameBySymbol = new Map(universe.map(s => [s.nse.toUpperCase(), s.name || s.nse]))
 
@@ -859,7 +873,21 @@ async function runStrategy1(now: string, giftChangePct: number, strategyOverride
   }
 
   const wl = await getWatchlist()
-  const universe: WatchlistStock[] = watchlistKeys.flatMap(k => wl.lists[k] || []) as any[]
+  // Flat-map across selected lists, then de-dupe by NSE symbol — a symbol may
+  // legitimately live in multiple lists and we only want to scan it once per tick.
+  const universe: WatchlistStock[] = (() => {
+    const seen = new Set<string>()
+    const out: WatchlistStock[] = []
+    for (const k of watchlistKeys) {
+      for (const s of (wl.lists[k] || []) as any[]) {
+        const sym = String(s.nse || '').toUpperCase()
+        if (!sym || seen.has(sym)) continue
+        seen.add(sym)
+        out.push(s)
+      }
+    }
+    return out
+  })()
   const symbols = universe.map(s => s.nse.toUpperCase())
   const nameBySymbol = new Map(universe.map(s => [s.nse.toUpperCase(), s.name || s.nse]))
 
@@ -1016,7 +1044,21 @@ export async function runReactiveDipScan(strategyOverride?: Strategy): Promise<R
   if (!creds) return { recommendations: [], scanned: 0, triggered: [], evaluated: 0, skipReason: 'No Kite account connected' }
 
   const wl = await getWatchlist()
-  const universe: WatchlistStock[] = watchlistKeys.flatMap(k => wl.lists[k] || []) as any[]
+  // Flat-map across selected lists, then de-dupe by NSE symbol — a symbol may
+  // legitimately live in multiple lists and we only want to scan it once per tick.
+  const universe: WatchlistStock[] = (() => {
+    const seen = new Set<string>()
+    const out: WatchlistStock[] = []
+    for (const k of watchlistKeys) {
+      for (const s of (wl.lists[k] || []) as any[]) {
+        const sym = String(s.nse || '').toUpperCase()
+        if (!sym || seen.has(sym)) continue
+        seen.add(sym)
+        out.push(s)
+      }
+    }
+    return out
+  })()
   const symbols = universe.map(s => s.nse.toUpperCase())
   if (symbols.length === 0) return { recommendations: [], scanned: 0, triggered: [], evaluated: 0 }
   const nameBySymbol = new Map(universe.map(s => [s.nse.toUpperCase(), s.name || s.nse]))

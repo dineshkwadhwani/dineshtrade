@@ -69,15 +69,14 @@ export async function POST(req: Request) {
     return NextResponse.json({ error: 'Body must include lists.listA and lists.listB arrays' }, { status: 400 })
   }
 
-  // Deduplicate symbols across lists — first list (in declared order) wins.
-  // Order: listA, listB, then any additional list* keys in insertion order.
+  // A symbol may live in multiple lists (e.g. listed in both "Top Volume" and
+  // "Dip Candidates" because different strategies use different lenses on the
+  // same name). We dedupe ONLY within each list, not across lists. Strategies
+  // de-dupe the universe at scan time when they iterate multiple lists.
   const ordered = ['listA', 'listB', ...Object.keys(rawLists).filter(k => isListKey(k) && k !== 'listA' && k !== 'listB')]
-  const seenSymbols = new Set<string>()
   const lists: Record<string, WatchlistEntry[]> = {}
   for (const k of ordered) {
-    const cleaned = cleanEntries(rawLists[k]).filter(e => !seenSymbols.has(e.nse))
-    cleaned.forEach(e => seenSymbols.add(e.nse))
-    lists[k] = cleaned
+    lists[k] = cleanEntries(rawLists[k])
   }
 
   // Meta — accept user names if provided; normalize() will fill defaults.

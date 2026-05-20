@@ -179,6 +179,16 @@ export async function POST(req: NextRequest) {
 
   if (r.ok && r.data?.data?.order_id) {
     await markPlaced(account, symbolUpper, side, { price: pricePerShare, manual })
+    // Journal EVERY successful Kite order — manual + auto, BUY + SELL.
+    // The retrospective's "Activity Today" reads from journal for past dates
+    // (Kite's /orders only returns the current session).
+    {
+      const { journalOrder } = await import('@/lib/journal')
+      journalOrder({
+        account, symbol: symbolUpper, side, qty: actualQty,
+        price: pricePerShare, tag: orderTag, orderId: r.data.data.order_id,
+      }).catch(err => console.error('[zerodha route] journalOrder failed:', err))
+    }
     // Persist BUYs into the unified position store. The order tag carries the
     // strategy id (`dt-${strategyId}`); legacy tags `dt-s1` / `dt-s2` map to
     // 'accumulator' / 'catalyst' respectively for backward compatibility.

@@ -166,6 +166,14 @@ async function autoBuyOnAccount(account: string, accountDisplayName: string | un
       const { recordBuy } = await import('./positions')
       recordBuy(rec.strategy, account, rec.symbol, rec.suggestedQty, rec.price)
         .catch(err => console.error('[cron autoBuy] position record failed:', err))
+      // Journal the order so historical retrospectives can show today's auto BUYs
+      // without depending on Kite's session-scoped /orders endpoint.
+      const { journalOrder } = await import('./journal')
+      journalOrder({
+        account, symbol: rec.symbol, side: 'BUY',
+        qty: rec.suggestedQty, price: rec.price,
+        tag, orderId: placed.data.data.order_id,
+      }).catch(err => console.error('[cron autoBuy] journalOrder failed:', err))
       recordExecuted({
         time: istHHMM(), account, symbol: rec.symbol, side: 'BUY',
         quantity: rec.suggestedQty, price: rec.price, orderId: placed.data.data.order_id,
@@ -373,12 +381,11 @@ async function dailyRetrospective(): Promise<void> {
   const today = istDateString()
   try {
     const report = await buildDailyReport(today)
-    if (!report.shouldSend) {
-      console.log(`[cron retro] ${today} — skipping (${report.skipReason || 'no activity'})`)
-    } else {
-      console.log(`[cron retro] ${today} — sending daily report: ${report.tradesCount} trades, ${report.missedSignals.length} missed signals`)
-      await sendDailyReport(report)
-    }
+    // Always send on a trading day. Even with zero trades, the report acts as
+    // a "daily diary": shows open positions, capital status, strategy health,
+    // and confirms the engine ran (or that you stayed in manual mode all day).
+    console.log(`[cron retro] ${today} — sending daily report: ${report.tradesCount} trades, ${report.missedSignals.length} missed signals`)
+    await sendDailyReport(report)
   } catch (err) {
     console.error('[cron retro] daily report failed:', err)
   }

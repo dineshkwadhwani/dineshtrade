@@ -61,7 +61,26 @@ export interface StrategyScanRecord {
   skipReason?: string           // when the scan didn't run (e.g. GIFT Nifty gate blocked)
 }
 
-export type JournalRecord = TradeRecord | SignalSkippedRecord | StrategyScanRecord
+// Single-leg Kite order placement (manual or auto, BUY or SELL). Distinct from
+// `trade` which captures a completed BUY+SELL pair. Lets the retrospective
+// show "Activity Today" for any past date without depending on Kite's session-
+// scoped /orders endpoint (which only returns the current trading session).
+export interface OrderRecord {
+  type: 'order'
+  date: string                  // YYYY-MM-DD IST
+  ts: string                    // ISO timestamp (Kite confirmation time)
+  account: string
+  symbol: string
+  side: 'BUY' | 'SELL'
+  qty: number
+  price: number
+  tag?: string                  // raw Kite tag (e.g. 'dt-catalyst', 'dt-manual')
+  strategyId?: string           // derived from tag for fast filtering
+  source: 'auto' | 'manual'
+  orderId?: string
+}
+
+export type JournalRecord = TradeRecord | SignalSkippedRecord | StrategyScanRecord | OrderRecord
 
 // Storage is anchored to the same dir as state.json. Local dev (cookie state)
 // keeps it in memory only — fine since cron won't run there anyway.
@@ -114,24 +133,52 @@ export async function readJournalRange(startYmd: string, endYmd: string): Promis
   return all.filter(r => r.date >= startYmd && r.date <= endYmd)
 }
 
-// Returns the sorted list of dates we have any records for (newest first).
-// Used by the in-app date picker.
+// Returns the sorted list of dates for the in-app date picker (newest first).
+// Now returns the UNION of:
+//   - Every trading day in the last 60 calendar days (Mon-Fri, minus NSE holidays)
+//   - Every date that has at least one journal record (preserves older entries)
+// This way the retrospective dropdown always shows today + recent past trading
+// days, even if no journal records exist yet (e.g. user has been in manual mode).
+// The retrospective builder uses journaled orders for past dates and live Kite
+// for today, so the dropdown entries always resolve to a renderable report.
 export async function listJournalDates(): Promise<string[]> {
-  if (!useFile) {
-    const set = new Set(memStore.map(r => r.date))
-    return Array.from(set).sort().reverse()
-  }
+  const dates = new Set<string>()
+
+  // (1) Trading-day calendar for the last 60 days, anchored to IST.
+  let holidays: Set<string> = new Set()
   try {
-    const files = await fs.readdir(JOURNAL_DIR)
-    const jrFiles = files.filter(f => /^journal-\d{4}-\d{2}\.jsonl$/.test(f))
-    const dates = new Set<string>()
-    for (const f of jrFiles) {
-      const ym = f.match(/^journal-(\d{4}-\d{2})\.jsonl$/)![1]
-      const records = await readJournalMonth(ym)
-      for (const r of records) dates.add(r.date)
-    }
-    return Array.from(dates).sort().reverse()
-  } catch { return [] }
+    const mod = await import('@/config/holidays.json')
+    const arr = (mod as any).default?.holidays ?? (mod as any).holidays ?? []
+    holidays = new Set(Array.isArray(arr) ? arr : [])
+  } catch { /* missing holidays.json = no holidays applied (weekends still excluded) */ }
+
+  const ist = new Date(new Date().toLocaleString('en-US', { timeZone: 'Asia/Kolkata' }))
+  for (let i = 0; i < 60; i++) {
+    const d = new Date(ist)
+    d.setDate(d.getDate() - i)
+    const dow = d.getDay()   // 0 = Sun, 6 = Sat
+    if (dow === 0 || dow === 6) continue
+    const ymd = `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}-${String(d.getDate()).padStart(2, '0')}`
+    if (holidays.has(ymd)) continue
+    dates.add(ymd)
+  }
+
+  // (2) All journal-record dates (preserves anything older than 60 days too).
+  if (useFile) {
+    try {
+      const files = await fs.readdir(JOURNAL_DIR)
+      const jrFiles = files.filter(f => /^journal-\d{4}-\d{2}\.jsonl$/.test(f))
+      for (const f of jrFiles) {
+        const ym = f.match(/^journal-(\d{4}-\d{2})\.jsonl$/)![1]
+        const records = await readJournalMonth(ym)
+        for (const r of records) dates.add(r.date)
+      }
+    } catch { /* journal dir missing or unreadable — fine, calendar dates still returned */ }
+  } else {
+    for (const r of memStore) dates.add(r.date)
+  }
+
+  return Array.from(dates).sort().reverse()
 }
 
 // Helpers used at journal-write time
@@ -146,6 +193,44 @@ export function istHHMM(dateOverride?: Date): string {
   const d = dateOverride ?? new Date()
   const ist = new Date(d.toLocaleString('en-US', { timeZone: 'Asia/Kolkata' }))
   return `${String(ist.getHours()).padStart(2, '0')}:${String(ist.getMinutes()).padStart(2, '0')}`
+}
+
+// Convenience writer for OrderRecord. Derives strategyId from the Kite tag
+// (`dt-${id}`). Use this from every order success path so the retrospective
+// has a complete history of placements.
+export async function journalOrder(opts: {
+  account: string
+  symbol: string
+  side: 'BUY' | 'SELL'
+  qty: number
+  price: number
+  tag?: string
+  orderId?: string
+}): Promise<void> {
+  const tag = opts.tag || ''
+  let strategyId: string | undefined
+  let source: 'auto' | 'manual' = 'auto'
+  if (tag === 'dt-manual') source = 'manual'
+  else if (tag.startsWith('dt-')) {
+    let sid = tag.slice(3).replace(/-(t1|t2|exit)$/, '')
+    if (sid === 's1') sid = 'accumulator'
+    else if (sid === 's2') sid = 'catalyst'
+    strategyId = sid
+  }
+  await appendJournal({
+    type: 'order',
+    date: istDateString(),
+    ts: new Date().toISOString(),
+    account: opts.account.toUpperCase(),
+    symbol: opts.symbol.toUpperCase(),
+    side: opts.side,
+    qty: opts.qty,
+    price: opts.price,
+    tag: opts.tag,
+    strategyId,
+    source,
+    orderId: opts.orderId,
+  })
 }
 
 export function classifyVerdict(opts: {

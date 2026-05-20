@@ -323,19 +323,46 @@ async function buildLiveSnapshot(date: string): Promise<LiveSnapshot> {
       listStrategy2Positions(),
     ])
 
-    // Activity Today — all COMPLETE orders from Kite getOrders()
-    const activityToday: ActivityRow[] = orders
-      .filter(o => o.status === 'COMPLETE')
-      .map(o => ({
-        time: parseOrderTime(o.order_timestamp),
-        account: firstAcc,
-        symbol: o.tradingsymbol.toUpperCase(),
-        side: (o.transaction_type === 'BUY' ? 'BUY' : 'SELL') as 'BUY' | 'SELL',
-        qty: o.filled_quantity || o.quantity,
-        price: o.average_price,
-        status: o.status,
-        tag: o.tag,
-      }))
+    // Activity Today — for today's date we prefer LIVE Kite /orders (catches
+    // pending/rejected too). For PAST dates Kite's /orders has rotated out, so
+    // we fall back to journaled `order` records — these are written on every
+    // successful BUY/SELL across manual + auto paths, so they're a complete
+    // ledger as long as the deploy has been running since the date in question.
+    const isToday = date === istDateString()
+    let activityToday: ActivityRow[]
+    if (isToday) {
+      activityToday = orders
+        .filter(o => o.status === 'COMPLETE')
+        .map(o => ({
+          time: parseOrderTime(o.order_timestamp),
+          account: firstAcc,
+          symbol: o.tradingsymbol.toUpperCase(),
+          side: (o.transaction_type === 'BUY' ? 'BUY' : 'SELL') as 'BUY' | 'SELL',
+          qty: o.filled_quantity || o.quantity,
+          price: o.average_price,
+          status: o.status,
+          tag: o.tag,
+        }))
+    } else {
+      const dayRecords = await readJournalDay(date)
+      activityToday = dayRecords
+        .filter(r => r.type === 'order')
+        .map(r => {
+          const o = r as Extract<typeof r, { type: 'order' }>
+          // Render the ISO ts as IST HH:MM:SS
+          const t = new Date(o.ts).toLocaleTimeString('en-IN', { hour12: false, timeZone: 'Asia/Kolkata' })
+          return {
+            time: t,
+            account: o.account,
+            symbol: o.symbol,
+            side: o.side,
+            qty: o.qty,
+            price: o.price,
+            status: 'COMPLETE',
+            tag: o.tag,
+          }
+        })
+    }
     activityToday.sort((a, b) => a.time.localeCompare(b.time))
 
     const capitalDeployedToday = activityToday.filter(a => a.side === 'BUY').reduce((s, a) => s + a.qty * a.price, 0)

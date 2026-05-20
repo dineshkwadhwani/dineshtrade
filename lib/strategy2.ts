@@ -22,7 +22,7 @@ import { runPreflight, markPlaced } from './preflight'
 import { sendEmail } from './email'
 import { getAccountList } from './accounts'
 import { ensureStrategy1Tracking } from './strategy1'
-import { appendJournal, istDateString, istHHMM, classifyVerdict } from './journal'
+import { appendJournal, journalOrder, istDateString, istHHMM, classifyVerdict } from './journal'
 import { getStrategyById } from './strategyConfig'
 import {
   listStrategy2Positions, removeStrategy2Position, markTranche1Sold,
@@ -211,6 +211,8 @@ export async function monitorAccount(account: string): Promise<MonitorResult> {
     const placed = await placeKiteOrder(creds, { symbol, side: 'SELL', quantity: actualQty, tag: STRATEGY_2_SELL_TAG })
     if (placed.ok && placed.data?.data?.order_id) {
       await markPlaced(account, symbol, 'SELL', { price: ltp, manual: false })
+      journalOrder({ account, symbol, side: 'SELL', qty: actualQty, price: ltp, tag: STRATEGY_2_SELL_TAG, orderId: placed.data.data.order_id })
+        .catch(err => console.error('[strategy2] journalOrder failed:', err))
 
       // Update the position store
       if (willCompletePosition || actualQty >= pos.remainingQty) {

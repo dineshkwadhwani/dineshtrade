@@ -103,10 +103,11 @@ export default function ManageListsPage() {
 
   function add(target: string, r: SearchResult) {
     if (!wl) return
-    if (existingSet.has(r.symbol)) {
-      const inList = listContaining(r.symbol)
-      const display = (inList && wl.meta[inList]?.name) || inList || 'another list'
-      setError(`${r.symbol} already in ${display}`)
+    // A symbol CAN live in multiple lists (e.g. listed in both "Top Volume" and
+    // "Dip Candidates"). Only refuse if it's already in the SAME target list —
+    // strategies can scan multiple lists and the engine de-dupes the universe.
+    if (wl.lists[target]?.some(e => e.nse === r.symbol)) {
+      setError(`${r.symbol} already in ${wl.meta[target]?.name || target}`)
       setTimeout(() => setError(''), 2500)
       return
     }
@@ -273,20 +274,34 @@ export default function ManageListsPage() {
         {results.length > 0 && (
           <div className="mt-3 rounded-lg overflow-hidden" style={{ border:'1px solid rgba(255,255,255,0.08)' }}>
             {results.map(r => {
-              const inList = existingSet.has(r.symbol)
+              // Only refuse if the symbol is already in the *target* list. It's
+              // fine to live in multiple lists at once — strategies de-dupe the
+              // universe when they scan across lists.
+              const inTarget = (wl?.lists[addTarget] || []).some(e => e.nse === r.symbol)
+              // Find every other list this symbol already lives in, for context.
+              const otherLists = orderedKeys
+                .filter(k => k !== addTarget && wl?.lists[k]?.some(e => e.nse === r.symbol))
+                .map(k => wl?.meta[k]?.name || k)
               return (
                 <div key={r.token}
                   className="grid items-center px-3 py-2.5"
                   style={{
                     gridTemplateColumns: '1fr 2fr 0.8fr',
                     borderBottom: '1px solid rgba(255,255,255,0.04)',
-                    background: inList ? 'rgba(82,183,136,0.04)' : 'transparent',
+                    background: inTarget ? 'rgba(82,183,136,0.04)' : 'transparent',
                   }}>
                   <span style={{ color:'rgba(255,255,255,0.85)', fontFamily:'JetBrains Mono, monospace', fontWeight: 600 }}>{r.symbol}</span>
-                  <span className="text-[12px]" style={{ color:'rgba(255,255,255,0.5)' }}>{r.name}</span>
+                  <span className="text-[12px] min-w-0" style={{ color:'rgba(255,255,255,0.5)' }}>
+                    <span className="truncate block">{r.name}</span>
+                    {otherLists.length > 0 && (
+                      <span className="text-[10px]" style={{ color:'rgba(96,165,250,0.7)' }}>
+                        also in: {otherLists.join(', ')}
+                      </span>
+                    )}
+                  </span>
                   <div className="text-right">
-                    {inList ? (
-                      <span className="text-[10px]" style={{ color:'#52b788' }}>✓ in list</span>
+                    {inTarget ? (
+                      <span className="text-[10px]" style={{ color:'#52b788' }}>✓ in {wl?.meta[addTarget]?.name || addTarget}</span>
                     ) : (
                       <button onClick={() => add(addTarget, r)}
                         className="px-3 py-1 rounded text-[10px] font-semibold tracking-wider"
