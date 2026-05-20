@@ -883,6 +883,7 @@ async function runStrategy1(now: string, giftChangePct: number, strategyOverride
   const strongBuyBelowPct = params.strongBuyBelowPct  ?? strategyCfg.ema?.strongBuyBelowPct  ?? 8
   const minDownDays       = params.minDownDays        ?? strategyCfg.ema?.minDownDays        ?? 3
   const emaPeriod         = params.emaPeriod          ?? strategyCfg.ema?.period             ?? 20
+  const capitulationFloor = params.capitulationFloorPct ?? 12  // skip stocks deeper than -12% from EMA (news/panic, not mean-reversion)
   const tranche2AbovePct  = params.tranche2AboveEMAPct ?? strategyCfg.targets?.strategy1_tranche2_above_ema_pct ?? 3
 
   let skippedNoToken = 0
@@ -923,6 +924,7 @@ async function runStrategy1(now: string, giftChangePct: number, strategyOverride
   // 4. Filter to stocks meeting Strategy 1 entry: ≥5% below EMA AND ≥3 consecutive down days
   let skippedDownDays = 0
   let skippedNotStretched = 0
+  let skippedCapitulation = 0
   const recs: Array<Recommendation & { _dev: number }> = []
 
   for (const v of validHistoricals) {
@@ -930,6 +932,9 @@ async function runStrategy1(now: string, giftChangePct: number, strategyOverride
     const dev = deviationPct(ltp, v.ema)
 
     if (dev > -entryBelowPct) { skippedNotStretched++; continue }
+    // Capitulation floor — past this depth from EMA, it's a news event / panic
+    // not a mean-reversion candidate. Matches the Engine tile's "below_ema_max" rule.
+    if (dev < -capitulationFloor) { skippedCapitulation++; continue }
     if (v.downDays < minDownDays) { skippedDownDays++; continue }
 
     const perTrade = strategyCfg.capital.perTrade
@@ -971,7 +976,7 @@ async function runStrategy1(now: string, giftChangePct: number, strategyOverride
       skippedNoToken,
       skippedNoHistorical,
       skippedDownDays,
-      skippedNotStretched,
+      skippedNotStretched: skippedNotStretched + skippedCapitulation,
       produced: final.length,
     },
     priceSource: 'kite_live',
@@ -1057,6 +1062,7 @@ export async function runReactiveDipScan(strategyOverride?: Strategy): Promise<R
   const strongBuyBelowPct = params.strongBuyBelowPct  ?? strategyCfg.ema?.strongBuyBelowPct  ?? 8
   const minDownDays       = params.minDownDays        ?? strategyCfg.ema?.minDownDays        ?? 3
   const emaPeriod         = params.emaPeriod          ?? strategyCfg.ema?.period             ?? 20
+  const capitulationFloor = params.capitulationFloorPct ?? 12
 
   const evaluated = await mapWithLimit(triggered, 3, async (symbol): Promise<Recommendation | null> => {
     const token = tokens[symbol]
@@ -1080,6 +1086,7 @@ export async function runReactiveDipScan(strategyOverride?: Strategy): Promise<R
       const dev = deviationPct(ltp, ema)
 
       if (dev > -entryBelowPct) return null      // not stretched enough yet
+      if (dev < -capitulationFloor) return null  // past capitulation floor — panic / news, not mean-reversion
       if (downDays < minDownDays) return null    // not enough sustained down days
 
       const perTrade = strategyCfg.capital.perTrade
