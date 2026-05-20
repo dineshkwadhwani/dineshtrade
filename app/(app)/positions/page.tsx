@@ -62,8 +62,13 @@ export default function PositionsPage() {
   const openCount = positions.filter(p => p.qty !== 0).length
   const totalUnrealized = positions.reduce((s, p) => s + p.unrealized, 0)
   const totalRealized = positions.reduce((s, p) => s + p.realized, 0)
+  // Capital invested in still-open positions — used as the denominator for the
+  // hero %-of-deployed-capital figures so users can read return in context.
+  const investedOpen = positions.filter(p => p.qty > 0).reduce((s, p) => s + p.qty * p.avgPrice, 0)
+  const totalUnrealizedPct = investedOpen > 0 ? (totalUnrealized / investedOpen) * 100 : null
   const totalPnl = totalUnrealized + totalRealized
-  const capitalDeployed = positions.filter(p => p.qty > 0).reduce((s, p) => s + p.qty * p.avgPrice, 0)
+  const capitalDeployed = investedOpen
+  const totalPnlPct = capitalDeployed > 0 ? (totalPnl / capitalDeployed) * 100 : null
   const activeAccount = accounts.find(a => a.name === activeTab)
 
   return (
@@ -108,14 +113,15 @@ export default function PositionsPage() {
         <>
           <div className="grid grid-cols-2 sm:grid-cols-4 gap-3">
             {[
-              { label:'Open Positions', val: String(openCount), color: activeAccount?.color || '#c9a84c' },
-              { label:'Capital Deployed', val:`₹${Math.round(capitalDeployed).toLocaleString('en-IN')}`, color:'#c9a84c' },
-              { label:'Unrealized', val: signedRupees(totalUnrealized), color: totalUnrealized >= 0 ? '#52b788' : '#e05a5e' },
-              { label:'Day P&L (incl. closed)', val: signedRupees(totalPnl), color: totalPnl >= 0 ? '#52b788' : '#e05a5e' },
+              { label:'Open Positions',         val: String(openCount), sub: undefined,                              color: activeAccount?.color || '#c9a84c' },
+              { label:'Capital Deployed',       val:`₹${Math.round(capitalDeployed).toLocaleString('en-IN')}`, sub: undefined, color:'#c9a84c' },
+              { label:'Unrealized',             val: signedRupees(totalUnrealized), sub: signedPct(totalUnrealizedPct), color: totalUnrealized >= 0 ? '#52b788' : '#e05a5e' },
+              { label:'Day P&L (incl. closed)', val: signedRupees(totalPnl),        sub: signedPct(totalPnlPct),        color: totalPnl >= 0 ? '#52b788' : '#e05a5e' },
             ].map(s => (
               <div key={s.label} className="rounded-xl p-4" style={{ background:'rgba(255,255,255,0.03)', border:'1px solid rgba(255,255,255,0.06)' }}>
                 <p className="text-[9px] tracking-widest uppercase mb-2" style={{ color:'rgba(255,255,255,0.3)', fontFamily:'JetBrains Mono, monospace' }}>{s.label}</p>
                 <p className="text-xl font-semibold" style={{ color:s.color, fontFamily:'JetBrains Mono, monospace' }}>{s.val}</p>
+                {s.sub && <p className="text-[11px] mt-1" style={{ color:s.color, opacity:0.7, fontFamily:'JetBrains Mono, monospace' }}>{s.sub}</p>}
               </div>
             ))}
           </div>
@@ -182,6 +188,11 @@ function PositionRow({ p, last, marketOpen, onSquareOff }: {
   const dc = p.dayChangePct
   const dColor = dc === undefined ? 'rgba(255,255,255,0.8)'
     : dc > 0 ? '#52b788' : dc < 0 ? '#e05a5e' : 'rgba(255,255,255,0.7)'
+  // Position-level return since entry — what the user wants under each row's P&L.
+  // For open positions: (ltp - avg)/avg. For closed: skip (qty is 0).
+  const unrealizedPct = isOpen && p.avgPrice > 0 && p.ltp > 0
+    ? ((p.ltp - p.avgPrice) / p.avgPrice) * 100
+    : null
 
   const SquareOffBtn = isOpen ? (
     <button onClick={onSquareOff} disabled={!marketOpen}
@@ -225,10 +236,17 @@ function PositionRow({ p, last, marketOpen, onSquareOff }: {
           </div>
         </div>
 
-        {/* Right — P&L, LTP, button */}
+        {/* Right — P&L (₹ + %), LTP, button */}
         <div className="shrink-0 flex flex-col items-end gap-1" style={{ fontFamily:'JetBrains Mono, monospace' }}>
-          <div className="text-[15px] font-semibold whitespace-nowrap" style={{ color: isOpen ? uColor : 'rgba(255,255,255,0.35)' }}>
-            {isOpen ? signedRupees(p.unrealized) : '—'}
+          <div className="text-right">
+            <div className="text-[15px] font-semibold whitespace-nowrap" style={{ color: isOpen ? uColor : 'rgba(255,255,255,0.35)' }}>
+              {isOpen ? signedRupees(p.unrealized) : '—'}
+            </div>
+            {unrealizedPct !== null && (
+              <div className="text-[10px] whitespace-nowrap" style={{ color: uColor, opacity: 0.75 }}>
+                {signedPct(unrealizedPct)}
+              </div>
+            )}
           </div>
           <div className="text-[11px] whitespace-nowrap" style={{ color:'rgba(255,255,255,0.4)' }}>
             LTP <span style={{ color: dColor }}>{p.ltp > 0 ? `₹${p.ltp.toFixed(2)}` : '—'}</span>
@@ -267,6 +285,9 @@ function PositionRow({ p, last, marketOpen, onSquareOff }: {
           <div className="font-semibold" style={{ color: isOpen ? uColor : 'rgba(255,255,255,0.35)' }}>
             {isOpen ? signedRupees(p.unrealized) : '—'}
           </div>
+          {unrealizedPct !== null && (
+            <div className="text-[9px] mt-0.5" style={{ color: uColor, opacity: 0.75 }}>{signedPct(unrealizedPct)}</div>
+          )}
           {p.realized !== 0 && (
             <div className="text-[9px] mt-0.5" style={{ color: rColor }}>realized {signedRupees(p.realized)}</div>
           )}
@@ -295,6 +316,12 @@ function tagStyle(tag: PositionTag): { color: string; label: string } {
     case 'pre':    return { color:'rgba(255,255,255,0.5)', label:'OOS' }
     case 'mixed':  return { color:'#f59e0b', label:'MIXED' }
   }
+}
+
+function signedPct(p: number | null | undefined): string {
+  if (p === null || p === undefined || Number.isNaN(p)) return ''
+  const sign = p >= 0 ? '+' : ''
+  return `${sign}${p.toFixed(2)}%`
 }
 
 function signedRupees(n: number): string {

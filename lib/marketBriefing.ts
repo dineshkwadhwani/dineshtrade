@@ -34,36 +34,52 @@ export interface BriefingResult {
 
 function buildPrompt(): string {
   const today = new Date().toLocaleDateString('en-IN', { timeZone: 'Asia/Kolkata', weekday:'long', day:'numeric', month:'long', year:'numeric' })
-  return `Today is ${today}. You are a professional Indian equity market analyst. Search the web for latest data and provide a concise market briefing in JSON format ONLY (no markdown, no explanation outside JSON).
+  return `Today is ${today}. You are a professional Indian equity market analyst.
 
-Return this exact JSON structure (every topRecommendations entry MUST include a numeric "cmp" — current market price in INR — sourced from the web):
+CRITICAL — Read this before answering:
+- Every value in the schema below is a PLACEHOLDER (wrapped in <…>). Do NOT echo the placeholders.
+- Search the web for today's actual data (overnight US session close, Asian session prints, GIFT Nifty futures level, Indian broker calls published today).
+- Replace every <…> placeholder with the real value you found.
+- The "topRecommendations" entries must be DIFFERENT stocks and DIFFERENT reasons each day, sourced from today's broker calls / research notes — not a fixed list.
+- Output JSON only — no markdown fences, no commentary outside the JSON object.
+
+Schema (replace every <…> with today's researched value):
 {
   "globalIndices": [
-    { "name": "S&P 500", "value": "7,444", "change": "+0.58%", "direction": "up" },
-    { "name": "Nasdaq", "value": "26,402", "change": "+1.20%", "direction": "up" },
-    { "name": "Dow Jones", "value": "49,693", "change": "-0.14%", "direction": "down" },
-    { "name": "DAX", "value": "24,162", "change": "+0.87%", "direction": "up" },
-    { "name": "FTSE 100", "value": "10,324", "change": "+0.58%", "direction": "up" },
-    { "name": "Nikkei", "value": "63,455", "change": "+0.29%", "direction": "up" },
-    { "name": "Hang Seng", "value": "26,576", "change": "+0.71%", "direction": "up" },
-    { "name": "Kospi", "value": "7,906", "change": "+0.79%", "direction": "up" },
-    { "name": "Brent Crude", "value": "$98.43", "change": "+3.10%", "direction": "down" }
+    { "name": "S&P 500",     "value": "<index_level>", "change": "<signed_pct>", "direction": "<up|down|flat>" },
+    { "name": "Nasdaq",      "value": "<index_level>", "change": "<signed_pct>", "direction": "<up|down|flat>" },
+    { "name": "Dow Jones",   "value": "<index_level>", "change": "<signed_pct>", "direction": "<up|down|flat>" },
+    { "name": "DAX",         "value": "<index_level>", "change": "<signed_pct>", "direction": "<up|down|flat>" },
+    { "name": "FTSE 100",    "value": "<index_level>", "change": "<signed_pct>", "direction": "<up|down|flat>" },
+    { "name": "Nikkei",      "value": "<index_level>", "change": "<signed_pct>", "direction": "<up|down|flat>" },
+    { "name": "Hang Seng",   "value": "<index_level>", "change": "<signed_pct>", "direction": "<up|down|flat>" },
+    { "name": "Kospi",       "value": "<index_level>", "change": "<signed_pct>", "direction": "<up|down|flat>" },
+    { "name": "Brent Crude", "value": "<usd_price>",   "change": "<signed_pct>", "direction": "<up|down|flat>" }
   ],
-  "giftNifty": { "value": "24,218", "change": "-0.26%", "direction": "down", "impliedOpen": "Gap down ~60 pts", "signal": "cautious" },
+  "giftNifty": {
+    "value":       "<futures_level>",
+    "change":      "<signed_pct>",
+    "direction":   "<up|down|flat>",
+    "impliedOpen": "<gap up|gap down|flat> ~<N> pts",
+    "signal":      "<bullish|bearish|cautious|neutral>"
+  },
   "indiaOutlook": {
-    "bias": "cautious-positive",
-    "expectedRange": "24,180–24,260",
-    "keyFactors": ["S&P 500 at ATH", "Nasdaq +1.2%"],
-    "support": "24,100",
-    "resistance": "24,600",
-    "strategy": "Wait for 9:30 AM candle confirmation"
+    "bias":          "<positive|negative|cautious-positive|cautious-negative|neutral>",
+    "expectedRange": "<nifty_low>–<nifty_high>",
+    "keyFactors":    ["<factor_today_1>", "<factor_today_2>", "<factor_today_3>"],
+    "support":       "<nifty_support_level>",
+    "resistance":    "<nifty_resistance_level>",
+    "strategy":      "<one_line_trading_strategy_for_today>"
   },
   "topRecommendations": [
-    { "symbol": "BAJFINANCE", "name": "Bajaj Finance", "cmp": "910.45", "action": "BUY", "source": "ICICI Direct", "reason": "20-EMA support, strong NBFC sector" },
-    { "symbol": "RELIANCE", "name": "Reliance Industries", "cmp": "1421.30", "action": "BUY", "source": "HDFC Securities", "reason": "Oil price decline, telecom growth" }
+    { "symbol": "<NSE_TRADINGSYMBOL>", "name": "<full_company_name>", "cmp": "<live_price_inr>", "action": "BUY", "source": "<broker_or_publication_name>", "reason": "<short_reason_from_today_broker_call>" },
+    { "symbol": "<NSE_TRADINGSYMBOL>", "name": "<full_company_name>", "cmp": "<live_price_inr>", "action": "BUY", "source": "<broker_or_publication_name>", "reason": "<short_reason_from_today_broker_call>" },
+    { "symbol": "<NSE_TRADINGSYMBOL>", "name": "<full_company_name>", "cmp": "<live_price_inr>", "action": "BUY", "source": "<broker_or_publication_name>", "reason": "<short_reason_from_today_broker_call>" }
   ],
-  "headline": "Markets cautiously positive on global tech rally"
-}`
+  "headline": "<one_sentence_summary_of_today_market_mood>"
+}
+
+If ANY <…> placeholder remains in your output, the response is invalid. Cmp must be a numeric string in INR sourced from a live quote today. Reasons must reference today's events, not generic themes.`
 }
 
 // IST-day cache — the AI call is expensive (large prompt + websearch).
