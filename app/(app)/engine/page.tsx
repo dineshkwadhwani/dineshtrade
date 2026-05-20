@@ -149,7 +149,7 @@ export default function EnginePage() {
   const modeColors: Record<string, string> = { catalyst:'#c9a84c', dip:'#52b788', circuit:'#e05a5e' }
   const modeLabels: Record<string, string> = {
     catalyst:"⚡ Catalyst Mode — Strategy 2 (Momentum) · scans 09:30–14:30 IST",
-    dip:'📊 Dip Mode — Strategy 1 (Oscillator/EMA)',
+    dip:'📊 Dip Mode — Strategy 1 (Accumulator/EMA)',
     circuit:'🚨 Circuit Breaker — No Trades Today',
   }
 
@@ -290,7 +290,7 @@ export default function EnginePage() {
           today's orders even without a fresh scan). Each shows new recs +
           today's executed orders for that strategy. */}
       <StrategySection
-        title="Strategy 1 — Oscillator (EMA Dip)"
+        title="Strategy 1 — Accumulator"
         accent="#52b788"
         recs={(scan?.recommendations || []).filter(r => r.strategy === 'accumulator')}
         ordersToday={todayOrders.filter(o => (o.tag || '').startsWith('dt-s1'))}

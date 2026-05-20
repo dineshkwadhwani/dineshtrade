@@ -141,7 +141,7 @@ export async function monitorAccount(account: string): Promise<MonitorResult> {
         account, accountDisplayName: displayName, symbol,
         action: 'delivery', quantity: pos.remainingQty, entryPrice: pos.firstBuyPrice, ltp,
         reason: handedOff
-          ? `${Math.floor(ageDays)} calendar days since first BUY — handed off to Strategy 1 (Oscillator) for percentage-based exit`
+          ? `${Math.floor(ageDays)} calendar days since first BUY — handed off to Strategy 1 (Accumulator) for percentage-based exit`
           : `${Math.floor(ageDays)} days old; Strategy 1 was already tracking — removed from S2 store`,
       })
       continue
