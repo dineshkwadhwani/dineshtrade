@@ -44,3 +44,5 @@ Thumbs.db
 *.tsbuildinfo
 
 dineshtrade-server.pem
+notes.txt
+/data/
