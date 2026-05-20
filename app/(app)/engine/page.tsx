@@ -619,7 +619,7 @@ function EngineTilesSection({ firstAccount, accounts, connected, tradeMode }: {
   const [loading, setLoading] = useState(false)
   const [error, setError] = useState('')
   const [orderModal, setOrderModal] = useState<{
-    open: boolean; symbol: string; side: 'BUY' | 'SELL'; ltp?: number; dayChangePct?: number; initialQty?: number
+    open: boolean; symbol: string; side: 'BUY' | 'SELL'; ltp?: number; dayChangePct?: number; initialQty?: number; tag?: string
   }>({ open: false, symbol: '', side: 'BUY' })
 
   const [market, setMarket] = useState(() => isMarketOpen())
@@ -748,21 +748,30 @@ function EngineTilesSection({ firstAccount, accounts, connected, tradeMode }: {
         </div>
       )}
 
+      {/* Derive the strategy tag for the active tab so a tile-BUY is "owned"
+          by the strategy that surfaced it (dt-s1 / dt-s2), not Manual. SELLs
+          from tiles stay Manual — they're explicit user overrides of the
+          strategy's planned exit. */}
       <div className="grid gap-3 grid-cols-1 sm:grid-cols-2 lg:grid-cols-3">
-        {tiles.map(tile => (
-          <TileCard key={tile.symbol} tile={tile} fullScore={fullScore} tradeMode={tradeMode}
-            marketOpen={market.open}
-            onBuy={() => setOrderModal({
-              open: true, symbol: tile.symbol, side: 'BUY',
-              ltp: tile.ltp, dayChangePct: tile.dayChangePct,
-            })}
-            onSell={() => setOrderModal({
-              open: true, symbol: tile.symbol, side: 'SELL',
-              ltp: tile.ltp, dayChangePct: tile.dayChangePct,
-              initialQty: tile.holding?.qty,
-            })}
-          />
-        ))}
+        {tiles.map(tile => {
+          const activeType = tabStrategies.find(s => s.id === tab)?.type
+          const buyTag = activeType === 'dip' ? 'dt-s1' : activeType === 'momentum' ? 'dt-s2' : undefined
+          return (
+            <TileCard key={tile.symbol} tile={tile} fullScore={fullScore} tradeMode={tradeMode}
+              marketOpen={market.open}
+              onBuy={() => setOrderModal({
+                open: true, symbol: tile.symbol, side: 'BUY',
+                ltp: tile.ltp, dayChangePct: tile.dayChangePct,
+                tag: buyTag,
+              })}
+              onSell={() => setOrderModal({
+                open: true, symbol: tile.symbol, side: 'SELL',
+                ltp: tile.ltp, dayChangePct: tile.dayChangePct,
+                initialQty: tile.holding?.qty,
+              })}
+            />
+          )
+        })}
       </div>
 
       {orderModal.open && firstAccount && (
@@ -774,6 +783,7 @@ function EngineTilesSection({ firstAccount, accounts, connected, tradeMode }: {
           ltp={orderModal.ltp}
           dayChangePct={orderModal.dayChangePct}
           initialQty={orderModal.initialQty}
+          initialTag={orderModal.tag}
           accounts={accounts.filter(a => connected.includes(a.name))}
           defaultAccount={firstAccount}
           onSuccess={() => { setOrderModal({ ...orderModal, open: false }); load() }}

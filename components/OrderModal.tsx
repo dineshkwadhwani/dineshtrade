@@ -20,6 +20,12 @@ interface OrderModalProps {
   dayChangePct?: number     // today's % change from prev close — shown next to LTP for direction context
   initialQty?: number       // pre-fill (e.g. held quantity for SELL)
   initialProduct?: 'CNC' | 'MIS'  // pre-fill product (e.g. position's product for square-off)
+  // Optional order tag. Defaults to 'dt-manual'. Engine page tiles override
+  // this with the strategy tag ('dt-s1' / 'dt-s2') so a BUY initiated from a
+  // strategy tile is owned by that strategy's monitor — even though the user
+  // clicked it themselves and the order still bypasses rate-limit gates via
+  // `manual: true`. Watchlist / Holdings / Positions stay as 'dt-manual'.
+  initialTag?: string
   accounts: AccountDisplay[]
   defaultAccount?: string
   onSuccess?: () => void    // called after successful place; pages refresh data
@@ -27,7 +33,7 @@ interface OrderModalProps {
 
 export default function OrderModal({
   isOpen, onClose, symbol, symbolName, initialSide, ltp, dayChangePct,
-  initialQty, initialProduct, accounts, defaultAccount, onSuccess,
+  initialQty, initialProduct, initialTag, accounts, defaultAccount, onSuccess,
 }: OrderModalProps) {
   const [account, setAccount] = useState(defaultAccount || accounts[0]?.name || '')
   const [side, setSide] = useState<'BUY' | 'SELL'>(initialSide)
@@ -89,7 +95,7 @@ export default function OrderModal({
             orderType,
             limitPrice: orderType === 'LIMIT' ? limitPrice : undefined,
             price: effectivePrice,            // for preflight funds estimation
-            tag: 'dt-manual',
+            tag: initialTag || 'dt-manual',
             manual: true,
             source: `Manual ${side} (${product}/${orderType})`,
             reason: orderType === 'LIMIT'
