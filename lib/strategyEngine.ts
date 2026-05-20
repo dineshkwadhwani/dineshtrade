@@ -12,6 +12,7 @@ import {
   resolveAccountCreds, getQuotes, getHistoricalCandles, type KiteCreds,
 } from './kite'
 import { getInstrumentTokens } from './instruments'
+import { loadAndRefreshCloses } from './dailyCloses'
 import { computeEMA, consecutiveDownDays, deviationPct } from './ema'
 
 // ──────── DAILY-AGGREGATE CACHE (Strategy 2 momentum) ────────
@@ -384,30 +385,28 @@ async function ensureDailyAggregates(creds: KiteCreds, symbols: string[], volume
   })
   if (stale.length === 0) return
 
-  const { getInstrumentTokens } = await import('./instruments')
-  const tokens = await getInstrumentTokens(creds, stale)
-  const from = ymdIST(-60)
-  const to = ymdIST(-1)
+  // Disk-backed rolling cache of daily closes. On most days this is a tiny
+  // incremental fetch (yesterday's bar only); on cold-start it does the
+  // full 60-day window. Failures are logged inside loadAndRefreshCloses.
+  const closesBySymbol = await loadAndRefreshCloses(creds, stale)
   const emaPeriod = strategyCfg.ema?.period ?? 20
 
-  await mapWithLimit(stale, 3, async (symbol) => {
-    const token = tokens[symbol]
-    if (!token) return
-    try {
-      const candles = await getHistoricalCandles(creds, token, from, to, 'day')
-      if (candles.length < emaPeriod + 2) return
-      const closes = candles.map(c => c.close)
-      const emas = computeEMA(closes, emaPeriod)
-      const ema20 = emas[emas.length - 1]
-      const prevClose = closes[closes.length - 1]
-      const lastN = candles.slice(-volumeAvgDays)
-      const avgVolume10d = lastN.reduce((sum, c) => sum + c.volume, 0) / Math.max(1, lastN.length)
-      if (!ema20 || isNaN(ema20) || !prevClose) return
-      dailyAggregateCache.set(symbol, { date: today, data: { ema20, avgVolume10d, prevClose } })
-    } catch (err) {
-      // silent — symbol skipped on next scan iteration
+  for (const symbol of stale) {
+    const bars = closesBySymbol[symbol]
+    if (!bars || bars.length < emaPeriod + 2) {
+      // Not enough history yet (e.g. recent listing, fetch failed cold). Skip;
+      // tile evaluator will render '—' for this symbol's EMA-dependent rules.
+      continue
     }
-  })
+    const closes = bars.map(b => b.close)
+    const emas = computeEMA(closes, emaPeriod)
+    const ema20 = emas[emas.length - 1]
+    const prevClose = closes[closes.length - 1]
+    const lastN = bars.slice(-volumeAvgDays)
+    const avgVolume10d = lastN.reduce((sum, c) => sum + c.volume, 0) / Math.max(1, lastN.length)
+    if (!ema20 || isNaN(ema20) || !prevClose) continue
+    dailyAggregateCache.set(symbol, { date: today, data: { ema20, avgVolume10d, prevClose } })
+  }
 }
 
 // ──────── TILES — per-symbol per-rule evaluation for the Engine page UI ────────
