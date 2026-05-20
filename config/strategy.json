@@ -33,6 +33,7 @@
         "entryBelowPct": 5,
         "strongBuyBelowPct": 8,
         "minDownDays": 3,
+        "capitulationFloorPct": 12,
         "tranche2AboveEMAPct": 3.0,
         "reactiveDrop": 3.0,
         "reactiveIntervalMin": 30,

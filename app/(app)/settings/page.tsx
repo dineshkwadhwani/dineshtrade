@@ -419,6 +419,7 @@ const DIP_PARAM_DESCRIPTIONS: Record<string, string> = {
   entryBelowPct: 'Minimum % below 20-EMA to consider entering (e.g. 5 = at least 5% below).',
   strongBuyBelowPct: 'Threshold for "strong buy" tier — stock is this many % below EMA.',
   minDownDays: 'Minimum consecutive down days required for entry.',
+  capitulationFloorPct: 'Capitulation floor — Engine tiles hide / mark red anything more than this many % below 20-EMA (news event / panic zone, not mean-reversion). Default 12. Display only — does not affect BUY decisions.',
   tranche2AboveEMAPct: 'Tranche 2 exit fires when LTP reaches EMA × (1 + this/100).',
   reactiveDrop: 'Intraday % drop that triggers an off-cycle re-scan (default 3%).',
   reactiveIntervalMin: 'How often (in min) the reactive scan runs during the day.',
@@ -438,6 +439,7 @@ const MOMENTUM_PARAM_DESCRIPTIONS: Record<string, string> = {
 // Default param sets for the Duplicate / Create-New / Reset flows
 const DEFAULT_DIP_PARAMS = {
   emaPeriod: 20, entryBelowPct: 5, strongBuyBelowPct: 8, minDownDays: 3,
+  capitulationFloorPct: 12,
   tranche2AboveEMAPct: 3.0, reactiveDrop: 3.0, reactiveIntervalMin: 30, firesOnAnyMode: true,
 }
 const DEFAULT_MOMENTUM_PARAMS = {

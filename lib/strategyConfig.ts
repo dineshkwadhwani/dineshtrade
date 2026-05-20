@@ -66,6 +66,11 @@ export interface DipParams {
   entryBelowPct: number
   strongBuyBelowPct: number
   minDownDays: number
+  // Capitulation floor — stocks more than this many % below 20-EMA are
+  // considered crashing / news-event, not mean-reversion candidates. Skipped
+  // from both BUY scans and tile rendering. Default 12 (preserves the old
+  // hardcoded `capitulationFloor` constant for backward compatibility).
+  capitulationFloorPct: number
   tranche2AboveEMAPct: number
   reactiveDrop: number
   reactiveIntervalMin: number

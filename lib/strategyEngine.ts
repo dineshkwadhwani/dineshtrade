@@ -544,7 +544,10 @@ export async function evaluateAllForTiles(): Promise<TileEvalResult> {
     minDownDays:      typeof oscParams.minDownDays === 'number'      ? oscParams.minDownDays      : legacyEma.minDownDays,
   }
   const reactiveDropPct = typeof oscParams.reactiveDrop === 'number' ? oscParams.reactiveDrop : 3
-  const capitulationFloor = 12   // hide if deeper than -12% from EMA (panic zone)
+  // Capitulation floor — tiles hide / mark red anything more than this many %
+  // below 20-EMA (panic / news-event territory, not mean-reversion). Default 12
+  // matches the old hardcoded value.
+  const capitulationFloor = typeof oscParams.capitulationFloorPct === 'number' ? oscParams.capitulationFloorPct : 12
 
   // Per-symbol data snapshot used by both Catalyst + Oscillator rule evaluations.
   // We populate this once from quotes + the daily-aggregate cache.
