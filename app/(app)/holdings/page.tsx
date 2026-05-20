@@ -9,13 +9,21 @@ interface Holding {
   tradingsymbol: string
   exchange: string
   product: string
+  // Kite splits long qty across two fields. `quantity` = T+1 settled (sellable
+  // via CNC right now). `t1_quantity` = bought today, still in settlement —
+  // becomes `quantity` next trading day. Total long = quantity + t1_quantity.
   quantity: number
+  t1_quantity?: number
   average_price: number
   last_price: number
   close_price: number
   pnl: number
   day_change: number
   day_change_percentage: number
+}
+
+function totalQty(h: Holding): number {
+  return (h.quantity || 0) + (h.t1_quantity || 0)
 }
 
 interface MarginsAvailable {
@@ -107,10 +115,11 @@ export default function HoldingsPage() {
 
   const totals = holdings.reduce(
     (acc, h) => {
-      acc.invested += h.average_price * h.quantity
-      acc.current  += h.last_price * h.quantity
+      const q = totalQty(h)
+      acc.invested += h.average_price * q
+      acc.current  += h.last_price * q
       acc.pnl      += h.pnl
-      acc.dayPnl   += h.day_change * h.quantity
+      acc.dayPnl   += h.day_change * q
       return acc
     },
     { invested: 0, current: 0, pnl: 0, dayPnl: 0 }
@@ -225,7 +234,12 @@ export default function HoldingsPage() {
                         {isS1 ? 'S1' : 'OOS'}
                       </span>
                     </div>
-                    <span className="text-right text-white/60" style={{ fontFamily:'JetBrains Mono, monospace' }}>{h.quantity}</span>
+                    <span className="text-right text-white/60" style={{ fontFamily:'JetBrains Mono, monospace' }}>
+                      {totalQty(h)}
+                      {(h.t1_quantity || 0) > 0 && (h.quantity || 0) === 0 && (
+                        <span className="ml-1 text-[9px]" style={{ color:'rgba(96,165,250,0.7)' }} title="In T+1 settlement — sellable next trading day">T1</span>
+                      )}
+                    </span>
                     <span className="text-right text-white/50" style={{ fontFamily:'JetBrains Mono, monospace' }}>₹{h.average_price.toFixed(2)}</span>
                     <span className="text-right text-white/70" style={{ fontFamily:'JetBrains Mono, monospace' }}>₹{h.last_price.toFixed(2)}</span>
                     <span className="text-right" style={{ color: h.pnl >= 0 ? '#52b788' : '#e05a5e', fontFamily:'JetBrains Mono, monospace' }}>
@@ -242,7 +256,7 @@ export default function HoldingsPage() {
                         style={{ background:'rgba(82,183,136,0.12)', border:'1px solid rgba(82,183,136,0.3)', color:'#52b788' }}>
                         <span className="sm:hidden">B</span><span className="hidden sm:inline">Buy</span>
                       </button>
-                      <button onClick={() => setOrderModal({ open: true, symbol: h.tradingsymbol, side: 'SELL', ltp: h.last_price, initialQty: h.quantity, dayChangePct: h.day_change_percentage })}
+                      <button onClick={() => setOrderModal({ open: true, symbol: h.tradingsymbol, side: 'SELL', ltp: h.last_price, initialQty: totalQty(h), dayChangePct: h.day_change_percentage })}
                         disabled={!market.open}
                         title={!market.open ? 'Market closed' : undefined}
                         className="px-2 py-1 rounded text-[10px] font-semibold tracking-wider transition-all disabled:opacity-30 disabled:cursor-not-allowed"

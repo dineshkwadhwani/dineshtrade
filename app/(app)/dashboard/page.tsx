@@ -261,10 +261,13 @@ function AccountSummary() {
   if (!loaded || connectedAccounts.length === 0) return null
 
   const available = margins?.equity?.available?.live_balance ?? margins?.equity?.available?.cash ?? null
+  // Kite splits long qty across `quantity` (T+1 settled) and `t1_quantity`
+  // (bought today, still settling). Sum both to reflect the actual long position.
   const totals = holdings.reduce((acc, h: any) => {
-    acc.invested += (h.average_price || 0) * (h.quantity || 0)
+    const q = (h.quantity || 0) + (h.t1_quantity || 0)
+    acc.invested += (h.average_price || 0) * q
     acc.pnl      += (h.pnl || 0)
-    acc.dayPnl   += (h.day_change || 0) * (h.quantity || 0)
+    acc.dayPnl   += (h.day_change || 0) * q
     return acc
   }, { invested:0, pnl:0, dayPnl:0 })
 

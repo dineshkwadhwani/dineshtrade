@@ -43,14 +43,16 @@ export async function POST(req: Request) {
   function annotateHolding(tile: Tile): TileWithHolding {
     const h = heldBySymbol.get(tile.symbol)
     if (!h) return tile
+    // Sum settled + T+1-in-settlement qty so same-day buys still show on tiles.
+    const qty = (h.quantity || 0) + ((h as any).t1_quantity || 0)
     return {
       ...tile,
       holding: {
-        qty: h.quantity,
+        qty,
         avgPrice: h.average_price,
         // Recompute pnl from the tile's live LTP so it matches what the row
         // displays (same approach as the Positions page fix).
-        pnl: h.quantity * (tile.ltp - h.average_price),
+        pnl: qty * (tile.ltp - h.average_price),
       },
     }
   }

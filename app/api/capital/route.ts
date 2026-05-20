@@ -44,7 +44,10 @@ export async function GET(req: Request) {
   }
   for (const h of holdingsResult) {
     const sym = h.tradingsymbol.toUpperCase()
-    if (!bySymbol.has(sym) && h.quantity > 0) bySymbol.set(sym, h.quantity * (h.last_price || 0))
+    // Holdings split long qty across `quantity` (T+1 settled) and `t1_quantity`
+    // (bought today). Both count for capital-deployed accounting — we own them.
+    const heldQty = (h.quantity || 0) + ((h as any).t1_quantity || 0)
+    if (!bySymbol.has(sym) && heldQty > 0) bySymbol.set(sym, heldQty * (h.last_price || 0))
   }
   const deployed = Array.from(bySymbol.values()).reduce((s, v) => s + v, 0)
 
