@@ -1,7 +1,7 @@
 # DineshTrade — Project Context
 
-**Last Updated:** 19 May 2026
-**Version:** 1.2
+**Last Updated:** 20 May 2026
+**Version:** 1.3
 **Purpose:** Single source of truth on who, what, and why. Upload to any new Claude session to bootstrap full context.
 
 ---
@@ -135,7 +135,7 @@ Full list: `config/watchlist.json`.
 
 ---
 
-## 8. Current Build Status — 19 May 2026
+## 8. Current Build Status — 20 May 2026
 
 ### Phase 1 (complete)
 - Next.js 14 App Router scaffold, Obsidian Gold theme (Cormorant Garamond serif + Outfit body + JetBrains Mono numbers)
@@ -170,6 +170,17 @@ Full list: `config/watchlist.json`.
 - New `/positions` page — joins Kite `/portfolio/positions` with today's `/orders` to enrich each row with a strategy tag (S1 / S2 / Manual / OOS / Mixed). Header strip: Open Positions · Capital · Unrealized · Day P&L. Each row: Symbol + tag pill + product (CNC/MIS) + qty + avg + LTP (with % change) + stacked P&L (unrealized + realized) + **Square Off** action button.
 - Square Off — opens OrderModal pre-filled with SELL · held qty · matching product (MIS/CNC) · MARKET · LTP. Manual override of auto: after fill, S1 monitor's noShort gate removes the symbol from `strategy1.json`; S2 monitor's `qty <= 0` branch skips. Same `dt-manual` tag path.
 - "Today's Positions" nav item added between Holdings and Today's Orders.
+
+### Phase 4 — built on 19–20 May 2026 (this thread)
+
+- **Retrospective expansion** — the daily report now answers "what actually happened today" instead of just "how did the round-trips go". Five new sections on top of the trade-by-trade view: live Kite **Activity Today** (every order, not just closed pairs), **Open Positions** (with strategy source + pyramid status), **Capital Status** (deployed / available / circuit breaker), and **Per-Strategy Health** cards. Strategy Health surfaces the kind of "this strategy hasn't fired in 15 days — something is wrong" insight the old report couldn't.
+- New journal record type **`strategy_scan`** — `lib/cron.ts` writes one per strategy scan with `{ strategyId, recs, executed, symbols?, skipReason? }`. Powers Strategy Health by giving the retrospective an authoritative ground truth for "did this strategy run at all today?".
+- New retrospective helpers in `lib/retrospective.ts` — `buildLiveSnapshot()` (parallel Kite orders/holdings/positions/margins → activity + open positions + capital), `buildStrategyHealth()` (30-day rolling: scans, signals, executions, last-signal date; flags inactive / no-scans-30d / no-signals-15d / scans-but-no-signals).
+- **Named watchlists** — replaced the hardcoded `listA` / `listB` pair with a generic `{ meta, lists }` shape supporting N user-named lists. Schema keys remain stable (`listA`, `listB`, `list3`, `list4` …) so renaming a list never touches `strategy.json` — zero regression risk for running strategies. The Manage Lists page now supports create, in-place rename, and delete (delete blocked if any strategy references the list); the move-between-lists button is gone. Watchlist page tabs are now driven by `meta`. Strategy editor in Settings shows a multi-select of all lists by their display name.
+- **UI polish — mobile** — Watchlist row collapses to `B`/`S` buttons + drops the unused Trades column. Positions row redesigned as a 3-line two-column card (symbol/avg/qty left, P&L/LTP/SQ button right) matching the Kite app's density. Today's Orders shows `B`/`S` for side and ✓ / ✗ / C / · glyphs for status instead of raw `COMPLETE` / `REJECTED` / `CANCELLED` text.
+- **Market-hours UI gate** — Buy / Sell / Square Off buttons across Watchlist, Holdings, Positions, and Engine are always visible but **disabled** outside NSE hours (with a "Market closed" tooltip). A 60-second `setInterval` re-evaluates `isMarketOpen()` so buttons auto-enable at 9:15 / disable at 15:30 without a refresh.
+- **Header polish** — hid the horizontal scrollbar inside the persistent LiveTicker strip via a scoped `.ticker-strip` CSS class (only WebKit horizontal scrollbar was un-styled, producing a chunky gold half-band on mobile when the ticker content overflowed).
+- All changes pass `tsc --noEmit` and `npm run build`. No schema migration script needed — `lib/watchlistStore.ts:normalize()` reads both legacy top-level `listA`/`listB` and the new `lists` shape.
 
 ---
 

@@ -2,7 +2,10 @@
   "permissions": {
     "allow": [
       "Bash(mkdir -p \"/Users/Dinesh.Wadhwani/Library/CloudStorage/OneDrive-NICELtd/Documents/Documents/Personal/TS/Git/dineshtrade/app/api/journal/dates\" && mkdir -p \"/Users/Dinesh.Wadhwani/Library/CloudStorage/OneDrive-NICELtd/Documents/Documents/Personal/TS/Git/dineshtrade/app/api/journal/[date]\")",
-      "Bash(node -e ' *)"
+      "Bash(node -e ' *)",
+      "Bash(find . -maxdepth 4 -iname \"*epic*\" -not -path \"*/node_modules/*\" -not -path \"*/.next/*\")",
+      "Bash(ls *.md)",
+      "Bash(ls docs/)"
     ],
     "additionalDirectories": [
       "/Users/Dinesh.Wadhwani/Library/CloudStorage/OneDrive-NICELtd/Documents/Documents/Personal/TS/Git/dineshtrade/app/api/journal"

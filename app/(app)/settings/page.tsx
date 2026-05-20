@@ -339,7 +339,7 @@ export default function SettingsPage() {
             ['Short Selling', 'Never'],
             ['F&O', 'Never'],
             ['Auto Mode Loss-Sell', 'Never'],
-            ['Circuit Breaker', 'Nifty −5%'],
+            ['Circuit Breaker', 'GIFT Nifty −5%'],
             ['Order Type', 'CNC / Market'],
           ].map(([k,v]) => (
             <div key={k} className="flex justify-between items-center py-2 px-3 rounded-lg"
@@ -369,6 +369,10 @@ interface CapitalConfig {
   maxBuysPerDay: number
   maxSellsPerDay: number
   circuitBreakerPct: number
+  intradayCircuitTripPct?: number
+  intradayCircuitResumePct?: number
+  panicDropPct?: number
+  panicWindowMin?: number
   maxDeployPct: number
   sharedPool: boolean
   maxPositions: number
@@ -396,7 +400,11 @@ const CAPITAL_DESCRIPTIONS: Record<string, string> = {
   perTrade: 'Maximum ₹ per individual trade in Auto mode. Manual orders bypass this cap.',
   maxBuysPerDay: 'Maximum BUYs per account per day, shared across all active strategies.',
   maxSellsPerDay: 'Maximum SELLs per account per day, shared across all active strategies.',
-  circuitBreakerPct: 'Nifty intraday drop that pauses all auto-trading (e.g. -5 = -5%).',
+  circuitBreakerPct: 'GIFT Nifty pre-market drop that blocks new auto-BUYs all day (e.g. -5 = -5%). Open SELL monitors keep running; manual orders unaffected.',
+  intradayCircuitTripPct: 'Live NIFTY 50 drop from today\'s open that trips the intraday circuit (e.g. -3). Blocks new auto-BUYs until Nifty recovers. SELL monitors + manual unaffected. Set to 0 to disable.',
+  intradayCircuitResumePct: 'NIFTY 50 level at which the intraday circuit resumes auto-BUYs (e.g. -2). Must be greater than the trip threshold to provide hysteresis. Set to 0 to disable.',
+  panicDropPct: 'Per-symbol panic-sell threshold (e.g. 3 = 3%). If a stock drops this much from its peak in the last N minutes, it\'s flagged as news-driven panic and skipped for the rest of the day. Set to 0 to disable.',
+  panicWindowMin: 'Lookback window in minutes for the panic-sell check (e.g. 15). Step in multiples of 5 — measurement uses 5-min candles. Set to 0 to disable.',
   maxDeployPct: 'Never deploy more than this percentage of available funds. The remainder is reserve.',
   sharedPool: 'When true, every strategy draws from one common pool of funds.',
   maxPositions: 'Maximum number of simultaneously open positions per account.',
@@ -592,7 +600,11 @@ function StrategiesTab({ autoModeOn }: { autoModeOn: boolean }) {
           <NumField label="Per Trade Amount"  value={draft.capital.perTrade}        onChange={v => patchCapital({ perTrade: v })}        desc={CAPITAL_DESCRIPTIONS.perTrade}     prefix="₹"  disabled={locked} />
           <NumField label="Max Buys / Day"     value={draft.capital.maxBuysPerDay}   onChange={v => patchCapital({ maxBuysPerDay: v })}   desc={CAPITAL_DESCRIPTIONS.maxBuysPerDay}            disabled={locked} />
           <NumField label="Max Sells / Day"    value={draft.capital.maxSellsPerDay}  onChange={v => patchCapital({ maxSellsPerDay: v })}  desc={CAPITAL_DESCRIPTIONS.maxSellsPerDay}           disabled={locked} />
-          <NumField label="Circuit Breaker %"  value={draft.capital.circuitBreakerPct} onChange={v => patchCapital({ circuitBreakerPct: v })} desc={CAPITAL_DESCRIPTIONS.circuitBreakerPct} suffix="%" disabled={locked} />
+          <NumField label="Circuit Breaker % (GIFT Nifty, pre-market)" value={draft.capital.circuitBreakerPct} onChange={v => patchCapital({ circuitBreakerPct: v })} desc={CAPITAL_DESCRIPTIONS.circuitBreakerPct} suffix="%" disabled={locked} />
+          <NumField label="Intraday Circuit Trip % (NIFTY 50 live)"    value={draft.capital.intradayCircuitTripPct ?? 0} onChange={v => patchCapital({ intradayCircuitTripPct: v })} desc={CAPITAL_DESCRIPTIONS.intradayCircuitTripPct} suffix="%" disabled={locked} />
+          <NumField label="Intraday Circuit Resume %"                  value={draft.capital.intradayCircuitResumePct ?? 0} onChange={v => patchCapital({ intradayCircuitResumePct: v })} desc={CAPITAL_DESCRIPTIONS.intradayCircuitResumePct} suffix="%" disabled={locked} />
+          <NumField label="Panic-Sell Drop % (per symbol)"             value={draft.capital.panicDropPct ?? 0} onChange={v => patchCapital({ panicDropPct: v })} desc={CAPITAL_DESCRIPTIONS.panicDropPct} suffix="%" disabled={locked} />
+          <NumField label="Panic-Sell Window (min)"                    value={draft.capital.panicWindowMin ?? 0} onChange={v => patchCapital({ panicWindowMin: Math.max(0, Math.round(v / 5) * 5) })} desc={CAPITAL_DESCRIPTIONS.panicWindowMin} suffix="min" disabled={locked} />
           <NumField label="Max Deploy %"       value={draft.capital.maxDeployPct}    onChange={v => patchCapital({ maxDeployPct: v })}    desc={CAPITAL_DESCRIPTIONS.maxDeployPct}      suffix="%" disabled={locked} />
           <NumField label="Max Open Positions" value={draft.capital.maxPositions}    onChange={v => patchCapital({ maxPositions: v })}    desc={CAPITAL_DESCRIPTIONS.maxPositions}             disabled={locked} />
           <NumField label="Max BUYs / Symbol"  value={draft.capital.maxBuysPerSymbol} onChange={v => patchCapital({ maxBuysPerSymbol: v })} desc={CAPITAL_DESCRIPTIONS.maxBuysPerSymbol}        disabled={locked} />

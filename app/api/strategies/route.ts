@@ -56,6 +56,42 @@ export async function POST(req: Request) {
     if (!(capital.maxSellsPerDay >= 0))      errors.push('Max SELLs/day must be ≥ 0')
     if (!(capital.maxDeployPct > 0 && capital.maxDeployPct <= 100)) errors.push('Max Deploy % must be between 1 and 100')
     if (capital.circuitBreakerPct > 0)       errors.push('Circuit breaker % must be 0 or negative')
+
+    // Intraday circuit — both must be ≤ 0; resume must be > trip (less negative) for hysteresis.
+    // 0 on either means feature disabled.
+    const tripPct = capital.intradayCircuitTripPct
+    const resumePct = capital.intradayCircuitResumePct
+    if (tripPct !== undefined && tripPct !== null) {
+      if (typeof tripPct !== 'number' || !Number.isFinite(tripPct)) errors.push('Intraday circuit Trip % must be a number')
+      else if (tripPct > 0)                                          errors.push('Intraday circuit Trip % must be 0 or negative')
+    }
+    if (resumePct !== undefined && resumePct !== null) {
+      if (typeof resumePct !== 'number' || !Number.isFinite(resumePct)) errors.push('Intraday circuit Resume % must be a number')
+      else if (resumePct > 0)                                            errors.push('Intraday circuit Resume % must be 0 or negative')
+    }
+    if (typeof tripPct === 'number' && typeof resumePct === 'number' && tripPct !== 0 && resumePct !== 0) {
+      if (!(resumePct > tripPct)) errors.push(`Intraday circuit Resume % (${resumePct}) must be greater than Trip % (${tripPct}) — e.g. trip -3, resume -2`)
+    }
+
+    // Panic-sell — drop% must be ≥ 0, window must be a non-negative multiple of 5.
+    // 0 on either field = feature disabled.
+    const panicDrop = capital.panicDropPct
+    const panicWin = capital.panicWindowMin
+    if (panicDrop !== undefined && panicDrop !== null) {
+      if (typeof panicDrop !== 'number' || !Number.isFinite(panicDrop)) errors.push('Panic-sell Drop % must be a number')
+      else if (panicDrop < 0) errors.push('Panic-sell Drop % must be ≥ 0')
+    }
+    if (panicWin !== undefined && panicWin !== null) {
+      if (typeof panicWin !== 'number' || !Number.isFinite(panicWin)) errors.push('Panic-sell Window must be a number')
+      else if (panicWin < 0)                                            errors.push('Panic-sell Window must be ≥ 0')
+      else if (panicWin > 0 && panicWin % 5 !== 0)                      errors.push('Panic-sell Window must be a multiple of 5 minutes (5, 10, 15, 20, 25, 30)')
+    }
+    if (typeof panicDrop === 'number' && typeof panicWin === 'number') {
+      const dropEnabled = panicDrop > 0
+      const winEnabled = panicWin > 0
+      if (dropEnabled !== winEnabled) errors.push('Panic-sell: set both Drop % and Window, or set both to 0 to disable')
+    }
+
     if (!(capital.maxPositions >= 1))        errors.push('Max positions must be ≥ 1')
     if (capital.maxBuysPerSymbol !== undefined && !(capital.maxBuysPerSymbol >= 1)) errors.push('Max BUYs per symbol must be ≥ 1')
     if (capital.minDropBetweenBuysPct !== undefined && !(capital.minDropBetweenBuysPct >= 0)) errors.push('Min drop between BUYs must be ≥ 0%')

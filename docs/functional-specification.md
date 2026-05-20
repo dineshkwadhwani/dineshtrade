@@ -1,6 +1,6 @@
 # DineshTrade — Functional Specification
 
-**Version:** 1.2 · **Last Updated:** 19 May 2026
+**Version:** 1.3 · **Last Updated:** 20 May 2026
 
 This spec documents the *user-visible* behaviour: what the app does, when, and why. Each epic is independently shippable. Nuances and edge cases are listed inline because they are where the value (and the risk) lives.
 
@@ -59,10 +59,13 @@ This spec documents the *user-visible* behaviour: what the app does, when, and w
 
 **Goal:** Two slices of "stocks I care about today": the curated config-locked watchlist + whatever the broker actually holds.
 
-### F3.1 — Config-locked Watchlist
-- List A (84 stocks) + List B (29 stocks) derived from 5 years of trade history.
-- **Cannot** be edited from the UI — must edit `config/watchlist.json` and redeploy. This is by design: it prevents impulsive adds.
-- Per row: symbol, exchange, optional notes. UI shows live LTP fetched via Kite's batched `/quote` endpoint, coloured green/red by net change.
+### F3.1 — Editable Named Watchlists
+
+- Two default lists ship with the seed: **List A** (~84 stocks, derived from 5 years of trade history) and **List B** (~29 stocks). Both are renamed in place from the Manage Lists page.
+- Users can create additional lists ("Dip Candidates", "Penny Watch", etc.) from Manage Lists. There is no fixed cap on list count.
+- Each list has a **stable internal key** (`listA`, `listB`, `list3`, `list4` …) plus a user-editable **display name**. Strategies reference lists by key, so renaming a list never affects which symbols a running strategy scans.
+- Edits go live immediately — no redeploy. Saves write to `~/dineshtrade/data/watchlist.json`; cron and engine read this on every tick.
+- See Epic 12 for the full Manage Lists UX. Watchlist page UI itself is read-only: dynamic tabs (one per list), search filter, batched live LTPs, green/red colouring.
 
 ### F3.2 — Holdings page
 - Lists Kite holdings (multi-day positions held via CNC) for the active account tab.
@@ -270,13 +273,15 @@ Cron expression: `35 15 * * 1-5`. Skip rules (in order):
 ### F7.1 — Journal storage (`lib/journal.ts`)
 - Append-only JSONL files: `~/dineshtrade/data/journal-YYYY-MM.jsonl` (one per IST month)
 - File mode `0o600`. Never wiped by deploys.
-- Two record types:
+- Three record types:
   - **`trade`** — `{ type, date, account, symbol, qty, entryPrice, entryTime, exitPrice, exitTime, pnlRupees, pnlPct, dayHighAfterEntry, dayLowAfterEntry, leftOnTable, verdict, strategy, orderIdBuy?, orderIdSell?, notes? }`
   - **`signal_skipped`** — `{ type, date, time, account, symbol, signalPrice, reasonSkipped }`
+  - **`strategy_scan`** — `{ type, date, ts, strategyId, strategyName, recs, executed, symbols?, skipReason? }` — one record per strategy scan tick. Lets the retrospective answer "when did strategy X last produce a signal?" and "how many of those signals actually became BUYs?". Critical for diagnosing strategies that have gone silent.
 
 ### F7.2 — Where writes happen
 - Strategy 1 monitor — after each tranche SELL fills (with notes per tranche)
 - Strategy 2 monitor — after each +1.5% SELL fills (computes day high/low + left-on-table at write time)
+- Cron strategy task — every scan, regardless of outcome (`strategy_scan` record)
 - Cron auto-BUY scan — when preflight rejects a recommendation (writes `signal_skipped` with the gate reason)
 
 ### F7.3 — Verdict classification
@@ -287,18 +292,28 @@ At journal-write time, `classifyVerdict({ strategy, entryPrice, exitPrice, t1Tri
 - `manual` — manual SELL (via OrderModal)
 
 ### F7.4 — Daily report (`buildDailyReport(date)`)
-Five sections:
-1. **Hero stats** — trades count, win rate, total P&L, capital deployed
-2. **Trade-by-trade** — per-trade card with entry/exit/P&L, **enriched with live Kite OHLC** so final day-high / left-on-table reflect the full session (not just the moment of sale)
-3. **Missed signals** — `signal_skipped` records, classified post-hoc:
-   - `missed_opportunity` — signalPrice × 1.015 was hit by EoD high
-   - `good_miss` — wasn't hit
-   - `unknown` — no OHLC data
-4. **30-day rolling stats** — win rate, avg gain, capital efficiency, delivery open count
-5. **Fine-tuning bullets** — up to 3 heuristic-generated tips:
+
+Hero (4 cards): **Orders Today** · **Open Positions** · **Deployed Today** · **Realized P&L**.
+
+Sections (added 19–20 May 2026 to make the report useful on days with no closed round-trips):
+
+1. **Activity Today** — every Kite order today (BUY / SELL, time, symbol, qty, price, strategy tag), not just closed BUY+SELL pairs. Answers "did anything happen today?" honestly even on partial-fill or open-position days.
+2. **Open Positions** — every position still open at EoD, with its strategy source (S1 / S2 / Manual / OOS / Mixed), pyramid status (e.g. "BUY 2/3, next at ≥10% drop"), and S2 handoff countdown for S2-managed positions approaching the 15-calendar-day delivery cutoff.
+3. **Capital Status** — deployed today / available / max-deployable / circuit-breaker headroom.
+4. **Trade-by-trade** — closed round-trips with entry/exit/P&L, **enriched with live Kite OHLC** so final day-high / left-on-table reflect the full session, not just the moment of sale.
+5. **Per-strategy health** — one card per strategy with 30-day counts (scans / signals / executions), last-signal date, and warnings:
+   - `inactive` — strategy.active is false
+   - `no scans in 30d` — cron task isn't firing (config or gating issue)
+   - `no signals in 15d` — strategy scans but produces nothing (filter too tight, or the universe genuinely has no opportunities)
+   - `scans-but-no-signals` — scans happen daily but signals are zero (likely filter issue)
+6. **Missed signals** — `signal_skipped` records, classified post-hoc: `missed_opportunity` (signalPrice × 1.015 hit by EoD high), `good_miss` (wasn't hit), `unknown` (no OHLC).
+7. **30-day rolling stats** — win rate, avg gain, capital efficiency, delivery open count.
+8. **Fine-tuning bullets** — up to 3 heuristic-generated tips:
    - Avg left-on-table > 1.5% over last 10 wins → suggest raising T1
    - Missed-opportunity rate > 40% over today's skipped signals → check if filter is too tight
    - Win rate < 60% over 30 days → review entry criteria; > 85% → consider loosening filters
+
+Skip rules now send if **any** of: trades, missed signals, today's orders, open positions exist. The old "skip if zero closed trades" rule was hiding days where BUYs happened but no SELLs.
 
 ### F7.5 — Monthly rollup (`buildMonthlyReport(date)`)
 Fires on the last trading day of the month (after the daily report). Shows: total trades, win rate, total P&L, best/worst trade, avg daily return, signals missed, optional recommendation.
@@ -320,17 +335,18 @@ Fires on the last trading day of the month (after the daily report). Shows: tota
 **Goal:** A single page that answers "What's my actual exposure right now and what's it doing?"
 
 ### F8.1 — `/positions` page
+
 - Multi-account tabs (one per connected account)
 - Header strip: Open Positions count · Capital Deployed · Unrealized · Day P&L (incl. closed)
-- Table per position:
-  - Symbol + **strategy tag pill** (S1 gold / S2 blue / Manual purple / OOS gray / Mixed amber)
-  - Product chip (CNC or MIS)
-  - Qty (held now)
-  - Avg price
-  - LTP with intraday % change
-  - **Stacked P&L** — unrealized (main, coloured) + realized today (smaller line below)
-  - **Square Off** action button (red)
+- **Desktop layout** — 12-column table:
+  - Symbol + strategy tag pill (S1 gold / S2 blue / Manual purple / OOS gray / Mixed amber) + product chip (CNC / MIS)
+  - Qty, Avg, LTP (with intraday %), stacked P&L (unrealized + realized today), Square Off button
+- **Mobile layout (< sm breakpoint)** — Kite-style two-column 3-line card:
+  - Left column: symbol (big) + tag pills, Avg ₹X, Qty N
+  - Right column: P&L (big, coloured), LTP ₹X + today %, **× SQ** button
+  - Header row hidden on mobile (cells carry inline labels)
 - Closed-today rows are kept in the list but dimmed (so you can see what fired earlier today)
+- Square Off button is always visible; disabled outside market hours per CB5
 
 ### F8.2 — Strategy tag derivation
 Per row, the tag is computed from today's filled order tags for that symbol:
@@ -416,16 +432,63 @@ All three live in the **same directory** so EC2 deploys only need to whitelist o
 **Goal:** Live Kite order log for the active account.
 
 ### F11.1 — `/trades` page → "Today's Orders" tab
+
 - Refresh button pulls `/orders` from Kite
 - Summary: BUY count, SELL count, Capital Used, Day P&L
-- Row per order: time, symbol, side, qty, price, status (coloured)
+- Row per order: time, symbol, **type** (B / S — green / red, no arrow), qty, price, **status glyph** (see below)
 
-### F11.2 — Status colours
-- COMPLETE → green
-- REJECTED / CANCELLED → red
-- OPEN / PENDING / TRIGGER_PENDING → gold
+### F11.2 — Status glyphs
+
+The status column shows a single glyph instead of the raw Kite enum, with a tooltip carrying the original `status_message`:
+
+- `COMPLETE` → **✓** (green)
+- `REJECTED` → **✗** (red)
+- `CANCELLED` → **C** (dim grey)
+- `OPEN` / `TRIGGER_PENDING` / `MODIFY_PENDING` / etc. → **·** (gold dot)
 
 (Same page also hosts the Retrospective tab — see Epic 7.)
+
+---
+
+## Epic 12 — Manage Lists (named watchlists)
+
+**Goal:** Users can curate as many named watchlists as they want without redeploying and without breaking running strategies.
+
+### F12.1 — `/manage-lists` page
+
+- Renders one card per list, plus a dashed "+ New list" card at the end.
+- Each list card shows: editable name (click → input, Enter / blur saves), key suffix (`list3`, `list4` …), symbol count, search filter, scrollable symbol list, per-row remove (✕), and a 🗑 delete-list button (hidden for `listA` and `listB`).
+- A top search bar (symbol or company name) hits `/api/watchlist/search` (Kite instrument lookup) and adds the chosen symbol to whichever list is selected in the "Add to …" dropdown.
+
+### F12.2 — Internal keys vs display names
+
+- Lists carry two fields: a stable internal key (`listA`, `listB`, `list3`, …) and a free-form display name in `meta[key].name`.
+- Renaming a list edits only the display name. The key never changes — so `strategy.json`'s `"watchlist": ["listA"]` keeps targeting the same symbols regardless of what the user has called the list.
+- New lists get the next free key (`list3`, `list4`, …). User-supplied names are limited to 40 chars.
+
+### F12.3 — Delete safety
+
+- `listA` and `listB` cannot be deleted (UI hides the button; API refuses with 400).
+- For any other list, `DELETE /api/watchlist?key=list3` first checks every strategy's `watchlist` array. If any strategy references the list, the API returns **409** with the message `"List is used by strategy: <names>. Unhook it from that strategy first."`
+- Users must first unhook the list from every strategy (via the Settings → Strategies multi-select) and save, then return to Manage Lists and delete.
+- A pending unsaved Manage Lists edit blocks deletion — save changes first.
+
+### F12.4 — Strategy linkage
+
+- Settings → Strategies → each strategy card has a "Watchlist (select one or more)" multi-select.
+- Chips show display names. Clicking a chip toggles the list's key in the strategy's `watchlist: string[]` field. At least one must remain selected (the UI prevents going empty).
+- The cron and engine read whichever lists are currently selected on every tick; no restart needed after a save.
+
+### F12.5 — Watchlist page (read-only consumer)
+
+- Tabs are now dynamic — one per list, in this order: `listA`, `listB`, then any custom lists alphabetically by key.
+- Tab labels use the display name from `meta`. The LTP fetch dedupes symbols across all lists.
+
+### Manage Lists nuances
+
+- **Why keys are stable forever:** strategies reference watchlists by key. If we renamed keys on every display rename, every rename would need a `strategy.json` migration — fragile and easy to get wrong. Decoupling key from name is the cheapest way to make renames a zero-risk operation.
+- **Move-between functionality removed:** the old A→B button is gone for consistency. With N lists, a single "move to" button isn't expressive enough; users now remove from one list and add to another. Costs one extra click; gains clarity.
+- **Legacy data:** `lib/watchlistStore.ts:normalize()` reads both the legacy `{ listA: [...], listB: [...] }` and the new `{ lists, meta }` shape. No migration script — EC2's existing `data/watchlist.json` keeps working untouched; the meta block is synthesised on first read (`listA` → "List A", `listB` → "List B") and is persisted on next save.
 
 ---
 
@@ -441,7 +504,19 @@ The in-process ledger (`${account}:${date}:${symbol}`, BUY-only) means double-cl
 NSE holidays come from `config/holidays.json`. `isMarketDay()` checks both weekend and holiday. The cron's daily-retrospective + tick functions both consult this; no separate holiday wiring per feature.
 
 ### CB4 — Multi-account fanout
+
 Anywhere the app talks to "all connected accounts", it iterates `Object.keys(state.kiteTokens)` — not `config/accounts.json`. This means a token-revoked account silently drops out of automation without breaking the UI.
+
+### CB5 — Market-hours UI gate
+
+Every order-placing button across the app (Buy / Sell on Watchlist + Holdings, Square Off on Positions, BUY / SELL on Engine tiles) is gated by `isMarketOpen()`:
+
+- **Visible always** — the button doesn't disappear after 15:30. Hiding affordances was confusing ("did the page break?").
+- **Disabled outside NSE hours** — opacity-30, `cursor: not-allowed`, native tooltip "Market closed".
+- **60-second tick** — each page sets `setInterval(() => setMarket(isMarketOpen()), 60_000)` so buttons auto-enable at 9:15 and disable at 15:30 without a refresh.
+- **Page status badges** — each affected page shows a small status pill ("Closed — Weekend" / "Pre-Market (9:00–9:15)" / "Post-Market (15:30–16:00)") so the user understands *why* buttons are disabled.
+
+`isMarketOpen()` lives in `lib/market.ts` and is the same function the server-side preflight gate 2 uses, so UI gating and server gating stay perfectly in sync.
 
 ---
 

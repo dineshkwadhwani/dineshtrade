@@ -6,6 +6,8 @@ import { getState, recordIdempotency, makeIdempotencyKey, getBuyHistory, resetBu
 import { getCapital } from '@/lib/strategyConfig'
 import { getAccountSecrets } from '@/lib/accounts'
 import { isMarketOpen } from '@/lib/market'
+import { checkIntradayCircuit } from '@/lib/intradayCircuit'
+import { checkPanicSell } from '@/lib/panicSell'
 import strategyCfg from '@/config/strategy.json'
 
 const KITE_BASE = 'https://api.kite.trade'
@@ -69,6 +71,16 @@ export async function runPreflight(input: PreflightInput): Promise<PreflightResu
   const market = isMarketOpen()
   if (!market.open) return { ok: false, gate: 'market', reason: `Market closed: ${market.status}` }
 
+  // GATE 2b — intraday circuit (auto BUYs only). Live NIFTY 50 vs today's open,
+  // hysteresis trip/resume. Skipped for SELLs (you want exits even on a crash)
+  // and manual orders (your judgement).
+  if (!manual && side === 'BUY') {
+    const ic = await checkIntradayCircuit()
+    if (ic.enabled && ic.tripped) {
+      return { ok: false, gate: 'intradayCircuit', reason: ic.reason || 'Intraday circuit tripped' }
+    }
+  }
+
   // GATE 3 — per-trade cap (BUY only). Skipped for explicit manual orders.
   if (!manual && side === 'BUY' && tradeValue > strategyCfg.capital.perTrade) {
     return { ok: false, gate: 'perTrade', reason: `Trade value ₹${Math.round(tradeValue)} exceeds per-trade cap ₹${strategyCfg.capital.perTrade}` }
@@ -91,7 +103,18 @@ export async function runPreflight(input: PreflightInput): Promise<PreflightResu
     }
   }
 
-  // GATE 4b — pyramid: limits averaging-down behaviour in auto mode.
+  // GATE 4b — panic-sell: catch news-driven free-falls before the pyramid
+  // gate's expensive Kite calls. Sticky for the day — once a symbol is
+  // detected as panic-selling, all subsequent auto-BUY attempts on it skip
+  // until the next IST day. Skipped for manual orders (your judgement).
+  if (!manual && side === 'BUY') {
+    const ps = await checkPanicSell({ apiKey, accessToken }, symbol, pricePerShare)
+    if (ps.panic) {
+      return { ok: false, gate: 'panicSell', reason: ps.reason || `${symbol}: panic-sell detected` }
+    }
+  }
+
+  // GATE 4c — pyramid: limits averaging-down behaviour in auto mode.
   //   Max N BUYs per symbol (default 3); each subsequent BUY requires LTP to
   //   be at least `minDropBetweenBuysPct`% below the previous BUY price.
   // The buy-history is auto-reset for a symbol when Kite shows zero qty (the

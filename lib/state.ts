@@ -39,12 +39,19 @@ export interface BuyHistoryEntry {
 }
 export type BuyHistoryLedger = Record<string, BuyHistoryEntry[]>
 
+// Per-day panic-sell skip list. Once a symbol fires the panic-sell gate today,
+// it stays on the skip list until the IST date rolls over. Persisted so a PM2
+// restart mid-day doesn't lose the morning's panic detections.
+// Shape: { 'YYYY-MM-DD': ['ITC', 'RELIANCE'] }
+export type PanicSkipLedger = Record<string, string[]>
+
 export interface SessionState {
   mode: TradeMode
   selectedAccounts: string[]
   kiteTokens: Record<string, string>
   idempotencyLedger: IdempotencyLedger
   buyHistory: BuyHistoryLedger
+  panicSkipList: PanicSkipLedger
 }
 
 const DEFAULT_STATE: SessionState = {
@@ -53,6 +60,7 @@ const DEFAULT_STATE: SessionState = {
   kiteTokens: {},
   idempotencyLedger: {},
   buyHistory: {},
+  panicSkipList: {},
 }
 
 function istDateKey(): string {
@@ -70,7 +78,7 @@ function midnightIST(): Date {
 }
 
 function normalize(raw: Partial<SessionState> | null | undefined): SessionState {
-  if (!raw) return { ...DEFAULT_STATE, kiteTokens: {}, idempotencyLedger: {}, buyHistory: {} }
+  if (!raw) return { ...DEFAULT_STATE, kiteTokens: {}, idempotencyLedger: {}, buyHistory: {}, panicSkipList: {} }
   // Prune any ledger entries whose date prefix isn't today — old days never need to be remembered
   const today = istDateKey()
   const cleanedLedger: IdempotencyLedger = {}
@@ -80,12 +88,17 @@ function normalize(raw: Partial<SessionState> | null | undefined): SessionState 
     const parts = key.split(':')
     if (parts.length === 4 && parts[1] === today) cleanedLedger[key] = true
   }
+  // Prune panic-skip dates other than today — sticky for the day, gone tomorrow.
+  const cleanedPanic: PanicSkipLedger = {}
+  const rawPanic = (raw.panicSkipList && typeof raw.panicSkipList === 'object') ? raw.panicSkipList as PanicSkipLedger : {}
+  if (Array.isArray(rawPanic[today])) cleanedPanic[today] = rawPanic[today]
   return {
     mode: raw.mode === 'auto' ? 'auto' : 'manual',
     selectedAccounts: Array.isArray(raw.selectedAccounts) ? raw.selectedAccounts : [],
     kiteTokens: (raw.kiteTokens && typeof raw.kiteTokens === 'object') ? raw.kiteTokens : {},
     idempotencyLedger: cleanedLedger,
     buyHistory: (raw.buyHistory && typeof raw.buyHistory === 'object') ? raw.buyHistory as BuyHistoryLedger : {},
+    panicSkipList: cleanedPanic,
   }
 }
 
@@ -159,6 +172,7 @@ export async function saveState(patch: Partial<SessionState>): Promise<SessionSt
     kiteTokens: { ...current.kiteTokens, ...(patch.kiteTokens || {}) },
     idempotencyLedger: { ...current.idempotencyLedger, ...(patch.idempotencyLedger || {}) },
     buyHistory: patch.buyHistory ?? current.buyHistory,
+    panicSkipList: patch.panicSkipList ?? current.panicSkipList,
   }
   if (useFile) await writeFile(next)
   else await writeCookie(next)
@@ -204,6 +218,32 @@ export async function resetBuyHistoryForSymbol(account: string, symbol: string):
 
 export function getBuyHistory(state: SessionState, account: string, symbol: string): BuyHistoryEntry[] {
   return state.buyHistory[buyHistoryKey(account, symbol)] || []
+}
+
+// ──────── PANIC-SELL SKIP LIST ────────
+// Symbol-level, market-wide (not per-account) — a stock in panic is in panic for
+// every account. Sticky for the calendar day; cleared at start of new IST day by
+// normalize()'s prune step.
+
+export async function addPanicSkip(symbol: string): Promise<void> {
+  const sym = symbol.toUpperCase()
+  const today = istDateKey()
+  const current = await getState()
+  const todays = current.panicSkipList[today] || []
+  if (todays.includes(sym)) return                      // already on the list
+  const next: PanicSkipLedger = { ...current.panicSkipList, [today]: [...todays, sym] }
+  await saveState({ panicSkipList: next })
+}
+
+export function isPanicSkipped(state: SessionState, symbol: string): boolean {
+  const today = istDateKey()
+  const todays = state.panicSkipList[today] || []
+  return todays.includes(symbol.toUpperCase())
+}
+
+export function listPanicSkips(state: SessionState): string[] {
+  const today = istDateKey()
+  return state.panicSkipList[today] || []
 }
 
 // Replace whole state. Used when removing a token (saveState merges, which would

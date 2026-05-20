@@ -13,7 +13,21 @@ export interface CapitalConfig {
   perTrade: number            // ₹ per trade (auto-mode cap)
   maxBuysPerDay: number       // shared quota across all active strategies
   maxSellsPerDay: number      // shared quota
-  circuitBreakerPct: number   // Nifty drop that pauses all trades (e.g. -5)
+  circuitBreakerPct: number   // GIFT Nifty pre-market drop that blocks new auto-BUYs (e.g. -5). Exits + manual unaffected.
+  // Intraday circuit — live NIFTY 50 vs today's open. Trips when drop ≤ tripPct,
+  // resumes when drop ≥ resumePct (hysteresis prevents flapping). Both ≤ 0.
+  // Disabled when either is 0 (or absent). Blocks new auto-BUYs only; exits +
+  // manual orders unaffected, same shape as the morning GIFT circuit.
+  intradayCircuitTripPct?: number     // e.g. -3 → trip when Nifty ≤ -3% from open
+  intradayCircuitResumePct?: number   // e.g. -2 → resume when Nifty ≥ -2% from open
+  // Panic-sell gate — per-symbol. If a stock drops ≥ panicDropPct in the last
+  // panicWindowMin minutes (measured from peak HIGH in window vs current LTP),
+  // it's flagged as a news-driven free-fall and added to a daily skip list.
+  // Subsequent auto-BUY attempts on the same symbol that day are blocked.
+  // Set panicDropPct = 0 (or panicWindowMin = 0) to disable. Window valid in
+  // 5-min steps because we measure off the 5-min candle cache.
+  panicDropPct?: number               // e.g. 3 → trip on a 3% peak-to-current drop
+  panicWindowMin?: number             // e.g. 15 → look at last 15 min of 5-min candles
   maxDeployPct: number        // never deploy more than this % of available funds (default 80)
   sharedPool: boolean         // when true, every strategy draws from one pool of funds
   maxPositions: number        // open-position cap (preflight GATE 6)
@@ -93,6 +107,10 @@ export function getCapital(): CapitalConfig {
     maxBuysPerDay: typeof c.maxBuysPerDay === 'number' ? c.maxBuysPerDay : 3,
     maxSellsPerDay: typeof c.maxSellsPerDay === 'number' ? c.maxSellsPerDay : 3,
     circuitBreakerPct: typeof c.circuitBreakerPct === 'number' ? c.circuitBreakerPct : -5,
+    intradayCircuitTripPct: typeof c.intradayCircuitTripPct === 'number' ? c.intradayCircuitTripPct : 0,
+    intradayCircuitResumePct: typeof c.intradayCircuitResumePct === 'number' ? c.intradayCircuitResumePct : 0,
+    panicDropPct: typeof c.panicDropPct === 'number' ? c.panicDropPct : 0,
+    panicWindowMin: typeof c.panicWindowMin === 'number' ? c.panicWindowMin : 0,
     maxDeployPct: typeof c.maxDeployPct === 'number' ? c.maxDeployPct : 80,
     sharedPool: c.sharedPool !== false,
     maxPositions: typeof c.maxPositions === 'number' ? c.maxPositions : 10,

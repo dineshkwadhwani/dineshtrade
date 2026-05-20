@@ -1,6 +1,6 @@
 # DineshTrade — Technical Specification
 
-**Version:** 1.2 · **Last Updated:** 19 May 2026
+**Version:** 1.3 · **Last Updated:** 20 May 2026
 
 This document covers the *how* — architecture, stack choices, infrastructure, and the build & deploy runbook. For the *what*, see `functional-specification.md`.
 
@@ -78,18 +78,22 @@ This document covers the *how* — architecture, stack choices, infrastructure, 
 │   ├── ema.ts                      # EMA computation
 │   ├── email.ts                    # nodemailer + HTML templates
 │   ├── instruments.ts              # NSE instrument-token cache
-│   ├── journal.ts                  # JSONL append/read
+│   ├── journal.ts                  # JSONL append/read — trade, signal_skipped, strategy_scan
 │   ├── kite.ts                     # Shared Kite API helpers
-│   ├── market.ts                   # Market hours, holidays
-│   ├── marketBriefing.ts           # Cached morning briefing
+│   ├── market.ts                   # Market hours, holidays (client-safe)
+│   ├── marketBriefing.ts           # Cached morning briefing (IST-day cache + in-flight dedup)
 │   ├── marketMock.ts               # USE_MOCK_MARKET fixtures for dev
-│   ├── preflight.ts                # 8 gates
-│   ├── retrospective.ts            # buildDailyReport + buildMonthlyReport
-│   ├── state.ts                    # Cookie + file state backends
+│   ├── preflight.ts                # 8 gates (incl. pyramid gate)
+│   ├── retrospective.ts            # buildDailyReport + buildMonthlyReport + buildLiveSnapshot + buildStrategyHealth
+│   ├── state.ts                    # Cookie + file state backends (persistent idempotency ledger)
 │   ├── strategy.ts                 # Mode resolver
 │   ├── strategy1.ts                # Oscillator (EMA two-tranche)
 │   ├── strategy2.ts                # Catalyst (momentum)
-│   └── strategyEngine.ts           # Dispatcher
+│   ├── strategyConfig.ts           # Strategy schema + reader
+│   ├── strategyConfigStore.ts      # Runtime overlay at data/strategy.json
+│   ├── strategy2Positions.ts       # Persistent S2 position store
+│   ├── strategyEngine.ts           # Dispatcher (reads wl.lists[key] for N-list support)
+│   └── watchlistStore.ts           # Named-list store: { meta, lists } with stable keys
 ├── instrumentation.ts              # Cron registration entry point
 ├── middleware.ts                   # Edge auth check
 ├── next.config.js
@@ -205,7 +209,35 @@ Single Node.js process managed by PM2. Inside:
 ```
 
 #### `data/journal-YYYY-MM.jsonl`
-One JSON object per line. Two shapes (`type: 'trade'` or `type: 'signal_skipped'`) — see Epic 7 in the functional spec for fields.
+One JSON object per line. Three record shapes:
+
+- `type: 'trade'` — closed BUY+SELL pair with verdict + day high/low + left-on-table
+- `type: 'signal_skipped'` — preflight-rejected auto BUY with gate + reason
+- `type: 'strategy_scan'` — every strategy scan tick: `{ strategyId, recs, executed, symbols?, skipReason? }`. Powers per-strategy health analytics in the daily retrospective (e.g. "this strategy hasn't produced a signal in 15 days").
+
+See Epic 7 in the functional spec for full field definitions.
+
+#### `data/watchlist.json`
+
+Runtime override for the seed at `config/watchlist.json`. Shape:
+
+```jsonc
+{
+  "generated": "2026-05-20",
+  "meta": {
+    "listA": { "name": "Top Volume" },
+    "listB": { "name": "Penny Stocks" },
+    "list3": { "name": "Dip Candidates" }
+  },
+  "lists": {
+    "listA": [ { "nse": "BAJFINANCE", "name": "Bajaj Finance" }, … ],
+    "listB": [ … ],
+    "list3": [ … ]
+  }
+}
+```
+
+Keys (`listA`, `listB`, `list3` …) are **stable** — strategies reference them via `strategy.watchlist: string[]` and they never change on rename. Display names live in `meta[key].name` and are freely editable. `listA` and `listB` are always present (Manage Lists UX guarantees them); custom lists may be created and deleted.
 
 ### 4.2 In-memory (process-scoped)
 - **Idempotency ledger** — `Map<string, true>` keyed by `${account}:${date}:${symbol}`, BUY only. Resets when `${date}` changes.
@@ -262,7 +294,25 @@ Centralised wrappers — every caller goes through these. Never make raw HTTP ca
 - `buildMonthlyReport(date?)` → `MonthlyReportData`
 - `isLastWeekdayOfMonth(ymd)` — used by cron to decide monthly fire
 
-### 5.5 `lib/email.ts`
+### 5.5 `lib/watchlistStore.ts`
+
+```ts
+interface Watchlist {
+  meta: Record<string, { name: string }>     // display names — user-editable
+  lists: Record<string, WatchlistEntry[]>    // keys are stable: listA, listB, list3, list4, …
+  generated?: string
+  rules?: Record<string, unknown>
+}
+
+getWatchlist(): Promise<Watchlist>          // reads runtime override or bundled seed
+saveWatchlist(next: Watchlist): Promise<void>
+nextListKey(existing): string                // returns the next free list key
+isListKey(k: string): boolean                // matches /^list[A-Za-z0-9]+$/
+```
+
+`normalize()` accepts both the new `{ meta, lists }` shape and the legacy top-level-keys shape (`{ listA: [...], listB: [...] }`), so existing EC2 data needs no migration script. Strategies always read by stable key: `wl.lists[k]` where `k` is from `strategy.watchlist: string[]`.
+
+### 5.6 `lib/email.ts`
 Discriminated union dispatcher:
 ```ts
 sendEmail('trade_executed', data: TradeExecutedData)
@@ -354,7 +404,10 @@ All return `Promise<EmailResult>`. Never throws — fire-and-forget safe.
 # Auth
 SESSION_SECRET=                        # 32+ random chars
 
-# State backend (EC2 only — local dev omits this to use cookie state)
+# State backend (EC2 only — local dev MUST leave this unset to use cookie state)
+# WARNING: if .env.local carries STATE_FILE_PATH from a copy-paste of EC2 config,
+# Kite OAuth callback will crash on local with `ENOENT: mkdir '/home/ubuntu'`
+# because lib/state.ts:saveState() tries to mkdir the EC2 path on macOS.
 STATE_FILE_PATH=/home/ubuntu/dineshtrade/data/state.json
 
 # Cron
