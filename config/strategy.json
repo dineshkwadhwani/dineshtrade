@@ -21,8 +21,8 @@
 
   "strategies": [
     {
-      "id": "oscillator",
-      "name": "Oscillator (EMA Dip)",
+      "id": "accumulator",
+      "name": "Accumulator",
       "type": "dip",
       "active": true,
       "color": "#52b788",

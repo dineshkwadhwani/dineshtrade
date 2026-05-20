@@ -10,7 +10,7 @@ import { promises as fs } from 'fs'
 import * as path from 'path'
 
 export type TradeVerdict = 'correct_exit' | 'early_exit' | 'delivery' | 'manual'
-export type StrategyTag = 'catalyst' | 'oscillator' | 'manual'
+export type StrategyTag = 'catalyst' | 'accumulator' | 'manual'
 
 export interface TradeRecord {
   type: 'trade'

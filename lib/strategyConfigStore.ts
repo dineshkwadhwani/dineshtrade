@@ -14,18 +14,39 @@ const RUNTIME_PATH = STATE_FILE_PATH ? path.join(path.dirname(STATE_FILE_PATH), 
 
 let cache: any = null
 
+// Migrate legacy strategy ids. Currently: rename 'oscillator' → 'accumulator'
+// (the universal "keeper" strategy that everything hands off to). One-shot
+// at first read after this refactor; subsequent saves persist the new id.
+function migrateLegacyIds(cfg: any): { changed: boolean; cfg: any } {
+  if (!cfg || !Array.isArray(cfg.strategies)) return { changed: false, cfg }
+  let changed = false
+  const strategies = cfg.strategies.map((s: any) => {
+    if (s && s.id === 'oscillator') {
+      changed = true
+      const newName = typeof s.name === 'string' && /oscillator/i.test(s.name) ? 'Accumulator' : s.name
+      return { ...s, id: 'accumulator', name: newName }
+    }
+    return s
+  })
+  if (!changed) return { changed: false, cfg }
+  return { changed: true, cfg: { ...cfg, strategies } }
+}
+
 export function getRuntimeStrategyConfig(): any {
   if (cache) return cache
   if (RUNTIME_PATH && existsSync(RUNTIME_PATH)) {
     try {
       const raw = readFileSync(RUNTIME_PATH, 'utf8')
-      cache = JSON.parse(raw)
+      const parsed = JSON.parse(raw)
+      const m = migrateLegacyIds(parsed)
+      if (m.changed) console.log('[strategyConfigStore] migrated legacy id oscillator → accumulator')
+      cache = m.cfg
       return cache
     } catch (err) {
       console.warn('[strategyConfigStore] runtime read failed, falling back to bundled:', String(err).slice(0, 200))
     }
   }
-  cache = bundled
+  cache = migrateLegacyIds(bundled).cfg
   return cache
 }
 

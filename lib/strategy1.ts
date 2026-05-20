@@ -181,7 +181,7 @@ export async function monitorAccountStrategy1(account: string): Promise<Strategy
 
   // Exit percentages come from the live Oscillator strategy config (so an edit
   // in Settings takes effect on the next monitor tick without a restart).
-  const oscillator = getStrategyById('oscillator')
+  const oscillator = getStrategyById('accumulator')
   const t1Pct = oscillator?.exits?.t1Pct ?? 5.0
   const t2Pct = oscillator?.exits?.t2Pct ?? 8.0
 
@@ -226,7 +226,7 @@ export async function monitorAccountStrategy1(account: string): Promise<Strategy
           exitPrice: ltp, exitTime: new Date().toISOString(),
           pnlRupees: pnlR, pnlPct: gainPct,
           dayHighAfterEntry: ltp, dayLowAfterEntry: ltp, leftOnTable: 0,
-          verdict: 'correct_exit', strategy: 'oscillator',
+          verdict: 'correct_exit', strategy: 'accumulator',
           orderIdSell: placed.data.data.order_id,
           notes: `Tranche-skip — LTP ≥ T2 ₹${t2Trigger.toFixed(2)} before T1 fired; sold entire qty`,
         }).catch(err => console.error('[strategy1] journal write failed:', err))
@@ -309,7 +309,7 @@ export async function monitorAccountStrategy1(account: string): Promise<Strategy
           dayHighAfterEntry: ltp, dayLowAfterEntry: ltp,
           leftOnTable: 0,
           verdict: 'correct_exit',
-          strategy: 'oscillator',
+          strategy: 'accumulator',
           orderIdSell: placed.data.data.order_id,
           notes: `Tranche 1 (50% at T1 ₹${t1Trigger.toFixed(2)} = entry +${t1Pct}%)`,
         }).catch(err => console.error('[strategy1] journal write failed:', err))
@@ -384,7 +384,7 @@ export async function monitorAccountStrategy1(account: string): Promise<Strategy
         dayHighAfterEntry: ltp, dayLowAfterEntry: ltp,
         leftOnTable: 0,
         verdict: 'correct_exit',
-        strategy: 'oscillator',
+        strategy: 'accumulator',
         orderIdSell: placed.data.data.order_id,
         notes: `Tranche 2 (entry +${t2Pct}% = ₹${t2Trigger.toFixed(2)})`,
       }).catch(err => console.error('[strategy1] journal write failed:', err))

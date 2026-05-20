@@ -153,7 +153,7 @@ async function autoBuyOnAccount(account: string, accountDisplayName: string | un
       }).catch(err => console.error('[cron autoBuy] preflight-email failed:', err))
       continue
     }
-    const tag = rec.strategy === 'oscillator' ? STRATEGY_1_BUY_TAG : STRATEGY_2_BUY_TAG
+    const tag = rec.strategy === 'accumulator' ? STRATEGY_1_BUY_TAG : STRATEGY_2_BUY_TAG
     const placed = await placeKiteOrder(creds, {
       symbol: rec.symbol, side: 'BUY', quantity: rec.suggestedQty, tag,
     })
@@ -162,7 +162,7 @@ async function autoBuyOnAccount(account: string, accountDisplayName: string | un
       // BUYs on the next cron tick if this function were to crash partway.
       await markPlaced(account, rec.symbol, 'BUY', { price: rec.price, manual: false })
       // Persist Strategy 1 position so the SELL monitor manages it across days.
-      if (rec.strategy === 'oscillator') {
+      if (rec.strategy === 'accumulator') {
         recordStrategy1Buy(account, rec.symbol, rec.suggestedQty, rec.price)
           .catch(err => console.error('[cron autoBuy] strategy1 record failed:', err))
       }

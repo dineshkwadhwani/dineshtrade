@@ -129,7 +129,7 @@ export default function EnginePage() {
               target2: rec.target2,
               source: rec.source,
               reason: rec.reason,
-              tag: rec.strategy === 'oscillator' ? 'dt-s1' : 'dt-s2',  // routes to correct monitor
+              tag: rec.strategy === 'accumulator' ? 'dt-s1' : 'dt-s2',  // routes to correct monitor
             },
           })
         })
@@ -292,7 +292,7 @@ export default function EnginePage() {
       <StrategySection
         title="Strategy 1 — Oscillator (EMA Dip)"
         accent="#52b788"
-        recs={(scan?.recommendations || []).filter(r => r.strategy === 'oscillator')}
+        recs={(scan?.recommendations || []).filter(r => r.strategy === 'accumulator')}
         ordersToday={todayOrders.filter(o => (o.tag || '').startsWith('dt-s1'))}
         tradeMode={tradeMode}
         onExecute={executeRec}
@@ -690,7 +690,7 @@ function EngineTilesSection({ firstAccount, accounts, connected, tradeMode }: {
     ? data.activeStrategies
     : [
         { id: 'catalyst',   name: 'Catalyst',   color: '#c9a84c', type: 'momentum', scanIntervalMin: 5  },
-        { id: 'oscillator', name: 'Oscillator', color: '#52b788', type: 'dip',      scanIntervalMin: 30 },
+        { id: 'accumulator', name: 'Accumulator', color: '#52b788', type: 'dip',      scanIntervalMin: 30 },
       ]
 
   return (

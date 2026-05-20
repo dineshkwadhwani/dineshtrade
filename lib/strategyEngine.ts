@@ -50,7 +50,7 @@ export interface Recommendation {
   priceSource: PriceSource
   dayChangePct?: number    // today's % change from previous close — for direction indicator on Engine
   action: string
-  strategy: 'catalyst' | 'oscillator'
+  strategy: 'catalyst' | 'accumulator'
   source: string
   reason: string
   target1: number
@@ -448,7 +448,7 @@ export interface TileEvalResult {
   // one tab per active strategy.
   tilesByStrategy: Record<string, Tile[]>
   activeStrategies: Array<{ id: string; name: string; color: string; type: string; scanIntervalMin: number }>
-  recommendedTab: string       // strategy id (was: 'catalyst' | 'oscillator')
+  recommendedTab: string       // strategy id (was: 'catalyst' | 'accumulator')
   giftChangePct: number
   generatedAt: string
   catalystScanOpen: boolean
@@ -533,7 +533,7 @@ export async function evaluateAllForTiles(): Promise<TileEvalResult> {
   // params (so the tile visualisation reflects what the cron will actually use);
   // fall back to the legacy `ema` block + hardcoded defaults if the strategy
   // doesn't expose them.
-  const oscStrategy = active.find(s => s.id === 'oscillator')
+  const oscStrategy = active.find(s => s.id === 'accumulator')
   const oscParams = (oscStrategy?.params || {}) as Record<string, unknown>
   const legacyEma = strategyCfg.ema || { period: 20, entryBelowPct: 5, strongBuyBelowPct: 8, minDownDays: 3 }
   const emaCfg = {
@@ -777,7 +777,7 @@ export async function evaluateAllForTiles(): Promise<TileEvalResult> {
   oscillator.sort(byScore)
 
   // tilesByStrategy: each active strategy gets a tile array. For the canonical
-  // 'catalyst' / 'oscillator' strategies, reuse the arrays we just built. For
+  // 'catalyst' / 'accumulator' strategies, reuse the arrays we just built. For
   // any other active momentum strategy (e.g. Market Boom), we surface the
   // catalyst tiles as a *starting* approximation — Phase 3 doesn't yet rebuild
   // tile evaluation per strategy params; that's Phase 4. The cron framework
@@ -785,7 +785,7 @@ export async function evaluateAllForTiles(): Promise<TileEvalResult> {
   // wise auto-mode is correct; only the per-tab tile rule display is shared.
   const tilesByStrategy: Record<string, Tile[]> = {}
   for (const s of active) {
-    if (s.id === 'oscillator') tilesByStrategy[s.id] = oscillator
+    if (s.id === 'accumulator') tilesByStrategy[s.id] = oscillator
     else if (s.id === 'catalyst') tilesByStrategy[s.id] = catalyst
     else if (s.type === 'momentum') tilesByStrategy[s.id] = catalyst
     else if (s.type === 'dip') tilesByStrategy[s.id] = oscillator
@@ -845,7 +845,7 @@ export async function runStrategyScan(strategy: Strategy): Promise<StrategyResul
 // ──────── STRATEGY 1 — OSCILLATOR (EMA dip) ────────
 
 async function runStrategy1(now: string, giftChangePct: number, strategyOverride?: Strategy): Promise<StrategyResult> {
-  const strategy = strategyOverride || getStrategyById('oscillator')
+  const strategy = strategyOverride || getStrategyById('accumulator')
   const params = (strategy?.params || {}) as Record<string, any>
   const watchlistKeys = strategy?.watchlist || ['listA']
 
@@ -949,7 +949,7 @@ async function runStrategy1(now: string, giftChangePct: number, strategyOverride
       priceSource: 'kite_live',
       dayChangePct: dayChgPct,
       action: 'BUY',
-      strategy: 'oscillator',
+      strategy: 'accumulator',
       source: 'EMA stretch signal',
       reason: `${Math.abs(dev).toFixed(1)}% below 20-EMA (₹${v.ema.toFixed(2)}); ${v.downDays} consecutive down days`,
       target1: +v.ema.toFixed(2),                                                        // exit 50% on EMA recovery
@@ -1006,7 +1006,7 @@ export interface ReactiveDipResult {
 }
 
 export async function runReactiveDipScan(strategyOverride?: Strategy): Promise<ReactiveDipResult> {
-  const strategy = strategyOverride || getStrategyById('oscillator')
+  const strategy = strategyOverride || getStrategyById('accumulator')
   const params = (strategy?.params || {}) as Record<string, any>
   const watchlistKeys = strategy?.watchlist || ['listA']
   const dropPct = params.reactiveDrop ?? (strategyCfg as any).strategy1_reactive?.dropPct ?? 3.0
@@ -1099,7 +1099,7 @@ export async function runReactiveDipScan(strategyOverride?: Strategy): Promise<R
         priceSource: 'kite_live',
         dayChangePct: dayChgPct,
         action: 'BUY',
-        strategy: 'oscillator',
+        strategy: 'accumulator',
         source: 'Reactive dip (intraday −3%+)',
         reason: `Intraday ${dayChgPct.toFixed(2)}% drop · ${Math.abs(dev).toFixed(1)}% below 20-EMA (₹${ema.toFixed(2)}) · ${downDays} consecutive down days (today counted)`,
         target1: +ema.toFixed(2),
