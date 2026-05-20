@@ -5,7 +5,7 @@
 
 import { getWatchlist } from './watchlistStore'
 import strategyCfg from '@/config/strategy.json'
-import { getStrategyById, getActiveStrategies, checkGiftNiftyGate, type Strategy } from './strategyConfig'
+import { getStrategyById, getActiveStrategies, getCapital, checkGiftNiftyGate, type Strategy } from './strategyConfig'
 import { getMarketBriefing } from './marketBriefing'
 import { getState } from './state'
 import {
@@ -495,8 +495,25 @@ export async function evaluateAllForTiles(): Promise<TileEvalResult> {
   } catch { /* fallback to 0 */ }
   // recommendedTab is now computed at the end against active strategies — see bottom of fn.
 
-  // Live quotes (batched) + daily aggregates (cached)
-  const s2cfg = strategyCfg.strategy2_momentum
+  // Live quotes (batched) + daily aggregates (cached).
+  // Catalyst (Strategy 2) thresholds: prefer the user's edited catalyst params,
+  // fall back to the legacy strategy2_momentum block. Same pattern as the
+  // oscillator wiring below.
+  const catStrategy = active.find(s => s.id === 'catalyst')
+  const catParams = (catStrategy?.params || {}) as Record<string, unknown>
+  const legacyS2 = strategyCfg.strategy2_momentum
+  const s2cfg = {
+    scanStartHHMM:     typeof catParams.scanStartHHMM === 'string'     ? catParams.scanStartHHMM     : legacyS2.scanStartHHMM,
+    scanEndHHMM:       typeof catParams.scanEndHHMM === 'string'       ? catParams.scanEndHHMM       : legacyS2.scanEndHHMM,
+    minDayGainPct:     typeof catParams.minDayGainPct === 'number'     ? catParams.minDayGainPct     : legacyS2.minDayGainPct,
+    maxDayGainPct:     typeof catParams.maxDayGainPct === 'number'     ? catParams.maxDayGainPct     : legacyS2.maxDayGainPct,
+    emaProximityPct:   typeof catParams.emaProximityPct === 'number'   ? catParams.emaProximityPct   : legacyS2.emaProximityPct,
+    consecutiveCandles:typeof catParams.consecutiveCandles === 'number'? catParams.consecutiveCandles: legacyS2.consecutiveCandles,
+    volumeAvgDays:     typeof catParams.volumeAvgDays === 'number'     ? catParams.volumeAvgDays     : legacyS2.volumeAvgDays,
+  }
+  // Capital block — read the runtime overlay so user edits in Settings show up
+  // immediately on tiles (not just on the cron's BUY decisions).
+  const capCfg = getCapital()
   await ensureDailyAggregates(creds, symbols, s2cfg.volumeAvgDays)
   const quotes = await getQuotes(creds, symbols).catch(() => ({} as Awaited<ReturnType<typeof getQuotes>>))
 
@@ -607,17 +624,17 @@ export async function evaluateAllForTiles(): Promise<TileEvalResult> {
     })
     catRules.push({
       id: 'gain_min',
-      label: 'Day gain ≥ +0.5%',
+      label: `Day gain ≥ ${s2cfg.minDayGainPct >= 0 ? '+' : ''}${s2cfg.minDayGainPct}%`,
       passed: d.hasQuote && d.hasAgg && dayGainPct >= s2cfg.minDayGainPct,
       actual: d.hasQuote && d.hasAgg ? fmtPct(dayGainPct) : '—',
-      threshold: `≥ +${s2cfg.minDayGainPct}%`,
+      threshold: `≥ ${s2cfg.minDayGainPct >= 0 ? '+' : ''}${s2cfg.minDayGainPct}%`,
     })
     catRules.push({
       id: 'gain_max',
-      label: 'Day gain ≤ +1.5%',
+      label: `Day gain ≤ ${s2cfg.maxDayGainPct >= 0 ? '+' : ''}${s2cfg.maxDayGainPct}%`,
       passed: d.hasQuote && d.hasAgg && dayGainPct <= s2cfg.maxDayGainPct,
       actual: d.hasQuote && d.hasAgg ? fmtPct(dayGainPct) : '—',
-      threshold: `≤ +${s2cfg.maxDayGainPct}%`,
+      threshold: `≤ ${s2cfg.maxDayGainPct >= 0 ? '+' : ''}${s2cfg.maxDayGainPct}%`,
     })
     const candleRising = risingBySymbol.get(sym) === true
     catRules.push({
@@ -637,7 +654,7 @@ export async function evaluateAllForTiles(): Promise<TileEvalResult> {
     })
     catRules.push({
       id: 'ema_proximity',
-      label: 'LTP within ±3% of 20-EMA',
+      label: `LTP within ±${s2cfg.emaProximityPct}% of 20-EMA`,
       passed: d.hasAgg && Math.abs(emaDev) <= s2cfg.emaProximityPct,
       actual: d.hasAgg ? `${emaDev >= 0 ? '+' : ''}${emaDev.toFixed(2)}% vs EMA ₹${d.ema20.toFixed(2)}` : '—',
       threshold: `±${s2cfg.emaProximityPct}%`,
@@ -655,8 +672,8 @@ export async function evaluateAllForTiles(): Promise<TileEvalResult> {
     catRules.push({
       id: 'funds',
       label: 'Per-trade cap configured',
-      passed: strategyCfg.capital.perTrade > 0,
-      actual: `₹${strategyCfg.capital.perTrade.toLocaleString('en-IN')}`,
+      passed: capCfg.perTrade > 0,
+      actual: `₹${capCfg.perTrade.toLocaleString('en-IN')}`,
       threshold: `> 0`,
     })
 
@@ -723,14 +740,14 @@ export async function evaluateAllForTiles(): Promise<TileEvalResult> {
     oscRules.push({
       id: 'funds',
       label: 'Per-trade cap configured',
-      passed: strategyCfg.capital.perTrade > 0,
-      actual: `₹${strategyCfg.capital.perTrade.toLocaleString('en-IN')}`,
+      passed: capCfg.perTrade > 0,
+      actual: `₹${capCfg.perTrade.toLocaleString('en-IN')}`,
     })
     oscRules.push({
       id: 'position_room',
-      label: `Position cap (max ${strategyCfg.capital.maxPositions})`,
-      passed: strategyCfg.capital.maxPositions > 0,
-      actual: `cap = ${strategyCfg.capital.maxPositions}`,
+      label: `Position cap (max ${capCfg.maxPositions})`,
+      passed: capCfg.maxPositions > 0,
+      actual: `cap = ${capCfg.maxPositions}`,
     })
 
     oscillator.push({
