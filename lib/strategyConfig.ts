@@ -85,6 +85,10 @@ export interface MomentumParams {
   volumeAvgDays: number
   scanStartHHMM: string       // "HH:MM" 24-hr IST
   scanEndHHMM: string
+  // Calendar days after first BUY before this strategy's position hands off to
+  // Accumulator (the universal mean-reversion parking lot). 0 = never hand off.
+  // Default 15 matches the original catalyst behaviour.
+  deliveryHandoffDays: number
 }
 
 export interface Strategy {

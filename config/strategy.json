@@ -64,7 +64,8 @@
         "emaProximityPct": 3.0,
         "volumeAvgDays": 10,
         "scanStartHHMM": "09:30",
-        "scanEndHHMM": "14:30"
+        "scanEndHHMM": "14:30",
+        "deliveryHandoffDays": 15
       },
       "exits": {
         "t1Pct": 1.5,
@@ -91,7 +92,8 @@
         "emaProximityPct": 5.0,
         "volumeAvgDays": 5,
         "scanStartHHMM": "09:30",
-        "scanEndHHMM": "14:30"
+        "scanEndHHMM": "14:30",
+        "deliveryHandoffDays": 15
       },
       "exits": {
         "t1Pct": 2.0,

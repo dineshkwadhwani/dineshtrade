@@ -434,6 +434,7 @@ const MOMENTUM_PARAM_DESCRIPTIONS: Record<string, string> = {
   volumeAvgDays: 'Days of historical volume used to compute the daily average.',
   scanStartHHMM: 'Daily scan window start (IST 24-hr "HH:MM").',
   scanEndHHMM: 'Daily scan window end (IST 24-hr "HH:MM").',
+  deliveryHandoffDays: 'Calendar days after first BUY before this strategy\'s position hands off to Accumulator (universal mean-reversion parking lot). Default 15. Set to 0 to disable handoff (position stays with this strategy indefinitely).',
 }
 
 // Default param sets for the Duplicate / Create-New / Reset flows
@@ -445,6 +446,7 @@ const DEFAULT_DIP_PARAMS = {
 const DEFAULT_MOMENTUM_PARAMS = {
   minDayGainPct: 0.5, maxDayGainPct: 1.5, consecutiveCandles: 3, emaProximityPct: 3.0,
   volumeAvgDays: 10, scanStartHHMM: '09:30', scanEndHHMM: '14:30',
+  deliveryHandoffDays: 15,
 }
 
 function StrategiesTab({ autoModeOn }: { autoModeOn: boolean }) {
