@@ -69,12 +69,9 @@ export async function monitorAccount(account: string): Promise<MonitorResult> {
     return { account, ranAt, positionsChecked: 0, entries: [{ account, accountDisplayName: displayName, symbol: '—', action: 'skipped', reason: creds.error }] }
   }
 
-  // Strategy config — pull exits + handoff window from the live config (so
-  // edits in Settings take effect on the next tick without a restart).
-  const catalyst = getStrategyById('catalyst')
-  const t1Pct = catalyst?.exits?.t1Pct ?? 1.5
-  const t2Pct = catalyst?.exits?.t2Pct ?? 2.0
-  const handoffDays = (catalyst?.params as any)?.deliveryHandoffDays ?? HANDOFF_DAYS_DEFAULT
+  // Per-position strategy config — looked up inside the loop now so each
+  // position uses ITS OWN strategy's exits + handoff window. Default fallbacks
+  // (1.5 / 2.0 / 15d) preserve catalyst-equivalent behavior for legacy rows.
 
   // Seed the store from today's Kite dt-s2 BUYs in case any exist that haven't
   // been recorded yet (e.g. on the migration deploy, or if recordStrategy2Buy
@@ -120,6 +117,15 @@ export async function monitorAccount(account: string): Promise<MonitorResult> {
     const ltp = quote?.last_price
     const liveQty = liveQtyBySymbol.get(symbol) ?? 0
 
+    // Look up THIS position's strategy config — every dt-${id}-tagged position
+    // uses its own exits + handoff window. Fallback to catalyst-equivalent
+    // defaults if the strategy was deleted (which shouldn't happen because of
+    // the deactivate/delete migration, but defensive).
+    const ownerStrategy = getStrategyById(pos.strategyId)
+    const t1Pct = ownerStrategy?.exits?.t1Pct ?? 1.5
+    const t2Pct = ownerStrategy?.exits?.t2Pct ?? 2.0
+    const handoffDays = (ownerStrategy?.params as any)?.deliveryHandoffDays ?? HANDOFF_DAYS_DEFAULT
+
     // Sold externally? Drop from store.
     if (liveQty <= 0) {
       await removeStrategy2Position(account, symbol)
@@ -131,7 +137,7 @@ export async function monitorAccount(account: string): Promise<MonitorResult> {
       continue
     }
 
-    // Age check — handoff to Oscillator if too old
+    // Age check — handoff to Accumulator if too old
     const ageDays = ageInCalendarDays(pos.firstBuyAt)
     if (ageDays >= handoffDays) {
       const handedOff = await ensureStrategy1Tracking(account, symbol, pos.remainingQty, pos.firstBuyPrice, `strategy2_age_${Math.floor(ageDays)}d`)

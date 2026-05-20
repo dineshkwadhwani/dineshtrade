@@ -299,23 +299,21 @@ function PositionRow({ p, last, marketOpen, onSquareOff }: {
 }
 
 function TagPill({ tag }: { tag: PositionTag }) {
-  const { color, label } = tagStyle(tag)
+  // tag.label + tag.color come from the API — driven by the position store's
+  // strategyId (long-term ownership) or today's order-tag classification.
+  const title = tag.kind === 'strategy'
+    ? `Owned by strategy: ${tag.strategyId}`
+    : tag.kind === 'pre'    ? 'Pre-existing (Out Of System) — not auto-managed'
+    : tag.kind === 'mixed'  ? 'Mixed — symbol traded by multiple sources today'
+    : tag.kind === 'manual' ? 'Manual order — not auto-managed'
+    : undefined
   return (
-    <span className="text-[8px] tracking-widest uppercase px-1.5 py-0.5 rounded font-semibold"
-      style={{ background:`${color}22`, color, border:`1px solid ${color}55`, fontFamily:'JetBrains Mono, monospace' }}>
-      {label}
+    <span title={title}
+      className="text-[8px] tracking-widest uppercase px-1.5 py-0.5 rounded font-semibold"
+      style={{ background:`${tag.color}22`, color: tag.color, border:`1px solid ${tag.color}55`, fontFamily:'JetBrains Mono, monospace' }}>
+      {tag.label}
     </span>
   )
-}
-
-function tagStyle(tag: PositionTag): { color: string; label: string } {
-  switch (tag) {
-    case 's1':     return { color:'#c9a84c', label:'S1' }
-    case 's2':     return { color:'#60a5fa', label:'S2' }
-    case 'manual': return { color:'#a78bfa', label:'MANUAL' }
-    case 'pre':    return { color:'rgba(255,255,255,0.5)', label:'OOS' }
-    case 'mixed':  return { color:'#f59e0b', label:'MIXED' }
-  }
 }
 
 function signedPct(p: number | null | undefined): string {

@@ -129,7 +129,7 @@ export default function EnginePage() {
               target2: rec.target2,
               source: rec.source,
               reason: rec.reason,
-              tag: rec.strategy === 'accumulator' ? 'dt-s1' : 'dt-s2',  // routes to correct monitor
+              tag: `dt-${rec.strategy}`,   // dt-accumulator / dt-catalyst / dt-<any-custom-id>; /api/zerodha routes to the unified position store
             },
           })
         })
@@ -754,8 +754,10 @@ function EngineTilesSection({ firstAccount, accounts, connected, tradeMode }: {
           strategy's planned exit. */}
       <div className="grid gap-3 grid-cols-1 sm:grid-cols-2 lg:grid-cols-3">
         {tiles.map(tile => {
-          const activeType = tabStrategies.find(s => s.id === tab)?.type
-          const buyTag = activeType === 'dip' ? 'dt-s1' : activeType === 'momentum' ? 'dt-s2' : undefined
+          // Tag the BUY with the active strategy's id so the unified position
+          // store knows which strategy owns this position (drives per-strategy
+          // exit params + handoff window).
+          const buyTag = tab ? `dt-${tab}` : undefined
           return (
             <TileCard key={tile.symbol} tile={tile} fullScore={fullScore} tradeMode={tradeMode}
               marketOpen={market.open}

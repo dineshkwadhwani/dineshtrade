@@ -22,11 +22,22 @@ export async function GET() {
   const watchlistKeys = Object.keys(wl.lists)
   const watchlistOptions = watchlistKeys.map(k => ({ key: k, name: wl.meta[k]?.name || k }))
 
+  // Open-position counts per strategy — used by Settings UI for the
+  // "deactivating X has N open positions that will migrate to Accumulator"
+  // confirmation dialog. Best-effort: if positions store can't be read, returns {}.
+  let openPositionCounts: Record<string, number> = {}
+  try {
+    const { listPositions } = await import('@/lib/positions')
+    const positions = await listPositions()
+    for (const p of positions) openPositionCounts[p.strategyId] = (openPositionCounts[p.strategyId] || 0) + 1
+  } catch { /* best-effort */ }
+
   return NextResponse.json({
     capital: getCapital(),
     strategies: getStrategies(),
     watchlistKeys,
     watchlistOptions,
+    openPositionCounts,
   }, { headers: { 'Cache-Control': 'no-store' } })
 }
 
@@ -100,6 +111,12 @@ export async function POST(req: Request) {
   if (!Array.isArray(body.strategies)) errors.push('strategies array missing')
   else {
     const ids = new Set<string>()
+    // Accumulator is the universal parking lot — every momentum strategy hands
+    // off to it after `deliveryHandoffDays`. It must always exist and be active.
+    const accumulator = body.strategies.find((s: any) => s?.id === 'accumulator')
+    if (!accumulator) errors.push('"accumulator" strategy is required — it is the universal parking lot every other strategy hands off to')
+    else if (accumulator.active === false) errors.push('"accumulator" cannot be deactivated — it is the keeper strategy')
+
     for (const s of body.strategies) {
       if (!s.id || typeof s.id !== 'string') { errors.push('Each strategy needs an id'); continue }
       if (ids.has(s.id)) errors.push(`Duplicate strategy id "${s.id}"`)
@@ -134,10 +151,37 @@ export async function POST(req: Request) {
   const current = getRuntimeStrategyConfig()
   const next = { ...current, capital: body.capital, strategies: body.strategies, _updatedAt: new Date().toISOString() }
 
+  // Identify strategies that are being deactivated OR deleted in this save.
+  // Their open positions migrate to accumulator (universal parking lot).
+  const previousActiveIds = new Set<string>(
+    (Array.isArray(current?.strategies) ? current.strategies : [])
+      .filter((s: any) => s?.active === true && s?.id !== 'accumulator')
+      .map((s: any) => s.id),
+  )
+  const newActiveIds = new Set<string>(
+    body.strategies.filter((s: any) => s?.active === true).map((s: any) => s.id),
+  )
+  const losingActiveStatus = Array.from(previousActiveIds).filter(id => !newActiveIds.has(id))
+
   try {
     await saveRuntimeStrategyConfig(next)
   } catch (e) {
     return NextResponse.json({ error: 'Save failed: ' + String(e).slice(0, 200) }, { status: 500 })
+  }
+
+  // Migrate any open positions belonging to deactivated/deleted strategies
+  // over to accumulator. Done AFTER the save so the new config is in place
+  // before the next monitor tick sees the re-stamped positions.
+  let migratedPositions = 0
+  if (losingActiveStatus.length > 0) {
+    try {
+      const { migrateStrategyId } = await import('@/lib/positions')
+      for (const id of losingActiveStatus) {
+        migratedPositions += await migrateStrategyId(id, 'accumulator')
+      }
+    } catch (e) {
+      console.warn('[POST /api/strategies] position migration failed:', String(e).slice(0, 200))
+    }
   }
 
   // Hot-reload cron with the new active set + intervals
@@ -149,5 +193,5 @@ export async function POST(req: Request) {
     console.warn('[POST /api/strategies] cron reload failed (will pick up at next process restart):', String(e).slice(0, 200))
   }
 
-  return NextResponse.json({ ok: true, reload })
+  return NextResponse.json({ ok: true, reload, migratedPositions, migratedFrom: losingActiveStatus })
 }

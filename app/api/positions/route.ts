@@ -26,7 +26,15 @@ export const revalidate = 0
 
 const MANUAL_TAG = 'dt-manual'
 
-export type PositionTag = 's1' | 's2' | 'manual' | 'pre' | 'mixed'
+// Position-pill descriptor. Replaces the old fixed-vocabulary tag with a
+// strategy-aware shape so any user-created strategy can render its own
+// display name + color on the Positions row.
+export interface PositionTag {
+  kind: 'strategy' | 'manual' | 'pre' | 'mixed'
+  strategyId?: string      // present when kind === 'strategy'
+  label: string            // short label shown in the pill
+  color: string            // hex/rgba — pill background/text color
+}
 
 export interface EnrichedPosition {
   symbol: string
@@ -46,17 +54,49 @@ export interface EnrichedPosition {
   orderIds: string[]       // today's COMPLETE order ids for this symbol
 }
 
-function classifyTag(tags: Set<string>): PositionTag {
-  const s1 = [STRATEGY_1_BUY_TAG, STRATEGY_1_TRANCHE1_TAG, STRATEGY_1_TRANCHE2_TAG].some(t => tags.has(t))
-  const s2 = [STRATEGY_2_BUY_TAG, STRATEGY_2_SELL_TAG].some(t => tags.has(t))
-  const manual = tags.has(MANUAL_TAG)
-  if (tags.size === 0) return 'pre'
-  // Single-source-of-truth rules; if a symbol was traded by multiple strategies
-  // today, surface 'mixed' so the user knows something unusual happened.
-  if (s1 && !s2 && !manual) return 's1'
-  if (s2 && !s1 && !manual) return 's2'
-  if (manual && !s1 && !s2) return 'manual'
-  return 'mixed'
+// Build a tag from (1) the position store's strategyId (long-term ownership)
+// and (2) today's Kite order tags (today's activity). Store wins when present;
+// order tags drive the legacy fallbacks. Strategy lookup gives us display +
+// color for any registered strategy id.
+function classifyTag(
+  symbol: string,
+  todaysOrderTags: Set<string>,
+  positionStoreStrategyId: string | null,
+  strategiesById: Map<string, { name: string; color: string }>,
+): PositionTag {
+  // Position store record exists → that's authoritative for long-term ownership
+  if (positionStoreStrategyId) {
+    const s = strategiesById.get(positionStoreStrategyId)
+    return {
+      kind: 'strategy',
+      strategyId: positionStoreStrategyId,
+      label: s?.name?.slice(0, 12) || positionStoreStrategyId,
+      color: s?.color || '#c9a84c',
+    }
+  }
+  // No store record — classify from today's order tags
+  const hasManual = todaysOrderTags.has(MANUAL_TAG)
+  // Legacy tags + new dt-${id} tags
+  const dtPrefixed = Array.from(todaysOrderTags).filter(t => t.startsWith('dt-') && t !== MANUAL_TAG)
+  const strategyIdsFromTags = new Set<string>()
+  for (const t of dtPrefixed) {
+    let sid = t.slice(3).replace(/-(t1|t2|exit)$/, '')   // strip tranche/exit suffix
+    if (sid === 's1') sid = 'accumulator'
+    else if (sid === 's2') sid = 'catalyst'
+    strategyIdsFromTags.add(sid)
+  }
+  if (strategyIdsFromTags.size === 0 && !hasManual) {
+    return { kind: 'pre', label: 'OOS', color: 'rgba(255,255,255,0.5)' }
+  }
+  if (strategyIdsFromTags.size === 1 && !hasManual) {
+    const sid = Array.from(strategyIdsFromTags)[0]
+    const s = strategiesById.get(sid)
+    return { kind: 'strategy', strategyId: sid, label: s?.name?.slice(0, 12) || sid, color: s?.color || '#c9a84c' }
+  }
+  if (strategyIdsFromTags.size === 0 && hasManual) {
+    return { kind: 'manual', label: 'MANUAL', color: '#a78bfa' }
+  }
+  return { kind: 'mixed', label: 'MIXED', color: '#f59e0b' }
 }
 
 export async function GET(req: Request) {
@@ -71,9 +111,25 @@ export async function GET(req: Request) {
   const creds = await resolveAccountCreds(account)
   if (!creds.ok) return NextResponse.json({ error: creds.error }, { status: 400 })
 
-  const [positions, orders] = await Promise.all([
+  const [positions, orders, posStore] = await Promise.all([
     getPositions(creds).catch(() => ({ day: [], net: [] })),
     getOrders(creds).catch(() => [] as KiteOrder[]),
+    (async () => {
+      // Load the unified position store + strategy map for tag derivation.
+      // Best-effort: if either fails, the tag falls through to legacy logic.
+      try {
+        const [{ listPositions }, { getStrategies }] = await Promise.all([
+          import('@/lib/positions'),
+          import('@/lib/strategyConfig'),
+        ])
+        const rows = await listPositions({ account })
+        const byKey = new Map<string, string>()
+        for (const r of rows) byKey.set(r.symbol.toUpperCase(), r.strategyId)
+        const strategiesById = new Map<string, { name: string; color: string }>()
+        for (const s of getStrategies()) strategiesById.set(s.id, { name: s.name, color: s.color })
+        return { byKey, strategiesById }
+      } catch { return { byKey: new Map<string, string>(), strategiesById: new Map<string, { name: string; color: string }>() } }
+    })(),
   ])
 
   // Kite's two endpoints disagree on price:
@@ -161,7 +217,7 @@ export async function GET(req: Request) {
       daySellQty: p.day_sell_quantity || 0,
       pnl: unrealized + realized,   // live + same source as the row's other numbers
       m2m: p.m2m || 0,
-      tag: classifyTag(tags),
+      tag: classifyTag(sym, tags, posStore.byKey.get(sym) || null, posStore.strategiesById),
       unrealized,
       realized,
       orderIds: orderIdsBySymbol.get(sym) || [],

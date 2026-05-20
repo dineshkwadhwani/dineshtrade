@@ -179,17 +179,16 @@ export async function POST(req: NextRequest) {
 
   if (r.ok && r.data?.data?.order_id) {
     await markPlaced(account, symbolUpper, side, { price: pricePerShare, manual })
-    // Persist Strategy 1 BUYs so the SELL monitor manages them across days.
-    if (side === 'BUY' && orderTag === STRATEGY_1_BUY_TAG) {
-      recordStrategy1Buy(account, symbolUpper, actualQty, pricePerShare)
-        .catch(err => console.error('[zerodha route] strategy1 record failed:', err))
-    }
-    // Persist Strategy 2 BUYs into the multi-day position store. dt-s2 is used
-    // when the user clicks Execute on a Catalyst recommendation from /engine.
-    if (side === 'BUY' && orderTag === 'dt-s2') {
-      const { recordStrategy2Buy } = await import('@/lib/strategy2Positions')
-      recordStrategy2Buy(account, symbolUpper, actualQty, pricePerShare)
-        .catch(err => console.error('[zerodha route] strategy2 record failed:', err))
+    // Persist BUYs into the unified position store. The order tag carries the
+    // strategy id (`dt-${strategyId}`); legacy tags `dt-s1` / `dt-s2` map to
+    // 'accumulator' / 'catalyst' respectively for backward compatibility.
+    if (side === 'BUY' && orderTag && orderTag.startsWith('dt-') && orderTag !== 'dt-manual') {
+      let strategyId = orderTag.slice(3)   // 'dt-quickwin' → 'quickwin'
+      if (strategyId === 's1') strategyId = 'accumulator'
+      else if (strategyId === 's2') strategyId = 'catalyst'
+      const { recordBuy } = await import('@/lib/positions')
+      recordBuy(strategyId, account, symbolUpper, actualQty, pricePerShare)
+        .catch(err => console.error('[zerodha route] position record failed:', err))
     }
     sendEmail('trade_executed', {
       account,

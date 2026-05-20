@@ -153,7 +153,8 @@ async function autoBuyOnAccount(account: string, accountDisplayName: string | un
       }).catch(err => console.error('[cron autoBuy] preflight-email failed:', err))
       continue
     }
-    const tag = rec.strategy === 'accumulator' ? STRATEGY_1_BUY_TAG : STRATEGY_2_BUY_TAG
+    // Tag carries the strategy id directly — unified store + per-strategy params.
+    const tag = `dt-${rec.strategy}`
     const placed = await placeKiteOrder(creds, {
       symbol: rec.symbol, side: 'BUY', quantity: rec.suggestedQty, tag,
     })
@@ -161,18 +162,10 @@ async function autoBuyOnAccount(account: string, accountDisplayName: string | un
       // Persist BEFORE doing anything else — critical for preventing duplicate
       // BUYs on the next cron tick if this function were to crash partway.
       await markPlaced(account, rec.symbol, 'BUY', { price: rec.price, manual: false })
-      // Persist Strategy 1 position so the SELL monitor manages it across days.
-      if (rec.strategy === 'accumulator') {
-        recordStrategy1Buy(account, rec.symbol, rec.suggestedQty, rec.price)
-          .catch(err => console.error('[cron autoBuy] strategy1 record failed:', err))
-      }
-      // Persist Strategy 2 position so the multi-day monitor + 15-day handoff
-      // clock survive restarts and pyramid BUYs accumulate to one position.
-      if (rec.strategy === 'catalyst') {
-        const { recordStrategy2Buy } = await import('./strategy2Positions')
-        recordStrategy2Buy(account, rec.symbol, rec.suggestedQty, rec.price)
-          .catch(err => console.error('[cron autoBuy] strategy2 record failed:', err))
-      }
+      // Single store, single call — strategyId on the row drives monitor ownership.
+      const { recordBuy } = await import('./positions')
+      recordBuy(rec.strategy, account, rec.symbol, rec.suggestedQty, rec.price)
+        .catch(err => console.error('[cron autoBuy] position record failed:', err))
       recordExecuted({
         time: istHHMM(), account, symbol: rec.symbol, side: 'BUY',
         quantity: rec.suggestedQty, price: rec.price, orderId: placed.data.data.order_id,

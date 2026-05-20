@@ -449,7 +449,7 @@ const DEFAULT_MOMENTUM_PARAMS = {
 
 function StrategiesTab({ autoModeOn }: { autoModeOn: boolean }) {
   // The server response is the SOURCE; `draft` is the user's working copy.
-  const [source, setSource] = useState<{ capital: CapitalConfig; strategies: StrategyConfig[]; watchlistOptions: { key: string; name: string }[] } | null>(null)
+  const [source, setSource] = useState<{ capital: CapitalConfig; strategies: StrategyConfig[]; watchlistOptions: { key: string; name: string }[]; openPositionCounts: Record<string, number> } | null>(null)
   const [draft, setDraft] = useState<{ capital: CapitalConfig; strategies: StrategyConfig[] } | null>(null)
   const [funds, setFunds] = useState<{ available: number; maxDeployable: number; reserve: number; remaining: number; deployed: number } | null>(null)
   const [error, setError] = useState('')
@@ -469,7 +469,7 @@ function StrategiesTab({ autoModeOn }: { autoModeOn: boolean }) {
         const opts = Array.isArray(d.watchlistOptions) && d.watchlistOptions.length > 0
           ? d.watchlistOptions
           : (Array.isArray(d.watchlistKeys) ? d.watchlistKeys.map((k: string) => ({ key: k, name: k })) : [])
-        setSource({ capital: d.capital, strategies: d.strategies, watchlistOptions: opts })
+        setSource({ capital: d.capital, strategies: d.strategies, watchlistOptions: opts, openPositionCounts: d.openPositionCounts || {} })
         setDraft({ capital: d.capital, strategies: d.strategies })
       }
     }).catch(() => setError('Failed to load strategies'))
@@ -519,8 +519,30 @@ function StrategiesTab({ autoModeOn }: { autoModeOn: boolean }) {
   }
   function deleteStrategy(id: string) {
     if (!draft) return
-    if (!confirm(`Remove strategy "${id}"? This will stop its cron task on save.`)) return
+    if (id === 'accumulator') {
+      alert('Accumulator cannot be deleted — it is the universal parking lot every other strategy hands off to.')
+      return
+    }
+    const openCount = source?.openPositionCounts?.[id] ?? 0
+    const msg = openCount > 0
+      ? `Remove "${id}" — it has ${openCount} open position${openCount === 1 ? '' : 's'} which will be moved to Accumulator (and managed by Accumulator's exits) on save. Continue?`
+      : `Remove "${id}"? This will stop its cron task on save.`
+    if (!confirm(msg)) return
     setDraft({ ...draft, strategies: draft.strategies.filter(s => s.id !== id) })
+  }
+
+  // Confirm before deactivating a strategy with open positions — they migrate
+  // to Accumulator on save. Returns true if the user confirmed (or no confirm
+  // needed). Returns false to cancel.
+  function confirmDeactivate(id: string, fromActive: boolean): boolean {
+    if (!fromActive) return true   // activating doesn't need confirmation
+    if (id === 'accumulator') {
+      alert('Accumulator cannot be deactivated — it is the keeper strategy.')
+      return false
+    }
+    const openCount = source?.openPositionCounts?.[id] ?? 0
+    if (openCount === 0) return true
+    return confirm(`Deactivate "${id}" — it has ${openCount} open position${openCount === 1 ? '' : 's'}. They will be moved to Accumulator on save. Continue?`)
   }
   // Two type-aware creators — pre-fill the correct param shape, exits,
   // scan interval, color, and GIFT Nifty gate defaults so a new strategy
@@ -558,7 +580,7 @@ function StrategiesTab({ autoModeOn }: { autoModeOn: boolean }) {
       })
       const data = await res.json()
       if (res.ok) {
-        setSource({ capital: draft.capital, strategies: draft.strategies, watchlistOptions: source?.watchlistOptions || [] })
+        setSource({ capital: draft.capital, strategies: draft.strategies, watchlistOptions: source?.watchlistOptions || [], openPositionCounts: source?.openPositionCounts || {} })
         const r = data.reload
         const parts: string[] = []
         if (r?.added?.length)     parts.push(`+${r.added.length} added`)
@@ -633,10 +655,14 @@ function StrategiesTab({ autoModeOn }: { autoModeOn: boolean }) {
             onToggle={() => setExpanded(expanded === s.id ? null : s.id)}
             watchlistOptions={source.watchlistOptions}
             onPatch={p => patchStrategy(s.id, p)}
+            onToggleActive={() => {
+              if (confirmDeactivate(s.id, s.active)) patchStrategy(s.id, { active: !s.active })
+            }}
             onReset={() => resetStrategy(s.id)}
             onDuplicate={() => duplicateStrategy(s.id)}
             onDelete={() => deleteStrategy(s.id)}
             canReset={!!source.strategies.find(o => o.id === s.id)}
+            isProtected={s.id === 'accumulator'}
             locked={locked}
           />
         ))}
@@ -810,16 +836,18 @@ function Stat({ label, value, color }: { label: string; value: string; color: st
   )
 }
 
-function StrategyCard({ s, expanded, onToggle, watchlistOptions, onPatch, onReset, onDuplicate, onDelete, canReset, locked }: {
+function StrategyCard({ s, expanded, onToggle, watchlistOptions, onPatch, onToggleActive, onReset, onDuplicate, onDelete, canReset, isProtected, locked }: {
   s: StrategyConfig
   expanded: boolean
   onToggle: () => void
   watchlistOptions: { key: string; name: string }[]
   onPatch: (patch: Partial<StrategyConfig>) => void
+  onToggleActive: () => void
   onReset: () => void
   onDuplicate: () => void
   onDelete: () => void
   canReset: boolean
+  isProtected: boolean    // true for accumulator — disables active toggle + delete
   locked: boolean
 }) {
   const paramDescs = s.type === 'dip' ? DIP_PARAM_DESCRIPTIONS : MOMENTUM_PARAM_DESCRIPTIONS
@@ -843,9 +871,10 @@ function StrategyCard({ s, expanded, onToggle, watchlistOptions, onPatch, onRese
           </span>
         </button>
         <div className="flex items-center gap-2 flex-shrink-0">
-          {/* Active toggle */}
-          <button onClick={() => !locked && onPatch({ active: !s.active })} disabled={locked}
-            className="text-[9px] tracking-widest uppercase px-2 py-1 rounded transition-all disabled:opacity-50"
+          {/* Active toggle — disabled for protected (accumulator) so it stays Active */}
+          <button onClick={() => !locked && !isProtected && onToggleActive()} disabled={locked || isProtected}
+            title={isProtected ? 'Accumulator cannot be deactivated — it is the keeper strategy' : undefined}
+            className="text-[9px] tracking-widest uppercase px-2 py-1 rounded transition-all disabled:opacity-50 disabled:cursor-not-allowed"
             style={{
               background: s.active ? 'rgba(82,183,136,0.15)' : 'rgba(255,255,255,0.04)',
               color: s.active ? '#52b788' : 'rgba(255,255,255,0.4)',
@@ -961,8 +990,9 @@ function StrategyCard({ s, expanded, onToggle, watchlistOptions, onPatch, onRese
               style={{ background:'rgba(96,165,250,0.1)', border:'1px solid rgba(96,165,250,0.3)', color:'#60a5fa', fontFamily:'JetBrains Mono, monospace' }}>
               Duplicate
             </button>
-            <button onClick={onDelete} disabled={locked}
-              className="ml-auto px-3 py-1.5 rounded-md text-[10px] tracking-wider transition-all disabled:opacity-30"
+            <button onClick={onDelete} disabled={locked || isProtected}
+              title={isProtected ? 'Accumulator cannot be deleted — it is the keeper strategy every other strategy hands off to' : undefined}
+              className="ml-auto px-3 py-1.5 rounded-md text-[10px] tracking-wider transition-all disabled:opacity-30 disabled:cursor-not-allowed"
               style={{ background:'rgba(224,90,94,0.08)', border:'1px solid rgba(224,90,94,0.3)', color:'#e05a5e', fontFamily:'JetBrains Mono, monospace' }}>
               Remove
             </button>

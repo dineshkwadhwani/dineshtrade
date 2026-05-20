@@ -238,6 +238,20 @@ export async function listPositions(opts?: { account?: string; strategyId?: stri
   return out
 }
 
+// Single-position strategyId setter — used by the handoff flow.
+// Returns true if changed, false if the position doesn't exist or already
+// has the target strategyId.
+export async function setStrategyId(account: string, symbol: string, newStrategyId: string): Promise<boolean> {
+  const all = await readAll()
+  const k = makeKey(account, symbol)
+  const p = all[k]
+  if (!p || p.strategyId === newStrategyId) return false
+  console.log(`[positions] re-stamped ${k}: ${p.strategyId} → ${newStrategyId}`)
+  p.strategyId = newStrategyId
+  await writeAll(all)
+  return true
+}
+
 // Re-stamp the strategyId of every position currently owned by `fromId` to
 // `toId`. Used when a strategy is deactivated or deleted — all its open
 // positions migrate to the accumulator's care. Returns the count migrated.
