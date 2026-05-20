@@ -513,8 +513,20 @@ export async function evaluateAllForTiles(): Promise<TileEvalResult> {
   const marketCloseMin = hhmmToMinutes('15:30')
   const marketOpen = nowMin >= marketOpenMin && nowMin <= marketCloseMin
 
-  // Strategy 1 (Oscillator) thresholds
-  const emaCfg = strategyCfg.ema || { period: 20, entryBelowPct: 5, strongBuyBelowPct: 8, minDownDays: 3 }
+  // Strategy 1 (Oscillator) thresholds. Prefer the live oscillator strategy's
+  // params (so the tile visualisation reflects what the cron will actually use);
+  // fall back to the legacy `ema` block + hardcoded defaults if the strategy
+  // doesn't expose them.
+  const oscStrategy = active.find(s => s.id === 'oscillator')
+  const oscParams = (oscStrategy?.params || {}) as Record<string, unknown>
+  const legacyEma = strategyCfg.ema || { period: 20, entryBelowPct: 5, strongBuyBelowPct: 8, minDownDays: 3 }
+  const emaCfg = {
+    period:           typeof oscParams.emaPeriod === 'number'        ? oscParams.emaPeriod        : legacyEma.period,
+    entryBelowPct:    typeof oscParams.entryBelowPct === 'number'    ? oscParams.entryBelowPct    : legacyEma.entryBelowPct,
+    strongBuyBelowPct:typeof oscParams.strongBuyBelowPct === 'number'? oscParams.strongBuyBelowPct: legacyEma.strongBuyBelowPct,
+    minDownDays:      typeof oscParams.minDownDays === 'number'      ? oscParams.minDownDays      : legacyEma.minDownDays,
+  }
+  const reactiveDropPct = typeof oscParams.reactiveDrop === 'number' ? oscParams.reactiveDrop : 3
   const capitulationFloor = 12   // hide if deeper than -12% from EMA (panic zone)
 
   // Per-symbol data snapshot used by both Catalyst + Oscillator rule evaluations.
@@ -692,14 +704,15 @@ export async function evaluateAllForTiles(): Promise<TileEvalResult> {
       actual: d.hasAgg ? `${emaDev.toFixed(2)}% vs EMA` : '—',
       threshold: `≥ −${capitulationFloor}%`,
     })
-    // Today as down day if intraday drop ≥ -3% (matches reactive scan trigger)
-    const todayDown = dayGainPct <= -3
+    // Today as down day if intraday drop ≥ the strategy's reactiveDrop %
+    // (matches what the live reactive scan uses to decide a BUY).
+    const todayDown = dayGainPct <= -reactiveDropPct
     oscRules.push({
       id: 'intraday_drop',
-      label: 'Today ≥3% drop (reactive trigger)',
+      label: `Today ≥${reactiveDropPct}% drop (reactive trigger)`,
       passed: todayDown,
       actual: d.hasQuote && d.hasAgg ? fmtPct(dayGainPct) : '—',
-      threshold: '≤ −3%',
+      threshold: `≤ −${reactiveDropPct}%`,
     })
     oscRules.push({
       id: 'live_data',
