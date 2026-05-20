@@ -59,7 +59,6 @@ export interface TradeExecutedData {
   price?: number          // approx, used for capital calc
   target1?: number
   target2?: number
-  stopLoss?: number
   orderId?: string
   source?: string         // e.g. "ICICI Direct" or "Manual Execute"
   reason?: string         // strategy reason / broker rec text
@@ -204,11 +203,10 @@ function executedBody(d: TradeExecutedData): string {
     row('Price',    rupees(d.price)),
     capital !== undefined ? row('Capital', rupees(capital)) : '',
   ]
-  if (d.side === 'BUY' && (d.target1 || d.target2 || d.stopLoss)) {
+  if (d.side === 'BUY' && (d.target1 || d.target2)) {
     lines.push(divider('Targets'))
     if (d.target1) lines.push(row('T1 (+1.5%)', `${rupees(d.target1)}  → sell 50% on hit`))
     if (d.target2) lines.push(row('T2 (+2.0%)', `${rupees(d.target2)}  → sell remaining`))
-    if (d.stopLoss) lines.push(row('Stop Loss',  `${rupees(d.stopLoss)}  (−1.5%)`))
   }
   lines.push(divider('Context'))
   if (d.source)  lines.push(row('Source',   d.source))

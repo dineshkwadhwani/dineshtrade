@@ -180,7 +180,7 @@ async function autoBuyOnAccount(account: string, accountDisplayName: string | un
       sendEmail('trade_executed', {
         account, accountDisplayName, symbol: rec.symbol, symbolName: rec.name,
         side: 'BUY', quantity: rec.suggestedQty, price: rec.price,
-        target1: rec.target1, target2: rec.target2, stopLoss: rec.stopLoss,
+        target1: rec.target1, target2: rec.target2,
         orderId: placed.data.data.order_id, source: rec.source, reason: rec.reason,
         mode: 'auto',
       }).catch(err => console.error('[cron autoBuy] executed-email failed:', err))

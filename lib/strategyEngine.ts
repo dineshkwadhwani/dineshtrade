@@ -54,10 +54,12 @@ export interface Recommendation {
   reason: string
   target1: number
   target2: number
-  stopLoss: number
   suggestedQty: number
   confidence: 'normal' | 'high'
 }
+// NOTE: No `stopLoss` field — per "Never sell at a loss" rule (CB1 in functional
+// spec). Preflight gate 8 (no-loss-sell rider) makes auto-SELL impossible below
+// entry, so an SL number would be misleading. Manual SELLs are user judgement.
 
 export type StrategyMode = 'catalyst' | 'dip' | 'circuit' | 'error'
 
@@ -331,7 +333,6 @@ async function runStrategy2(now: string, giftChangePct: number, strategyOverride
 
     const t1 = +(s.ltp * (1 + exitT1 / 100)).toFixed(2)
     const t2 = +(s.ltp * (1 + exitT2 / 100)).toFixed(2)
-    const sl = +(s.ltp * 0.985).toFixed(2)
 
     recs.push({
       symbol: s.symbol,
@@ -345,7 +346,6 @@ async function runStrategy2(now: string, giftChangePct: number, strategyOverride
       reason: `+${s.dayGainPct.toFixed(2)}% today, ${cfg.consecutiveCandles} rising 5-min candles, vol > prorated 10-day avg, within ${cfg.emaProximityPct}% of 20-EMA (₹${s.agg.ema20.toFixed(2)})`,
       target1: t1,
       target2: t2,
-      stopLoss: sl,
       suggestedQty: qty,
       confidence: 'normal',
     })
@@ -955,7 +955,6 @@ async function runStrategy1(now: string, giftChangePct: number, strategyOverride
       reason: `${Math.abs(dev).toFixed(1)}% below 20-EMA (₹${v.ema.toFixed(2)}); ${v.downDays} consecutive down days`,
       target1: +v.ema.toFixed(2),                                                        // exit 50% on EMA recovery
       target2: +(v.ema * (1 + tranche2AbovePct / 100)).toFixed(2),  // exit remaining when price hits EMA + tranche2% (no time stop)
-      stopLoss: +(ltp * 0.975).toFixed(2),                                              // -2.5% SL (wider than Strategy 2; we expect retrace)
       suggestedQty: qty,
       confidence: dev <= -strongBuyBelowPct ? 'high' : 'normal',
       _dev: dev,
@@ -1106,7 +1105,6 @@ export async function runReactiveDipScan(strategyOverride?: Strategy): Promise<R
         reason: `Intraday ${dayChgPct.toFixed(2)}% drop · ${Math.abs(dev).toFixed(1)}% below 20-EMA (₹${ema.toFixed(2)}) · ${downDays} consecutive down days (today counted)`,
         target1: +ema.toFixed(2),
         target2: +(ema * (1 + tranche2AbovePct / 100)).toFixed(2),
-        stopLoss: +(ltp * 0.975).toFixed(2),
         suggestedQty: qty,
         confidence: dev <= -strongBuyBelowPct ? 'high' : 'normal',
       }

@@ -10,7 +10,7 @@ interface AccountDisplay { name: string; displayName: string; initials: string; 
 interface Recommendation {
   symbol: string; name: string; price: number; action: string
   strategy: string; source: string; reason: string
-  target1: number; target2: number; stopLoss: number
+  target1: number; target2: number
   suggestedQty: number; confidence: string
   dayChangePct?: number     // today's % change from prev close (server may omit)
 }
@@ -127,7 +127,6 @@ export default function EnginePage() {
               price: rec.price,        // preflight uses this for funds + per-trade math
               target1: rec.target1,    // for the Trade Executed email
               target2: rec.target2,
-              stopLoss: rec.stopLoss,
               source: rec.source,
               reason: rec.reason,
               tag: rec.strategy === 'oscillator' ? 'dt-s1' : 'dt-s2',  // routes to correct monitor
@@ -475,7 +474,6 @@ function RecCard({ rec, tradeMode, onExecute, accountCount }: {
 
   const pnlPct1 = ((rec.target1 - rec.price) / rec.price * 100).toFixed(1)
   const pnlPct2 = ((rec.target2 - rec.price) / rec.price * 100).toFixed(1)
-  const slPct   = ((rec.stopLoss - rec.price) / rec.price * 100).toFixed(1)
 
   return (
     <div className="rounded-xl overflow-hidden"
@@ -516,11 +514,10 @@ function RecCard({ rec, tradeMode, onExecute, accountCount }: {
       </div>
       <div className="px-4 py-3">
         <p className="text-[11px] mb-3" style={{ color:'rgba(255,255,255,0.5)' }}>{rec.reason}</p>
-        <div className="grid grid-cols-4 gap-2 mb-3">
+        <div className="grid grid-cols-3 gap-2 mb-3">
           {[
             { label:'T1', val:`₹${rec.target1}`, pct:`+${pnlPct1}%`, color:'#52b788' },
             { label:'T2', val:`₹${rec.target2}`, pct:`+${pnlPct2}%`, color:'#2d6a4f' },
-            { label:'SL', val:`₹${rec.stopLoss}`, pct:`${slPct}%`, color:'#e05a5e' },
             { label:'Capital', val:`₹${(rec.price * rec.suggestedQty).toFixed(0)}`, pct:'', color:'rgba(255,255,255,0.5)' },
           ].map(item => (
             <div key={item.label} className="rounded-lg p-2 text-center" style={{ background:'rgba(255,255,255,0.03)' }}>

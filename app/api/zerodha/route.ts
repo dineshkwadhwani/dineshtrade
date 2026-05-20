@@ -105,7 +105,6 @@ export async function POST(req: NextRequest) {
   // Optional enrichment for nicer emails (Engine page passes these through).
   const target1 = order.target1 !== undefined ? Number(order.target1) : undefined
   const target2 = order.target2 !== undefined ? Number(order.target2) : undefined
-  const stopLoss = order.stopLoss !== undefined ? Number(order.stopLoss) : undefined
   const source = typeof order.source === 'string' ? order.source : 'Manual Execute'
   const reason = typeof order.reason === 'string' ? order.reason : undefined
   const symbolName = typeof order.symbolName === 'string' ? order.symbolName : undefined
@@ -202,7 +201,6 @@ export async function POST(req: NextRequest) {
       price: pricePerShare || undefined,
       target1,
       target2,
-      stopLoss,
       orderId: r.data.data.order_id,
       source,
       reason: sellQtyAdjusted
