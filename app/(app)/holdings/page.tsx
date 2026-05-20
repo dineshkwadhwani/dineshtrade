@@ -179,21 +179,29 @@ export default function HoldingsPage() {
           )}
 
           {/* Holdings totals row */}
-          {holdings.length > 0 && (
+          {holdings.length > 0 && (() => {
+            // % vs Invested for each P&L hero. Current's % is the same as Overall (capital appreciation).
+            const inv = totals.invested
+            const overallPct = inv > 0 ? (totals.pnl / inv) * 100 : null
+            const dayPct     = inv > 0 ? (totals.dayPnl / inv) * 100 : null
+            const currentPct = inv > 0 ? ((totals.current - inv) / inv) * 100 : null
+            return (
             <div className="grid grid-cols-2 sm:grid-cols-4 gap-3">
               {[
-                { label:'Invested', val:`₹${Math.round(totals.invested).toLocaleString('en-IN')}`, color:'rgba(255,255,255,0.7)' },
-                { label:'Current',  val:`₹${Math.round(totals.current).toLocaleString('en-IN')}`,  color:'#c9a84c' },
-                { label:'Overall P&L', val: fmtPnl(totals.pnl), color: totals.pnl >= 0 ? '#52b788' : '#e05a5e' },
-                { label:"Today's P&L", val: fmtPnl(totals.dayPnl), color: totals.dayPnl >= 0 ? '#52b788' : '#e05a5e' },
+                { label:'Invested',    val:`₹${Math.round(totals.invested).toLocaleString('en-IN')}`, sub: undefined,         color:'rgba(255,255,255,0.7)' },
+                { label:'Current',     val:`₹${Math.round(totals.current).toLocaleString('en-IN')}`,  sub: fmtSignedPct(currentPct), subColor: currentPct !== null && currentPct >= 0 ? '#52b788' : '#e05a5e', color:'#c9a84c' },
+                { label:'Overall P&L', val: fmtPnl(totals.pnl),    sub: fmtSignedPct(overallPct), color: totals.pnl >= 0 ? '#52b788' : '#e05a5e' },
+                { label:"Today's P&L", val: fmtPnl(totals.dayPnl), sub: fmtSignedPct(dayPct),     color: totals.dayPnl >= 0 ? '#52b788' : '#e05a5e' },
               ].map(s => (
                 <div key={s.label} className="rounded-xl p-4" style={{ background:'rgba(255,255,255,0.03)', border:'1px solid rgba(255,255,255,0.06)' }}>
                   <p className="text-[9px] tracking-widest uppercase mb-2" style={{ color:'rgba(255,255,255,0.3)', fontFamily:'JetBrains Mono, monospace' }}>{s.label}</p>
                   <p className="text-lg font-semibold" style={{ color:s.color, fontFamily:'JetBrains Mono, monospace' }}>{s.val}</p>
+                  {s.sub && <p className="text-[11px] mt-1" style={{ color: (s as any).subColor ?? s.color, opacity: 0.7, fontFamily:'JetBrains Mono, monospace' }}>{s.sub}</p>}
                 </div>
               ))}
             </div>
-          )}
+            )
+          })()}
 
           {/* Holdings table */}
           {holdings.length > 0 && (
@@ -297,6 +305,11 @@ export default function HoldingsPage() {
         }} />
     </div>
   )
+}
+
+function fmtSignedPct(p: number | null | undefined): string {
+  if (p === null || p === undefined || Number.isNaN(p)) return ''
+  return `${p >= 0 ? '+' : ''}${p.toFixed(2)}%`
 }
 
 function fmtPnl(v: number): string {
