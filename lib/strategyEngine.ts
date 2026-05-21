@@ -150,7 +150,7 @@ export async function getMarketMode(): Promise<MarketModeInfo | null> {
   const briefing = await getMarketBriefingCached()
   if (!briefing.ok || !briefing.data) return null
   const giftChangePct = parsePct(briefing.data.giftNifty?.change)
-  const circuitThreshold = strategyCfg.limits.circuitBreakerPct
+  const circuitThreshold = getCapital().circuitBreakerPct
   let mode: StrategyMode = 'catalyst'
   if (giftChangePct <= circuitThreshold) mode = 'circuit'
   else if (giftChangePct <= -0.5) mode = 'dip'
@@ -341,9 +341,9 @@ async function runStrategy2(now: string, giftChangePct: number, strategyOverride
 
   // 7. Build recommendations from survivors
   const recs: Recommendation[] = []
+  const perTradeCap = getCapital().perTrade
   for (const s of survivors) {
-    const perTrade = strategyCfg.capital.perTrade
-    const qty = Math.floor(perTrade / s.ltp)
+    const qty = Math.floor(perTradeCap / s.ltp)
     if (qty < 1) continue
 
     const t1 = +(s.ltp * (1 + exitT1 / 100)).toFixed(2)
@@ -967,8 +967,7 @@ async function runStrategy1(now: string, giftChangePct: number, strategyOverride
     if (dev < -capitulationFloor) { skippedCapitulation++; continue }
     if (v.downDays < minDownDays) { skippedDownDays++; continue }
 
-    const perTrade = strategyCfg.capital.perTrade
-    const qty = Math.floor(perTrade / ltp)
+    const qty = Math.floor(getCapital().perTrade / ltp)
     if (qty < 1) continue
 
     const prevCloseFromHist = v.lastClose
@@ -1132,8 +1131,7 @@ export async function runReactiveDipScan(strategyOverride?: Strategy): Promise<R
       if (dev < -capitulationFloor) return null  // past capitulation floor — panic / news, not mean-reversion
       if (downDays < minDownDays) return null    // not enough sustained down days
 
-      const perTrade = strategyCfg.capital.perTrade
-      const qty = Math.floor(perTrade / ltp)
+      const qty = Math.floor(getCapital().perTrade / ltp)
       if (qty < 1) return null
 
       const dayChgPct = ((ltp - prevClose) / prevClose) * 100

@@ -8,7 +8,6 @@ import { getAccountSecrets } from '@/lib/accounts'
 import { isMarketOpen } from '@/lib/market'
 import { checkIntradayCircuit } from '@/lib/intradayCircuit'
 import { checkPanicSell } from '@/lib/panicSell'
-import strategyCfg from '@/config/strategy.json'
 
 const KITE_BASE = 'https://api.kite.trade'
 
@@ -71,6 +70,12 @@ export async function runPreflight(input: PreflightInput): Promise<PreflightResu
   const market = isMarketOpen()
   if (!market.open) return { ok: false, gate: 'market', reason: `Market closed: ${market.status}` }
 
+  // Capital config from the RUNTIME overlay (data/strategy.json) — user edits
+  // in Settings → Strategies land here. Never read from `strategyCfg.*` for
+  // any field the user can edit; that's the bundled config-on-disk and ignores
+  // overlays.
+  const cap = getCapital()
+
   // GATE 2b — intraday circuit (auto BUYs only). Live NIFTY 50 vs today's open,
   // hysteresis trip/resume. Skipped for SELLs (you want exits even on a crash)
   // and manual orders (your judgement).
@@ -82,8 +87,8 @@ export async function runPreflight(input: PreflightInput): Promise<PreflightResu
   }
 
   // GATE 3 — per-trade cap (BUY only). Skipped for explicit manual orders.
-  if (!manual && side === 'BUY' && tradeValue > strategyCfg.capital.perTrade) {
-    return { ok: false, gate: 'perTrade', reason: `Trade value ₹${Math.round(tradeValue)} exceeds per-trade cap ₹${strategyCfg.capital.perTrade}` }
+  if (!manual && side === 'BUY' && tradeValue > cap.perTrade) {
+    return { ok: false, gate: 'perTrade', reason: `Trade value ₹${Math.round(tradeValue)} exceeds per-trade cap ₹${cap.perTrade}` }
   }
 
   // GATE 4 — idempotency for BUYs only. Prevents double-buying the same symbol
@@ -122,7 +127,6 @@ export async function runPreflight(input: PreflightInput): Promise<PreflightResu
   // pyramid starts fresh on the next entry. Persists across days.
   // Skipped for manual orders.
   if (!manual && side === 'BUY') {
-    const cap = getCapital()
     const maxBuys = cap.maxBuysPerSymbol
     const minDropPct = cap.minDropBetweenBuysPct
     // Check current held qty in Kite. If 0, reset the history before reading.
@@ -164,8 +168,8 @@ export async function runPreflight(input: PreflightInput): Promise<PreflightResu
       const completed = ordersJson.data.filter(o => o.status === 'COMPLETE')
       const buys = completed.filter(o => o.transaction_type === 'BUY').length
       const sells = completed.filter(o => o.transaction_type === 'SELL').length
-      const maxBuys = strategyCfg.limits.maxBuysPerDay
-      const maxSells = strategyCfg.limits.maxSellsPerDay
+      const maxBuys = cap.maxBuysPerDay
+      const maxSells = cap.maxSellsPerDay
       if (side === 'BUY' && buys >= maxBuys) {
         return { ok: false, gate: 'quota', reason: `${account}: already ${buys}/${maxBuys} buys today` }
       }
@@ -184,7 +188,7 @@ export async function runPreflight(input: PreflightInput): Promise<PreflightResu
     const holdingsCount = holdingsJson?.data?.length || 0
     const netPositions = positionsJson?.data?.net?.filter((p: any) => p.quantity !== 0).length || 0
     const totalOpen = holdingsCount + netPositions
-    const maxOpen = strategyCfg.capital.maxPositions
+    const maxOpen = cap.maxPositions
     if (totalOpen >= maxOpen) {
       return { ok: false, gate: 'positions', reason: `${account}: ${totalOpen}/${maxOpen} positions already open` }
     }
