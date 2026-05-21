@@ -508,61 +508,60 @@ export async function evaluateAllForTiles(): Promise<TileEvalResult> {
   } catch { /* fallback to 0 */ }
   // recommendedTab is now computed at the end against active strategies — see bottom of fn.
 
-  // Live quotes (batched) + daily aggregates (cached).
-  // Catalyst (Strategy 2) thresholds: prefer the user's edited catalyst params,
-  // fall back to the legacy strategy2_momentum block. Same pattern as the
-  // oscillator wiring below.
-  const catStrategy = active.find(s => s.id === 'catalyst')
-  const catParams = (catStrategy?.params || {}) as Record<string, unknown>
+  // Helpers — derive per-strategy cfg from a strategy's params, with the
+  // legacy strategy.json fallback for fields the user hasn't set. Used per
+  // active strategy so each strategy's tiles reflect its OWN thresholds.
   const legacyS2 = strategyCfg.strategy2_momentum
-  const s2cfg = {
-    scanStartHHMM:     typeof catParams.scanStartHHMM === 'string'     ? catParams.scanStartHHMM     : legacyS2.scanStartHHMM,
-    scanEndHHMM:       typeof catParams.scanEndHHMM === 'string'       ? catParams.scanEndHHMM       : legacyS2.scanEndHHMM,
-    minDayGainPct:     typeof catParams.minDayGainPct === 'number'     ? catParams.minDayGainPct     : legacyS2.minDayGainPct,
-    maxDayGainPct:     typeof catParams.maxDayGainPct === 'number'     ? catParams.maxDayGainPct     : legacyS2.maxDayGainPct,
-    emaProximityPct:   typeof catParams.emaProximityPct === 'number'   ? catParams.emaProximityPct   : legacyS2.emaProximityPct,
-    consecutiveCandles:typeof catParams.consecutiveCandles === 'number'? catParams.consecutiveCandles: legacyS2.consecutiveCandles,
-    volumeAvgDays:     typeof catParams.volumeAvgDays === 'number'     ? catParams.volumeAvgDays     : legacyS2.volumeAvgDays,
+  const legacyEma = strategyCfg.ema || { period: 20, entryBelowPct: 5, strongBuyBelowPct: 8, minDownDays: 3 }
+  function momentumCfgFor(s: Strategy | undefined) {
+    const p = (s?.params || {}) as Record<string, unknown>
+    return {
+      scanStartHHMM:     typeof p.scanStartHHMM === 'string'     ? p.scanStartHHMM     : legacyS2.scanStartHHMM,
+      scanEndHHMM:       typeof p.scanEndHHMM === 'string'       ? p.scanEndHHMM       : legacyS2.scanEndHHMM,
+      minDayGainPct:     typeof p.minDayGainPct === 'number'     ? p.minDayGainPct     : legacyS2.minDayGainPct,
+      maxDayGainPct:     typeof p.maxDayGainPct === 'number'     ? p.maxDayGainPct     : legacyS2.maxDayGainPct,
+      emaProximityPct:   typeof p.emaProximityPct === 'number'   ? p.emaProximityPct   : legacyS2.emaProximityPct,
+      consecutiveCandles:typeof p.consecutiveCandles === 'number'? p.consecutiveCandles: legacyS2.consecutiveCandles,
+      volumeAvgDays:     typeof p.volumeAvgDays === 'number'     ? p.volumeAvgDays     : legacyS2.volumeAvgDays,
+    }
   }
+  function dipCfgFor(s: Strategy | undefined) {
+    const p = (s?.params || {}) as Record<string, unknown>
+    return {
+      period:           typeof p.emaPeriod === 'number'        ? p.emaPeriod        : legacyEma.period,
+      entryBelowPct:    typeof p.entryBelowPct === 'number'    ? p.entryBelowPct    : legacyEma.entryBelowPct,
+      strongBuyBelowPct:typeof p.strongBuyBelowPct === 'number'? p.strongBuyBelowPct: legacyEma.strongBuyBelowPct,
+      minDownDays:      typeof p.minDownDays === 'number'      ? p.minDownDays      : legacyEma.minDownDays,
+      reactiveDropPct:  typeof p.reactiveDrop === 'number'     ? p.reactiveDrop     : 3,
+      capitulationFloor:typeof p.capitulationFloorPct === 'number' ? p.capitulationFloorPct : 12,
+    }
+  }
+  // Canonical strategies' cfgs — used as fallbacks for tabs that don't have a
+  // matching strategy in `active` (defensive only; normally every tab maps to a strategy).
+  const catCfgDefault = momentumCfgFor(active.find(s => s.id === 'catalyst'))
+  const accCfgDefault = dipCfgFor(active.find(s => s.id === 'accumulator'))
   // Capital block — read the runtime overlay so user edits in Settings show up
   // immediately on tiles (not just on the cron's BUY decisions).
   const capCfg = getCapital()
-  await ensureDailyAggregates(creds, symbols, s2cfg.volumeAvgDays)
+  // For the shared candle fetch + daily aggregates we use the *max* volume window
+  // across all active momentum strategies so every strategy can compute its own
+  // prorated-vs-average check off the same data.
+  const allMomentumCfgs = active.filter(s => s.type === 'momentum').map(momentumCfgFor)
+  const maxVolumeAvgDays = Math.max(catCfgDefault.volumeAvgDays, ...allMomentumCfgs.map(c => c.volumeAvgDays))
+  await ensureDailyAggregates(creds, symbols, maxVolumeAvgDays)
   const quotes = await getQuotes(creds, symbols).catch(() => ({} as Awaited<ReturnType<typeof getQuotes>>))
 
   // Scan window status (Strategy 2 only — uses scanStartHHMM/scanEndHHMM)
   const nowMin = istMinutesSinceMidnight()
-  const s2start = hhmmToMinutes(s2cfg.scanStartHHMM)
-  const s2end = hhmmToMinutes(s2cfg.scanEndHHMM)
-  const catalystScanOpen = nowMin >= s2start && nowMin <= s2end
   const SESSION_MINUTES = 375
   const elapsedMin = Math.max(1, nowMin - hhmmToMinutes('09:15'))
 
-  // Market hours check (Strategy 1) — 9:15–15:30
+  // Market hours check (any dip strategy) — 9:15–15:30
   const marketOpenMin = hhmmToMinutes('09:15')
   const marketCloseMin = hhmmToMinutes('15:30')
   const marketOpen = nowMin >= marketOpenMin && nowMin <= marketCloseMin
 
-  // Strategy 1 (Oscillator) thresholds. Prefer the live oscillator strategy's
-  // params (so the tile visualisation reflects what the cron will actually use);
-  // fall back to the legacy `ema` block + hardcoded defaults if the strategy
-  // doesn't expose them.
-  const oscStrategy = active.find(s => s.id === 'accumulator')
-  const oscParams = (oscStrategy?.params || {}) as Record<string, unknown>
-  const legacyEma = strategyCfg.ema || { period: 20, entryBelowPct: 5, strongBuyBelowPct: 8, minDownDays: 3 }
-  const emaCfg = {
-    period:           typeof oscParams.emaPeriod === 'number'        ? oscParams.emaPeriod        : legacyEma.period,
-    entryBelowPct:    typeof oscParams.entryBelowPct === 'number'    ? oscParams.entryBelowPct    : legacyEma.entryBelowPct,
-    strongBuyBelowPct:typeof oscParams.strongBuyBelowPct === 'number'? oscParams.strongBuyBelowPct: legacyEma.strongBuyBelowPct,
-    minDownDays:      typeof oscParams.minDownDays === 'number'      ? oscParams.minDownDays      : legacyEma.minDownDays,
-  }
-  const reactiveDropPct = typeof oscParams.reactiveDrop === 'number' ? oscParams.reactiveDrop : 3
-  // Capitulation floor — tiles hide / mark red anything more than this many %
-  // below 20-EMA (panic / news-event territory, not mean-reversion). Default 12
-  // matches the old hardcoded value.
-  const capitulationFloor = typeof oscParams.capitulationFloorPct === 'number' ? oscParams.capitulationFloorPct : 12
-
-  // Per-symbol data snapshot used by both Catalyst + Oscillator rule evaluations.
+  // Per-symbol data snapshot used by every per-strategy rule evaluation.
   // We populate this once from quotes + the daily-aggregate cache.
   const dataBySymbol = new Map<string, {
     ltp: number; volume: number; prevClose: number; ema20: number; avgVol10d: number;
@@ -584,13 +583,11 @@ export async function evaluateAllForTiles(): Promise<TileEvalResult> {
     })
   }
 
-  // 5-min candle check — evaluated for EVERY List A symbol so the rule always
-  // resolves to green/red on the tile (never "not evaluated"). At Kite's
-  // historical rate limit (~3/sec safe) this takes ~30 sec for 80 symbols on
-  // a cold cache; subsequent calls within 60 sec hit Next.js' route handler
-  // cache. The `_logFirst` flag prints the raw request + response for the
-  // first symbol so we can see exactly what Kite returns.
-  const risingBySymbol = new Map<string, boolean>()
+  // 5-min candle CLOSES — evaluated for EVERY List A symbol so each per-strategy
+  // rule eval can slice its own `consecutiveCandles` count. Storing the full
+  // close array (not a boolean) lets one strategy check 3 candles while another
+  // checks 2 from the same fetch.
+  const candleClosesBySymbol = new Map<string, number[]>()
   const { getInstrumentToken } = await import('./instruments')
   const today = istDateString()
   const fromTs = `${today} 09:15:00`
@@ -599,212 +596,218 @@ export async function evaluateAllForTiles(): Promise<TileEvalResult> {
   await mapWithLimit(symbols, 5, async (symbol) => {
     try {
       const token = await getInstrumentToken(creds, symbol)
-      if (!token) { risingBySymbol.set(symbol, false); return }
+      if (!token) { candleClosesBySymbol.set(symbol, []); return }
       const shouldLog = !logged
       if (shouldLog) logged = true
       const candles = await getHistoricalCandles(creds, token, fromTs, toTs, '5minute', shouldLog)
       if (shouldLog) {
         console.log(`[tiles candles] ${symbol}: parsed ${candles.length} candle(s). Last 4 closes: ${candles.slice(-4).map(c => c.close.toFixed(2)).join(' → ')}`)
       }
-      if (candles.length < s2cfg.consecutiveCandles) { risingBySymbol.set(symbol, false); return }
-      const lastN = candles.slice(-s2cfg.consecutiveCandles)
-      let rising = true
-      for (let i = 1; i < lastN.length; i++) {
-        if (lastN[i].close <= lastN[i - 1].close) { rising = false; break }
-      }
-      risingBySymbol.set(symbol, rising)
+      candleClosesBySymbol.set(symbol, candles.map(c => c.close))
     } catch (err) {
       console.warn(`[tiles candles] ${symbol} failed:`, String(err).slice(0, 120))
-      risingBySymbol.set(symbol, false)
+      candleClosesBySymbol.set(symbol, [])
     }
   })
 
-  // Build Catalyst + Oscillator tiles in parallel
-  const catalyst: Tile[] = []
-  const oscillator: Tile[] = []
+  // Per-strategy rule builders. Each takes a strategy, derives its OWN cfg,
+  // and returns a Tile[] using ONLY that strategy's params — no cross-strategy
+  // contamination. Custom momentum strategies (e.g. Market Boom with
+  // minDayGainPct: 1.5) now show their actual thresholds on the tiles.
+  function buildMomentumTilesFor(s: Strategy): Tile[] {
+    const cfg = momentumCfgFor(s)
+    const startMin = hhmmToMinutes(cfg.scanStartHHMM)
+    const endMin = hhmmToMinutes(cfg.scanEndHHMM)
+    const scanOpen = nowMin >= startMin && nowMin <= endMin
+    const tiles: Tile[] = []
+    for (const sym of symbols) {
+      const d = dataBySymbol.get(sym)!
+      const dayGainPct = d.prevClose > 0 ? ((d.ltp - d.prevClose) / d.prevClose) * 100 : 0
+      const emaDev = d.ema20 > 0 ? ((d.ltp - d.ema20) / d.ema20) * 100 : 0
+      const proratedAvgVol = d.avgVol10d * (elapsedMin / SESSION_MINUTES)
 
-  for (const sym of symbols) {
-    const d = dataBySymbol.get(sym)!
-    const dayGainPct = d.prevClose > 0 ? ((d.ltp - d.prevClose) / d.prevClose) * 100 : 0
-    const emaDev = d.ema20 > 0 ? ((d.ltp - d.ema20) / d.ema20) * 100 : 0
-    const proratedAvgVol = d.avgVol10d * (elapsedMin / SESSION_MINUTES)
+      // Per-strategy rising check — slice last N from the shared closes array.
+      // Different strategies can require different counts (e.g. catalyst=3, market_boom=2).
+      const closes = candleClosesBySymbol.get(sym) || []
+      const N = cfg.consecutiveCandles
+      let candleRising = false
+      if (closes.length >= N) {
+        candleRising = true
+        const lastN = closes.slice(-N)
+        for (let i = 1; i < lastN.length; i++) {
+          if (lastN[i] <= lastN[i - 1]) { candleRising = false; break }
+        }
+      }
 
-    // ── CATALYST RULES (8) ──
-    const catRules: RuleEval[] = []
-    catRules.push({
-      id: 'scan_window',
-      label: `Within scan window (${s2cfg.scanStartHHMM}–${s2cfg.scanEndHHMM} IST)`,
-      passed: catalystScanOpen,
-      actual: catalystScanOpen ? 'inside window' : 'outside window',
-      threshold: `${s2cfg.scanStartHHMM}–${s2cfg.scanEndHHMM}`,
-    })
-    catRules.push({
-      id: 'gain_min',
-      label: `Day gain ≥ ${s2cfg.minDayGainPct >= 0 ? '+' : ''}${s2cfg.minDayGainPct}%`,
-      passed: d.hasQuote && d.hasAgg && dayGainPct >= s2cfg.minDayGainPct,
-      actual: d.hasQuote && d.hasAgg ? fmtPct(dayGainPct) : '—',
-      threshold: `≥ ${s2cfg.minDayGainPct >= 0 ? '+' : ''}${s2cfg.minDayGainPct}%`,
-    })
-    catRules.push({
-      id: 'gain_max',
-      label: `Day gain ≤ ${s2cfg.maxDayGainPct >= 0 ? '+' : ''}${s2cfg.maxDayGainPct}%`,
-      passed: d.hasQuote && d.hasAgg && dayGainPct <= s2cfg.maxDayGainPct,
-      actual: d.hasQuote && d.hasAgg ? fmtPct(dayGainPct) : '—',
-      threshold: `≤ ${s2cfg.maxDayGainPct >= 0 ? '+' : ''}${s2cfg.maxDayGainPct}%`,
-    })
-    const candleRising = risingBySymbol.get(sym) === true
-    catRules.push({
-      id: 'rising_candles',
-      label: `${s2cfg.consecutiveCandles}+ rising 5-min candles`,
-      passed: candleRising,
-      actual: candleRising ? `last ${s2cfg.consecutiveCandles} rising` : 'not rising',
-      threshold: `${s2cfg.consecutiveCandles} in a row`,
-    })
-    const volMult = proratedAvgVol > 0 ? d.volume / proratedAvgVol : 0
-    catRules.push({
-      id: 'volume',
-      label: 'Volume > prorated 10-day avg',
-      passed: d.hasAgg && d.volume > 0 && proratedAvgVol > 0 && d.volume >= proratedAvgVol,
-      actual: d.hasAgg && proratedAvgVol > 0 ? `${volMult.toFixed(2)}× avg` : '—',
-      threshold: '> 1.00×',
-    })
-    catRules.push({
-      id: 'ema_proximity',
-      label: `LTP within ±${s2cfg.emaProximityPct}% of 20-EMA`,
-      passed: d.hasAgg && Math.abs(emaDev) <= s2cfg.emaProximityPct,
-      actual: d.hasAgg ? `${emaDev >= 0 ? '+' : ''}${emaDev.toFixed(2)}% vs EMA ₹${d.ema20.toFixed(2)}` : '—',
-      threshold: `±${s2cfg.emaProximityPct}%`,
-    })
-    catRules.push({
-      id: 'data',
-      label: 'Live quote + 20-EMA available',
-      passed: d.hasQuote && d.hasAgg,
-      actual: d.hasQuote && d.hasAgg ? 'OK' : !d.hasQuote ? 'no quote' : 'no EMA',
-    })
-    // Funds: rule shows whether per-trade cap can be afforded. Since we don't
-    // know per-account funds in this evaluator (it's account-agnostic), we
-    // treat it as a structural check — per-trade cap defined > 0. The route
-    // layer can overlay account-specific funds availability if needed.
-    catRules.push({
-      id: 'funds',
-      label: 'Per-trade cap configured',
-      passed: capCfg.perTrade > 0,
-      actual: `₹${capCfg.perTrade.toLocaleString('en-IN')}`,
-      threshold: `> 0`,
-    })
+      const rules: RuleEval[] = []
+      rules.push({
+        id: 'scan_window',
+        label: `Within scan window (${cfg.scanStartHHMM}–${cfg.scanEndHHMM} IST)`,
+        passed: scanOpen,
+        actual: scanOpen ? 'inside window' : 'outside window',
+        threshold: `${cfg.scanStartHHMM}–${cfg.scanEndHHMM}`,
+      })
+      rules.push({
+        id: 'gain_min',
+        label: `Day gain ≥ ${cfg.minDayGainPct >= 0 ? '+' : ''}${cfg.minDayGainPct}%`,
+        passed: d.hasQuote && d.hasAgg && dayGainPct >= cfg.minDayGainPct,
+        actual: d.hasQuote && d.hasAgg ? fmtPct(dayGainPct) : '—',
+        threshold: `≥ ${cfg.minDayGainPct >= 0 ? '+' : ''}${cfg.minDayGainPct}%`,
+      })
+      rules.push({
+        id: 'gain_max',
+        label: `Day gain ≤ ${cfg.maxDayGainPct >= 0 ? '+' : ''}${cfg.maxDayGainPct}%`,
+        passed: d.hasQuote && d.hasAgg && dayGainPct <= cfg.maxDayGainPct,
+        actual: d.hasQuote && d.hasAgg ? fmtPct(dayGainPct) : '—',
+        threshold: `≤ ${cfg.maxDayGainPct >= 0 ? '+' : ''}${cfg.maxDayGainPct}%`,
+      })
+      rules.push({
+        id: 'rising_candles',
+        label: `${cfg.consecutiveCandles}+ rising 5-min candles`,
+        passed: candleRising,
+        actual: candleRising ? `last ${cfg.consecutiveCandles} rising` : 'not rising',
+        threshold: `${cfg.consecutiveCandles} in a row`,
+      })
+      const volMult = proratedAvgVol > 0 ? d.volume / proratedAvgVol : 0
+      rules.push({
+        id: 'volume',
+        label: 'Volume > prorated 10-day avg',
+        passed: d.hasAgg && d.volume > 0 && proratedAvgVol > 0 && d.volume >= proratedAvgVol,
+        actual: d.hasAgg && proratedAvgVol > 0 ? `${volMult.toFixed(2)}× avg` : '—',
+        threshold: '> 1.00×',
+      })
+      rules.push({
+        id: 'ema_proximity',
+        label: `LTP within ±${cfg.emaProximityPct}% of 20-EMA`,
+        passed: d.hasAgg && Math.abs(emaDev) <= cfg.emaProximityPct,
+        actual: d.hasAgg ? `${emaDev >= 0 ? '+' : ''}${emaDev.toFixed(2)}% vs EMA ₹${d.ema20.toFixed(2)}` : '—',
+        threshold: `±${cfg.emaProximityPct}%`,
+      })
+      rules.push({
+        id: 'data',
+        label: 'Live quote + 20-EMA available',
+        passed: d.hasQuote && d.hasAgg,
+        actual: d.hasQuote && d.hasAgg ? 'OK' : !d.hasQuote ? 'no quote' : 'no EMA',
+      })
+      rules.push({
+        id: 'funds',
+        label: 'Per-trade cap configured',
+        passed: capCfg.perTrade > 0,
+        actual: `₹${capCfg.perTrade.toLocaleString('en-IN')}`,
+        threshold: `> 0`,
+      })
 
-    catalyst.push({
-      symbol: sym,
-      name: nameBySymbol.get(sym) || sym,
-      ltp: d.ltp,
-      prevClose: d.prevClose,
-      dayChangePct: dayGainPct,
-      rules: catRules,
-      score: catRules.filter(r => r.passed).length,
-      total: catRules.length,
-    })
-
-    // ── OSCILLATOR RULES (8) ──
-    // We don't have consecutiveDownDays cached, so we approximate from
-    // historical candles via the daily aggregate cache. The aggregate doesn't
-    // currently store down-days, so we mark the rule as evaluated only when
-    // the cache has fresh data and skip otherwise.
-    const oscRules: RuleEval[] = []
-    oscRules.push({
-      id: 'market_open',
-      label: 'Market open (9:15–15:30 IST)',
-      passed: marketOpen,
-      actual: marketOpen ? 'open' : 'closed',
-      threshold: '09:15–15:30',
-    })
-    oscRules.push({
-      id: 'ema_available',
-      label: '20-day EMA computable',
-      passed: d.hasAgg,
-      actual: d.hasAgg ? `₹${d.ema20.toFixed(2)}` : '—',
-    })
-    oscRules.push({
-      id: 'below_ema_min',
-      label: `LTP ≥ ${emaCfg.entryBelowPct}% below 20-EMA`,
-      passed: d.hasAgg && emaDev <= -emaCfg.entryBelowPct,
-      actual: d.hasAgg ? `${emaDev.toFixed(2)}% vs EMA` : '—',
-      threshold: `≤ −${emaCfg.entryBelowPct}%`,
-    })
-    oscRules.push({
-      id: 'below_ema_max',
-      label: `LTP ≤ ${capitulationFloor}% below 20-EMA (not panic)`,
-      passed: d.hasAgg && emaDev >= -capitulationFloor,
-      actual: d.hasAgg ? `${emaDev.toFixed(2)}% vs EMA` : '—',
-      threshold: `≥ −${capitulationFloor}%`,
-    })
-    // Today as down day if intraday drop ≥ the strategy's reactiveDrop %
-    // (matches what the live reactive scan uses to decide a BUY).
-    const todayDown = dayGainPct <= -reactiveDropPct
-    oscRules.push({
-      id: 'intraday_drop',
-      label: `Today ≥${reactiveDropPct}% drop (reactive trigger)`,
-      passed: todayDown,
-      actual: d.hasQuote && d.hasAgg ? fmtPct(dayGainPct) : '—',
-      threshold: `≤ −${reactiveDropPct}%`,
-    })
-    oscRules.push({
-      id: 'live_data',
-      label: 'Live LTP available',
-      passed: d.hasQuote,
-      actual: d.hasQuote ? `₹${d.ltp.toFixed(2)}` : '—',
-    })
-    oscRules.push({
-      id: 'funds',
-      label: 'Per-trade cap configured',
-      passed: capCfg.perTrade > 0,
-      actual: `₹${capCfg.perTrade.toLocaleString('en-IN')}`,
-    })
-    oscRules.push({
-      id: 'position_room',
-      label: `Position cap (max ${capCfg.maxPositions})`,
-      passed: capCfg.maxPositions > 0,
-      actual: `cap = ${capCfg.maxPositions}`,
-    })
-
-    oscillator.push({
-      symbol: sym,
-      name: nameBySymbol.get(sym) || sym,
-      ltp: d.ltp,
-      prevClose: d.prevClose,
-      dayChangePct: dayGainPct,
-      rules: oscRules,
-      score: oscRules.filter(r => r.passed).length,
-      total: oscRules.length,
-    })
+      tiles.push({
+        symbol: sym,
+        name: nameBySymbol.get(sym) || sym,
+        ltp: d.ltp, prevClose: d.prevClose, dayChangePct: dayGainPct,
+        rules, score: rules.filter(r => r.passed).length, total: rules.length,
+      })
+    }
+    return tiles
   }
 
-  // Sort by score descending, then by symbol asc within same score
-  // Sort: highest score first (better prospects on top). Within the same
-  // score tier, break ties by today's day change descending — a stock that's
-  // already moving in the strategy's favour is a better next-tick candidate
-  // than one sitting flat. Finally fall back to alphabetical for full ties.
+  function buildDipTilesFor(s: Strategy): Tile[] {
+    const cfg = dipCfgFor(s)
+    const tiles: Tile[] = []
+    for (const sym of symbols) {
+      const d = dataBySymbol.get(sym)!
+      const dayGainPct = d.prevClose > 0 ? ((d.ltp - d.prevClose) / d.prevClose) * 100 : 0
+      const emaDev = d.ema20 > 0 ? ((d.ltp - d.ema20) / d.ema20) * 100 : 0
+
+      const rules: RuleEval[] = []
+      rules.push({
+        id: 'market_open',
+        label: 'Market open (9:15–15:30 IST)',
+        passed: marketOpen,
+        actual: marketOpen ? 'open' : 'closed',
+        threshold: '09:15–15:30',
+      })
+      rules.push({
+        id: 'ema_available',
+        label: '20-day EMA computable',
+        passed: d.hasAgg,
+        actual: d.hasAgg ? `₹${d.ema20.toFixed(2)}` : '—',
+      })
+      rules.push({
+        id: 'below_ema_min',
+        label: `LTP ≥ ${cfg.entryBelowPct}% below 20-EMA`,
+        passed: d.hasAgg && emaDev <= -cfg.entryBelowPct,
+        actual: d.hasAgg ? `${emaDev.toFixed(2)}% vs EMA` : '—',
+        threshold: `≤ −${cfg.entryBelowPct}%`,
+      })
+      rules.push({
+        id: 'below_ema_max',
+        label: `LTP ≤ ${cfg.capitulationFloor}% below 20-EMA (not panic)`,
+        passed: d.hasAgg && emaDev >= -cfg.capitulationFloor,
+        actual: d.hasAgg ? `${emaDev.toFixed(2)}% vs EMA` : '—',
+        threshold: `≥ −${cfg.capitulationFloor}%`,
+      })
+      const todayDown = dayGainPct <= -cfg.reactiveDropPct
+      rules.push({
+        id: 'intraday_drop',
+        label: `Today ≥${cfg.reactiveDropPct}% drop (reactive trigger)`,
+        passed: todayDown,
+        actual: d.hasQuote && d.hasAgg ? fmtPct(dayGainPct) : '—',
+        threshold: `≤ −${cfg.reactiveDropPct}%`,
+      })
+      rules.push({
+        id: 'live_data',
+        label: 'Live LTP available',
+        passed: d.hasQuote,
+        actual: d.hasQuote ? `₹${d.ltp.toFixed(2)}` : '—',
+      })
+      rules.push({
+        id: 'funds',
+        label: 'Per-trade cap configured',
+        passed: capCfg.perTrade > 0,
+        actual: `₹${capCfg.perTrade.toLocaleString('en-IN')}`,
+      })
+      rules.push({
+        id: 'position_room',
+        label: `Position cap (max ${capCfg.maxPositions})`,
+        passed: capCfg.maxPositions > 0,
+        actual: `cap = ${capCfg.maxPositions}`,
+      })
+
+      tiles.push({
+        symbol: sym,
+        name: nameBySymbol.get(sym) || sym,
+        ltp: d.ltp, prevClose: d.prevClose, dayChangePct: dayGainPct,
+        rules, score: rules.filter(r => r.passed).length, total: rules.length,
+      })
+    }
+    return tiles
+  }
+
+  // Sort: highest score first; within same score, by day-change desc, then symbol.
   const byScore = (a: Tile, b: Tile) =>
     b.score - a.score ||
     b.dayChangePct - a.dayChangePct ||
     a.symbol.localeCompare(b.symbol)
-  catalyst.sort(byScore)
-  oscillator.sort(byScore)
 
-  // tilesByStrategy: each active strategy gets a tile array. For the canonical
-  // 'catalyst' / 'accumulator' strategies, reuse the arrays we just built. For
-  // any other active momentum strategy (e.g. Market Boom), we surface the
-  // catalyst tiles as a *starting* approximation — Phase 3 doesn't yet rebuild
-  // tile evaluation per strategy params; that's Phase 4. The cron framework
-  // already uses the strategy's own params for BUY decisions, so behaviour-
-  // wise auto-mode is correct; only the per-tab tile rule display is shared.
+  // Build per-strategy tile arrays. EVERY strategy uses its OWN params now.
   const tilesByStrategy: Record<string, Tile[]> = {}
   for (const s of active) {
-    if (s.id === 'accumulator') tilesByStrategy[s.id] = oscillator
-    else if (s.id === 'catalyst') tilesByStrategy[s.id] = catalyst
-    else if (s.type === 'momentum') tilesByStrategy[s.id] = catalyst
-    else if (s.type === 'dip') tilesByStrategy[s.id] = oscillator
-    else tilesByStrategy[s.id] = []
+    let tiles: Tile[] = []
+    if (s.type === 'momentum') tiles = buildMomentumTilesFor(s)
+    else if (s.type === 'dip') tiles = buildDipTilesFor(s)
+    tiles.sort(byScore)
+    tilesByStrategy[s.id] = tiles
   }
+
+  // Legacy back-compat arrays — derived from the canonical strategies' tiles.
+  const catalyst = tilesByStrategy['catalyst'] || []
+  const oscillator = tilesByStrategy['accumulator'] || []
+
+  // Response-level `catalystScanOpen` — canonical catalyst's scan window
+  // (used by the response shape for back-compat). Other strategies' scan
+  // windows are reflected in their tiles' `scan_window` rule.
+  const catalystScanOpen = (() => {
+    const start = hhmmToMinutes(catCfgDefault.scanStartHHMM)
+    const end = hhmmToMinutes(catCfgDefault.scanEndHHMM)
+    return nowMin >= start && nowMin <= end
+  })()
 
   // Pick recommended tab: the one matching market mode if among active,
   // else the first active strategy.

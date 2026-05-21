@@ -88,19 +88,6 @@ export default function ManageListsPage() {
     })
   }, [wl])
 
-  const existingSet = useMemo(() => {
-    if (!wl) return new Set<string>()
-    const s = new Set<string>()
-    for (const k of orderedKeys) wl.lists[k].forEach(e => s.add(e.nse))
-    return s
-  }, [wl, orderedKeys])
-
-  function listContaining(symbol: string): string | null {
-    if (!wl) return null
-    for (const k of orderedKeys) if (wl.lists[k].some(e => e.nse === symbol)) return k
-    return null
-  }
-
   function add(target: string, r: SearchResult) {
     if (!wl) return
     // A symbol CAN live in multiple lists (e.g. listed in both "Top Volume" and

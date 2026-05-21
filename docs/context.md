@@ -1,7 +1,7 @@
 # DineshTrade — Project Context
 
-**Last Updated:** 20 May 2026
-**Version:** 1.3
+**Last Updated:** 21 May 2026
+**Version:** 1.4
 **Purpose:** Single source of truth on who, what, and why. Upload to any new Claude session to bootstrap full context.
 
 ---
@@ -50,51 +50,71 @@ Win rate 94–100% in peak years. Brokerage paid 6 years: ₹4,89,748 (7.6% of g
 
 ---
 
-## 4. The Two Strategies (Implemented)
+## 4. The Strategies (Multi-strategy Framework)
 
-### Strategy 1 — "The Oscillator" (Mean Reversion)
+The original "two strategies" model evolved on 21 May into a **multi-strategy framework**. Each strategy is a JSON record in `data/strategy.json` with its own type, watchlist, exits, and handoff window. Two ship by default:
+
+### Strategy 1 — "Accumulator" (Mean Reversion · permanent keeper)
+
+*Renamed from "Oscillator" on 21 May 2026. Internal id: `accumulator`.*
+
 - **Trigger:** Stock 5–8% below 20-day EMA + 3+ consecutive down days
-- **Tranche 1 exit:** SELL 50% when LTP recovers to EMA
-- **Tranche 2 exit:** SELL remaining 50% when LTP ≥ EMA × 1.03 (EMA + 3%, no time stop)
-- **Target:** ~4–5% per trade total
-- **When used:** "Dip mode" (gap-down days where GIFT Nifty < −0.5%)
+- **Capitulation floor:** stocks > 12% below EMA are rejected as panic, not mean-reversion (configurable per-strategy via `capitulationFloorPct`)
+- **Tranche 1 exit:** SELL 50% when LTP ≥ entry × (1 + t1Pct/100)
+- **Tranche 2 exit:** SELL remaining 50% when LTP ≥ entry × (1 + t2Pct/100). No time stop.
+- **When used:** "Dip mode" (gap-down days where GIFT Nifty < −0.5%) + reactive intraday drops
+- **Structural role:** the **universal parking lot**. Every other strategy's position migrates here after its `deliveryHandoffDays` window expires, or when its source strategy is deactivated/deleted. Cannot itself be deactivated or deleted.
 
-### Strategy 2 — "The Daily Catalyst" (Intraday momentum)
-- **Trigger (momentum-based, replaced the original broker-rec filter):**
+### Strategy 2 — "Catalyst" (Intraday momentum · default sibling)
+
+*Internal id: `catalyst`.*
+
+- **Trigger (momentum-based):**
   - Day gain between **+0.5% and +1.5%**
   - **3+ rising 5-min candles** in a row
   - Volume > prorated 10-day average
   - LTP within ±3% of 20-day EMA
   - Scan window: 9:30–14:30 IST
-- **Exit T1:** +1.5% → SELL immediately
-- **Exit T2:** +2.0% → SELL immediately
-- **3:00 PM cutoff:** If neither exit hit, hand off to Strategy 1 (delivery)
+- **Exit T1:** entry × 1.015 → SELL 50% immediately
+- **Exit T2:** entry × 1.020 → SELL remainder
+- **Handoff:** if `firstBuyAt` age ≥ `deliveryHandoffDays` (default 15) the position's `strategyId` is re-stamped to `accumulator` — accumulator's EMA-based exits take over.
 - **When used:** "Catalyst mode" (positive/flat days)
+
+### Custom strategies (user-created)
+
+Users can create additional **dip** or **momentum** strategies via Settings → Strategies (e.g. "quickwin" with T1=1.0%, T2=1.2%, handoff=5d). Each gets its own `dt-<id>` order tag, its own row in `data/positions.json`, and its own monitor params. Universal parking lot is hard-coded to `accumulator` — any custom strategy's positions flow there on expiry/deactivate/delete.
 
 ### Market Mode
 | GIFT Nifty | Mode | Engine |
 |---|---|---|
 | Positive / flat | Catalyst | Strategy 2 |
-| Gap-down < −0.5% | Dip | Strategy 1 |
-| −5% or more | Circuit | No trades |
+| Gap-down < −0.5% | Dip | Strategy 1 (Accumulator) |
+| −5% or worse | Circuit | No trades |
 
 ---
 
-## 5. Hard Stop Rules (8 Preflight Gates)
+## 5. Hard Stop Rules (10 Preflight Gates)
 
-Every order (auto or manual) passes through `runPreflight()`. The eight gates:
+Every order (auto or manual) passes through `runPreflight()`. Gates fire in order; first failure short-circuits with `{ ok: false, gate, reason }`.
 
 1. **Token** — Kite access token must be valid
 2. **Market open** — 9:15–15:30 IST, weekdays, non-holiday
+2b. **Intraday circuit** — *(auto-BUY only)* live NIFTY 50 vs today's open. Trips when drop ≤ `intradayCircuitTripPct` (default 0 = disabled). Hysteresis resume at `intradayCircuitResumePct`. Doesn't block exits or manual orders.
 3. **Per-trade cap** — order value ≤ ₹5,000 (auto only; manual bypasses)
 4. **Idempotency** — one BUY per `${account}:${date}:${symbol}` (auto only)
+4b. **Panic-sell** — *(auto-BUY only)* per-symbol drop from peak in last N min (from 5-min candles). Default 0 = disabled. Once tripped, the symbol joins `state.panicSkipList[today]` and is blocked for the rest of the IST day. Persists across restarts.
+4c. **Pyramid** — *(auto-BUY only)* max BUYs per symbol + minimum drop between consecutive BUYs.
 5. **Day quota** — max 3 BUYs / 3 SELLs per day per account (auto only)
 6. **Position cap** — max 10 open positions per account (BUY only)
 7. **Funds** — live margin check before BUY (BUY only)
 8. **No-short** — fetch live held qty, clamp SELL to held, never short
-   - Also: **No-loss-sell** rider — Auto SELLs never fire if LTP < entry
+   - Also: **No-loss-sell** rider — Auto SELLs never fire if LTP < entry. Manual SELLs are exempt — user judgement.
 
-Manual trades bypass gates 3, 4, 5 (rate-limits). Gates 1, 2, 7, 8 always apply.
+Manual trades bypass gates 2b, 3, 4, 4b, 4c, 5 (rate-limit + auto-only safety gates). Gates 1, 2, 6, 7, 8 always apply.
+
+**The GIFT-Nifty pre-market circuit** lives at the `capital.circuitBreakerPct` level (default −5%): if GIFT Nifty drops that much pre-market, `generateRecommendations()` short-circuits with `mode: 'circuit'` and no BUYs scan that day. Separate from gate 2b which is live intraday.
+
+**StopLoss removed (21 May 2026):** earlier UI surfaced an "SL" reference field on Engine recommendations. Removed because no auto-SELL ever fires below entry (no-loss-sell rider) — the number was misleading.
 
 Total corpus: ₹50,000. CNC + MIS supported. NSE only.
 
@@ -120,9 +140,10 @@ Plan: **Kite Connect ₹500/month** per account (needed for live `/quote` + hist
 
 ---
 
-## 7. Watchlist
+## 7. Watchlist (Named Multi-List)
 
-Generated from 5 years of actual trade history.
+The seed lists are derived from 5 years of actual trade history:
+
 - Traded only once: excluded
 - Not traded since May 2024: excluded
 - STAR (Strides Pharma): manually blocklisted
@@ -131,7 +152,29 @@ Generated from 5 years of actual trade history.
 
 Top List A: BAJFINANCE (91), TMPV (81), RELIANCE (74), BIRLACORPN (62), TATASTEEL (60), MARUTI (53), INDUSINDBK (50), BAJAJ-AUTO (46), JSWSTEEL (45), M&M (44).
 
-Full list: `config/watchlist.json`.
+### Schema (21 May 2026 — named-list refactor)
+
+`config/watchlist.json` seeds + `data/watchlist.json` overrides:
+
+```json
+{
+  "meta":  { "listA": { "name": "List A" }, "listB": { "name": "List B" } },
+  "lists": { "listA": [...], "listB": [...], "list3": [...] }
+}
+```
+
+- **Stable internal keys** (`listA`, `listB`, `list3`, …) — never change, so renaming a list never touches `strategy.json`.
+- **Editable display names** in `meta[key].name` (max 40 chars).
+- **N lists supported** — create / rename / delete from `/manage-lists`. Listed default symbols seed `listA` and `listB`.
+- **Same symbol can live in multiple lists** (e.g. BAJFINANCE in both "Top Volume" and "Dip Candidates"). Strategies dedupe by NSE symbol at scan time.
+
+### Strategy ↔ list linkage
+
+Each strategy carries a `watchlist: string[]` of internal keys it scans. Settings → Strategies → Watchlist multi-select shows display names but stores keys. The engine flat-maps and dedupes across selected lists per scan tick.
+
+### Delete safety
+
+`listA` and `listB` cannot be deleted (always-on pair). Any other list refuses delete with 409 if any strategy's `watchlist` array references its key — user must unhook from Settings first.
 
 ---
 
@@ -171,6 +214,42 @@ Full list: `config/watchlist.json`.
 - Square Off — opens OrderModal pre-filled with SELL · held qty · matching product (MIS/CNC) · MARKET · LTP. Manual override of auto: after fill, S1 monitor's noShort gate removes the symbol from `strategy1.json`; S2 monitor's `qty <= 0` branch skips. Same `dt-manual` tag path.
 - "Today's Positions" nav item added between Holdings and Today's Orders.
 
+### Phase 5 — built on 20–21 May 2026
+
+#### Unified position store + universal parking lot
+
+- New `lib/positions.ts` — single store at `data/positions.json` keyed by `(account, symbol)` with a **`strategyId`** field on every row. One-shot migration on first load: legacy `strategy1.json` rows stamp `strategyId: 'accumulator'`; `strategy2_positions.json` rows stamp `strategyId: 'catalyst'`. Old files renamed `.migrated` (recoverable).
+- **Per-strategy exit profiles** — both monitors look up `getStrategyById(pos.strategyId)` per loop iteration and use *that* strategy's T1/T2 + handoff window. Custom strategies (e.g. "quickwin") get their own exits at runtime, not the catalyst default.
+- **`accumulator` is the universal parking lot** — every momentum strategy hands off here when `deliveryHandoffDays` elapses; deactivating / deleting any other strategy migrates its open positions to accumulator via `migrateStrategyId(from, 'accumulator')`. Settings UI protects accumulator's Active toggle + Delete button; API refuses payloads where accumulator is missing or inactive.
+- **Strategy rename** — `oscillator` → `accumulator` across config seed, code literals, type unions, journal `StrategyTag`. Runtime migration in `lib/strategyConfigStore.ts:getRuntimeStrategyConfig()` rewrites legacy `data/strategy.json` entries on first read.
+- **Tile-BUY tag scheme** — Engine page tile BUY (and rec-card Execute) tags Kite orders as `dt-${strategy.id}` instead of legacy `dt-s1` / `dt-s2`. `/api/zerodha` parses the tag → `strategyId` and routes to `positions.recordBuy()`. Legacy tags still understood for back-compat.
+- **Positions page tag pill** — `PositionTag` shape is now `{ kind, strategyId?, label, color }`. Rendered from each strategy's display name + color (driven by the store's `strategyId`, falling back to order-tag inference for legacy / OOS rows).
+
+#### New preflight gates
+
+- **Intraday circuit** (`lib/intradayCircuit.ts`) — live NIFTY 50 vs today's open. Hysteresis trip/resume. Module-level state machine. 30 s quote cache; holds last-known state if quote fetch fails. Capital fields `intradayCircuitTripPct` + `intradayCircuitResumePct`.
+- **Panic-sell** (`lib/panicSell.ts`) — per-symbol peak-to-current drop in last N minutes from the 5-min candle cache. Tripped symbols join `state.panicSkipList[YYYY-MM-DD]` (persistent) and short-circuit all subsequent auto-BUYs that day. Capital fields `panicDropPct` + `panicWindowMin`.
+- **Capitulation floor enforced in BUY scan** — `runStrategy1` + `runReactiveDipScan` reject `dev < −capitulationFloorPct`. Previously this was a tile-display-only filter.
+
+#### Engine improvements
+
+- **Disk-backed daily-closes cache** (`lib/dailyCloses.ts`) — replaces the morning 60-day-per-symbol historical re-fetch with an incremental "fetch yesterday's bar only" path. Persistent `data/daily-closes.json`, max 60 entries per symbol, atomic write. Cold-start writes full window; subsequent days do single-bar appends. Logs `[dailyCloses] refresh — cold:X incremental:Y failed:Z skipped:W`.
+- **Engine tile labels driven by live config** — per-strategy params (`entryBelowPct`, `reactiveDrop`, `capitulationFloorPct`, etc.) and capital fields (`perTrade`, `maxPositions`) flow into the rule labels + checks on tiles. Previously many were hardcoded.
+- **T1 quantity handling** — Kite's holdings split `quantity` (settled) vs `t1_quantity` (bought today, in T+1 settlement). Holdings totals, Dashboard P&L, /api/capital, retrospective open positions, and tile holdings now sum both.
+- **StopLoss field removed** — `Recommendation.stopLoss` dropped from interface, scan paths, email template, Engine rec card, /api/zerodha enrichment.
+- **AI briefing prompt rewrite** — switched from literal example values (which Gemini was echoing back daily) to placeholder syntax (`<index_level>`, `<NSE_TRADINGSYMBOL>`) with explicit "do not echo placeholders" instruction.
+
+#### Journal as daily diary
+
+- New journal type **`OrderRecord`** (`type: 'order'`) — every successful Kite order writes one (manual + auto, BUY + SELL). `journalOrder()` helper in `lib/journal.ts`; called from `/api/zerodha`, cron auto-BUY, strategy1 tranche SELLs, strategy2 SELLs.
+- **`listJournalDates()` returns the trading-day calendar** (last 60 days, weekdays minus NSE holidays) UNION journaled dates. Today shows up immediately, every past trading day appears in the dropdown.
+- **15:35 retrospective always sends** on trading days — the "skip if no activity" rule is gone. Zero-trade days still send the diary.
+- **Retrospective uses journal for past dates** — `buildLiveSnapshot()`'s Activity Today reads `type: 'order'` records when `date !== today`; Kite `/orders` (session-scoped) only when today.
+
+#### Multi-list duplicate membership
+
+- A symbol can now live in multiple lists simultaneously. Manage Lists' add-button rejection narrowed to "already in *the target* list". API POST stopped its cross-list dedupe (was "listA wins"). Strategy engine dedupes the scan universe by NSE symbol at flat-map time.
+
 ### Phase 4 — built on 19–20 May 2026 (this thread)
 
 - **Retrospective expansion** — the daily report now answers "what actually happened today" instead of just "how did the round-trips go". Five new sections on top of the trade-by-trade view: live Kite **Activity Today** (every order, not just closed pairs), **Open Positions** (with strategy source + pyramid status), **Capital Status** (deployed / available / circuit breaker), and **Per-Strategy Health** cards. Strategy Health surfaces the kind of "this strategy hasn't fired in 15 days — something is wrong" insight the old report couldn't.
@@ -207,16 +286,30 @@ See `docs/technical-specification.md` for the full deploy runbook.
 
 ---
 
-## 11. Config Files
+## 11. Config + Data Files
 
 ```
-config/
-  watchlist.json    List A (84) + List B (29) — NSE symbols + trade counts
-  accounts.json     4 accounts (name, broker, accountNo, colour, isTrading)
-  strategy.json     All thresholds: T1 1.5%, T2 2.0%, dip −0.5%, circuit −5%,
-                    strategy1_tranche2_above_ema_pct 3.0, strategy2_momentum block,
-                    targets, capital caps, day quotas
+config/                         # ships in repo; bundled seeds
+  watchlist.json    Default lists — { meta, lists: { listA, listB } } shape
+  accounts.json     Display metadata (name, broker, accountNo, colour, isTrading)
+  strategy.json     Capital block + strategies array (accumulator, catalyst, ...)
   holidays.json     NSE holiday list 2026
+
+~/dineshtrade/data/             # runtime overlay on EC2; never wiped by deploys
+  state.json                Runtime: tokens, mode, idempotency ledger, buyHistory,
+                            panicSkipList
+  strategy.json             Runtime overlay of config/strategy.json (Settings saves
+                            land here; merged on read by strategyConfigStore)
+  watchlist.json            Runtime overlay of config/watchlist.json (Manage Lists
+                            saves land here; merged on read by watchlistStore)
+  positions.json            Unified open-position store, one row per
+                            (account, symbol) with `strategyId`
+  daily-closes.json         Rolling 60-day daily-close cache per symbol
+                            (incremental fetch each morning)
+  journal-YYYY-MM.jsonl     Append-only diary: trade / signal_skipped / strategy_scan
+                            / order records
+  strategy1.json.migrated   ← legacy (Phase 2/3); migrated into positions.json
+  strategy2_positions.json.migrated   ← legacy; migrated into positions.json
 ```
 
 ---
@@ -228,4 +321,4 @@ config/
 
 ---
 
-*DineshTrade v1.2 — Built with Claude — May 2026*
+*DineshTrade v1.4 — Built with Claude — May 2026*

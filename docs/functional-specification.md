@@ -1,6 +1,6 @@
 # DineshTrade — Functional Specification
 
-**Version:** 1.3 · **Last Updated:** 20 May 2026
+**Version:** 1.4 · **Last Updated:** 21 May 2026
 
 This spec documents the *user-visible* behaviour: what the app does, when, and why. Each epic is independently shippable. Nuances and edge cases are listed inline because they are where the value (and the risk) lives.
 
@@ -90,7 +90,9 @@ This spec documents the *user-visible* behaviour: what the app does, when, and w
 
 **Goal:** Two clearly-defined strategies, one for catalyst days, one for dip days. Each strategy owns its order tag, its monitor, and its journal.
 
-### F4.1 — Strategy 1: The Oscillator (mean reversion)
+### F4.1 — Strategy 1: The Accumulator (mean reversion)
+
+*Renamed from "Oscillator" on 21 May 2026. Internal id: `accumulator`. The strategy also serves as the **universal parking lot** — every momentum strategy hands off to it after its `deliveryHandoffDays` window. Cannot be deactivated or deleted (see F4.5 below + Epic 13).*
 
 Strategy 1 has **two trigger paths** — a once-per-day morning scan and a reactive intraday scan.
 
@@ -128,9 +130,9 @@ Strategy 1 has **two trigger paths** — a once-per-day morning scan and a react
   3. Volume > prorated 10-day average
   4. LTP within **±3% of 20-day EMA** (not a runaway)
   5. Within the 9:30–14:30 IST scan window
-- **Intraday exit:** SELL when LTP ≥ entry × 1.015 (+1.5%). T2 (+2.0%) is documented as a backup but the engine takes the first to fire.
-- **3:00 PM cutoff:** If neither exit fires, the position **hands off to Strategy 1**: `ensureStrategy1Tracking()` is called (idempotent) so the EMA-based exit logic takes over from the next day.
-- **Order tags:** `dt-s2` (BUY), `dt-s2-exit` (intraday SELL)
+- **Tranche exits (replaced 19 May):** T1 = entry × (1 + `t1Pct`/100), T2 = entry × (1 + `t2Pct`/100). T1 fires first, sells 50%. T2 fires later, sells remainder. Defaults: T1 = 1.5%, T2 = 2.0%. Both anchored to **first BUY price** (pyramid-aware).
+- **Multi-day handoff (replaced the old 3:00 PM cutoff):** Strategy 2 keeps trying its T1/T2 every day until `firstBuyAt` age ≥ `deliveryHandoffDays` (default **15 calendar days**, per-strategy configurable). At handoff the position's `strategyId` is re-stamped to `accumulator` in the unified position store — accumulator's monitor takes over with EMA-based exits, no time limit.
+- **Order tags:** `dt-catalyst` (BUY, new scheme), `dt-s2-exit` (SELL — legacy literal preserved for back-compat).
 
 ### F4.3 — Market Mode resolver
 | GIFT Nifty | Mode | Engine |
@@ -185,9 +187,21 @@ A richer UI layer over the **same** scan logic — no change to the underlying s
 7. Per-trade cap configured
 8. Position cap configured
 
+### F4.5 — Multi-strategy framework + universal parking lot
+
+*Built 20–21 May 2026. The "two strategies" model evolved into a generic N-strategy framework.*
+
+- **Strategies live in `data/strategy.json` as records** with `{ id, name, type: 'dip' | 'momentum', active, scanIntervalMin, watchlist, params, exits, giftNiftyGate, color }`. Defaults seed accumulator + catalyst.
+- **Per-strategy exit profiles** — both monitors look up `getStrategyById(pos.strategyId)` *per position* and use that strategy's own `t1Pct`/`t2Pct`/`deliveryHandoffDays`. A custom "quickwin" momentum strategy with T1 = 1.0% will actually sell at +1.0%, not catalyst's 1.5%.
+- **Universal parking lot** — when any strategy's position ages past its handoff window (or its parent strategy is deactivated/deleted), the position's `strategyId` field is re-stamped to **`accumulator`**. The position itself stays put; only ownership transfers.
+- **Accumulator is permanent** — UI disables its Active toggle + Delete button; `POST /api/strategies` refuses any payload where `accumulator` is missing or inactive. Hard-coded as the handoff target.
+- **Order tag scheme** — Engine page tile BUY and Recommendation Execute now tag Kite orders as `dt-${strategy.id}` (e.g. `dt-quickwin`, `dt-accumulator`). Legacy `dt-s1` / `dt-s2` understood for back-compat but no longer emitted.
+- **Position migration on deactivate/delete** — when user toggles a strategy inactive OR removes it from the strategies array, `migrateStrategyId(<id>, 'accumulator')` re-stamps every open position belonging to that strategy. Settings UI shows a confirmation dialog: *"Quickwin has 3 open positions. They will be moved to Accumulator on save. Continue?"*
+
 ### Nuances
 - **Tranche 2 rule change:** originally "next day above EMA". Changed to "EMA + 3% same-day, no time stop" on user request (18 May 2026) — captures more upside on momentum names.
-- **Strategy 2 monitors all live positions, not just today's:** even after a Manual → Auto switch mid-session, the monitor picks up existing `dt-s2`-tagged positions because it reads order tags + live positions every tick. No restart needed.
+- **Why accumulator is hardcoded:** simplifies the mental model. Tactical strategies are siblings; the strategic mean-reversion strategy is the keeper everyone flows into. A config-driven handoff target would invite chained handoffs (`quickwin → deep_dip → accumulator`) that loop or surprise the user.
+- **Strategy IDs are immutable** — Settings UI locks the `id` field after first save. Renaming requires delete-then-create (and a position migration to accumulator in the middle). Display names are freely editable.
 - **Why strategy.json centralises thresholds:** so a config change (e.g. "raise T1 from 1.5% to 1.8%") doesn't touch code or trigger a redeploy code review.
 
 ---
@@ -196,16 +210,19 @@ A richer UI layer over the **same** scan logic — no change to the underlying s
 
 **Goal:** Every order — auto or manual — flows through one funnel. No bypasses.
 
-### F5.1 — The 8 Gates (`runPreflight()`)
+### F5.1 — The 10 Gates (`runPreflight()`)
 
-Order matters; first failure short-circuits with `{ ok: false, gate, reason }`.
+*Three new auto-BUY-only gates added 20–21 May 2026: intraday circuit, panic-sell, pyramid. Order matters; first failure short-circuits with `{ ok: false, gate, reason }`.*
 
 1. **Token** — `state.kiteTokens[account]` exists and isn't expired
 2. **Market open** — current IST time within 9:15–15:30, weekday, non-holiday per `config/holidays.json`
-3. **Per-trade cap** — `pricePerShare × quantity ≤ ₹5,000` *(auto only; manual bypasses)*
-4. **Idempotency** — in-process ledger keyed by `${account}:${date}:${symbol}`, BUY side only *(auto only; manual bypasses)*
-5. **Day quota** — max 3 BUYs / 3 SELLs per day per account *(auto only)*
-6. **Position cap** — BUY only; auto + manual both gated. Max 10 open positions per account
+2b. **Intraday circuit** — *(auto-BUY only)* live NIFTY 50 vs today's open. Trips when `dropPct ≤ capital.intradayCircuitTripPct` (default `0` = disabled). Hysteresis: resumes when `dropPct ≥ capital.intradayCircuitResumePct`. Module-level state machine in `lib/intradayCircuit.ts`; holds last-known state if the Kite quote fetch fails (fail-safe held). Distinct from the pre-market `circuitBreakerPct` which gates on GIFT Nifty before market open.
+3. **Per-trade cap** — `pricePerShare × quantity ≤ capital.perTrade` *(auto only; manual bypasses)*
+4. **Idempotency** — persistent ledger in `state.idempotencyLedger` keyed by `${account}:${date}:${symbol}:BUY` *(auto only; manual bypasses)*
+4b. **Panic-sell** — *(auto-BUY only)* per-symbol peak-to-current drop in the last `capital.panicWindowMin` minutes (read from the 5-min candle cache). Trips when `dropPct ≥ capital.panicDropPct` (default `0` = disabled). Tripped symbols join `state.panicSkipList[YYYY-MM-DD]` and short-circuit all subsequent auto-BUYs that IST day. Persistent across restarts.
+4c. **Pyramid** — *(auto-BUY only)* per-symbol cap on consecutive BUYs accumulating into one position: `capital.maxBuysPerSymbol` (default 3), each subsequent BUY must be ≥ `capital.minDropBetweenBuysPct`% below the previous BUY price. History resets to fresh on sellout.
+5. **Day quota** — max `capital.maxBuysPerDay` / `capital.maxSellsPerDay` per day per account *(auto only)*
+6. **Position cap** — BUY only; auto + manual both gated. Max `capital.maxPositions` open positions per account
 7. **Funds** — BUY only. Live `/user/margins` check; rejects if `available_cash < tradeValue`
 8. **No-short** — SELL only. Fetches live held qty:
    - `held === 0` → reject with `gate: 'noShort'` (signal to monitors that the position was manually closed)
@@ -252,9 +269,11 @@ Each tick does, in order:
 Cron expression: `35 15 * * 1-5`. Skip rules (in order):
 1. Not a market day → skip
 2. SMTP not configured → skip
-3. `buildDailyReport(today).shouldSend === false` (zero trades AND zero signals) → skip
+3. *(Removed 21 May)* — the "no activity → skip" rule is gone. The retrospective now functions as a **daily diary** and always sends on trading days even with zero trades. A zero-trade day still surfaces open positions, capital status, strategy health, and the manual-mode indicator.
 4. Otherwise: `sendDailyReport(report)` — HTML email
 5. **Additionally**, if `isLastWeekdayOfMonth(today)`: build + send `monthly_report` (skipped if month had zero activity)
+
+> **Recovery if PM2 restarts after 15:35:** node-cron has no missed-fire replay. A deploy that completes after 15:35 IST means the cron task registers for the *next* day's 15:35. Users can still view the same report live at `/trades` → Retrospective → today.
 
 ### F6.3 — Gating env var
 - `CRON_ENABLED=true` must be set; otherwise `startCron()` logs and returns. This prevents local dev from accidentally trading.
@@ -273,16 +292,19 @@ Cron expression: `35 15 * * 1-5`. Skip rules (in order):
 ### F7.1 — Journal storage (`lib/journal.ts`)
 - Append-only JSONL files: `~/dineshtrade/data/journal-YYYY-MM.jsonl` (one per IST month)
 - File mode `0o600`. Never wiped by deploys.
-- Three record types:
-  - **`trade`** — `{ type, date, account, symbol, qty, entryPrice, entryTime, exitPrice, exitTime, pnlRupees, pnlPct, dayHighAfterEntry, dayLowAfterEntry, leftOnTable, verdict, strategy, orderIdBuy?, orderIdSell?, notes? }`
+- Four record types:
+  - **`trade`** — `{ type, date, account, symbol, qty, entryPrice, entryTime, exitPrice, exitTime, pnlRupees, pnlPct, dayHighAfterEntry, dayLowAfterEntry, leftOnTable, verdict, strategy, orderIdBuy?, orderIdSell?, notes? }` — completed BUY+SELL pair only
   - **`signal_skipped`** — `{ type, date, time, account, symbol, signalPrice, reasonSkipped }`
-  - **`strategy_scan`** — `{ type, date, ts, strategyId, strategyName, recs, executed, symbols?, skipReason? }` — one record per strategy scan tick. Lets the retrospective answer "when did strategy X last produce a signal?" and "how many of those signals actually became BUYs?". Critical for diagnosing strategies that have gone silent.
+  - **`strategy_scan`** — `{ type, date, ts, strategyId, strategyName, recs, executed, symbols?, skipReason? }` — one record per strategy scan tick. Powers Strategy Health.
+  - **`order`** *(added 21 May)* — `{ type, date, ts, account, symbol, side, qty, price, tag?, strategyId?, source: 'auto' | 'manual', orderId? }`. Written via `journalOrder()` on every successful Kite order — manual + auto, BUY + SELL. The retrospective uses these for "Activity Today" on past dates (Kite's `/orders` is session-scoped and rotates out).
 
 ### F7.2 — Where writes happen
-- Strategy 1 monitor — after each tranche SELL fills (with notes per tranche)
-- Strategy 2 monitor — after each +1.5% SELL fills (computes day high/low + left-on-table at write time)
-- Cron strategy task — every scan, regardless of outcome (`strategy_scan` record)
-- Cron auto-BUY scan — when preflight rejects a recommendation (writes `signal_skipped` with the gate reason)
+
+- **Strategy 1 monitor** — after each tranche SELL fills: writes `trade` (entry+exit pair) AND `order` (raw single-leg)
+- **Strategy 2 monitor** — after each SELL fills: writes `trade` AND `order` (with day high/low + left-on-table on the trade record)
+- **Cron auto-BUY** — after success: writes `order`; on preflight rejection: writes `signal_skipped` with gate reason
+- **`/api/zerodha` (manual + Engine Execute)** — after Kite confirms an order: writes `order` (any side, any tag)
+- **Cron strategy task** — every scan, regardless of outcome: writes `strategy_scan`
 
 ### F7.3 — Verdict classification
 At journal-write time, `classifyVerdict({ strategy, entryPrice, exitPrice, t1TriggerPct, isDelivery })`:
@@ -319,8 +341,14 @@ Skip rules now send if **any** of: trades, missed signals, today's orders, open 
 Fires on the last trading day of the month (after the daily report). Shows: total trades, win rate, total P&L, best/worst trade, avg daily return, signals missed, optional recommendation.
 
 ### F7.6 — In-app Retrospective tab
+
 - `/trades` page has two top-level tabs: "Today's Orders" and "Retrospective"
-- Retrospective tab: dropdown of all journal dates (newest first), renders the same `DailyReport` payload the EoD email uses
+- Retrospective tab: dropdown of dates (newest first), renders the same `DailyReport` payload the EoD email uses
+- **Dropdown contents (updated 21 May)** — `listJournalDates()` returns the UNION of:
+  - Every trading day in the last 60 calendar days (weekdays minus NSE holidays)
+  - Every date with any journal record (preserves entries older than 60 days)
+  - So today's date always appears, plus every recent trading day — even days with zero records.
+- **Past-date rendering** — `buildLiveSnapshot()` reads journaled `order` records for any date that isn't today, instead of Kite's session-scoped `/orders` endpoint. Yesterday's manual trade shows up in yesterday's "Activity Today" section as long as the `order` record was written on placement.
 - Powered by `GET /api/journal/dates` + `GET /api/journal/[date]`
 
 ### Nuances
@@ -349,12 +377,24 @@ Fires on the last trading day of the month (after the daily report). Shows: tota
 - Square Off button is always visible; disabled outside market hours per CB5
 
 ### F8.2 — Strategy tag derivation
-Per row, the tag is computed from today's filled order tags for that symbol:
-- All tags are `dt-s1*` and no manual → **S1**
-- All tags are `dt-s2*` and no manual → **S2**
-- All tags are `dt-manual` → **Manual**
-- No order tags today → **OOS** (pre-existing position)
-- Multiple categories → **Mixed** (rare, flagged so the user investigates)
+*Updated 21 May 2026 — driven by the unified position store's `strategyId`, falling back to today's order-tag inference for OOS / Manual / Mixed cases.*
+
+The `PositionTag` shape returned by `GET /api/positions` is now:
+
+```ts
+{ kind: 'strategy' | 'manual' | 'pre' | 'mixed', strategyId?: string, label: string, color: string }
+```
+
+Resolution order:
+
+1. If `data/positions.json` has a row for `(account, symbol)` → `kind: 'strategy'`, `label` = strategy's display name (truncated), `color` = strategy's configured color
+2. Else infer from today's filled-order tags for the symbol:
+   - Single `dt-<strategyId>` (or legacy `dt-s1*` / `dt-s2*`) → `strategy` pill using that strategy's display name + color
+   - Only `dt-manual` → `manual` (purple `MANUAL` pill)
+   - No app tags → `pre` (grey `OOS` pill)
+   - Multiple distinct strategies → `mixed` (amber `MIXED` pill)
+
+The pill carries a tooltip naming the strategy id ("Owned by strategy: quickwin") so the user can quickly trace which strategy will manage the exit.
 
 ### F8.3 — Square Off action
 - Click opens OrderModal pre-filled with: SELL · held qty · matching product (MIS or CNC) · MARKET · current LTP
@@ -374,15 +414,21 @@ Per row, the tag is computed from today's filled order tags for that symbol:
 
 ### F9.1 — State surface
 Single object persisted on every mutation:
-```
+
+```jsonc
 {
-  mode: 'auto' | 'manual',
-  selectedAccounts: string[],
-  kiteTokens: { [accountName]: { apiKey, accessToken, capturedAt } },
-  lastBriefingDate?: string,
-  ...
+  "mode": "auto" | "manual",
+  "selectedAccounts": ["DINESH", ...],
+  "kiteTokens": { "DINESH": { "apiKey": "...", "accessToken": "..." } },
+  "idempotencyLedger": { "DINESH:2026-05-21:ITC:BUY": true, ... },
+  "buyHistory": { "DINESH:ITC": [{ "price": 312.10, "ts": "..." }, ...] },
+  "panicSkipList": { "2026-05-21": ["IDFC", "PNB"] }
 }
 ```
+
+- `idempotencyLedger` — persistent BUY-side ledger, pruned to today's entries on every read
+- `buyHistory` — per-account-symbol BUY price + timestamp history, used by the pyramid gate. Resets to fresh after Kite reports zero qty for a symbol
+- `panicSkipList` — per-day skip list for the panic-sell gate. Date-keyed; only today's entry survives `normalize()`'s prune step
 
 ### F9.2 — Storage backend
 - **Local dev (no `STATE_FILE_PATH`):** JWT cookie. Quick to iterate, no filesystem dependency.
@@ -390,10 +436,13 @@ Single object persisted on every mutation:
 
 ### F9.3 — Separate persisted files
 - `data/state.json` — runtime state (above)
-- `data/strategy1.json` — Strategy 1 open positions (long-lived across days)
+- `data/strategy.json` — runtime overlay of bundled `config/strategy.json` (Settings → Strategies saves)
+- `data/watchlist.json` — runtime overlay of bundled `config/watchlist.json` (Manage Lists saves; `{ meta, lists }` shape)
+- `data/positions.json` *(new 21 May)* — unified open-position store, single row per `(account, symbol)` with `strategyId`. Replaces the older `strategy1.json` + `strategy2_positions.json`. Legacy files migrated to `.migrated` on first read.
+- `data/daily-closes.json` *(new 21 May)* — rolling 60-day daily-close cache per symbol. Incremental fetch each morning replaces the per-tile 60-day re-fetch.
 - `data/journal-YYYY-MM.jsonl` — append-only journal
 
-All three live in the **same directory** so EC2 deploys only need to whitelist one path.
+All files live in the **same directory** (`~/dineshtrade/data/`) so EC2 deploys only need to whitelist one path.
 
 ### Nuances
 - **Why JWT cookie locally:** there's no cron running locally either, so file persistence is overkill. The cookie survives page reloads and that's enough.
@@ -484,11 +533,61 @@ The status column shows a single glyph instead of the raw Kite enum, with a tool
 - Tabs are now dynamic — one per list, in this order: `listA`, `listB`, then any custom lists alphabetically by key.
 - Tab labels use the display name from `meta`. The LTP fetch dedupes symbols across all lists.
 
+### F12.6 — Multi-list membership (added 21 May 2026)
+
+- The **same symbol may live in multiple lists** simultaneously (e.g. BAJFINANCE in both "Top Volume" and "Dip Candidates").
+- Add-button rejection narrowed: a symbol is only refused for the *same target list*. The search result row shows an "also in: List X, List Y" hint when the symbol is already in other lists.
+- API `POST /api/watchlist` accepts the same symbol in N lists. Per-list dedupe (no duplicates *within* a list) is still enforced.
+- Strategy engine dedupes by NSE symbol at scan time across selected lists, so a strategy scanning `[listA, listB]` that share BAJFINANCE still processes it once per tick.
+
 ### Manage Lists nuances
 
 - **Why keys are stable forever:** strategies reference watchlists by key. If we renamed keys on every display rename, every rename would need a `strategy.json` migration — fragile and easy to get wrong. Decoupling key from name is the cheapest way to make renames a zero-risk operation.
 - **Move-between functionality removed:** the old A→B button is gone for consistency. With N lists, a single "move to" button isn't expressive enough; users now remove from one list and add to another. Costs one extra click; gains clarity.
 - **Legacy data:** `lib/watchlistStore.ts:normalize()` reads both the legacy `{ listA: [...], listB: [...] }` and the new `{ lists, meta }` shape. No migration script — EC2's existing `data/watchlist.json` keeps working untouched; the meta block is synthesised on first read (`listA` → "List A", `listB` → "List B") and is persisted on next save.
+
+---
+
+## Epic 13 — Multi-strategy Lifecycle (built 20–21 May 2026)
+
+**Goal:** Multiple strategies coexist, each with its own exits and handoff window. Accumulator is the structural keeper everyone falls through to.
+
+### F13.1 — Strategy creation
+
+- Settings → Strategies → **+ New Dip Strategy** / **+ New Momentum Strategy** at the bottom of the card list.
+- Each new strategy gets a generated id (`new_dip`, `new_momentum`, `new_dip_2`, …). Id is **immutable** after first save.
+- Defaults seed from `DEFAULT_DIP_PARAMS` / `DEFAULT_MOMENTUM_PARAMS`, including `deliveryHandoffDays: 15` for momentum strategies.
+
+### F13.2 — Per-strategy exits + handoff
+
+- Each strategy carries its own `exits.t1Pct`, `exits.t2Pct`, and (for momentum) `params.deliveryHandoffDays`.
+- The strategy 1 monitor (`runStrategy1`/dip-type) and strategy 2 monitor (catalyst/momentum-type) both look up `getStrategyById(pos.strategyId)` per position per iteration — so each open position uses *its own* strategy's parameters at runtime, not a hardcoded category default.
+
+### F13.3 — Position migration semantics
+
+- **Handoff** — when a momentum position's `firstBuyAt` age ≥ `params.deliveryHandoffDays`, the monitor re-stamps its `strategyId` to `accumulator`. The position itself is preserved (`firstBuyPrice`, `firstBuyAt`, `remainingQty` etc.); only the owner changes.
+- **Deactivate** — toggling `active: false` on a strategy migrates *all* its open positions to `accumulator` on save. Settings UI confirms with: *"Quickwin has N open positions. They will be moved to Accumulator on save. Continue?"*
+- **Delete** — removing a strategy from the strategies array migrates open positions identically, then drops the strategy.
+- All migrations use `migrateStrategyId(fromId, 'accumulator')` from `lib/positions.ts`.
+
+### F13.4 — Accumulator protection
+
+- **UI** — Active toggle + Delete button are disabled on the Accumulator card, with tooltip *"Accumulator cannot be deactivated — it is the keeper strategy"*.
+- **API** — `POST /api/strategies` refuses any payload where the strategies array lacks `accumulator` or has `accumulator.active === false`. Returns 400 with an explicit error message.
+- **Migration safety net** — `lib/strategyConfigStore.ts:migrateLegacyIds()` rewrites legacy `id: 'oscillator'` records to `id: 'accumulator'` on first load. One-shot, persisted on next save.
+
+### F13.5 — Order tag scheme
+
+- Cron auto-BUY, Engine Execute, and tile BUY all tag Kite orders as **`dt-${strategy.id}`** (e.g. `dt-accumulator`, `dt-catalyst`, `dt-quickwin`).
+- `/api/zerodha` parses the tag, derives `strategyId`, and routes BUYs to `positions.recordBuy()`.
+- Legacy `dt-s1` / `dt-s2` tags still understood on the read path (mapped to `accumulator` / `catalyst`).
+- Manual orders from Watchlist / Holdings / Positions OrderModal stay `dt-manual` — no strategy ownership.
+
+### Epic 13 nuances
+
+- **Why accumulator is structurally permanent:** every momentum strategy hands off to it. If it could disappear, half the runtime invariants break.
+- **Why we don't allow per-strategy handoff targets:** invites chained handoffs (`quickwin → deep_dip → accumulator`) that loop or surprise. One config target = one mental model.
+- **Manual orders never migrate to accumulator:** they don't have a `strategyId` in the store. The position store only records auto and Engine-Execute BUYs (which both carry a strategy tag).
 
 ---
 

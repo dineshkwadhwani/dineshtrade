@@ -1,6 +1,6 @@
 # DineshTrade — Technical Specification
 
-**Version:** 1.3 · **Last Updated:** 20 May 2026
+**Version:** 1.4 · **Last Updated:** 21 May 2026
 
 This document covers the *how* — architecture, stack choices, infrastructure, and the build & deploy runbook. For the *what*, see `functional-specification.md`.
 
@@ -77,22 +77,26 @@ This document covers the *how* — architecture, stack choices, infrastructure, 
 │   ├── cron.ts                     # Tick + retrospective registration
 │   ├── ema.ts                      # EMA computation
 │   ├── email.ts                    # nodemailer + HTML templates
+│   ├── dailyCloses.ts              # Rolling 60-day daily-close cache (incremental fetch each morning)
 │   ├── instruments.ts              # NSE instrument-token cache
-│   ├── journal.ts                  # JSONL append/read — trade, signal_skipped, strategy_scan
+│   ├── intradayCircuit.ts          # Live NIFTY 50 hysteresis trip/resume (preflight gate 2b)
+│   ├── journal.ts                  # JSONL append/read — trade, signal_skipped, strategy_scan, order
 │   ├── kite.ts                     # Shared Kite API helpers
 │   ├── market.ts                   # Market hours, holidays (client-safe)
 │   ├── marketBriefing.ts           # Cached morning briefing (IST-day cache + in-flight dedup)
 │   ├── marketMock.ts               # USE_MOCK_MARKET fixtures for dev
-│   ├── preflight.ts                # 8 gates (incl. pyramid gate)
+│   ├── panicSell.ts                # Per-symbol drop-from-peak gate (preflight gate 4b)
+│   ├── positions.ts                # Unified position store — strategyId-tagged rows
+│   ├── preflight.ts                # 10 gates (incl. intraday circuit, panic-sell, pyramid)
 │   ├── retrospective.ts            # buildDailyReport + buildMonthlyReport + buildLiveSnapshot + buildStrategyHealth
-│   ├── state.ts                    # Cookie + file state backends (persistent idempotency ledger)
+│   ├── state.ts                    # Cookie + file state backends (persistent ledger, buy history, panic skip)
 │   ├── strategy.ts                 # Mode resolver
-│   ├── strategy1.ts                # Oscillator (EMA two-tranche)
-│   ├── strategy2.ts                # Catalyst (momentum)
-│   ├── strategyConfig.ts           # Strategy schema + reader
-│   ├── strategyConfigStore.ts      # Runtime overlay at data/strategy.json
-│   ├── strategy2Positions.ts       # Persistent S2 position store
-│   ├── strategyEngine.ts           # Dispatcher (reads wl.lists[key] for N-list support)
+│   ├── strategy1.ts                # Accumulator (dip / EMA two-tranche) monitor
+│   ├── strategy2.ts                # Catalyst (momentum) monitor
+│   ├── strategyConfig.ts           # Strategy schema + reader (DipParams, MomentumParams, CapitalConfig)
+│   ├── strategyConfigStore.ts      # Runtime overlay at data/strategy.json + legacy id migration
+│   ├── strategy2Positions.ts       # Thin facade over positions.ts (back-compat)
+│   ├── strategyEngine.ts           # Dispatcher (universe deduped across N selected lists)
 │   └── watchlistStore.ts           # Named-list store: { meta, lists } with stable keys
 ├── instrumentation.ts              # Cron registration entry point
 ├── middleware.ts                   # Edge auth check
@@ -142,10 +146,17 @@ Single Node.js process managed by PM2. Inside:
                               ▼
 ┌────────────────────────────────────────────────────────────────┐
 │  ~/dineshtrade/data/                                            │
-│   state.json              — runtime state (tokens, mode, etc.) │
-│   strategy1.json          — S1 open position registry          │
-│   journal-2026-05.jsonl   — append-only trade + signal log     │
-│   journal-2026-04.jsonl   …                                     │
+│   state.json              — runtime state (tokens, mode,        │
+│                             idempotency ledger, buyHistory,     │
+│                             panicSkipList)                      │
+│   strategy.json           — runtime strategy config overlay     │
+│   watchlist.json          — runtime named-list overlay          │
+│   positions.json          — unified open positions (strategyId) │
+│   daily-closes.json       — rolling 60-day close cache          │
+│   journal-2026-05.jsonl   — trade / signal_skipped /            │
+│                             strategy_scan / order records       │
+│   strategy1.json.migrated, strategy2_positions.json.migrated    │
+│                           — legacy stores (post-migration)      │
 └────────────────────────────────────────────────────────────────┘
 
                               │
@@ -273,7 +284,15 @@ type PreflightResult =
   | { ok: false; gate: string; reason: string }
 ```
 
-Gate order is fixed (see Epic 5 in functional spec).
+Gate order is fixed and short-circuits on first failure. The full chain (see Epic 5 in functional spec for semantics):
+
+1. `token` · 2. `market` · **2b. `intradayCircuit`** *(auto-BUY only)* · 3. `perTrade` *(auto-BUY only)* · 4. `idempotency` *(auto-BUY only)* · **4b. `panicSell`** *(auto-BUY only)* · **4c. `pyramid`** *(auto-BUY only)* · 5. `quota` *(auto)* · 6. `positions` *(BUY)* · 7. `funds` *(BUY)* · 8. `noShort` *(SELL — clamps to held qty; auto SELLs also no-loss-sell)*.
+
+Three gates added 20–21 May 2026:
+
+- `intradayCircuit` — live NIFTY 50 hysteresis trip/resume from `lib/intradayCircuit.ts` (see §5.6)
+- `panicSell` — per-symbol drop-from-peak detector from `lib/panicSell.ts` (see §5.7), backed by `state.panicSkipList`
+- `pyramid` — per-symbol BUY-stack cap + min-drop-between-BUYs check, backed by `state.buyHistory`
 
 ### 5.2 `lib/kite.ts`
 Centralised wrappers — every caller goes through these. Never make raw HTTP calls to Kite from anywhere else.
@@ -286,13 +305,96 @@ Centralised wrappers — every caller goes through these. Never make raw HTTP ca
 
 ### 5.3 `lib/journal.ts`
 - `appendJournal(record)` — atomic JSONL append, creates dir + file on first write
-- `readJournalDay(ymd)` / `readJournalMonth(ym)` / `readJournalRange(start, end)` / `listJournalDates()`
+- `journalOrder({ account, symbol, side, qty, price, tag?, orderId? })` — derives `strategyId` from tag, writes `order` record. Called from every Kite-order success path.
+- `readJournalDay(ymd)` / `readJournalMonth(ym)` / `readJournalRange(start, end)`
+- `listJournalDates()` — returns the UNION of (trading-day calendar, last 60 days) + (every dated journal record). Today appears even with zero journal records.
 - `classifyVerdict(opts)` — produces `correct_exit | early_exit | delivery | manual`
+- Record types: `trade`, `signal_skipped`, `strategy_scan`, `order`
 
 ### 5.4 `lib/retrospective.ts`
-- `buildDailyReport(date?)` → `DailyReport` (5 sections, Kite-OHLC-enriched)
+
+- `buildDailyReport(date?)` → `DailyReport` (Kite-OHLC-enriched). Activity Today reads from journal `order` records when `date !== today`; Kite `/orders` only for today.
 - `buildMonthlyReport(date?)` → `MonthlyReportData`
 - `isLastWeekdayOfMonth(ymd)` — used by cron to decide monthly fire
+- `buildLiveSnapshot(date)` / `buildStrategyHealth(rollingAll, today)` — internal helpers used by `buildDailyReport`
+
+### 5.5 `lib/positions.ts` *(new 21 May 2026)*
+
+Unified position store. Replaces `strategy1.json` + `strategy2_positions.json` with a single file keyed by `(account, symbol)`. Each row carries `strategyId` — that's what makes per-strategy exit profiles work.
+
+```ts
+interface Position {
+  strategyId: string             // e.g. 'accumulator', 'catalyst', 'quickwin'
+  account: string                // uppercase
+  symbol: string                 // uppercase
+  firstBuyPrice: number          // anchor for T1/T2
+  firstBuyAt: string             // ISO; anchors handoff clock for momentum
+  totalQty: number               // cumulative across pyramid BUYs
+  remainingQty: number
+  tranche1At?: string | null
+  tranche1SoldQty?: number
+}
+
+recordBuy(strategyId, account, symbol, qty, price): Promise<void>   // pyramid-aware
+ensureTracked(strategyId, account, symbol, qty, price): Promise<boolean>
+markTranche1Sold(account, symbol, soldQty): Promise<void>
+removePosition(account, symbol): Promise<void>
+getPosition(account, symbol): Promise<Position | null>
+listPositions(opts?: { account?, strategyId? }): Promise<Position[]>
+setStrategyId(account, symbol, newStrategyId): Promise<boolean>     // single-row re-stamp
+migrateStrategyId(fromId, toId): Promise<number>                    // bulk re-stamp (deactivate/delete)
+ageInCalendarDays(firstBuyAt): number
+```
+
+**One-shot migration on first load:** if `positions.json` doesn't exist, the loader reads legacy `strategy1.json` (stamps `strategyId: 'accumulator'`) + `strategy2_positions.json` (stamps `strategyId: 'catalyst'`), writes the unified file, and renames the legacy files to `.migrated`. Recovery path is mechanical (delete `positions.json` and restore the `.migrated` files).
+
+### 5.6 `lib/intradayCircuit.ts` *(new 20 May 2026)*
+
+Hysteresis-based circuit on the live NIFTY 50 spot. Module-level state machine; 30 s quote cache to absorb burst preflight calls without burning Kite API.
+
+```ts
+checkIntradayCircuit(): Promise<IntradayCircuitResult>
+
+interface IntradayCircuitResult {
+  enabled: boolean      // false when either threshold is 0
+  tripped: boolean
+  dropPct: number | null
+  tripPct: number
+  resumePct: number
+  reason?: string
+}
+```
+
+Disabled when `capital.intradayCircuitTripPct === 0` or `intradayCircuitResumePct === 0`. State resets on new IST day. Holds last-known state on quote-fetch failure (fail-safe held).
+
+### 5.7 `lib/panicSell.ts` *(new 20 May 2026)*
+
+Per-symbol drop-from-peak detector. Reads from the existing 5-min candle stream (`getHistoricalCandles` with `5minute` interval). One retry with 500 ms backoff. Logs warnings on persistent failure.
+
+```ts
+checkPanicSell(creds, symbol, ltp): Promise<PanicCheckResult>
+
+interface PanicCheckResult {
+  panic: boolean
+  reason?: string
+  dropPct?: number
+  windowHigh?: number
+  ltp?: number
+}
+```
+
+Disabled when `capital.panicDropPct === 0` or `panicWindowMin === 0`. Tripped symbols persist in `state.panicSkipList[YYYY-MM-DD]`; on cache hit returns `panic: true` without re-fetching candles.
+
+### 5.8 `lib/dailyCloses.ts` *(new 20 May 2026)*
+
+Replaces the morning per-symbol 60-day historical re-fetch with an incremental "fetch yesterday's bar only" path. Same Kite call count (Kite's historical endpoint is per-instrument), but each call returns ~1 day of data instead of ~60 — much smaller payloads, much less rate-limit pressure.
+
+```ts
+loadAndRefreshCloses(creds, symbols): Promise<Record<string, DailyClose[]>>
+readCachedCloses(): Promise<Record<string, DailyClose[]>>
+```
+
+Persistent at `~/dineshtrade/data/daily-closes.json` (atomic write, mode 0o600). Trims each symbol's array to the last 60 entries. Cold-start fetches 90 days, incremental fetches `nextDay(lastCachedDate) → yesterday`. Concurrency capped at 2 with single retry.
 
 ### 5.5 `lib/watchlistStore.ts`
 
