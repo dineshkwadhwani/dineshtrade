@@ -128,10 +128,30 @@ function normalize(raw: Partial<SessionState> | null | undefined): SessionState 
 
 // ──────── FILE BACKEND ────────
 
+// One-shot guard so the stale-token migration write happens at most once per
+// process, even if many readFile() calls race in parallel.
+let migrationWriteInFlight = false
+
 async function readFile(): Promise<SessionState> {
   try {
     const raw = await fs.readFile(FILE_PATH, 'utf8')
-    return normalize(JSON.parse(raw))
+    const parsed = JSON.parse(raw) as Partial<SessionState>
+    const cleaned = normalize(parsed)
+    // If normalize() dropped one or more kiteTokens entries (stale tokens for
+    // accounts that aren't configured in the current ZERODHA_ENVIRONMENT),
+    // persist the cleaned state back to disk so subsequent reads stop firing
+    // the prune log. Fire-and-forget — never block the caller on the write.
+    const rawTokenCount = Object.keys((parsed?.kiteTokens && typeof parsed.kiteTokens === 'object') ? parsed.kiteTokens : {}).length
+    if (rawTokenCount !== Object.keys(cleaned.kiteTokens).length && !migrationWriteInFlight) {
+      migrationWriteInFlight = true
+      writeFile(cleaned)
+        .then(() => console.log('[state] cleaned-state migration persisted to disk'))
+        .catch(err => {
+          console.warn('[state] cleaned-state migration write failed:', String(err).slice(0, 200))
+          migrationWriteInFlight = false   // allow retry on next read
+        })
+    }
+    return cleaned
   } catch {
     return normalize(null)
   }
