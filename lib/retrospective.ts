@@ -303,25 +303,36 @@ async function buildLiveSnapshot(date: string): Promise<LiveSnapshot> {
   try {
     const state = await getState()
     const firstAcc = Object.keys(state.kiteTokens)[0]
-    if (!firstAcc) return empty
+    if (!firstAcc) {
+      console.warn(`[retrospective] no connected accounts in state.kiteTokens — snapshot empty for ${date}`)
+      return empty
+    }
     const creds = await resolveAccountCreds(firstAcc)
-    if (!creds.ok) return empty
+    if (!creds.ok) {
+      console.warn(`[retrospective] ${firstAcc}: resolveAccountCreds failed — ${creds.error}`)
+      return empty
+    }
 
+    // Each fetch has its OWN catch so one failing call doesn't zero the whole
+    // snapshot. listStrategy1Positions / listStrategy2Positions previously had
+    // no catch — a single throw inside them would reject the Promise.all and
+    // bubble up to the outer catch, returning empty even when Kite data was fine.
     const [orders, holdings, positionsKite, marginsRes, s1Positions, s2Positions] = await Promise.all([
-      getOrders(creds).catch(() => []),
-      getHoldings(creds).catch(() => []),
-      getPositions(creds).catch(() => ({ net: [], day: [] })),
-      // Margins via Kite API for available cash
+      getOrders(creds).catch(err => { console.warn('[retrospective] getOrders failed:', String(err).slice(0, 160)); return [] }),
+      getHoldings(creds).catch(err => { console.warn('[retrospective] getHoldings failed:', String(err).slice(0, 160)); return [] }),
+      getPositions(creds).catch(err => { console.warn('[retrospective] getPositions failed:', String(err).slice(0, 160)); return ({ net: [], day: [] }) }),
       (async () => {
         try {
           const { kiteRequest } = await import('./kite')
           const r = await kiteRequest<{ data?: { equity?: { available?: { live_balance?: number; cash?: number } } } }>('/user/margins', creds)
           return r.data?.data?.equity?.available
-        } catch { return null }
+        } catch (err) { console.warn('[retrospective] margins failed:', String(err).slice(0, 160)); return null }
       })(),
-      listStrategy1Positions(),
-      listStrategy2Positions(),
+      listStrategy1Positions().catch(err => { console.warn('[retrospective] listStrategy1Positions failed:', String(err).slice(0, 160)); return [] as Awaited<ReturnType<typeof listStrategy1Positions>> }),
+      listStrategy2Positions().catch(err => { console.warn('[retrospective] listStrategy2Positions failed:', String(err).slice(0, 160)); return [] as Awaited<ReturnType<typeof listStrategy2Positions>> }),
     ])
+
+    console.log(`[retrospective] ${date} snapshot fetch counts: orders=${orders.length} holdings=${holdings.length} posNet=${positionsKite.net?.length || 0} posDay=${positionsKite.day?.length || 0} s1=${s1Positions.length} s2=${s2Positions.length} margins=${marginsRes ? 'ok' : 'null'}`)
 
     // Activity Today — for today's date we prefer LIVE Kite /orders (catches
     // pending/rejected too). For PAST dates Kite's /orders has rotated out, so
