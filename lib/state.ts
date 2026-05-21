@@ -12,6 +12,7 @@ import { SignJWT, jwtVerify } from 'jose'
 import { cookies } from 'next/headers'
 import { promises as fs } from 'fs'
 import * as path from 'path'
+import { getAccountList, isAccountConfigured } from './accounts'
 
 const SECRET = new TextEncoder().encode(process.env.SESSION_SECRET || 'dineshtrade-secret-2026')
 const COOKIE = 'dt_state'
@@ -92,10 +93,33 @@ function normalize(raw: Partial<SessionState> | null | undefined): SessionState 
   const cleanedPanic: PanicSkipLedger = {}
   const rawPanic = (raw.panicSkipList && typeof raw.panicSkipList === 'object') ? raw.panicSkipList as PanicSkipLedger : {}
   if (Array.isArray(rawPanic[today])) cleanedPanic[today] = rawPanic[today]
+
+  // Prune kiteTokens for accounts not configured in the current ZERODHA_ENVIRONMENT.
+  // Tokens get persisted on successful OAuth; if you later switch environments
+  // (e.g. PROD → TEST) the env may no longer have that account's secrets, leaving
+  // a stale token in state.json that downstream callers waste cycles on.
+  // Only prune if the env actually exposes a non-empty account list — defensive
+  // against transient env-load issues that would otherwise wipe everything.
+  const rawTokens = (raw.kiteTokens && typeof raw.kiteTokens === 'object') ? raw.kiteTokens : {}
+  let cleanedTokens: Record<string, string> = rawTokens
+  try {
+    const configured = getAccountList()
+    if (configured.length > 0) {
+      cleanedTokens = {}
+      for (const [acc, tok] of Object.entries(rawTokens)) {
+        if (isAccountConfigured(acc)) {
+          cleanedTokens[acc] = tok
+        } else {
+          console.warn(`[state] pruning stale Kite token for "${acc}" — not configured in current ZERODHA_ENVIRONMENT`)
+        }
+      }
+    }
+  } catch { /* env not loaded yet; keep tokens as-is */ }
+
   return {
     mode: raw.mode === 'auto' ? 'auto' : 'manual',
     selectedAccounts: Array.isArray(raw.selectedAccounts) ? raw.selectedAccounts : [],
-    kiteTokens: (raw.kiteTokens && typeof raw.kiteTokens === 'object') ? raw.kiteTokens : {},
+    kiteTokens: cleanedTokens,
     idempotencyLedger: cleanedLedger,
     buyHistory: (raw.buyHistory && typeof raw.buyHistory === 'object') ? raw.buyHistory as BuyHistoryLedger : {},
     panicSkipList: cleanedPanic,

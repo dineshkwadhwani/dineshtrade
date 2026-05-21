@@ -129,10 +129,14 @@ async function fetchDayOHLC(symbols: string[]): Promise<Record<string, { high: n
   if (symbols.length === 0) return {}
   try {
     const state = await getState()
-    const firstAcc = Object.keys(state.kiteTokens)[0]
-    if (!firstAcc) return {}
-    const creds = await resolveAccountCreds(firstAcc)
-    if (!creds.ok) return {}
+    // Iterate all connected accounts; pick the first whose creds resolve.
+    // Avoids bailing on stale tokens that belong to a different ZERODHA_ENVIRONMENT.
+    let creds: { ok: true; apiKey: string; accessToken: string } | null = null
+    for (const acc of Object.keys(state.kiteTokens)) {
+      const r = await resolveAccountCreds(acc)
+      if (r.ok) { creds = r; break }
+    }
+    if (!creds) return {}
     const quotes = await getQuotes({ apiKey: creds.apiKey, accessToken: creds.accessToken }, Array.from(new Set(symbols)))
     const out: Record<string, { high: number; low: number; close: number; ltp: number }> = {}
     for (const [k, v] of Object.entries(quotes)) {
@@ -302,14 +306,24 @@ async function buildLiveSnapshot(date: string): Promise<LiveSnapshot> {
   }
   try {
     const state = await getState()
-    const firstAcc = Object.keys(state.kiteTokens)[0]
-    if (!firstAcc) {
+    const accountNames = Object.keys(state.kiteTokens)
+    if (accountNames.length === 0) {
       console.warn(`[retrospective] no connected accounts in state.kiteTokens — snapshot empty for ${date}`)
       return empty
     }
-    const creds = await resolveAccountCreds(firstAcc)
-    if (!creds.ok) {
-      console.warn(`[retrospective] ${firstAcc}: resolveAccountCreds failed — ${creds.error}`)
+    // Walk every connected account and pick the FIRST one whose creds actually
+    // resolve. state.kiteTokens can carry stale tokens (e.g. an account from a
+    // prior ZERODHA_ENVIRONMENT that isn't configured in the current env). Don't
+    // bail on the first miss — keep trying.
+    let creds: { ok: true; apiKey: string; accessToken: string } | null = null
+    let firstAcc = ''
+    for (const acc of accountNames) {
+      const r = await resolveAccountCreds(acc)
+      if (r.ok) { creds = r; firstAcc = acc; break }
+      console.warn(`[retrospective] ${acc}: resolveAccountCreds failed — ${r.error} (trying next)`)
+    }
+    if (!creds) {
+      console.warn(`[retrospective] no account in state.kiteTokens has valid env-configured creds — snapshot empty for ${date}`)
       return empty
     }
 
