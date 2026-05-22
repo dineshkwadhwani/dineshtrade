@@ -220,7 +220,9 @@ export async function runPreflight(input: PreflightInput): Promise<PreflightResu
     const eq = (s: any) => String(s).toUpperCase() === sym
     const holding = (holdingsJson?.data || []).find((h: any) => eq(h.tradingsymbol))
     const dayPos  = (positionsJson?.data?.day || []).find((p: any) => eq(p.tradingsymbol))
-    const heldQty = Number(holding?.quantity || 0)
+    // Include T+1 settlement qty — stocks bought today have quantity=0 but
+    // t1_quantity>0 until next trading day. Summing both gives the true held qty.
+    const heldQty = Number(holding?.quantity || 0) + Number(holding?.t1_quantity || 0)
     const dayQty  = Number(dayPos?.quantity || 0)
     const available = heldQty + dayQty
 
