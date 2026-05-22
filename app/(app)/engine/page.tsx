@@ -393,6 +393,9 @@ function StrategySection({ title, accent, recs, ordersToday, tradeMode, onExecut
   scanRan: boolean
 }) {
   const completed = ordersToday.filter(o => o.status === 'COMPLETE')
+  // Don't render before any scan has run and there are no orders — keeps the
+  // page clean. Once a scan runs (or orders exist), always show the section.
+  if (!scanRan && recs.length === 0 && completed.length === 0) return null
   return (
     <div className="space-y-3">
       <div className="flex items-center gap-3 flex-wrap" style={{ borderLeft: `3px solid ${accent}`, paddingLeft: 12 }}>
@@ -438,13 +441,11 @@ function StrategySection({ title, accent, recs, ordersToday, tradeMode, onExecut
         <RecCard key={i} rec={rec} tradeMode={tradeMode} onExecute={onExecute} accountCount={accountCount} />
       ))}
 
-      {/* Empty state */}
-      {recs.length === 0 && completed.length === 0 && (
-        <div className="rounded-xl py-6 text-center" style={{ background:'rgba(255,255,255,0.02)', border:'1px dashed rgba(255,255,255,0.06)' }}>
-          <p className="text-[12px]" style={{ color:'rgba(255,255,255,0.3)' }}>
-            {scanRan ? 'No recommendations and no orders today' : 'Press Refresh & Scan to fetch recommendations'}
-          </p>
-        </div>
+      {/* Post-scan empty state — compact, no box */}
+      {scanRan && recs.length === 0 && completed.length === 0 && (
+        <p className="text-[11px] px-1" style={{ color:'rgba(255,255,255,0.25)', fontFamily:'JetBrains Mono, monospace' }}>
+          No recommendations or orders today
+        </p>
       )}
     </div>
   )

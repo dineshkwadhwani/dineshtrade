@@ -69,7 +69,7 @@ export default function CapitalBar({ account }: { account: string | null }) {
       )}
       <div className="grid grid-cols-2 sm:grid-cols-4 gap-px" style={{ background:'rgba(255,255,255,0.04)' }}>
         <Cell label="Available" value={snap ? fmt(snap.available) : '—'} sub="from Kite" color="#c9a84c" />
-        <Cell label="Deployed" value={snap ? fmt(snap.deployed) : '—'}
+        <Cell label="Overall Deployed" value={snap ? fmt(snap.deployed) : '—'}
           sub={snap ? `${dep.toFixed(0)}% of cap` : ''}
           color={dep > 90 ? '#e05a5e' : dep > 75 ? '#f59e0b' : '#52b788'} />
         <Cell label="Reserve" value={snap ? fmt(snap.reserve) : '—'} sub={snap ? `${(100 - snap.maxDeployPct)}% buffer` : ''} color="rgba(255,255,255,0.6)" />
