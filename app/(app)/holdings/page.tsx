@@ -44,7 +44,9 @@ export default function HoldingsPage() {
   const [error, setError] = useState('')
   const [margins, setMargins] = useState<MarginsResponse | null>(null)
   const [holdings, setHoldings] = useState<Holding[]>([])
-  const [s1Symbols, setS1Symbols] = useState<Set<string>>(new Set())   // "ACCOUNT:SYMBOL" keys in strategy1.json
+  // Maps "ACCOUNT:SYMBOL" → strategy info from the unified position store.
+  // Holdings not in the store render as OOS (pre-existing / not auto-managed).
+  const [posTags, setPosTags] = useState<Map<string, { strategyId: string; strategyName: string; strategyColor: string; strategyType?: string }>>(new Map())
   const [loaded, setLoaded] = useState(false)
   const [orderModal, setOrderModal] = useState<{
     open: boolean; symbol: string; name?: string; side: 'BUY' | 'SELL'; ltp?: number; initialQty?: number; dayChangePct?: number
@@ -70,8 +72,9 @@ export default function HoldingsPage() {
       .finally(() => setLoaded(true))
   }, [])
 
-  // Fetch margins + holdings + Strategy 1 registry whenever active tab changes.
-  // The S1 registry is used to label each holding as S1-managed or OOS (out-of-system).
+  // Fetch margins + holdings + unified position store whenever active tab changes.
+  // The position store tags each holding with its managing strategy (CATALYST,
+  // MARKET BOOM, ACCUMULATOR, …). Holdings not in the store render as OOS.
   async function load(account: string) {
     setLoading(true)
     setError('')
@@ -93,10 +96,16 @@ export default function HoldingsPage() {
       } else if (Array.isArray(hRes.data)) {
         setHoldings(hRes.data)
       }
-      const s1Set = new Set<string>(
-        (sRes?.positions || []).map((p: any) => `${p.account}:${String(p.symbol).toUpperCase()}`)
-      )
-      setS1Symbols(s1Set)
+      const tagMap = new Map<string, { strategyId: string; strategyName: string; strategyColor: string; strategyType?: string }>()
+      for (const p of (sRes?.positions || []) as any[]) {
+        tagMap.set(`${String(p.account).toUpperCase()}:${String(p.symbol).toUpperCase()}`, {
+          strategyId: p.strategyId,
+          strategyName: p.strategyName,
+          strategyColor: p.strategyColor,
+          strategyType: p.strategyType,
+        })
+      }
+      setPosTags(tagMap)
     } catch {
       setError('Failed to load data')
     } finally {
@@ -221,7 +230,13 @@ export default function HoldingsPage() {
                 <span className="text-right">Action</span>
               </div>
               {holdings.map((h, i) => {
-                const isS1 = s1Symbols.has(`${activeTab}:${h.tradingsymbol.toUpperCase()}`)
+                const tag = posTags.get(`${(activeTab || '').toUpperCase()}:${h.tradingsymbol.toUpperCase()}`)
+                const isManaged = !!tag
+                const badgeLabel = isManaged ? tag!.strategyName.toUpperCase().slice(0, 12) : 'OOS'
+                const badgeColor = isManaged ? tag!.strategyColor : 'rgba(255,255,255,0.4)'
+                const badgeTitle = isManaged
+                  ? `${tag!.strategyName} managed — auto-exit per strategy params (see Settings).`
+                  : 'Out of System — not auto-managed. Bought outside DineshTrade, or transitioned-out. Manual Sell still works.'
                 return (
                 <div key={`${h.tradingsymbol}-${i}`}
                   style={{ borderBottom: i < holdings.length-1 ? '1px solid rgba(255,255,255,0.04)' : 'none' }}>
@@ -230,16 +245,14 @@ export default function HoldingsPage() {
                     <div className="flex items-center gap-2 min-w-0">
                       <span className="font-semibold text-white/80 truncate" style={{ fontFamily:'JetBrains Mono, monospace' }}>{h.tradingsymbol}</span>
                       <span
-                        title={isS1
-                          ? 'Strategy 1 managed — auto-exit at 20-EMA recovery (T1) and EMA + 3% (T2)'
-                          : 'Out of System — not auto-managed. Bought outside DineshTrade, or transitioned-out. Manual Sell still works.'}
+                        title={badgeTitle}
                         className="text-[8px] px-1.5 py-0.5 rounded flex-shrink-0 tracking-wider"
                         style={{
-                          background: isS1 ? 'rgba(201,168,76,0.15)' : 'rgba(255,255,255,0.05)',
-                          color:      isS1 ? '#c9a84c' : 'rgba(255,255,255,0.4)',
-                          border:    `1px solid ${isS1 ? 'rgba(201,168,76,0.35)' : 'rgba(255,255,255,0.1)'}`,
+                          background: isManaged ? `${badgeColor}26` : 'rgba(255,255,255,0.05)',
+                          color:      badgeColor,
+                          border:    `1px solid ${isManaged ? `${badgeColor}59` : 'rgba(255,255,255,0.1)'}`,
                         }}>
-                        {isS1 ? 'S1' : 'OOS'}
+                        {badgeLabel}
                       </span>
                     </div>
                     <span className="text-right text-white/60" style={{ fontFamily:'JetBrains Mono, monospace' }}>

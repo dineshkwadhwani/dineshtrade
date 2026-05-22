@@ -25,6 +25,12 @@ export interface EnrichedMissed extends SignalSkippedRecord {
   finalClose?: number
   hitT1?: boolean
   outcome: MissedOutcome
+  // Dedupe metadata — the journal records every scan-tick skip, but the report
+  // collapses them per (date, symbol). `time` carries firstTime; these two
+  // carry the range + count so the UI can render "×N times".
+  firstTime: string             // HH:MM of first skip for this symbol today
+  lastTime: string              // HH:MM of last skip for this symbol today
+  count: number                 // total skip records collapsed into this row
 }
 
 // One row in the "Today's Activity" section — all Kite orders placed today.
@@ -217,16 +223,50 @@ export async function buildDailyReport(dateYmd?: string): Promise<DailyReport> {
     }
   })
 
-  const missedSignals: EnrichedMissed[] = missedToday.map(m => {
-    const ohlcRow = ohlc[m.symbol.toUpperCase()]
-    if (!ohlcRow || !m.signalPrice) return { ...m, outcome: 'unknown' as MissedOutcome }
-    const t1Trigger = m.signalPrice * (1 + strategyCfg.targets.intraday_t1_pct / 100)
+  // Dedupe by symbol — the journal records every scan-tick skip so the same
+  // symbol can appear N times (once per 5-min scan, all citing the same gate).
+  // Collapse to one row per symbol; show first/last time + count.
+  const missedBySymbol = new Map<string, SignalSkippedRecord[]>()
+  for (const m of missedToday) {
+    const key = m.symbol.toUpperCase()
+    const arr = missedBySymbol.get(key) || []
+    arr.push(m)
+    missedBySymbol.set(key, arr)
+  }
+  const missedSignals: EnrichedMissed[] = Array.from(missedBySymbol.values()).map(group => {
+    // group is non-empty by construction; sort by time (HH:MM lex sort is correct)
+    group.sort((a, b) => a.time.localeCompare(b.time))
+    const first = group[0]
+    const last = group[group.length - 1]
+    // Use the latest record as the base — most recent gate reason, latest signalPrice
+    const base = last
+    const ohlcRow = ohlc[base.symbol.toUpperCase()]
+    if (!ohlcRow || !base.signalPrice) {
+      return {
+        ...base,
+        time: first.time,
+        firstTime: first.time,
+        lastTime: last.time,
+        count: group.length,
+        outcome: 'unknown' as MissedOutcome,
+      }
+    }
+    // Outcome is measured against the earliest signal price — that's when the
+    // opportunity first appeared; gauging "did it run" from that baseline.
+    const t1Trigger = first.signalPrice * (1 + strategyCfg.targets.intraday_t1_pct / 100)
     const hitT1 = ohlcRow.high >= t1Trigger
     return {
-      ...m, finalClose: ohlcRow.close, hitT1,
+      ...base,
+      time: first.time,
+      firstTime: first.time,
+      lastTime: last.time,
+      count: group.length,
+      finalClose: ohlcRow.close,
+      hitT1,
       outcome: hitT1 ? 'missed_opportunity' : 'good_miss',
     }
   })
+  missedSignals.sort((a, b) => a.firstTime.localeCompare(b.firstTime))
 
   // Section 1 — hero
   const wins = trades.filter(t => t.pnlRupees > 0).length

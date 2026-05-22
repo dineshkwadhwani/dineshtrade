@@ -374,7 +374,8 @@ function dailyReportText(d: DailyReport): string {
     lines.push('')
     lines.push('Missed signals:')
     for (const m of d.missedSignals) {
-      lines.push(`  ${m.time} ${m.symbol.padEnd(10)} ${m.reasonSkipped} → ${m.outcome.toUpperCase().replace('_', ' ')}`)
+      const when = m.count > 1 ? `${m.firstTime}–${m.lastTime} ×${m.count}` : m.firstTime
+      lines.push(`  ${when.padEnd(16)} ${m.symbol.padEnd(10)} ${m.reasonSkipped} → ${m.outcome.toUpperCase().replace('_', ' ')}`)
     }
   }
   return lines.join('\n')
@@ -481,11 +482,14 @@ function tradeCard(t: DailyReport['trades'][number]): string {
 function missedRow(m: DailyReport['missedSignals'][number]): string {
   const outColor = m.outcome === 'missed_opportunity' ? COL.amber : COL.green
   const outLabel = m.outcome === 'missed_opportunity' ? 'MISSED OPPORTUNITY' : m.outcome === 'good_miss' ? 'GOOD MISS' : 'UNKNOWN'
+  const timeCell = m.count > 1
+    ? `${m.firstTime}–${m.lastTime}<div style="font-size:9px; color:${COL.textL}; margin-top:2px;">×${m.count} times</div>`
+    : m.firstTime
   return `<tr>
-    <td style="font-size:10px; color:${COL.textM}; font-family:'JetBrains Mono',monospace; padding:8px 6px; border-bottom:1px solid rgba(255,255,255,0.04);">${m.time}</td>
-    <td style="font-size:11px; color:${COL.textD}; font-family:'JetBrains Mono',monospace; font-weight:600; padding:8px 6px; border-bottom:1px solid rgba(255,255,255,0.04);">${m.symbol}</td>
-    <td style="font-size:10px; color:${COL.textM}; padding:8px 6px; border-bottom:1px solid rgba(255,255,255,0.04);">${m.reasonSkipped}</td>
-    <td align="right" style="padding:8px 6px; border-bottom:1px solid rgba(255,255,255,0.04);">
+    <td style="font-size:10px; color:${COL.textM}; font-family:'JetBrains Mono',monospace; padding:8px 6px; border-bottom:1px solid rgba(255,255,255,0.04); vertical-align:top;">${timeCell}</td>
+    <td style="font-size:11px; color:${COL.textD}; font-family:'JetBrains Mono',monospace; font-weight:600; padding:8px 6px; border-bottom:1px solid rgba(255,255,255,0.04); vertical-align:top;">${m.symbol}</td>
+    <td style="font-size:10px; color:${COL.textM}; padding:8px 6px; border-bottom:1px solid rgba(255,255,255,0.04); vertical-align:top;">${m.reasonSkipped}</td>
+    <td align="right" style="padding:8px 6px; border-bottom:1px solid rgba(255,255,255,0.04); vertical-align:top;">
       <span style="background:${outColor}22; color:${outColor}; border:1px solid ${outColor}66; padding:2px 6px; border-radius:3px; font-size:8px; font-weight:600; letter-spacing:0.15em; font-family:'JetBrains Mono',monospace;">${outLabel}</span>
     </td>
   </tr>`

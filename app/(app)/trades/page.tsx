@@ -533,9 +533,16 @@ function MissedRow({ m }: { m: EnrichedMissed }) {
   const oColor = m.outcome === 'missed_opportunity' ? '#f59e0b' : m.outcome === 'good_miss' ? '#52b788' : 'rgba(255,255,255,0.55)'
   const oLabel = m.outcome === 'missed_opportunity' ? 'MISSED OPPORTUNITY' : m.outcome === 'good_miss' ? 'GOOD MISS' : 'UNKNOWN'
   return (
-    <div className="grid grid-cols-12 px-4 py-3 items-center text-[11px]"
+    <div className="grid grid-cols-12 px-4 py-3 items-start text-[11px]"
       style={{ borderBottom:'1px solid rgba(255,255,255,0.04)', fontFamily:'JetBrains Mono, monospace' }}>
-      <span className="col-span-2" style={{ color:'rgba(255,255,255,0.5)' }}>{m.time}</span>
+      <span className="col-span-2" style={{ color:'rgba(255,255,255,0.5)' }}>
+        {m.count > 1 ? (
+          <>
+            <div>{m.firstTime}–{m.lastTime}</div>
+            <div className="text-[9px] mt-0.5" style={{ color:'rgba(255,255,255,0.35)' }}>×{m.count} times</div>
+          </>
+        ) : m.firstTime}
+      </span>
       <span className="col-span-2 font-semibold" style={{ color:'rgba(255,255,255,0.85)' }}>{m.symbol}</span>
       <span className="col-span-5 text-[10px]" style={{ color:'rgba(255,255,255,0.5)' }}>{m.reasonSkipped}</span>
       <span className="col-span-3 text-right">
