@@ -212,9 +212,20 @@ export default function HoldingsPage() {
             )
           })()}
 
-          {/* Holdings cards — card-per-holding, two-column layout on mobile */}
+          {/* Holdings list — mobile: two-column card; desktop: table (matches Today's Positions) */}
           {holdings.length > 0 && (
-            <div className="space-y-3">
+            <div className="rounded-xl overflow-hidden" style={{ border:'1px solid rgba(255,255,255,0.06)' }}>
+              {/* Desktop header */}
+              <div className="hidden sm:grid grid-cols-12 px-4 py-2.5 text-[9px] tracking-widest uppercase"
+                style={{ background:'rgba(255,255,255,0.02)', color:'rgba(255,255,255,0.25)', fontFamily:'JetBrains Mono, monospace', borderBottom:'1px solid rgba(255,255,255,0.06)' }}>
+                <span className="col-span-3">Symbol</span>
+                <span className="col-span-1 text-right">Qty</span>
+                <span className="col-span-2 text-right">Avg</span>
+                <span className="col-span-2 text-right">LTP</span>
+                <span className="col-span-2 text-right">P&L</span>
+                <span className="col-span-2 text-right">Action</span>
+              </div>
+
               {holdings.map((h, i) => {
                 const tag = posTags.get(`${(activeTab || '').toUpperCase()}:${h.tradingsymbol.toUpperCase()}`)
                 const isManaged = !!tag
@@ -228,72 +239,97 @@ export default function HoldingsPage() {
                 const isT1Only = (h.t1_quantity || 0) > 0 && (h.quantity || 0) === 0
                 const qty = totalQty(h)
                 const pnlPct = h.average_price > 0 ? ((h.last_price - h.average_price) / h.average_price) * 100 : 0
+
+                const Badge = (
+                  <span title={badgeTitle}
+                    className="text-[8px] px-1.5 py-0.5 rounded flex-shrink-0 tracking-wider"
+                    style={{
+                      background: isManaged ? `${badgeColor}26` : 'rgba(255,255,255,0.05)',
+                      color: badgeColor,
+                      border: `1px solid ${isManaged ? `${badgeColor}59` : 'rgba(255,255,255,0.1)'}`,
+                    }}>
+                    {badgeLabel}
+                  </span>
+                )
+
+                const BuyBtn = (
+                  <button onClick={() => setOrderModal({ open: true, symbol: h.tradingsymbol, side: 'BUY', ltp: h.last_price, dayChangePct: h.day_change_percentage })}
+                    disabled={!market.open} title={!market.open ? 'Market closed' : undefined}
+                    className="px-3 py-1.5 rounded text-[10px] font-semibold tracking-wider transition-all disabled:opacity-30 disabled:cursor-not-allowed"
+                    style={{ background:'rgba(82,183,136,0.12)', border:'1px solid rgba(82,183,136,0.3)', color:'#52b788', fontFamily:'JetBrains Mono, monospace' }}>
+                    Buy
+                  </button>
+                )
+                const SellBtn = (
+                  <button onClick={() => setOrderModal({ open: true, symbol: h.tradingsymbol, side: 'SELL', ltp: h.last_price, initialQty: qty, dayChangePct: h.day_change_percentage })}
+                    disabled={!market.open} title={!market.open ? 'Market closed' : undefined}
+                    className="px-3 py-1.5 rounded text-[10px] font-semibold tracking-wider transition-all disabled:opacity-30 disabled:cursor-not-allowed"
+                    style={{ background:'rgba(224,90,94,0.12)', border:'1px solid rgba(224,90,94,0.3)', color:'#e05a5e', fontFamily:'JetBrains Mono, monospace' }}>
+                    Sell
+                  </button>
+                )
+
                 return (
-                  <div key={`${h.tradingsymbol}-${i}`} className="rounded-xl p-4"
-                    style={{ background:'#100e0a', border:'1px solid rgba(255,255,255,0.08)' }}>
-                    {/* Top row: symbol + badge left, P&L right */}
-                    <div className="flex items-start justify-between mb-3">
-                      <div className="flex items-center gap-2 min-w-0 flex-1">
-                        <span className="font-bold text-white/90 text-[15px]" style={{ fontFamily:'JetBrains Mono, monospace' }}>
-                          {h.tradingsymbol}
-                        </span>
+                  <div key={`${h.tradingsymbol}-${i}`} className="px-4 py-3 transition-all hover:bg-white/5 text-[12px]"
+                    style={{ borderBottom: i < holdings.length - 1 ? '1px solid rgba(255,255,255,0.04)' : 'none' }}>
+
+                    {/* ── Mobile: two-column card (hidden on sm+) ── */}
+                    <div className="sm:hidden flex items-start justify-between gap-3">
+                      {/* Left: symbol + badge, avg, qty */}
+                      <div className="min-w-0 flex flex-col gap-1" style={{ fontFamily:'JetBrains Mono, monospace' }}>
+                        <div className="flex items-center gap-1.5 flex-wrap">
+                          <span className="text-[16px] font-semibold" style={{ color:'rgba(255,255,255,0.9)' }}>{h.tradingsymbol}</span>
+                          {isT1Only && (
+                            <span className="text-[8px] px-1.5 py-0.5 rounded tracking-wider"
+                              style={{ background:'rgba(96,165,250,0.12)', color:'rgba(96,165,250,0.8)', border:'1px solid rgba(96,165,250,0.25)' }}>T1</span>
+                          )}
+                          {Badge}
+                        </div>
+                        <div className="text-[11px]" style={{ color:'rgba(255,255,255,0.4)' }}>
+                          Avg <span style={{ color:'rgba(255,255,255,0.75)' }}>₹{h.average_price.toFixed(2)}</span>
+                        </div>
+                        <div className="text-[11px]" style={{ color:'rgba(255,255,255,0.4)' }}>
+                          Qty <span style={{ color:'rgba(255,255,255,0.75)' }}>{qty}</span>
+                        </div>
+                      </div>
+
+                      {/* Right: P&L (₹ + %), LTP (+ day%), buttons */}
+                      <div className="shrink-0 flex flex-col items-end gap-1" style={{ fontFamily:'JetBrains Mono, monospace' }}>
+                        <div className="text-right">
+                          <div className="text-[15px] font-semibold whitespace-nowrap" style={{ color: pnlColor }}>{fmtPnl(h.pnl)}</div>
+                          <div className="text-[10px] whitespace-nowrap" style={{ color: pnlColor, opacity:0.8 }}>
+                            {pnlPct >= 0 ? '+' : ''}{pnlPct.toFixed(2)}%
+                          </div>
+                        </div>
+                        <div className="text-[11px] whitespace-nowrap" style={{ color:'rgba(255,255,255,0.4)' }}>
+                          LTP <span style={{ color:'rgba(255,255,255,0.85)' }}>₹{h.last_price.toFixed(2)}</span>
+                          <span className="ml-1.5" style={{ color: dayColor }}>{Math.abs(h.day_change_percentage).toFixed(2)}%</span>
+                        </div>
+                        <div className="flex gap-1.5 pt-0.5">{BuyBtn}{SellBtn}</div>
+                      </div>
+                    </div>
+
+                    {/* ── Desktop: 12-col grid (matches Positions page) ── */}
+                    <div className="hidden sm:grid grid-cols-12 items-center">
+                      <div className="col-span-3 flex items-center gap-2 flex-wrap">
+                        <span className="font-semibold text-white/85" style={{ fontFamily:'JetBrains Mono, monospace' }}>{h.tradingsymbol}</span>
                         {isT1Only && (
                           <span className="text-[8px] px-1.5 py-0.5 rounded tracking-wider"
-                            style={{ background:'rgba(96,165,250,0.12)', color:'rgba(96,165,250,0.8)', border:'1px solid rgba(96,165,250,0.25)' }}
-                            title="In T+1 settlement — sellable next trading day">T1</span>
+                            style={{ background:'rgba(96,165,250,0.12)', color:'rgba(96,165,250,0.8)', border:'1px solid rgba(96,165,250,0.25)', fontFamily:'JetBrains Mono, monospace' }}>T1</span>
                         )}
-                        <span title={badgeTitle}
-                          className="text-[8px] px-1.5 py-0.5 rounded flex-shrink-0 tracking-wider"
-                          style={{
-                            background: isManaged ? `${badgeColor}26` : 'rgba(255,255,255,0.05)',
-                            color: badgeColor,
-                            border: `1px solid ${isManaged ? `${badgeColor}59` : 'rgba(255,255,255,0.1)'}`,
-                          }}>
-                          {badgeLabel}
-                        </span>
+                        {Badge}
                       </div>
-                      <div className="text-right ml-3 flex-shrink-0">
-                        <p className="text-[15px] font-semibold" style={{ color: pnlColor, fontFamily:'JetBrains Mono, monospace' }}>{fmtPnl(h.pnl)}</p>
-                        <p className="text-[11px] mt-0.5" style={{ color: pnlColor, fontFamily:'JetBrains Mono, monospace', opacity:0.8 }}>
-                          {pnlPct >= 0 ? '+' : ''}{pnlPct.toFixed(2)}%
-                        </p>
+                      <span className="col-span-1 text-right text-white/70" style={{ fontFamily:'JetBrains Mono, monospace' }}>{qty}</span>
+                      <span className="col-span-2 text-right text-white/60" style={{ fontFamily:'JetBrains Mono, monospace' }}>₹{h.average_price.toFixed(2)}</span>
+                      <div className="col-span-2 text-right" style={{ fontFamily:'JetBrains Mono, monospace' }}>
+                        <div style={{ color:'rgba(255,255,255,0.85)' }}>₹{h.last_price.toFixed(2)}</div>
+                        <div className="text-[9px] mt-0.5" style={{ color: dayColor }}>{h.day_change_percentage >= 0 ? '▲' : '▼'} {Math.abs(h.day_change_percentage).toFixed(2)}%</div>
                       </div>
-                    </div>
-
-                    {/* Detail row: two columns */}
-                    <div className="grid grid-cols-2 gap-x-4 gap-y-1 text-[11px] mb-3" style={{ fontFamily:'JetBrains Mono, monospace' }}>
-                      <div style={{ color:'rgba(255,255,255,0.45)' }}>
-                        Avg <span style={{ color:'rgba(255,255,255,0.75)' }}>₹{h.average_price.toFixed(2)}</span>
+                      <div className="col-span-2 text-right" style={{ fontFamily:'JetBrains Mono, monospace' }}>
+                        <div className="font-semibold" style={{ color: pnlColor }}>{fmtPnl(h.pnl)}</div>
+                        <div className="text-[9px] mt-0.5" style={{ color: pnlColor, opacity:0.8 }}>{pnlPct >= 0 ? '+' : ''}{pnlPct.toFixed(2)}%</div>
                       </div>
-                      <div className="text-right" style={{ color:'rgba(255,255,255,0.45)' }}>
-                        LTP <span style={{ color:'rgba(255,255,255,0.85)' }}>₹{h.last_price.toFixed(2)}</span>
-                      </div>
-                      <div style={{ color:'rgba(255,255,255,0.45)' }}>
-                        Qty <span style={{ color:'rgba(255,255,255,0.75)' }}>{qty}</span>
-                      </div>
-                      <div className="text-right" style={{ color: dayColor }}>
-                        {h.day_change_percentage >= 0 ? '▲' : '▼'} {Math.abs(h.day_change_percentage).toFixed(2)}% today
-                      </div>
-                    </div>
-
-                    {/* Action buttons */}
-                    <div className="flex gap-2 justify-end">
-                      <button
-                        onClick={() => setOrderModal({ open: true, symbol: h.tradingsymbol, side: 'BUY', ltp: h.last_price, dayChangePct: h.day_change_percentage })}
-                        disabled={!market.open}
-                        title={!market.open ? 'Market closed' : undefined}
-                        className="px-3 py-1.5 rounded text-[10px] font-semibold tracking-wider transition-all disabled:opacity-30 disabled:cursor-not-allowed"
-                        style={{ background:'rgba(82,183,136,0.12)', border:'1px solid rgba(82,183,136,0.3)', color:'#52b788' }}>
-                        Buy
-                      </button>
-                      <button
-                        onClick={() => setOrderModal({ open: true, symbol: h.tradingsymbol, side: 'SELL', ltp: h.last_price, initialQty: qty, dayChangePct: h.day_change_percentage })}
-                        disabled={!market.open}
-                        title={!market.open ? 'Market closed' : undefined}
-                        className="px-3 py-1.5 rounded text-[10px] font-semibold tracking-wider transition-all disabled:opacity-30 disabled:cursor-not-allowed"
-                        style={{ background:'rgba(224,90,94,0.12)', border:'1px solid rgba(224,90,94,0.3)', color:'#e05a5e' }}>
-                        Sell
-                      </button>
+                      <div className="col-span-2 flex gap-1.5 justify-end">{BuyBtn}{SellBtn}</div>
                     </div>
                   </div>
                 )
