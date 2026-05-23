@@ -1023,12 +1023,12 @@ function BacktestTab({ active }: { active: boolean }) {
               </p>
             </div>
             <div className="grid grid-cols-2 md:grid-cols-4 gap-px" style={{ background:'rgba(255,255,255,0.04)' }}>
-              <Stat label="Total P&L" value={formatSignedCurrency(result.summary.totalPnl)} color={result.summary.totalPnl >= 0 ? '#52b788' : '#e05a5e'} />
-              <Stat label="Return" value={formatSignedPct(result.summary.totalReturnPct)} color={result.summary.totalReturnPct >= 0 ? '#52b788' : '#e05a5e'} />
+              <Stat label="Total P&L (MTM)" value={formatSignedCurrency(result.summary.totalPnl)} color={result.summary.totalPnl >= 0 ? '#52b788' : '#e05a5e'} />
+              <Stat label="Return (MTM)" value={formatSignedPct(result.summary.totalReturnPct)} color={result.summary.totalReturnPct >= 0 ? '#52b788' : '#e05a5e'} />
               <Stat label="Win Rate" value={result.summary.winRate === null ? '—' : `${result.summary.winRate.toFixed(2)}%`} color="#c9a84c" />
               <Stat label="Max Drawdown" value={`${result.summary.maxDrawdownPct.toFixed(2)}%`} color="rgba(224,90,94,0.85)" />
               <Stat label="Starting Capital" value={formatCurrency(result.summary.startingCapital)} color="rgba(255,255,255,0.7)" />
-              <Stat label="Ending Capital" value={formatCurrency(result.summary.endingCapital)} color="rgba(255,255,255,0.9)" />
+              <Stat label="Ending Equity" value={formatCurrency(result.summary.endingCapital)} color="rgba(255,255,255,0.9)" />
               <Stat label="Trades Closed" value={String(result.summary.tradesClosed)} color="rgba(255,255,255,0.7)" />
               <Stat label="Trades Open" value={String(result.summary.tradesOpen)} color="rgba(255,255,255,0.7)" />
             </div>
@@ -1042,6 +1042,15 @@ function BacktestTab({ active }: { active: boolean }) {
               <MiniMetric label="Skipped Capital" value={String(result.summary.skippedCapitalLimited)} />
               <MiniMetric label="Skipped Position" value={String(result.summary.skippedPositionLimited)} />
             </div>
+            {result.summary.tradesOpen > 0 && (
+              <div className="px-4 pb-4">
+                <div className="rounded-lg p-3" style={{ background:'rgba(255,255,255,0.02)', border:'1px solid rgba(255,255,255,0.06)' }}>
+                  <p className="text-[11px]" style={{ color:'rgba(255,255,255,0.45)' }}>
+                    MTM includes open positions marked at the last candle in the replay window. A negative total here does not mean the engine sold at a loss; realized sells are shown separately above.
+                  </p>
+                </div>
+              </div>
+            )}
           </div>
 
           <div className="rounded-xl overflow-hidden" style={{ background:'rgba(255,255,255,0.02)', border:'1px solid rgba(255,255,255,0.08)' }}>
