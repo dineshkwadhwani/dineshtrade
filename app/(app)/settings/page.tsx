@@ -438,6 +438,12 @@ interface BacktestEquityPoint {
   openTrades: number
 }
 
+interface BacktestGateCount {
+  gate: string
+  label: string
+  count: number
+}
+
 interface BacktestSummary {
   strategyId: string
   strategyName: string
@@ -460,6 +466,7 @@ interface BacktestSummary {
   skippedNoHistorical: number
   skippedCapitalLimited: number
   skippedPositionLimited: number
+  gateBreakdown: BacktestGateCount[]
 }
 
 interface StrategyBacktestResult {
@@ -1053,6 +1060,38 @@ function BacktestTab({ active }: { active: boolean }) {
               </div>
             )}
           </div>
+
+          {result.summary.gateBreakdown.length > 0 && (
+            <div className="rounded-xl overflow-hidden" style={{ background:'rgba(255,255,255,0.02)', border:'1px solid rgba(255,255,255,0.08)' }}>
+              <div className="px-4 py-2.5 flex items-center justify-between gap-3" style={{ borderBottom:'1px solid rgba(255,255,255,0.06)' }}>
+                <p className="text-[11px] tracking-widest uppercase" style={{ color:'rgba(201,168,76,0.6)', fontFamily:'JetBrains Mono, monospace' }}>
+                  Gate Breakdown
+                </p>
+                <p className="text-[10px]" style={{ color:'rgba(255,255,255,0.3)' }}>
+                  Which rule blocked how many entry attempts during the replay.
+                </p>
+              </div>
+              <div className="overflow-x-auto">
+                <table className="w-full text-left min-w-[560px]">
+                  <thead>
+                    <tr style={{ background:'rgba(255,255,255,0.02)' }}>
+                      {['Gate', 'Blocked Attempts'].map(h => (
+                        <th key={h} className="px-3 py-2 text-[10px] tracking-widest uppercase font-medium" style={{ color:'rgba(255,255,255,0.35)', fontFamily:'JetBrains Mono, monospace' }}>{h}</th>
+                      ))}
+                    </tr>
+                  </thead>
+                  <tbody>
+                    {result.summary.gateBreakdown.map(item => (
+                      <tr key={item.gate} style={{ borderTop:'1px solid rgba(255,255,255,0.05)' }}>
+                        <td className="px-3 py-2.5 text-[11px]" style={{ color:'rgba(255,255,255,0.72)' }}>{item.label}</td>
+                        <td className="px-3 py-2.5 text-[11px]" style={{ color:'#c9a84c', fontFamily:'JetBrains Mono, monospace' }}>{item.count.toLocaleString('en-IN')}</td>
+                      </tr>
+                    ))}
+                  </tbody>
+                </table>
+              </div>
+            </div>
+          )}
 
           <div className="rounded-xl overflow-hidden" style={{ background:'rgba(255,255,255,0.02)', border:'1px solid rgba(255,255,255,0.08)' }}>
             <div className="px-4 py-2.5 flex items-center justify-between gap-3" style={{ borderBottom:'1px solid rgba(255,255,255,0.06)' }}>

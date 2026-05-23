@@ -49,6 +49,12 @@ export interface BacktestEquityPoint {
   openTrades: number
 }
 
+export interface BacktestGateCount {
+  gate: string
+  label: string
+  count: number
+}
+
 export interface BacktestSummary {
   strategyId: string
   strategyName: string
@@ -71,6 +77,7 @@ export interface BacktestSummary {
   skippedNoHistorical: number
   skippedCapitalLimited: number
   skippedPositionLimited: number
+  gateBreakdown: BacktestGateCount[]
 }
 
 export interface StrategyBacktestResult {
@@ -167,6 +174,19 @@ function avg(values: number[]): number | null {
   return values.reduce((sum, value) => sum + value, 0) / values.length
 }
 
+type GateCounter = Record<string, { label: string; count: number }>
+
+function bumpGate(counter: GateCounter, gate: string, label: string): void {
+  if (!counter[gate]) counter[gate] = { label, count: 0 }
+  counter[gate].count += 1
+}
+
+function toGateBreakdown(counter: GateCounter): BacktestGateCount[] {
+  return Object.keys(counter)
+    .map(gate => ({ gate, label: counter[gate].label, count: counter[gate].count }))
+    .sort((a, b) => b.count - a.count || a.label.localeCompare(b.label))
+}
+
 function dateOnly(s: string): string {
   return s.slice(0, 10)
 }
@@ -257,6 +277,7 @@ export async function runStrategy1Backtest(options: BacktestOptions = {}): Promi
   let skippedNoHistorical = 0
   let skippedCapitalLimited = 0
   let skippedPositionLimited = 0
+  const gateCounts: GateCounter = {}
 
   const calendarLookbackDays = Math.max(180, days * 3)
   const from = ymdIST(-calendarLookbackDays)
@@ -318,10 +339,12 @@ export async function runStrategy1Backtest(options: BacktestOptions = {}): Promi
       const symbolOpenCount = openTrades.filter(trade => trade.symbol === pending.symbol).length
       if (openTrades.length >= capital.maxPositions) {
         skippedPositionLimited++
+        bumpGate(gateCounts, 'maxPositions', 'Blocked by max open positions')
         continue
       }
       if (symbolOpenCount >= capital.maxBuysPerSymbol) {
         skippedPositionLimited++
+        bumpGate(gateCounts, 'maxBuysPerSymbol', 'Blocked by max buys per symbol')
         continue
       }
 
@@ -329,6 +352,7 @@ export async function runStrategy1Backtest(options: BacktestOptions = {}): Promi
       const qty = Math.floor(budget / candle.open)
       if (qty < 1) {
         skippedCapitalLimited++
+        bumpGate(gateCounts, 'capitalTooLow', 'Insufficient capital for next entry')
         continue
       }
 
@@ -409,7 +433,7 @@ export async function runStrategy1Backtest(options: BacktestOptions = {}): Promi
       } else {
         trade.markPrice = candle.close
         trade.markValue = Number((trade.remainingQty * candle.close).toFixed(2))
-        trade.unrealizedPnl = Number((trade.realizedPnl + trade.markValue - trade.remainingCost).toFixed(2))
+        trade.unrealizedPnl = Number((trade.markValue - trade.remainingCost).toFixed(2))
       }
     }
 
@@ -429,9 +453,18 @@ export async function runStrategy1Backtest(options: BacktestOptions = {}): Promi
       const historicalCloses = item.candles.slice(0, idx).map(row => row.close)
       const downDays = consecutiveDownDays(historicalCloses)
       const dev = deviationPct(candle.close, emaYesterday)
-      if (dev > -entryBelowPct) continue
-      if (dev < -capitulationFloorPct) continue
-      if (downDays < minDownDays) continue
+      if (dev > -entryBelowPct) {
+        bumpGate(gateCounts, 'entryBelowPct', 'Did not breach entry-below-EMA threshold')
+        continue
+      }
+      if (dev < -capitulationFloorPct) {
+        bumpGate(gateCounts, 'capitulationFloor', 'Rejected as too far below EMA')
+        continue
+      }
+      if (downDays < minDownDays) {
+        bumpGate(gateCounts, 'minDownDays', 'Not enough consecutive down days')
+        continue
+      }
 
       const openForSymbol = allTrades
         .filter(trade => trade.symbol === item.symbol && trade.status === 'open')
@@ -439,11 +472,17 @@ export async function runStrategy1Backtest(options: BacktestOptions = {}): Promi
       if (openForSymbol.length > 0) {
         const lastBuy = openForSymbol[openForSymbol.length - 1]
         const threshold = lastBuy.entryPrice * (1 - capital.minDropBetweenBuysPct / 100)
-        if (candle.close > threshold) continue
+        if (candle.close > threshold) {
+          bumpGate(gateCounts, 'minDropBetweenBuys', 'Pyramiding drop threshold not met')
+          continue
+        }
       }
 
       const nextDate = item.candles[idx + 1]?.date.slice(0, 10)
-      if (!nextDate || !backtestDateSet.has(nextDate)) continue
+      if (!nextDate || !backtestDateSet.has(nextDate)) {
+        bumpGate(gateCounts, 'nextSessionMissing', 'No next trading session in backtest window')
+        continue
+      }
 
       pushPending({
         date: nextDate,
@@ -462,7 +501,7 @@ export async function runStrategy1Backtest(options: BacktestOptions = {}): Promi
       if (!candle) continue
       trade.markPrice = candle.close
       trade.markValue = Number((trade.remainingQty * candle.close).toFixed(2))
-      trade.unrealizedPnl = Number((trade.realizedPnl + trade.markValue - trade.remainingCost).toFixed(2))
+      trade.unrealizedPnl = Number((trade.markValue - trade.remainingCost).toFixed(2))
       marketValue += trade.markValue
     }
     marketValue = Number(marketValue.toFixed(2))
@@ -477,13 +516,13 @@ export async function runStrategy1Backtest(options: BacktestOptions = {}): Promi
     if (trade.status === 'closed') continue
     trade.holdDays = Math.max(0, (dateIndex.get(lastDate) || 0) - (dateIndex.get(trade.entryDate) || 0))
     trade.markValue = Number((trade.remainingQty * trade.markPrice).toFixed(2))
-    trade.unrealizedPnl = Number((trade.realizedPnl + trade.markValue - trade.remainingCost).toFixed(2))
+    trade.unrealizedPnl = Number((trade.markValue - trade.remainingCost).toFixed(2))
     trade.realizedPct = trade.entryValue > 0
       ? Number(((((trade.realizedPnl + trade.unrealizedPnl) / trade.entryValue) * 100)).toFixed(2))
       : 0
   }
 
-  const realizedPnl = Number(allTrades.filter(trade => trade.status === 'closed').reduce((sum, trade) => sum + trade.realizedPnl, 0).toFixed(2))
+  const realizedPnl = Number(allTrades.reduce((sum, trade) => sum + trade.realizedPnl, 0).toFixed(2))
   const unrealizedPnl = Number(allTrades.filter(trade => trade.status === 'open').reduce((sum, trade) => sum + trade.unrealizedPnl, 0).toFixed(2))
   const endingCapital = equityCurve[equityCurve.length - 1]?.equity ?? startingCapital
   const closedTrades = allTrades.filter(trade => trade.status === 'closed')
@@ -515,6 +554,7 @@ export async function runStrategy1Backtest(options: BacktestOptions = {}): Promi
       skippedNoHistorical,
       skippedCapitalLimited,
       skippedPositionLimited,
+      gateBreakdown: toGateBreakdown(gateCounts),
     },
     trades: allTrades.map(trade => ({
       symbol: trade.symbol,
@@ -588,6 +628,7 @@ async function runMomentumBacktest(options: BacktestOptions = {}): Promise<Strat
   let skippedNoHistorical = 0
   let skippedCapitalLimited = 0
   let skippedPositionLimited = 0
+  const gateCounts: GateCounter = {}
 
   const calendarLookbackDays = Math.max(180, days * 3)
   const fromDaily = ymdIST(-calendarLookbackDays)
@@ -734,7 +775,7 @@ async function runMomentumBacktest(options: BacktestOptions = {}): Promise<Strat
         } else {
           trade.markPrice = candle.close
           trade.markValue = Number((trade.remainingQty * candle.close).toFixed(2))
-          trade.unrealizedPnl = Number((trade.realizedPnl + trade.markValue - trade.remainingCost).toFixed(2))
+          trade.unrealizedPnl = Number((trade.markValue - trade.remainingCost).toFixed(2))
         }
       }
 
@@ -744,42 +785,72 @@ async function runMomentumBacktest(options: BacktestOptions = {}): Promise<Strat
 
       // Entry scan for this timestamp.
       for (const item of series) {
-        if (enteredToday.has(item.symbol)) continue
-        if (openTrades.some(trade => trade.symbol === item.symbol)) continue
+        if (enteredToday.has(item.symbol)) {
+          bumpGate(gateCounts, 'enteredToday', 'Already entered this symbol today')
+          continue
+        }
+        if (openTrades.some(trade => trade.symbol === item.symbol)) {
+          bumpGate(gateCounts, 'alreadyOpen', 'Existing open position in symbol')
+          continue
+        }
         const candle = item.intradayByTimestamp.get(ts)
         const meta = item.intradayMetaByTimestamp.get(ts)
         const agg = item.dailyAggByDate.get(date)
         if (!candle || !meta || !agg) continue
         if (!backtestDateSet.has(date)) continue
         const currentMin = hhmmToMinutes(timeOnly(ts))
-        if (currentMin < scanStartMin || currentMin > scanEndMin) continue
+        if (currentMin < scanStartMin || currentMin > scanEndMin) {
+          bumpGate(gateCounts, 'scanWindow', 'Outside configured scan window')
+          continue
+        }
         if (openTrades.length >= capitalCfg.maxPositions) {
           skippedPositionLimited++
+          bumpGate(gateCounts, 'maxPositions', 'Blocked by max open positions')
           continue
         }
 
         const dayBars = item.intradayByDate.get(date) || []
-        if (meta.indexInDay < consecutiveCandles - 1) continue
+        if (meta.indexInDay < consecutiveCandles - 1) {
+          bumpGate(gateCounts, 'needMoreCandles', 'Not enough candles yet for pattern')
+          continue
+        }
         const dayGainPct = ((candle.close - agg.prevClose) / agg.prevClose) * 100
-        if (dayGainPct < minDayGainPct || dayGainPct > maxDayGainPct) continue
+        if (dayGainPct < minDayGainPct) {
+          bumpGate(gateCounts, 'minDayGainPct', 'Below minimum day-gain threshold')
+          continue
+        }
+        if (dayGainPct > maxDayGainPct) {
+          bumpGate(gateCounts, 'maxDayGainPct', 'Above maximum day-gain threshold')
+          continue
+        }
         const emaDev = deviationPct(candle.close, agg.ema20)
-        if (Math.abs(emaDev) > emaProximityPct) continue
+        if (Math.abs(emaDev) > emaProximityPct) {
+          bumpGate(gateCounts, 'emaProximity', 'Too far from EMA proximity band')
+          continue
+        }
 
         const elapsedMin = Math.max(1, currentMin - sessionStartMin)
         const proratedAvgVol = agg.avgVolume10d * (elapsedMin / sessionMinutes)
-        if (meta.cumulativeVolume < proratedAvgVol) continue
+        if (meta.cumulativeVolume < proratedAvgVol) {
+          bumpGate(gateCounts, 'volumeAvg', 'Volume below prorated average')
+          continue
+        }
 
         const lastN = dayBars.slice(meta.indexInDay - consecutiveCandles + 1, meta.indexInDay + 1)
         let rising = true
         for (let i = 1; i < lastN.length; i++) {
           if (lastN[i].close <= lastN[i - 1].close) { rising = false; break }
         }
-        if (!rising) continue
+        if (!rising) {
+          bumpGate(gateCounts, 'risingCandles', 'Consecutive rising-candle pattern not met')
+          continue
+        }
 
         const budget = Math.min(capitalCfg.perTrade, cash)
         const qty = Math.floor(budget / candle.close)
         if (qty < 1) {
           skippedCapitalLimited++
+          bumpGate(gateCounts, 'capitalTooLow', 'Insufficient capital for next entry')
           continue
         }
 
@@ -826,7 +897,7 @@ async function runMomentumBacktest(options: BacktestOptions = {}): Promise<Strat
       if (!latestCandle) continue
       trade.markPrice = latestCandle.close
       trade.markValue = Number((trade.remainingQty * latestCandle.close).toFixed(2))
-      trade.unrealizedPnl = Number((trade.realizedPnl + trade.markValue - trade.remainingCost).toFixed(2))
+      trade.unrealizedPnl = Number((trade.markValue - trade.remainingCost).toFixed(2))
       marketValue += trade.markValue
     }
     marketValue = Number(marketValue.toFixed(2))
@@ -841,13 +912,13 @@ async function runMomentumBacktest(options: BacktestOptions = {}): Promise<Strat
     if (trade.status === 'closed') continue
     trade.holdDays = Math.max(0, (dateIndex.get(lastDate) || 0) - (dateIndex.get(dateOnly(trade.entryDate)) || 0))
     trade.markValue = Number((trade.remainingQty * trade.markPrice).toFixed(2))
-    trade.unrealizedPnl = Number((trade.realizedPnl + trade.markValue - trade.remainingCost).toFixed(2))
+    trade.unrealizedPnl = Number((trade.markValue - trade.remainingCost).toFixed(2))
     trade.realizedPct = trade.entryValue > 0
       ? Number(((((trade.realizedPnl + trade.unrealizedPnl) / trade.entryValue) * 100)).toFixed(2))
       : 0
   }
 
-  const realizedPnl = Number(allTrades.filter(trade => trade.status === 'closed').reduce((sum, trade) => sum + trade.realizedPnl, 0).toFixed(2))
+  const realizedPnl = Number(allTrades.reduce((sum, trade) => sum + trade.realizedPnl, 0).toFixed(2))
   const unrealizedPnl = Number(allTrades.filter(trade => trade.status === 'open').reduce((sum, trade) => sum + trade.unrealizedPnl, 0).toFixed(2))
   const endingCapital = equityCurve[equityCurve.length - 1]?.equity ?? startingCapital
   const closedTrades = allTrades.filter(trade => trade.status === 'closed')
@@ -879,6 +950,7 @@ async function runMomentumBacktest(options: BacktestOptions = {}): Promise<Strat
       skippedNoHistorical,
       skippedCapitalLimited,
       skippedPositionLimited,
+      gateBreakdown: toGateBreakdown(gateCounts),
     },
     trades: allTrades.map(trade => ({
       symbol: trade.symbol,
