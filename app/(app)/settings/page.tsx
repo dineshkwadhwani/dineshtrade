@@ -106,7 +106,7 @@ export default function SettingsPage() {
   }
 
   return (
-    <div className="space-y-6 pb-4 max-w-2xl">
+    <div className={`space-y-6 pb-4 ${tab === 'backtest' ? 'max-w-7xl' : 'max-w-2xl'}`}>
       <div className="flex items-center justify-between gap-3">
         <div className="flex items-center gap-3">
           <h1 className="text-2xl font-light" style={{ fontFamily:'Cormorant Garamond, serif', color:'rgba(255,255,255,0.9)' }}>

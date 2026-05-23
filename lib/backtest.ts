@@ -376,6 +376,7 @@ export async function runStrategy1Backtest(options: BacktestOptions = {}): Promi
         trade.remainingQty -= sellQty
         trade.remainingCost = Number((trade.remainingCost - costBasis).toFixed(2))
         trade.realizedPnl = Number((trade.realizedPnl + (exitValue - costBasis)).toFixed(2))
+        trade.exitValue = Number(((trade.exitValue || 0) + exitValue).toFixed(2))
         cash = Number((cash + exitValue).toFixed(2))
         trade.t1Done = true
         trade.t1Date = date
@@ -393,7 +394,7 @@ export async function runStrategy1Backtest(options: BacktestOptions = {}): Promi
         trade.t2Date = date
         trade.exitDate = date
         trade.exitValue = Number(((trade.exitValue || 0) + exitValue).toFixed(2))
-        trade.exitPrice = Number((((trade.exitValue || 0) + exitValue) / trade.qty).toFixed(2))
+        trade.exitPrice = Number((trade.exitValue / trade.qty).toFixed(2))
       }
 
       if (trade.remainingQty === 0) {
@@ -703,6 +704,7 @@ async function runMomentumBacktest(options: BacktestOptions = {}): Promise<Strat
           trade.remainingQty -= sellQty
           trade.remainingCost = Number((trade.remainingCost - costBasis).toFixed(2))
           trade.realizedPnl = Number((trade.realizedPnl + (exitValue - costBasis)).toFixed(2))
+          trade.exitValue = Number(((trade.exitValue || 0) + exitValue).toFixed(2))
           cash = Number((cash + exitValue).toFixed(2))
           trade.t1Done = true
           trade.t1Date = ts
