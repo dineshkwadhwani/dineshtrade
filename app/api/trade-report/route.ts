@@ -10,10 +10,12 @@ export async function POST(req: Request) {
   }
 
   try {
-    const body = await req.json().catch(() => ({})) as { fromDate?: string; toDate?: string }
+    const body = await req.json().catch(() => ({})) as { fromDate?: string; toDate?: string; account?: string; strategyId?: string }
     const fromDate = String(body.fromDate || '')
     const toDate = String(body.toDate || '')
-    const result = await buildLiveTradeReport({ fromDate, toDate })
+    const account = typeof body.account === 'string' ? body.account : ''
+    const strategyId = typeof body.strategyId === 'string' ? body.strategyId : ''
+    const result = await buildLiveTradeReport({ fromDate, toDate, account, strategyId })
     return NextResponse.json({ result })
   } catch (err) {
     const message = err instanceof Error ? err.message : 'Trade report failed'

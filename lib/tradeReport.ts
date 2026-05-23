@@ -8,6 +8,8 @@ import type { BacktestEquityPoint, BacktestTrade, StrategyBacktestResult } from 
 export interface LiveTradeReportOptions {
   fromDate: string
   toDate: string
+  account?: string
+  strategyId?: string
 }
 
 interface SellEvent {
@@ -145,6 +147,8 @@ function hasActivityInRange(trade: InternalTrade, fromDate: string, toDate: stri
 export async function buildLiveTradeReport(options: LiveTradeReportOptions): Promise<StrategyBacktestResult> {
   const fromDate = options.fromDate
   const toDate = options.toDate
+  const accountFilter = (options.account || '').trim().toUpperCase()
+  const strategyFilter = (options.strategyId || '').trim()
   assertYmd(fromDate, 'From date')
   assertYmd(toDate, 'To date')
   if (fromDate > toDate) throw new Error('From date must be on or before To date')
@@ -237,7 +241,11 @@ export async function buildLiveTradeReport(options: LiveTradeReportOptions): Pro
 
   const includedTrades = allTrades.filter(trade => {
     trade.activeInRange = trade.activeInRange || hasActivityInRange(trade, fromDate, toDate)
-    return trade.activeInRange
+    if (!trade.activeInRange) return false
+    if (accountFilter && trade.account !== accountFilter) return false
+    if (strategyFilter === 'manual') return !trade.strategyId
+    if (strategyFilter && strategyFilter !== 'manual') return trade.strategyId === strategyFilter
+    return true
   })
 
   const symbols = Array.from(new Set(includedTrades.map(trade => trade.symbol)))

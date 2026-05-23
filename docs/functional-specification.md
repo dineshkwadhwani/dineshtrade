@@ -355,6 +355,7 @@ Fires on the last trading day of the month (after the daily report). Shows: tota
 
 - Separate top-level menu item: **Trade Report**, placed before **Settings** in the main navigation.
 - Inputs: **From Date** picker, **To Date** picker, and **Run Report**.
+- Filters: optional **Account** and **Strategy** selectors. Strategy filter includes **Manual** in addition to saved strategies.
 - Output format intentionally mirrors the backtest report:
   - summary hero tiles
   - secondary metric tiles
