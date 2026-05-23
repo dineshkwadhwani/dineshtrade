@@ -63,6 +63,8 @@ export interface BacktestSummary {
   strategyName: string
   days: number
   tradingDays: number
+  dipDays: number
+  momentumDays: number
   startingCapital: number
   endingCapital: number
   realizedPnl: number
@@ -281,6 +283,8 @@ async function runAllActiveBacktest(options: BacktestOptions = {}): Promise<Stra
   let skippedCapitalLimited = 0
   let skippedPositionLimited = 0
   const gateCounts: GateCounter = {}
+  const dipDaySet = new Set<string>()
+  const momentumDaySet = new Set<string>()
 
   const calendarLookbackDays = Math.max(180, days * 3)
   const fromDaily = ymdIST(-calendarLookbackDays)
@@ -619,6 +623,8 @@ async function runAllActiveBacktest(options: BacktestOptions = {}): Promise<Stra
             continue
           }
 
+          momentumDaySet.add(date)
+
           const entryValue = Number((qty * candle.close).toFixed(2))
           cash = Number((cash - entryValue).toFixed(2))
           const trade: OpenTrade = {
@@ -762,6 +768,8 @@ async function runAllActiveBacktest(options: BacktestOptions = {}): Promise<Stra
           continue
         }
 
+        dipDaySet.add(date)
+
         pushPending({
           date: nextDate,
           strategyId: strategy.id,
@@ -820,6 +828,8 @@ async function runAllActiveBacktest(options: BacktestOptions = {}): Promise<Stra
       strategyName: `All Active Strategies (${activeStrategies.length})`,
       days,
       tradingDays: backtestDates.length,
+      dipDays: dipDaySet.size,
+      momentumDays: momentumDaySet.size,
       startingCapital,
       endingCapital,
       realizedPnl,
@@ -907,6 +917,7 @@ export async function runStrategy1Backtest(options: BacktestOptions = {}): Promi
   let skippedCapitalLimited = 0
   let skippedPositionLimited = 0
   const gateCounts: GateCounter = {}
+  const dipDaySet = new Set<string>()
 
   const calendarLookbackDays = Math.max(180, days * 3)
   const from = ymdIST(-calendarLookbackDays)
@@ -1113,6 +1124,8 @@ export async function runStrategy1Backtest(options: BacktestOptions = {}): Promi
         continue
       }
 
+      dipDaySet.add(date)
+
       pushPending({
         date: nextDate,
         strategyId: strategy.id,
@@ -1168,6 +1181,8 @@ export async function runStrategy1Backtest(options: BacktestOptions = {}): Promi
       strategyName: strategy.name,
       days,
       tradingDays: backtestDates.length,
+      dipDays: dipDaySet.size,
+      momentumDays: 0,
       startingCapital,
       endingCapital,
       realizedPnl,
@@ -1262,6 +1277,7 @@ async function runMomentumBacktest(options: BacktestOptions = {}): Promise<Strat
   let skippedCapitalLimited = 0
   let skippedPositionLimited = 0
   const gateCounts: GateCounter = {}
+  const momentumDaySet = new Set<string>()
 
   const calendarLookbackDays = Math.max(180, days * 3)
   const fromDaily = ymdIST(-calendarLookbackDays)
@@ -1487,6 +1503,8 @@ async function runMomentumBacktest(options: BacktestOptions = {}): Promise<Strat
           continue
         }
 
+        momentumDaySet.add(date)
+
         const entryValue = Number((qty * candle.close).toFixed(2))
         cash = Number((cash - entryValue).toFixed(2))
         const trade: OpenTrade = {
@@ -1566,6 +1584,8 @@ async function runMomentumBacktest(options: BacktestOptions = {}): Promise<Strat
       strategyName: strategy.name,
       days,
       tradingDays: backtestDates.length,
+      dipDays: 0,
+      momentumDays: momentumDaySet.size,
       startingCapital,
       endingCapital,
       realizedPnl,

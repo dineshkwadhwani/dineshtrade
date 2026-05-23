@@ -1,5 +1,6 @@
 'use client'
 import { useEffect, useState } from 'react'
+import { createPortal } from 'react-dom'
 import { useSearchParams, useRouter, usePathname } from 'next/navigation'
 
 interface AccountDisplay {
@@ -451,6 +452,8 @@ interface BacktestSummary {
   strategyName: string
   days: number
   tradingDays: number
+  dipDays: number
+  momentumDays: number
   startingCapital: number
   endingCapital: number
   realizedPnl: number
@@ -797,8 +800,10 @@ function StrategiesTab({ autoModeOn }: { autoModeOn: boolean }) {
         </div>
       )}
 
-      {/* CONFIRMATION DIALOG */}
-      {confirming && (
+      {/* CONFIRMATION DIALOG — rendered via portal to document.body so that the
+          fixed overlay is not trapped by the animated <main> ancestor whose
+          transform:translateY(0) creates a new containing block for position:fixed. */}
+      {confirming && createPortal(
         <div className="fixed inset-0 z-50 flex items-center justify-center px-4 py-8"
           style={{ background:'rgba(0,0,0,0.7)', backdropFilter:'blur(4px)' }} onClick={() => setConfirming(false)}>
           <div className="w-full max-w-xl rounded-xl overflow-hidden" onClick={e => e.stopPropagation()}
@@ -835,7 +840,8 @@ function StrategiesTab({ autoModeOn }: { autoModeOn: boolean }) {
               </button>
             </div>
           </div>
-        </div>
+        </div>,
+        document.body
       )}
 
       {error && !confirming && (
@@ -1054,6 +1060,8 @@ function BacktestTab({ active }: { active: boolean }) {
             </div>
             <div className="grid grid-cols-2 md:grid-cols-4 gap-3 p-4">
               <MiniMetric label="Trading Days" value={String(result.summary.tradingDays)} />
+              <MiniMetric label="Dip Days" value={String(result.summary.dipDays)} />
+              <MiniMetric label="Momentum Days" value={String(result.summary.momentumDays)} />
               <MiniMetric label="Wins / Losses" value={`${result.summary.wins} / ${result.summary.losses}`} />
               <MiniMetric label="Avg Hold" value={result.summary.avgHoldDays === null ? '—' : `${result.summary.avgHoldDays.toFixed(1)} d`} />
               <MiniMetric
@@ -1127,7 +1135,7 @@ function BacktestTab({ active }: { active: boolean }) {
               <table className="w-full text-left min-w-[980px]">
                 <thead>
                   <tr style={{ background:'rgba(255,255,255,0.02)' }}>
-                    {['Symbol', 'Signal', 'Entry Price', 'Exit Price / Mark Price', 'Qty', 'Status', 'Realized Profit', 'Hold', 'Reason'].map(h => (
+                    {['Symbol', 'Strategy', 'Signal', 'Entry Price', 'Exit Price / Mark Price', 'Qty', 'Status', 'Realized Profit', 'Hold', 'Reason'].map(h => (
                       <th key={h} className="px-3 py-2 text-[10px] tracking-widest uppercase font-medium" style={{ color:'rgba(255,255,255,0.35)', fontFamily:'JetBrains Mono, monospace' }}>{h}</th>
                     ))}
                   </tr>
@@ -1140,17 +1148,14 @@ function BacktestTab({ active }: { active: boolean }) {
                         <td className="px-3 py-2.5">
                           <div className="flex items-center gap-2">
                             <span className="text-[12px] font-medium" style={{ color:'rgba(255,255,255,0.85)' }}>{trade.symbol}</span>
-                            {trade.strategyName && result.summary.strategyId === 'all-active' && (
-                              <span className="text-[9px] tracking-widest uppercase px-1.5 py-0.5 rounded"
-                                style={{ background:'rgba(96,165,250,0.12)', border:'1px solid rgba(96,165,250,0.35)', color:'#60a5fa', fontFamily:'JetBrains Mono, monospace' }}>
-                                {trade.strategyName}
-                              </span>
-                            )}
                             <span className="text-[9px] tracking-widest uppercase px-1.5 py-0.5 rounded"
                               style={{ background: trade.confidence === 'high' ? 'rgba(82,183,136,0.12)' : 'rgba(201,168,76,0.12)', border:`1px solid ${trade.confidence === 'high' ? 'rgba(82,183,136,0.35)' : 'rgba(201,168,76,0.35)'}`, color: trade.confidence === 'high' ? '#52b788' : '#c9a84c', fontFamily:'JetBrains Mono, monospace' }}>
                               {trade.confidence}
                             </span>
                           </div>
+                        </td>
+                        <td className="px-3 py-2.5 text-[11px]" style={{ color:'#60a5fa', fontFamily:'JetBrains Mono, monospace' }}>
+                          {trade.strategyName || '—'}
                         </td>
                         <td className="px-3 py-2.5 text-[11px]" style={{ color:'rgba(255,255,255,0.55)', fontFamily:'JetBrains Mono, monospace' }}>{trade.signalDate}</td>
                         <td className="px-3 py-2.5 text-[11px]" style={{ color:'rgba(255,255,255,0.75)' }}>
