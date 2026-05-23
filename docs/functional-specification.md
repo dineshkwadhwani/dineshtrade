@@ -628,7 +628,7 @@ Every order-placing button across the app (Buy / Sell on Watchlist + Holdings, S
 - Multi-user — single user, multi-account
 - Mobile native app — responsive web only
 - Push notifications — email only (mobile push deferred to V2)
-- Backtest harness — V2
+- Full multi-strategy intraday backtest harness — V2 (current implementation includes a Settings → Backtest UI and a Strategy 1 API backtest; momentum replay remains deferred)
 
 ---
 

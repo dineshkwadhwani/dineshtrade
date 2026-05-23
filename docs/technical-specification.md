@@ -97,6 +97,7 @@ This document covers the *how* — architecture, stack choices, infrastructure, 
 │   ├── strategyConfigStore.ts      # Runtime overlay at data/strategy.json + legacy id migration
 │   ├── strategy2Positions.ts       # Thin facade over positions.ts (back-compat)
 │   ├── strategyEngine.ts           # Dispatcher (universe deduped across N selected lists)
+│   ├── backtest.ts                 # Historical Strategy 1 replay + equity curve
 │   └── watchlistStore.ts           # Named-list store: { meta, lists } with stable keys
 ├── instrumentation.ts              # Cron registration entry point
 ├── middleware.ts                   # Edge auth check
@@ -318,7 +319,17 @@ Centralised wrappers — every caller goes through these. Never make raw HTTP ca
 - `isLastWeekdayOfMonth(ymd)` — used by cron to decide monthly fire
 - `buildLiveSnapshot(date)` / `buildStrategyHealth(rollingAll, today)` — internal helpers used by `buildDailyReport`
 
-### 5.5 `lib/positions.ts` *(new 21 May 2026)*
+### 5.5 `lib/backtest.ts` *(new 23 May 2026)*
+
+- `runStrategy1Backtest({ days?, initialCapital?, strategyId? })` → `StrategyBacktestResult`
+- Current scope is intentionally narrow: dip strategies only, defaulting to `accumulator`
+- Reuses live strategy inputs: watchlist universe, `strategy.json` dip params, `capital.perTrade`, `maxPositions`, `maxBuysPerSymbol`, and `minDropBetweenBuysPct`
+- Uses daily historical candles only; evaluates signals from day-close vs previous day's EMA, enters at the next trading day's open, exits at `EMA` / `EMA + tranche2AboveEMAPct`
+- Returns summary metrics, per-trade outcomes, and an equity curve for the selected lookback window
+- HTTP surface: `POST /api/strategy/backtest` (authenticated)
+- Current frontend surface: Settings → Backtest tab. It fetches saved strategies from `GET /api/strategies`, lets the user pick a strategy + day window, and renders summary/trades/equity inline.
+
+### 5.6 `lib/positions.ts` *(new 21 May 2026)*
 
 Unified position store. Replaces `strategy1.json` + `strategy2_positions.json` with a single file keyed by `(account, symbol)`. Each row carries `strategyId` — that's what makes per-strategy exit profiles work.
 

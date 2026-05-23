@@ -12,7 +12,7 @@ interface AccountDisplay {
 
 type Mode = 'auto' | 'manual'
 
-type SettingsTab = 'general' | 'strategies'
+type SettingsTab = 'general' | 'strategies' | 'backtest'
 
 export default function SettingsPage() {
   const [tab, setTab] = useState<SettingsTab>('general')
@@ -147,6 +147,7 @@ export default function SettingsPage() {
         {([
           { id: 'general',    label: 'Accounts & Trading' },
           { id: 'strategies', label: 'Strategies' },
+          { id: 'backtest',   label: 'Backtest' },
         ] as const).map(t => {
           const active = tab === t.id
           return (
@@ -164,9 +165,15 @@ export default function SettingsPage() {
         })}
       </div>
 
-      {tab === 'strategies' && <StrategiesTab autoModeOn={mode === 'auto'} />}
+      <div style={{ display: tab === 'strategies' ? 'block' : 'none' }}>
+        <StrategiesTab autoModeOn={mode === 'auto'} />
+      </div>
 
-      {tab === 'general' && <>
+      <div style={{ display: tab === 'backtest' ? 'block' : 'none' }}>
+        <BacktestTab active={tab === 'backtest'} />
+      </div>
+
+      <div style={{ display: tab === 'general' ? 'block' : 'none' }}><>
 
       {/* ── TRADE MODE ── */}
       <div className="rounded-xl p-5" style={{ background:'rgba(255,255,255,0.03)', border:'1px solid rgba(255,255,255,0.08)' }}>
@@ -352,7 +359,7 @@ export default function SettingsPage() {
         </div>
       </div>
 
-      </>}
+      </></div>
 
       <p className="text-[10px] text-center" style={{ color:'rgba(255,255,255,0.2)' }}>
         Settings persist until logout · Closing the browser does not log you out · Only Logout clears the session
@@ -391,6 +398,73 @@ interface StrategyConfig {
   params: Record<string, unknown>
   exits: { t1Pct: number; t2Pct: number }
   giftNiftyGate?: { enabled: boolean; minPct?: number | null; maxPct?: number | null }
+}
+
+interface BacktestTrade {
+  symbol: string
+  signalDate: string
+  entryDate: string
+  entryPrice: number
+  qty: number
+  buyNumber: number
+  entryValue: number
+  emaAtSignal: number
+  deviationPct: number
+  downDays: number
+  confidence: 'normal' | 'high'
+  target1: number
+  target2: number
+  exitDate?: string
+  exitPrice?: number
+  exitValue?: number
+  realizedPnl: number
+  realizedPct: number
+  holdDays: number
+  status: 'closed' | 'open'
+  markPrice: number
+  markValue: number
+  unrealizedPnl: number
+  t1Date?: string
+  t2Date?: string
+}
+
+interface BacktestEquityPoint {
+  date: string
+  cash: number
+  marketValue: number
+  equity: number
+  drawdownPct: number
+  openTrades: number
+}
+
+interface BacktestSummary {
+  strategyId: string
+  strategyName: string
+  days: number
+  tradingDays: number
+  startingCapital: number
+  endingCapital: number
+  realizedPnl: number
+  unrealizedPnl: number
+  totalPnl: number
+  totalReturnPct: number
+  maxDrawdownPct: number
+  tradesClosed: number
+  tradesOpen: number
+  wins: number
+  losses: number
+  winRate: number | null
+  avgHoldDays: number | null
+  skippedNoToken: number
+  skippedNoHistorical: number
+  skippedCapitalLimited: number
+  skippedPositionLimited: number
+}
+
+interface StrategyBacktestResult {
+  summary: BacktestSummary
+  trades: BacktestTrade[]
+  equityCurve: BacktestEquityPoint[]
 }
 
 // One-line descriptions for each capital field — surfaced inline so the user
@@ -762,6 +836,314 @@ function StrategiesTab({ autoModeOn }: { autoModeOn: boolean }) {
   )
 }
 
+function BacktestTab({ active }: { active: boolean }) {
+  const [strategies, setStrategies] = useState<StrategyConfig[]>([])
+  const [strategyId, setStrategyId] = useState('accumulator')
+  const [days, setDays] = useState(60)
+  const [capital, setCapital] = useState(50000)
+  const [loading, setLoading] = useState(false)
+  const [loaded, setLoaded] = useState(false)
+  const [error, setError] = useState('')
+  const [info, setInfo] = useState('')
+  const [result, setResult] = useState<StrategyBacktestResult | null>(null)
+
+  useEffect(() => {
+    if (!active) return
+    let cancelled = false
+
+    async function loadStrategies() {
+      try {
+        setError('')
+        const data = await fetch('/api/strategies').then(r => r.json())
+        if (cancelled) return
+        if (data.error) {
+          setStrategies([])
+          setError(data.error)
+          return
+        }
+        const nextStrategies = Array.isArray(data.strategies) ? data.strategies as StrategyConfig[] : []
+        setStrategies(nextStrategies)
+        setStrategyId(current => nextStrategies.some(s => s.id === current) ? current : (nextStrategies[0]?.id || 'accumulator'))
+      } catch {
+        if (!cancelled) {
+          setStrategies([])
+          setError('Failed to load strategies')
+        }
+      } finally {
+        if (!cancelled) setLoaded(true)
+      }
+    }
+
+    loadStrategies()
+    return () => { cancelled = true }
+  }, [active])
+
+  const selected = strategies.find(s => s.id === strategyId) || null
+  const unsupported = selected?.type === 'momentum'
+
+  async function runBacktest() {
+    if (!selected) return
+    setLoading(true)
+    setError('')
+    setInfo('')
+    try {
+      const res = await fetch('/api/strategy/backtest', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          strategyId: selected.id,
+          days: Math.max(10, Math.min(180, Math.round(days || 60))),
+          initialCapital: Math.max(1000, Math.round(capital || 50000)),
+        }),
+      })
+      const data = await res.json()
+      if (!res.ok) {
+        setResult(null)
+        setError(data.error || `Backtest failed (HTTP ${res.status})`)
+        return
+      }
+      setResult(data.result || null)
+      setInfo(`Backtest completed for ${selected.name}`)
+    } catch {
+      setResult(null)
+      setError('Network error while running backtest')
+    } finally {
+      setLoading(false)
+    }
+  }
+
+  return (
+    <div className="space-y-5">
+      <div className="rounded-xl p-5" style={{ background:'rgba(255,255,255,0.03)', border:'1px solid rgba(255,255,255,0.08)' }}>
+        <div className="flex items-start justify-between gap-4 flex-wrap">
+          <div>
+            <h2 className="text-[11px] tracking-widest uppercase mb-2"
+              style={{ color:'rgba(201,168,76,0.6)', fontFamily:'JetBrains Mono, monospace' }}>
+              Strategy Backtest
+            </h2>
+            <p className="text-[12px] max-w-xl" style={{ color:'rgba(255,255,255,0.45)' }}>
+              Pick a saved strategy, choose the lookback window, and replay it on historical candles. This lets you compare tuning changes after saving them in the Strategies tab.
+            </p>
+          </div>
+          <button onClick={runBacktest} disabled={loading || !selected || unsupported}
+            className="px-5 py-2.5 rounded-xl text-[12px] font-semibold tracking-wider transition-all disabled:opacity-40"
+            style={{ background:'linear-gradient(135deg, #7a5510, #c9a84c)', color:'#080604' }}>
+            {loading ? 'Running…' : 'Run Backtest'}
+          </button>
+        </div>
+
+        <div className="grid grid-cols-1 md:grid-cols-3 gap-4 mt-5">
+          <div>
+            <label className="block text-[10px] tracking-widest uppercase mb-1.5" style={{ color:'rgba(201,168,76,0.55)', fontFamily:'JetBrains Mono, monospace' }}>
+              Strategy
+            </label>
+            <select value={strategyId}
+              onChange={e => {
+                setStrategyId(e.target.value)
+                setResult(null)
+                setError('')
+                setInfo('')
+              }}
+              className="w-full px-3 py-2.5 rounded-lg text-[12px] outline-none"
+              style={{ background:'rgba(255,255,255,0.04)', border:'1px solid rgba(201,168,76,0.25)', color:'#c9a84c', fontFamily:'JetBrains Mono, monospace' }}>
+              {strategies.map(strategy => (
+                <option key={strategy.id} value={strategy.id}>{strategy.name} · {strategy.type}</option>
+              ))}
+            </select>
+          </div>
+          <div>
+            <label className="block text-[10px] tracking-widest uppercase mb-1.5" style={{ color:'rgba(201,168,76,0.55)', fontFamily:'JetBrains Mono, monospace' }}>
+              Trading Days
+            </label>
+            <input type="number" min={10} max={180} step={1} value={days}
+              onChange={e => setDays(parseInt(e.target.value || '60', 10))}
+              className="w-full px-3 py-2.5 rounded-lg text-[12px] outline-none"
+              style={{ background:'rgba(255,255,255,0.04)', border:'1px solid rgba(201,168,76,0.25)', color:'#c9a84c', fontFamily:'JetBrains Mono, monospace' }} />
+          </div>
+          <div>
+            <label className="block text-[10px] tracking-widest uppercase mb-1.5" style={{ color:'rgba(201,168,76,0.55)', fontFamily:'JetBrains Mono, monospace' }}>
+              Starting Capital
+            </label>
+            <input type="number" min={1000} step={1000} value={capital}
+              onChange={e => setCapital(parseInt(e.target.value || '50000', 10))}
+              className="w-full px-3 py-2.5 rounded-lg text-[12px] outline-none"
+              style={{ background:'rgba(255,255,255,0.04)', border:'1px solid rgba(201,168,76,0.25)', color:'#c9a84c', fontFamily:'JetBrains Mono, monospace' }} />
+          </div>
+        </div>
+
+        <div className="flex items-center justify-between gap-3 flex-wrap mt-4">
+          <div className="flex items-center gap-2 flex-wrap">
+            {selected && (
+              <span className="text-[10px] tracking-widest uppercase px-2 py-1 rounded"
+                style={{ background:`${selected.color}18`, border:`1px solid ${selected.color}55`, color:selected.color, fontFamily:'JetBrains Mono, monospace' }}>
+                {selected.name} · {selected.type}
+              </span>
+            )}
+            {selected?.active === false && (
+              <span className="text-[10px] tracking-widest uppercase px-2 py-1 rounded"
+                style={{ background:'rgba(255,255,255,0.04)', border:'1px solid rgba(255,255,255,0.12)', color:'rgba(255,255,255,0.45)', fontFamily:'JetBrains Mono, monospace' }}>
+                inactive strategy
+              </span>
+            )}
+          </div>
+          <p className="text-[11px]" style={{ color:'rgba(255,255,255,0.32)' }}>
+            Backtest runs against the saved strategy configuration.
+          </p>
+        </div>
+      </div>
+
+      {!loaded && <p className="text-[11px]" style={{ color:'rgba(255,255,255,0.4)' }}>Loading…</p>}
+
+      {unsupported && (
+        <div className="rounded-lg p-3" style={{ background:'rgba(245,158,11,0.06)', border:'1px solid rgba(245,158,11,0.3)' }}>
+          <p className="text-[12px]" style={{ color:'#f59e0b' }}>
+            Momentum strategies are shown in the dropdown, but the current backtest engine only replays dip strategies. Momentum replay needs full 5-minute historical simulation and is the next extension.
+          </p>
+        </div>
+      )}
+
+      {info && (
+        <div className="rounded-lg p-3" style={{ background:'rgba(82,183,136,0.06)', border:'1px solid rgba(82,183,136,0.3)' }}>
+          <p className="text-[12px]" style={{ color:'#52b788' }}>✓ {info}</p>
+        </div>
+      )}
+
+      {error && (
+        <div className="rounded-lg p-3" style={{ background:'rgba(224,90,94,0.06)', border:'1px solid rgba(224,90,94,0.25)' }}>
+          <p className="text-[12px]" style={{ color:'rgba(224,90,94,0.9)' }}>✗ {error}</p>
+        </div>
+      )}
+
+      {result && (
+        <div className="space-y-5">
+          <div className="rounded-xl overflow-hidden" style={{ background:'rgba(201,168,76,0.04)', border:'1px solid rgba(201,168,76,0.2)' }}>
+            <div className="px-4 py-2.5" style={{ borderBottom:'1px solid rgba(201,168,76,0.12)' }}>
+              <p className="text-[11px] tracking-widest uppercase" style={{ color:'#c9a84c', fontFamily:'JetBrains Mono, monospace' }}>
+                Summary · {result.summary.strategyName}
+              </p>
+            </div>
+            <div className="grid grid-cols-2 md:grid-cols-4 gap-px" style={{ background:'rgba(255,255,255,0.04)' }}>
+              <Stat label="Total P&L" value={formatSignedCurrency(result.summary.totalPnl)} color={result.summary.totalPnl >= 0 ? '#52b788' : '#e05a5e'} />
+              <Stat label="Return" value={formatSignedPct(result.summary.totalReturnPct)} color={result.summary.totalReturnPct >= 0 ? '#52b788' : '#e05a5e'} />
+              <Stat label="Win Rate" value={result.summary.winRate === null ? '—' : `${result.summary.winRate.toFixed(2)}%`} color="#c9a84c" />
+              <Stat label="Max Drawdown" value={`${result.summary.maxDrawdownPct.toFixed(2)}%`} color="rgba(224,90,94,0.85)" />
+              <Stat label="Starting Capital" value={formatCurrency(result.summary.startingCapital)} color="rgba(255,255,255,0.7)" />
+              <Stat label="Ending Capital" value={formatCurrency(result.summary.endingCapital)} color="rgba(255,255,255,0.9)" />
+              <Stat label="Trades Closed" value={String(result.summary.tradesClosed)} color="rgba(255,255,255,0.7)" />
+              <Stat label="Trades Open" value={String(result.summary.tradesOpen)} color="rgba(255,255,255,0.7)" />
+            </div>
+            <div className="grid grid-cols-2 md:grid-cols-4 gap-3 p-4">
+              <MiniMetric label="Trading Days" value={String(result.summary.tradingDays)} />
+              <MiniMetric label="Wins / Losses" value={`${result.summary.wins} / ${result.summary.losses}`} />
+              <MiniMetric label="Avg Hold" value={result.summary.avgHoldDays === null ? '—' : `${result.summary.avgHoldDays.toFixed(1)} d`} />
+              <MiniMetric label="Realized / Unrealized" value={`${formatSignedCurrency(result.summary.realizedPnl)} / ${formatSignedCurrency(result.summary.unrealizedPnl)}`} />
+              <MiniMetric label="Skipped No Token" value={String(result.summary.skippedNoToken)} />
+              <MiniMetric label="Skipped No Historical" value={String(result.summary.skippedNoHistorical)} />
+              <MiniMetric label="Skipped Capital" value={String(result.summary.skippedCapitalLimited)} />
+              <MiniMetric label="Skipped Position" value={String(result.summary.skippedPositionLimited)} />
+            </div>
+          </div>
+
+          <div className="rounded-xl overflow-hidden" style={{ background:'rgba(255,255,255,0.02)', border:'1px solid rgba(255,255,255,0.08)' }}>
+            <div className="px-4 py-2.5 flex items-center justify-between gap-3" style={{ borderBottom:'1px solid rgba(255,255,255,0.06)' }}>
+              <p className="text-[11px] tracking-widest uppercase" style={{ color:'rgba(201,168,76,0.6)', fontFamily:'JetBrains Mono, monospace' }}>
+                Trades ({result.trades.length})
+              </p>
+              <p className="text-[10px]" style={{ color:'rgba(255,255,255,0.3)' }}>
+                Same-page result view for quick parameter comparisons.
+              </p>
+            </div>
+            <div className="overflow-x-auto">
+              <table className="w-full text-left min-w-[980px]">
+                <thead>
+                  <tr style={{ background:'rgba(255,255,255,0.02)' }}>
+                    {['Symbol', 'Signal', 'Entry', 'Exit / Mark', 'Qty', 'Status', 'P&L', 'Hold', 'Reason'].map(h => (
+                      <th key={h} className="px-3 py-2 text-[10px] tracking-widest uppercase font-medium" style={{ color:'rgba(255,255,255,0.35)', fontFamily:'JetBrains Mono, monospace' }}>{h}</th>
+                    ))}
+                  </tr>
+                </thead>
+                <tbody>
+                  {result.trades.map((trade, index) => {
+                    const pnl = trade.status === 'closed' ? trade.realizedPnl : trade.unrealizedPnl
+                    return (
+                      <tr key={`${trade.symbol}-${trade.entryDate}-${index}`} style={{ borderTop:'1px solid rgba(255,255,255,0.05)' }}>
+                        <td className="px-3 py-2.5">
+                          <div className="flex items-center gap-2">
+                            <span className="text-[12px] font-medium" style={{ color:'rgba(255,255,255,0.85)' }}>{trade.symbol}</span>
+                            <span className="text-[9px] tracking-widest uppercase px-1.5 py-0.5 rounded"
+                              style={{ background: trade.confidence === 'high' ? 'rgba(82,183,136,0.12)' : 'rgba(201,168,76,0.12)', border:`1px solid ${trade.confidence === 'high' ? 'rgba(82,183,136,0.35)' : 'rgba(201,168,76,0.35)'}`, color: trade.confidence === 'high' ? '#52b788' : '#c9a84c', fontFamily:'JetBrains Mono, monospace' }}>
+                              {trade.confidence}
+                            </span>
+                          </div>
+                        </td>
+                        <td className="px-3 py-2.5 text-[11px]" style={{ color:'rgba(255,255,255,0.55)', fontFamily:'JetBrains Mono, monospace' }}>{trade.signalDate}</td>
+                        <td className="px-3 py-2.5 text-[11px]" style={{ color:'rgba(255,255,255,0.75)' }}>
+                          <div>{trade.entryDate}</div>
+                          <div style={{ color:'#c9a84c', fontFamily:'JetBrains Mono, monospace' }}>{formatCurrency(trade.entryPrice)}</div>
+                        </td>
+                        <td className="px-3 py-2.5 text-[11px]" style={{ color:'rgba(255,255,255,0.75)' }}>
+                          <div>{trade.exitDate || 'Open'}</div>
+                          <div style={{ color: trade.status === 'closed' ? '#52b788' : 'rgba(255,255,255,0.65)', fontFamily:'JetBrains Mono, monospace' }}>{formatCurrency(trade.status === 'closed' ? (trade.exitPrice || trade.markPrice) : trade.markPrice)}</div>
+                        </td>
+                        <td className="px-3 py-2.5 text-[11px]" style={{ color:'rgba(255,255,255,0.75)', fontFamily:'JetBrains Mono, monospace' }}>{trade.qty}</td>
+                        <td className="px-3 py-2.5">
+                          <span className="text-[9px] tracking-widest uppercase px-1.5 py-0.5 rounded"
+                            style={{ background: trade.status === 'closed' ? 'rgba(82,183,136,0.12)' : 'rgba(96,165,250,0.12)', border:`1px solid ${trade.status === 'closed' ? 'rgba(82,183,136,0.35)' : 'rgba(96,165,250,0.35)'}`, color: trade.status === 'closed' ? '#52b788' : '#60a5fa', fontFamily:'JetBrains Mono, monospace' }}>
+                            {trade.status}
+                          </span>
+                        </td>
+                        <td className="px-3 py-2.5 text-[11px]" style={{ color: pnl >= 0 ? '#52b788' : '#e05a5e', fontFamily:'JetBrains Mono, monospace' }}>
+                          <div>{formatSignedCurrency(pnl)}</div>
+                          <div>{formatSignedPct(trade.realizedPct)}</div>
+                        </td>
+                        <td className="px-3 py-2.5 text-[11px]" style={{ color:'rgba(255,255,255,0.55)', fontFamily:'JetBrains Mono, monospace' }}>{trade.holdDays} d</td>
+                        <td className="px-3 py-2.5 text-[11px]" style={{ color:'rgba(255,255,255,0.45)' }}>
+                          {Math.abs(trade.deviationPct).toFixed(2)}% below EMA · {trade.downDays} down days · buy #{trade.buyNumber}
+                        </td>
+                      </tr>
+                    )
+                  })}
+                </tbody>
+              </table>
+            </div>
+          </div>
+
+          <div className="rounded-xl overflow-hidden" style={{ background:'rgba(255,255,255,0.02)', border:'1px solid rgba(255,255,255,0.08)' }}>
+            <div className="px-4 py-2.5" style={{ borderBottom:'1px solid rgba(255,255,255,0.06)' }}>
+              <p className="text-[11px] tracking-widest uppercase" style={{ color:'rgba(201,168,76,0.6)', fontFamily:'JetBrains Mono, monospace' }}>
+                Equity Curve ({result.equityCurve.length} days)
+              </p>
+            </div>
+            <div className="overflow-x-auto">
+              <table className="w-full text-left min-w-[760px]">
+                <thead>
+                  <tr style={{ background:'rgba(255,255,255,0.02)' }}>
+                    {['Date', 'Cash', 'Market Value', 'Equity', 'Drawdown', 'Open Trades'].map(h => (
+                      <th key={h} className="px-3 py-2 text-[10px] tracking-widest uppercase font-medium" style={{ color:'rgba(255,255,255,0.35)', fontFamily:'JetBrains Mono, monospace' }}>{h}</th>
+                    ))}
+                  </tr>
+                </thead>
+                <tbody>
+                  {result.equityCurve.map(point => (
+                    <tr key={point.date} style={{ borderTop:'1px solid rgba(255,255,255,0.05)' }}>
+                      <td className="px-3 py-2.5 text-[11px]" style={{ color:'rgba(255,255,255,0.75)', fontFamily:'JetBrains Mono, monospace' }}>{point.date}</td>
+                      <td className="px-3 py-2.5 text-[11px]" style={{ color:'rgba(255,255,255,0.7)', fontFamily:'JetBrains Mono, monospace' }}>{formatCurrency(point.cash)}</td>
+                      <td className="px-3 py-2.5 text-[11px]" style={{ color:'rgba(255,255,255,0.7)', fontFamily:'JetBrains Mono, monospace' }}>{formatCurrency(point.marketValue)}</td>
+                      <td className="px-3 py-2.5 text-[11px]" style={{ color:'#c9a84c', fontFamily:'JetBrains Mono, monospace' }}>{formatCurrency(point.equity)}</td>
+                      <td className="px-3 py-2.5 text-[11px]" style={{ color: point.drawdownPct > 0 ? '#e05a5e' : 'rgba(255,255,255,0.45)', fontFamily:'JetBrains Mono, monospace' }}>{point.drawdownPct.toFixed(2)}%</td>
+                      <td className="px-3 py-2.5 text-[11px]" style={{ color:'rgba(255,255,255,0.7)', fontFamily:'JetBrains Mono, monospace' }}>{point.openTrades}</td>
+                    </tr>
+                  ))}
+                </tbody>
+              </table>
+            </div>
+          </div>
+        </div>
+      )}
+    </div>
+  )
+}
+
 // Builds a flat list of {path, from, to} entries for the confirm dialog.
 function buildDiff(
   source: { capital: CapitalConfig; strategies: StrategyConfig[] },
@@ -836,6 +1218,29 @@ function Stat({ label, value, color }: { label: string; value: string; color: st
       <p style={{ color, fontFamily:'JetBrains Mono, monospace', fontSize: 15, fontWeight: 600 }}>{value}</p>
     </div>
   )
+}
+
+function MiniMetric({ label, value }: { label: string; value: string }) {
+  return (
+    <div className="rounded-lg px-3 py-2.5" style={{ background:'rgba(255,255,255,0.02)', border:'1px solid rgba(255,255,255,0.05)' }}>
+      <p className="text-[9px] tracking-widest uppercase mb-1" style={{ color:'rgba(255,255,255,0.3)', fontFamily:'JetBrains Mono, monospace' }}>{label}</p>
+      <p className="text-[12px]" style={{ color:'rgba(255,255,255,0.82)', fontFamily:'JetBrains Mono, monospace' }}>{value}</p>
+    </div>
+  )
+}
+
+function formatCurrency(value: number): string {
+  return `₹${Math.round(value).toLocaleString('en-IN')}`
+}
+
+function formatSignedCurrency(value: number): string {
+  const sign = value > 0 ? '+' : value < 0 ? '-' : ''
+  return `${sign}${formatCurrency(Math.abs(value))}`
+}
+
+function formatSignedPct(value: number): string {
+  const sign = value > 0 ? '+' : value < 0 ? '-' : ''
+  return `${sign}${Math.abs(value).toFixed(2)}%`
 }
 
 function StrategyCard({ s, expanded, onToggle, watchlistOptions, onPatch, onToggleActive, onReset, onDuplicate, onDelete, canReset, isProtected, locked }: {
