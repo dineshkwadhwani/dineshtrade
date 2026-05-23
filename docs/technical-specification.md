@@ -1,6 +1,6 @@
 # DineshTrade — Technical Specification
 
-**Version:** 1.4 · **Last Updated:** 21 May 2026
+**Version:** 1.4 · **Last Updated:** 23 May 2026
 
 This document covers the *how* — architecture, stack choices, infrastructure, and the build & deploy runbook. For the *what*, see `functional-specification.md`.
 
@@ -46,6 +46,7 @@ This document covers the *how* — architecture, stack choices, infrastructure, 
 │   │   ├── holdings/page.tsx
 │   │   ├── positions/page.tsx      # NEW — 19 May
 │   │   ├── trades/page.tsx         # Today's Orders + Retrospective tabs
+│   │   ├── trade-report/page.tsx   # Date-range real trade report
 │   │   └── settings/page.tsx
 │   ├── api/
 │   │   ├── auth/route.ts
@@ -56,6 +57,7 @@ This document covers the *how* — architecture, stack choices, infrastructure, 
 │   │   ├── market/route.ts
 │   │   ├── positions/route.ts              # NEW — joined positions
 │   │   ├── state/route.ts
+│   │   ├── trade-report/route.ts           # NEW — real trade report
 │   │   ├── strategy/route.ts
 │   │   ├── strategy/monitor/route.ts
 │   │   ├── strategy/positions/route.ts
@@ -93,6 +95,7 @@ This document covers the *how* — architecture, stack choices, infrastructure, 
 │   ├── strategy.ts                 # Mode resolver
 │   ├── strategy1.ts                # Accumulator (dip / EMA two-tranche) monitor
 │   ├── strategy2.ts                # Catalyst (momentum) monitor
+│   ├── tradeReport.ts              # Date-range real-trade replay from journaled order legs
 │   ├── strategyConfig.ts           # Strategy schema + reader (DipParams, MomentumParams, CapitalConfig)
 │   ├── strategyConfigStore.ts      # Runtime overlay at data/strategy.json + legacy id migration
 │   ├── strategy2Positions.ts       # Thin facade over positions.ts (back-compat)
@@ -329,6 +332,19 @@ Centralised wrappers — every caller goes through these. Never make raw HTTP ca
 - Returns summary metrics, per-trade outcomes, and an equity curve for the selected lookback window
 - HTTP surface: `POST /api/strategy/backtest` (authenticated)
 - Current frontend surface: Settings → Backtest tab. It fetches saved strategies from `GET /api/strategies`, lets the user pick a strategy + day window, and renders summary/trades/equity inline for both dip and momentum strategies.
+
+### 5.6 `lib/tradeReport.ts` *(new 23 May 2026)*
+
+- `buildLiveTradeReport({ fromDate, toDate })` → `StrategyBacktestResult`
+- Source of truth is journaled `type: 'order'` records, not Kite's session-scoped `/orders` endpoint.
+- Replay model:
+  - reads order legs up to `toDate`
+  - reconstructs BUY rows plus tranche / final SELL activity per symbol and account
+  - carries pre-range open positions forward so exits inside the selected window stay linked correctly
+  - filters the final report to rows with actual activity inside the selected range
+  - uses daily historical candles to mark open positions and build a daily equity curve
+- HTTP surface: `POST /api/trade-report` (authenticated)
+- Current frontend surface: top-level `/trade-report` page with From / To date pickers and the same summary / trades / equity layout as Settings → Backtest.
 
 ### 5.6 `lib/positions.ts` *(new 21 May 2026)*
 

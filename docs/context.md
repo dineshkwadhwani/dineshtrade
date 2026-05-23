@@ -1,6 +1,6 @@
 # DineshTrade — Project Context
 
-**Last Updated:** 21 May 2026
+**Last Updated:** 23 May 2026
 **Version:** 1.4
 **Purpose:** Single source of truth on who, what, and why. Upload to any new Claude session to bootstrap full context.
 
@@ -183,7 +183,7 @@ Each strategy carries a `watchlist: string[]` of internal keys it scans. Setting
 ### Phase 1 (complete)
 - Next.js 14 App Router scaffold, Obsidian Gold theme (Cormorant Garamond serif + Outfit body + JetBrains Mono numbers)
 - Time-based login (`ddmmyyyyhh` IST, hourly rotation, midnight session expiry)
-- All pages built: Dashboard, Watchlist, Engine, Holdings, Positions, Today's Orders + Retrospective, Settings
+- All pages built: Dashboard, Watchlist, Engine, Holdings, Positions, Today's Orders + Retrospective, Trade Report, Settings
 - AppShell with top nav + mobile bottom nav
 - Multi-account architecture (env-prefix pattern)
 - Login with Kite OAuth flow + daily token persistence
@@ -207,6 +207,7 @@ Each strategy carries a `watchlist: string[]` of internal keys it scans. Setting
 - Daily retrospective (`lib/retrospective.ts`) — `buildDailyReport(date)`: enriches today's trades with live Kite OHLC (final day-high / left-on-table reflect full session), classifies missed signals as `good_miss` vs `missed_opportunity` by EoD close, computes 30-day rolling stats (win rate, avg gain, capital efficiency, delivery open), generates up to 3 fine-tuning bullets from heuristics.
 - Strategy 1 backtest (`lib/backtest.ts`) — replays the Accumulator rules on historical daily candles for the last N trading days (default 60), using next-day opens for entries and the strategy's saved T1/T2 percentage exits from entry price, plus per-trade capital sizing, position caps, and an equity curve. Exposed via `POST /api/strategy/backtest`.
 - Settings now has a dedicated **Backtest** tab beside **Strategies**. It loads all saved strategies into a dropdown, accepts a trading-day lookback, runs the authenticated backtest API, and renders summary, trades, and equity curve on the same page. Dip strategies replay from daily candles; momentum strategies replay from 5-minute candles with same-page results.
+- Real trade report (`lib/tradeReport.ts`) — reconstructs actual journaled BUY / SELL legs into the same `summary + trades + equityCurve` shape as the backtest report. It supports a From / To date range, carries pre-range open positions forward so in-range exits stay linked to the original BUY row, and marks open rows at the selected To date. Exposed via `POST /api/trade-report` and rendered on the new top-level `/trade-report` page.
 - Monthly rollup (`buildMonthlyReport`) — totals, best/worst trades, avg daily return, signals missed, optional recommendation.
 - Email HTML — Obsidian Gold inline-styled tables for `daily_report` + `monthly_report`. Plain-text fallback included.
 - Cron retrospective at 15:35 IST with three skip rules: not a market day, SMTP unconfigured, no activity (zero trades AND zero signals).

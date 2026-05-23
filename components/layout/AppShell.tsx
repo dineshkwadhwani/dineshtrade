@@ -12,6 +12,7 @@ const NAV = [
   { href: '/positions', label: "Today's Positions", icon: '◈' },
   { href: '/trades',    label: "Today's Orders",    icon: '≡' },
   { href: '/manage-lists', label: 'Manage Lists',   icon: '✎' },
+  { href: '/trade-report', label: 'Trade Report',   icon: '▤' },
   { href: '/settings',  label: 'Settings',          icon: '⚙' },
 ]
 

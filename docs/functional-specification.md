@@ -1,6 +1,6 @@
 # DineshTrade — Functional Specification
 
-**Version:** 1.4 · **Last Updated:** 21 May 2026
+**Version:** 1.4 · **Last Updated:** 23 May 2026
 
 This spec documents the *user-visible* behaviour: what the app does, when, and why. Each epic is independently shippable. Nuances and edge cases are listed inline because they are where the value (and the risk) lives.
 
@@ -350,6 +350,20 @@ Fires on the last trading day of the month (after the daily report). Shows: tota
   - So today's date always appears, plus every recent trading day — even days with zero records.
 - **Past-date rendering** — `buildLiveSnapshot()` reads journaled `order` records for any date that isn't today, instead of Kite's session-scoped `/orders` endpoint. Yesterday's manual trade shows up in yesterday's "Activity Today" section as long as the `order` record was written on placement.
 - Powered by `GET /api/journal/dates` + `GET /api/journal/[date]`
+
+### F7.7 — Trade Report page
+
+- Separate top-level menu item: **Trade Report**, placed before **Settings** in the main navigation.
+- Inputs: **From Date** picker, **To Date** picker, and **Run Report**.
+- Output format intentionally mirrors the backtest report:
+  - summary hero tiles
+  - secondary metric tiles
+  - detailed trade table
+  - equity-curve table
+- Data source is the append-only journaled order ledger, so both **manual** and **auto** trades are included.
+- Rows are position-based, not sell-event-based. A row stays open after tranche 1 and shows `partial` until the remaining quantity exits.
+- Carry-in rule: if a position was opened before the From date but exits partially or fully inside the window, it still appears and stays linked to the original BUY so the report does not produce orphaned SELLs.
+- Open rows are marked at the selected **To Date**, allowing realized and unrealized MTM to be shown in the same shape as the backtest screen.
 
 ### Nuances
 - **Why enrich with OHLC at report time, not write time:** at SELL time the day isn't over. EoD high may be higher than what we recorded. Enriching at 15:35 IST gives the user the "what would have been" honestly.
