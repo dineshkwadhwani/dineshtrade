@@ -1036,7 +1036,8 @@ function BacktestTab({ active }: { active: boolean }) {
               <MiniMetric label="Trading Days" value={String(result.summary.tradingDays)} />
               <MiniMetric label="Wins / Losses" value={`${result.summary.wins} / ${result.summary.losses}`} />
               <MiniMetric label="Avg Hold" value={result.summary.avgHoldDays === null ? '—' : `${result.summary.avgHoldDays.toFixed(1)} d`} />
-              <MiniMetric label="Realized / Unrealized" value={`${formatSignedCurrency(result.summary.realizedPnl)} / ${formatSignedCurrency(result.summary.unrealizedPnl)}`} />
+              <MiniMetric label="Realized P&L" value={formatSignedCurrency(result.summary.realizedPnl)} />
+              <MiniMetric label="Unrealized MTM" value={formatSignedCurrency(result.summary.unrealizedPnl)} />
               <MiniMetric label="Skipped No Token" value={String(result.summary.skippedNoToken)} />
               <MiniMetric label="Skipped No Historical" value={String(result.summary.skippedNoHistorical)} />
               <MiniMetric label="Skipped Capital" value={String(result.summary.skippedCapitalLimited)} />
@@ -1066,14 +1067,14 @@ function BacktestTab({ active }: { active: boolean }) {
               <table className="w-full text-left min-w-[980px]">
                 <thead>
                   <tr style={{ background:'rgba(255,255,255,0.02)' }}>
-                    {['Symbol', 'Signal', 'Entry', 'Exit / Mark', 'Qty', 'Status', 'P&L', 'Hold', 'Reason'].map(h => (
+                    {['Symbol', 'Signal', 'Entry Price', 'Exit Price / Mark Price', 'Qty', 'Status', 'Realized Profit', 'Hold', 'Reason'].map(h => (
                       <th key={h} className="px-3 py-2 text-[10px] tracking-widest uppercase font-medium" style={{ color:'rgba(255,255,255,0.35)', fontFamily:'JetBrains Mono, monospace' }}>{h}</th>
                     ))}
                   </tr>
                 </thead>
                 <tbody>
                   {result.trades.map((trade, index) => {
-                    const pnl = trade.status === 'closed' ? trade.realizedPnl : trade.unrealizedPnl
+                    const pnl = trade.realizedPnl
                     return (
                       <tr key={`${trade.symbol}-${trade.entryDate}-${index}`} style={{ borderTop:'1px solid rgba(255,255,255,0.05)' }}>
                         <td className="px-3 py-2.5">
@@ -1088,10 +1089,12 @@ function BacktestTab({ active }: { active: boolean }) {
                         <td className="px-3 py-2.5 text-[11px]" style={{ color:'rgba(255,255,255,0.55)', fontFamily:'JetBrains Mono, monospace' }}>{trade.signalDate}</td>
                         <td className="px-3 py-2.5 text-[11px]" style={{ color:'rgba(255,255,255,0.75)' }}>
                           <div>{trade.entryDate}</div>
+                          <div style={{ color:'rgba(255,255,255,0.45)' }}>Entry Price</div>
                           <div style={{ color:'#c9a84c', fontFamily:'JetBrains Mono, monospace' }}>{formatCurrency(trade.entryPrice)}</div>
                         </td>
                         <td className="px-3 py-2.5 text-[11px]" style={{ color:'rgba(255,255,255,0.75)' }}>
                           <div>{trade.exitDate || 'Open'}</div>
+                          <div style={{ color:'rgba(255,255,255,0.45)' }}>{trade.status === 'closed' ? 'Exit Price' : 'Mark Price'}</div>
                           <div style={{ color: trade.status === 'closed' ? '#52b788' : 'rgba(255,255,255,0.65)', fontFamily:'JetBrains Mono, monospace' }}>{formatCurrency(trade.status === 'closed' ? (trade.exitPrice || trade.markPrice) : trade.markPrice)}</div>
                         </td>
                         <td className="px-3 py-2.5 text-[11px]" style={{ color:'rgba(255,255,255,0.75)', fontFamily:'JetBrains Mono, monospace' }}>{trade.qty}</td>
@@ -1102,8 +1105,15 @@ function BacktestTab({ active }: { active: boolean }) {
                           </span>
                         </td>
                         <td className="px-3 py-2.5 text-[11px]" style={{ color: pnl >= 0 ? '#52b788' : '#e05a5e', fontFamily:'JetBrains Mono, monospace' }}>
-                          <div>{formatSignedCurrency(pnl)}</div>
-                          <div>{formatSignedPct(trade.realizedPct)}</div>
+                          {trade.status === 'closed' ? (
+                            <>
+                              <div style={{ color:'rgba(255,255,255,0.45)' }}>Profit</div>
+                              <div>{formatSignedCurrency(pnl)}</div>
+                              <div>{formatSignedPct(trade.realizedPct)}</div>
+                            </>
+                          ) : (
+                            <div style={{ color:'rgba(255,255,255,0.35)' }}>—</div>
+                          )}
                         </td>
                         <td className="px-3 py-2.5 text-[11px]" style={{ color:'rgba(255,255,255,0.55)', fontFamily:'JetBrains Mono, monospace' }}>{trade.holdDays} d</td>
                         <td className="px-3 py-2.5 text-[11px]" style={{ color:'rgba(255,255,255,0.45)' }}>
