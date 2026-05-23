@@ -322,12 +322,13 @@ Centralised wrappers — every caller goes through these. Never make raw HTTP ca
 ### 5.5 `lib/backtest.ts` *(new 23 May 2026)*
 
 - `runStrategy1Backtest({ days?, initialCapital?, strategyId? })` → `StrategyBacktestResult`
-- Current scope is intentionally narrow: dip strategies only, defaulting to `accumulator`
+- `runStrategyBacktest({ days?, initialCapital?, strategyId? })` → dispatches by strategy type (`dip` or `momentum`)
 - Reuses live strategy inputs: watchlist universe, `strategy.json` dip params, `capital.perTrade`, `maxPositions`, `maxBuysPerSymbol`, and `minDropBetweenBuysPct`
-- Uses daily historical candles only; evaluates signals from day-close vs previous day's EMA, enters at the next trading day's open, exits at `EMA` / `EMA + tranche2AboveEMAPct`
+- Uses daily historical candles only; evaluates signals from day-close vs previous day's EMA, enters at the next trading day's open, and exits at the strategy's saved `t1Pct` / `t2Pct` from entry price (matching the live Strategy 1 monitor)
+- Momentum replay uses 5-minute candles: scans between `scanStartHHMM` and `scanEndHHMM`, checks day-gain / EMA proximity / prorated volume / rising-candle conditions, exits on 5-minute closes at T1 / T2, and hands off aged positions to accumulator-style targets.
 - Returns summary metrics, per-trade outcomes, and an equity curve for the selected lookback window
 - HTTP surface: `POST /api/strategy/backtest` (authenticated)
-- Current frontend surface: Settings → Backtest tab. It fetches saved strategies from `GET /api/strategies`, lets the user pick a strategy + day window, and renders summary/trades/equity inline.
+- Current frontend surface: Settings → Backtest tab. It fetches saved strategies from `GET /api/strategies`, lets the user pick a strategy + day window, and renders summary/trades/equity inline for both dip and momentum strategies.
 
 ### 5.6 `lib/positions.ts` *(new 21 May 2026)*
 

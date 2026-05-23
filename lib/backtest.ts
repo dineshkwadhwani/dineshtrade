@@ -35,6 +35,7 @@ export interface BacktestTrade {
   markPrice: number
   markValue: number
   unrealizedPnl: number
+  setup?: string
   t1Date?: string
   t2Date?: string
 }
@@ -93,6 +94,8 @@ interface OpenTrade extends BacktestTrade {
   remainingCost: number
   t1Done: boolean
   t2Done: boolean
+  strategyPhase?: 'momentum' | 'accumulator'
+  handoffDate?: string
 }
 
 interface SymbolSeries {
@@ -101,6 +104,13 @@ interface SymbolSeries {
   emaSeries: number[]
   candleByDate: Map<string, HistoricalCandle>
   indexByDate: Map<string, number>
+}
+
+interface MomentumSeries extends SymbolSeries {
+  intradayByDate: Map<string, HistoricalCandle[]>
+  intradayByTimestamp: Map<string, HistoricalCandle>
+  intradayMetaByTimestamp: Map<string, { date: string; indexInDay: number; cumulativeVolume: number }>
+  dailyAggByDate: Map<string, { ema20: number; avgVolume10d: number; prevClose: number }>
 }
 
 function clampInt(value: unknown, fallback: number, min: number, max: number): number {
@@ -157,6 +167,65 @@ function avg(values: number[]): number | null {
   return values.reduce((sum, value) => sum + value, 0) / values.length
 }
 
+function dateOnly(s: string): string {
+  return s.slice(0, 10)
+}
+
+function timeOnly(s: string): string {
+  const match = s.match(/T(\d{2}:\d{2})/)
+  if (match) return match[1]
+  return s.slice(11, 16)
+}
+
+function hhmmToMinutes(hhmm: string): number {
+  const [h, m] = hhmm.split(':').map(n => parseInt(n, 10))
+  return h * 60 + m
+}
+
+function dayDiff(fromYmd: string, toYmd: string): number {
+  const start = new Date(`${fromYmd}T00:00:00Z`)
+  const end = new Date(`${toYmd}T00:00:00Z`)
+  return Math.max(0, Math.floor((end.getTime() - start.getTime()) / (24 * 60 * 60 * 1000)))
+}
+
+function groupIntradayCandles(candles: HistoricalCandle[]): {
+  byDate: Map<string, HistoricalCandle[]>
+  byTimestamp: Map<string, HistoricalCandle>
+  metaByTimestamp: Map<string, { date: string; indexInDay: number; cumulativeVolume: number }>
+} {
+  const byDate = new Map<string, HistoricalCandle[]>()
+  const byTimestamp = new Map<string, HistoricalCandle>()
+  const metaByTimestamp = new Map<string, { date: string; indexInDay: number; cumulativeVolume: number }>()
+  for (const candle of candles) {
+    const date = dateOnly(candle.date)
+    const arr = byDate.get(date) || []
+    arr.push(candle)
+    byDate.set(date, arr)
+    byTimestamp.set(candle.date, candle)
+  }
+  Array.from(byDate.entries()).forEach(([date, arr]: [string, HistoricalCandle[]]) => {
+    arr.sort((a: HistoricalCandle, b: HistoricalCandle) => a.date.localeCompare(b.date))
+    let cumulativeVolume = 0
+    arr.forEach((candle: HistoricalCandle, indexInDay: number) => {
+      cumulativeVolume += candle.volume || 0
+      metaByTimestamp.set(candle.date, { date, indexInDay, cumulativeVolume })
+    })
+  })
+  return { byDate, byTimestamp, metaByTimestamp }
+}
+
+function uniqueSortedTimes(series: MomentumSeries[], date: string): string[] {
+  return Array.from(new Set(series.flatMap(item => (item.intradayByDate.get(date) || []).map(c => c.date)))).sort()
+}
+
+export async function runStrategyBacktest(options: BacktestOptions = {}): Promise<StrategyBacktestResult> {
+  const strategyId = options.strategyId || 'accumulator'
+  const strategy = getStrategyById(strategyId)
+  if (!strategy) throw new Error(`Unknown strategy: ${strategyId}`)
+  if (strategy.type === 'momentum') return runMomentumBacktest(options)
+  return runStrategy1Backtest(options)
+}
+
 export async function runStrategy1Backtest(options: BacktestOptions = {}): Promise<StrategyBacktestResult> {
   const strategyId = options.strategyId || 'accumulator'
   const strategy = getStrategyById(strategyId)
@@ -177,7 +246,8 @@ export async function runStrategy1Backtest(options: BacktestOptions = {}): Promi
   const strongBuyBelowPct = typeof params.strongBuyBelowPct === 'number' ? params.strongBuyBelowPct : 8
   const minDownDays = clampInt(params.minDownDays, 3, 1, 20)
   const capitulationFloorPct = typeof params.capitulationFloorPct === 'number' ? params.capitulationFloorPct : 12
-  const tranche2AboveEMAPct = typeof params.tranche2AboveEMAPct === 'number' ? params.tranche2AboveEMAPct : 3
+  const t1Pct = strategy.exits?.t1Pct ?? 5
+  const t2Pct = strategy.exits?.t2Pct ?? 8
   const capital = getCapital()
 
   const symbols = await uniqueUniverseFromWatchlist(strategy)
@@ -276,8 +346,8 @@ export async function runStrategy1Backtest(options: BacktestOptions = {}): Promi
         deviationPct: pending.deviationPct,
         downDays: pending.downDays,
         confidence: pending.confidence,
-        target1: Number(pending.emaAtSignal.toFixed(2)),
-        target2: Number((pending.emaAtSignal * (1 + tranche2AboveEMAPct / 100)).toFixed(2)),
+        target1: Number((candle.open * (1 + t1Pct / 100)).toFixed(2)),
+        target2: Number((candle.open * (1 + t2Pct / 100)).toFixed(2)),
         realizedPnl: 0,
         realizedPct: 0,
         holdDays: 0,
@@ -285,6 +355,7 @@ export async function runStrategy1Backtest(options: BacktestOptions = {}): Promi
         markPrice: candle.close,
         markValue: Number((qty * candle.close).toFixed(2)),
         unrealizedPnl: Number((qty * (candle.close - candle.open)).toFixed(2)),
+        setup: `${Math.abs(pending.deviationPct).toFixed(2)}% below EMA · ${pending.downDays} down days · T1 ${t1Pct}% / T2 ${t2Pct}%`,
         remainingQty: qty,
         remainingCost: entryValue,
         t1Done: false,
@@ -468,6 +539,363 @@ export async function runStrategy1Backtest(options: BacktestOptions = {}): Promi
       markPrice: trade.markPrice,
       markValue: trade.markValue,
       unrealizedPnl: trade.unrealizedPnl,
+      t1Date: trade.t1Date,
+      t2Date: trade.t2Date,
+    })),
+    equityCurve,
+  }
+}
+
+async function runMomentumBacktest(options: BacktestOptions = {}): Promise<StrategyBacktestResult> {
+  const strategyId = options.strategyId || 'catalyst'
+  const strategy = getStrategyById(strategyId)
+  if (!strategy) throw new Error(`Unknown strategy: ${strategyId}`)
+  if (strategy.type !== 'momentum') throw new Error(`Backtest currently supports momentum strategies only here; got ${strategy.type}`)
+
+  const creds = await firstConnectedCreds()
+  if (!creds) throw new Error('No Kite account connected — historical candles require a connected Kite account')
+
+  const days = clampInt(options.days, 60, 10, 180)
+  const startingCapital = typeof options.initialCapital === 'number' && options.initialCapital > 0
+    ? Number(options.initialCapital.toFixed(2))
+    : 50000
+
+  const params = (strategy.params || {}) as Record<string, unknown>
+  const minDayGainPct = typeof params.minDayGainPct === 'number' ? params.minDayGainPct : 0.5
+  const maxDayGainPct = typeof params.maxDayGainPct === 'number' ? params.maxDayGainPct : 1.5
+  const consecutiveCandles = clampInt(params.consecutiveCandles, 3, 1, 10)
+  const emaProximityPct = typeof params.emaProximityPct === 'number' ? params.emaProximityPct : 3
+  const volumeAvgDays = clampInt(params.volumeAvgDays, 10, 1, 60)
+  const scanStartHHMM = typeof params.scanStartHHMM === 'string' ? params.scanStartHHMM : '09:30'
+  const scanEndHHMM = typeof params.scanEndHHMM === 'string' ? params.scanEndHHMM : '14:30'
+  const handoffDays = clampInt(params.deliveryHandoffDays, 15, 0, 365)
+  const capitalCfg = getCapital()
+  const accumulator = getStrategyById('accumulator')
+  const fallbackT1Pct = accumulator?.exits?.t1Pct ?? 5
+  const fallbackT2Pct = accumulator?.exits?.t2Pct ?? 8
+  const momentumT1Pct = strategy.exits?.t1Pct ?? 1.5
+  const momentumT2Pct = strategy.exits?.t2Pct ?? 2
+  const sessionStartMin = hhmmToMinutes('09:15')
+  const scanStartMin = hhmmToMinutes(scanStartHHMM)
+  const scanEndMin = hhmmToMinutes(scanEndHHMM)
+  const sessionMinutes = 375
+
+  const symbols = await uniqueUniverseFromWatchlist(strategy)
+  const tokens = await getInstrumentTokens(creds, symbols)
+
+  let skippedNoToken = 0
+  let skippedNoHistorical = 0
+  let skippedCapitalLimited = 0
+  let skippedPositionLimited = 0
+
+  const calendarLookbackDays = Math.max(180, days * 3)
+  const fromDaily = ymdIST(-calendarLookbackDays)
+  const toDaily = ymdIST(-1)
+  const fromIntraday = `${fromDaily} 09:15:00`
+  const toIntraday = `${toDaily} 15:30:00`
+
+  const fetched = await mapWithLimit(symbols, 2, async (symbol): Promise<MomentumSeries | null> => {
+    const token = tokens[symbol]
+    if (!token) { skippedNoToken++; return null }
+    try {
+      const [dailyCandles, intradayCandles] = await Promise.all([
+        getHistoricalCandles(creds, token, fromDaily, toDaily, 'day'),
+        getHistoricalCandles(creds, token, fromIntraday, toIntraday, '5minute'),
+      ])
+      if (dailyCandles.length < Math.max(25, volumeAvgDays + 2) || intradayCandles.length === 0) {
+        skippedNoHistorical++
+        return null
+      }
+      const closes = dailyCandles.map(c => c.close)
+      const emaSeries = computeEMA(closes, 20)
+      const candleByDate = new Map(dailyCandles.map(c => [dateOnly(c.date), c]))
+      const indexByDate = new Map(dailyCandles.map((c, idx) => [dateOnly(c.date), idx]))
+      const { byDate, byTimestamp, metaByTimestamp } = groupIntradayCandles(intradayCandles)
+      const dailyAggByDate = new Map<string, { ema20: number; avgVolume10d: number; prevClose: number }>()
+      for (let idx = volumeAvgDays; idx < dailyCandles.length; idx++) {
+        const date = dateOnly(dailyCandles[idx].date)
+        const ema20 = emaSeries[idx - 1]
+        if (!ema20 || Number.isNaN(ema20)) continue
+        const prevClose = dailyCandles[idx - 1]?.close
+        if (!prevClose) continue
+        const avgVolume10d = Number((dailyCandles.slice(idx - volumeAvgDays, idx).reduce((sum, candle) => sum + candle.volume, 0) / volumeAvgDays).toFixed(2))
+        dailyAggByDate.set(date, { ema20, avgVolume10d, prevClose })
+      }
+      return {
+        symbol,
+        candles: dailyCandles,
+        emaSeries,
+        candleByDate,
+        indexByDate,
+        intradayByDate: byDate,
+        intradayByTimestamp: byTimestamp,
+        intradayMetaByTimestamp: metaByTimestamp,
+        dailyAggByDate,
+      }
+    } catch (err) {
+      console.warn(`[backtest momentum] historical fetch failed ${symbol}:`, String(err).slice(0, 120))
+      skippedNoHistorical++
+      return null
+    }
+  })
+  const series = fetched.filter((item): item is MomentumSeries => !!item)
+  if (series.length === 0) throw new Error('No symbols had sufficient historical data for the momentum backtest window')
+
+  const allDates = Array.from(new Set(series.flatMap(item => item.candles.map(c => dateOnly(c.date))))).sort()
+  const backtestDates = allDates.slice(-days)
+  const backtestDateSet = new Set(backtestDates)
+  const dateIndex = new Map(allDates.map((date, idx) => [date, idx]))
+
+  let cash = startingCapital
+  let peakEquity = startingCapital
+  const openTrades: OpenTrade[] = []
+  const allTrades: OpenTrade[] = []
+  const equityCurve: BacktestEquityPoint[] = []
+
+  for (const date of backtestDates) {
+    const todaysTimes = uniqueSortedTimes(series, date)
+    const enteredToday = new Set<string>()
+
+    for (const trade of openTrades) {
+      if (trade.strategyPhase === 'accumulator') continue
+      if (handoffDays <= 0) continue
+      const ageDays = dayDiff(dateOnly(trade.entryDate), date)
+      if (ageDays < handoffDays) continue
+      trade.strategyPhase = 'accumulator'
+      trade.handoffDate = date
+      trade.target1 = Number((trade.entryPrice * (1 + fallbackT1Pct / 100)).toFixed(2))
+      trade.target2 = Number((trade.entryPrice * (1 + fallbackT2Pct / 100)).toFixed(2))
+      trade.setup = `${trade.setup || 'Momentum'} · handed off to accumulator on ${date}`
+    }
+
+    for (const ts of todaysTimes) {
+      // Exit checks first — mirrors live tick order where existing positions are monitored before new entries.
+      for (const trade of [...openTrades]) {
+        const symbolSeries = series.find(item => item.symbol === trade.symbol)
+        const candle = symbolSeries?.intradayByTimestamp.get(ts)
+        if (!symbolSeries || !candle || trade.remainingQty < 1) continue
+
+        const exitPrice = candle.close
+        if (!trade.t1Done && exitPrice >= trade.target2) {
+          const sellQty = trade.remainingQty
+          const exitValue = Number((sellQty * trade.target2).toFixed(2))
+          const costBasis = trade.remainingCost
+          trade.remainingQty = 0
+          trade.remainingCost = 0
+          trade.realizedPnl = Number((trade.realizedPnl + (exitValue - costBasis)).toFixed(2))
+          cash = Number((cash + exitValue).toFixed(2))
+          trade.t2Done = true
+          trade.t2Date = ts
+          trade.exitDate = ts
+          trade.exitValue = exitValue
+          trade.exitPrice = Number((exitValue / trade.qty).toFixed(2))
+        } else if (!trade.t1Done && exitPrice >= trade.target1) {
+          const sellQty = Math.max(1, Math.floor(trade.remainingQty / 2))
+          const exitValue = Number((sellQty * trade.target1).toFixed(2))
+          const costBasis = Number((trade.entryPrice * sellQty).toFixed(2))
+          trade.remainingQty -= sellQty
+          trade.remainingCost = Number((trade.remainingCost - costBasis).toFixed(2))
+          trade.realizedPnl = Number((trade.realizedPnl + (exitValue - costBasis)).toFixed(2))
+          cash = Number((cash + exitValue).toFixed(2))
+          trade.t1Done = true
+          trade.t1Date = ts
+        } else if (trade.t1Done && exitPrice >= trade.target2) {
+          const sellQty = trade.remainingQty
+          const exitValue = Number((sellQty * trade.target2).toFixed(2))
+          const costBasis = trade.remainingCost
+          trade.remainingQty = 0
+          trade.remainingCost = 0
+          trade.realizedPnl = Number((trade.realizedPnl + (exitValue - costBasis)).toFixed(2))
+          cash = Number((cash + exitValue).toFixed(2))
+          trade.t2Done = true
+          trade.t2Date = ts
+          trade.exitDate = ts
+          trade.exitValue = Number(((trade.exitValue || 0) + exitValue).toFixed(2))
+          trade.exitPrice = Number((trade.exitValue / trade.qty).toFixed(2))
+        }
+
+        if (trade.remainingQty === 0) {
+          trade.status = 'closed'
+          trade.markPrice = trade.exitPrice || trade.target2
+          trade.markValue = trade.exitValue || Number((trade.qty * trade.markPrice).toFixed(2))
+          trade.unrealizedPnl = 0
+          trade.realizedPct = trade.entryValue > 0 ? Number(((trade.realizedPnl / trade.entryValue) * 100).toFixed(2)) : 0
+          trade.holdDays = Math.max(0, (dateIndex.get(date) || 0) - (dateIndex.get(dateOnly(trade.entryDate)) || 0))
+          enteredToday.add(trade.symbol)
+        } else {
+          trade.markPrice = candle.close
+          trade.markValue = Number((trade.remainingQty * candle.close).toFixed(2))
+          trade.unrealizedPnl = Number((trade.realizedPnl + trade.markValue - trade.remainingCost).toFixed(2))
+        }
+      }
+
+      for (let i = openTrades.length - 1; i >= 0; i--) {
+        if (openTrades[i].status === 'closed') openTrades.splice(i, 1)
+      }
+
+      // Entry scan for this timestamp.
+      for (const item of series) {
+        if (enteredToday.has(item.symbol)) continue
+        if (openTrades.some(trade => trade.symbol === item.symbol)) continue
+        const candle = item.intradayByTimestamp.get(ts)
+        const meta = item.intradayMetaByTimestamp.get(ts)
+        const agg = item.dailyAggByDate.get(date)
+        if (!candle || !meta || !agg) continue
+        if (!backtestDateSet.has(date)) continue
+        const currentMin = hhmmToMinutes(timeOnly(ts))
+        if (currentMin < scanStartMin || currentMin > scanEndMin) continue
+        if (openTrades.length >= capitalCfg.maxPositions) {
+          skippedPositionLimited++
+          continue
+        }
+
+        const dayBars = item.intradayByDate.get(date) || []
+        if (meta.indexInDay < consecutiveCandles - 1) continue
+        const dayGainPct = ((candle.close - agg.prevClose) / agg.prevClose) * 100
+        if (dayGainPct < minDayGainPct || dayGainPct > maxDayGainPct) continue
+        const emaDev = deviationPct(candle.close, agg.ema20)
+        if (Math.abs(emaDev) > emaProximityPct) continue
+
+        const elapsedMin = Math.max(1, currentMin - sessionStartMin)
+        const proratedAvgVol = agg.avgVolume10d * (elapsedMin / sessionMinutes)
+        if (meta.cumulativeVolume < proratedAvgVol) continue
+
+        const lastN = dayBars.slice(meta.indexInDay - consecutiveCandles + 1, meta.indexInDay + 1)
+        let rising = true
+        for (let i = 1; i < lastN.length; i++) {
+          if (lastN[i].close <= lastN[i - 1].close) { rising = false; break }
+        }
+        if (!rising) continue
+
+        const budget = Math.min(capitalCfg.perTrade, cash)
+        const qty = Math.floor(budget / candle.close)
+        if (qty < 1) {
+          skippedCapitalLimited++
+          continue
+        }
+
+        const entryValue = Number((qty * candle.close).toFixed(2))
+        cash = Number((cash - entryValue).toFixed(2))
+        const trade: OpenTrade = {
+          symbol: item.symbol,
+          signalDate: ts,
+          entryDate: ts,
+          entryPrice: candle.close,
+          qty,
+          buyNumber: 1,
+          entryValue,
+          emaAtSignal: Number(agg.ema20.toFixed(2)),
+          deviationPct: Number(emaDev.toFixed(2)),
+          downDays: consecutiveCandles,
+          confidence: 'normal',
+          target1: Number((candle.close * (1 + momentumT1Pct / 100)).toFixed(2)),
+          target2: Number((candle.close * (1 + momentumT2Pct / 100)).toFixed(2)),
+          realizedPnl: 0,
+          realizedPct: 0,
+          holdDays: 0,
+          status: 'open',
+          markPrice: candle.close,
+          markValue: entryValue,
+          unrealizedPnl: 0,
+          setup: `+${dayGainPct.toFixed(2)}% day gain · ${consecutiveCandles} rising candles · vol ${Math.round(meta.cumulativeVolume).toLocaleString('en-IN')}`,
+          remainingQty: qty,
+          remainingCost: entryValue,
+          t1Done: false,
+          t2Done: false,
+          strategyPhase: 'momentum',
+        }
+        openTrades.push(trade)
+        allTrades.push(trade)
+        enteredToday.add(item.symbol)
+      }
+    }
+
+    let marketValue = 0
+    for (const trade of openTrades) {
+      const symbolSeries = series.find(item => item.symbol === trade.symbol)
+      const latestCandle = (symbolSeries?.intradayByDate.get(date) || []).slice(-1)[0]
+      if (!latestCandle) continue
+      trade.markPrice = latestCandle.close
+      trade.markValue = Number((trade.remainingQty * latestCandle.close).toFixed(2))
+      trade.unrealizedPnl = Number((trade.realizedPnl + trade.markValue - trade.remainingCost).toFixed(2))
+      marketValue += trade.markValue
+    }
+    marketValue = Number(marketValue.toFixed(2))
+    const equity = Number((cash + marketValue).toFixed(2))
+    peakEquity = Math.max(peakEquity, equity)
+    const drawdownPct = peakEquity > 0 ? Number((((peakEquity - equity) / peakEquity) * 100).toFixed(2)) : 0
+    equityCurve.push({ date, cash, marketValue, equity, drawdownPct, openTrades: openTrades.length })
+  }
+
+  const lastDate = backtestDates[backtestDates.length - 1]
+  for (const trade of allTrades) {
+    if (trade.status === 'closed') continue
+    trade.holdDays = Math.max(0, (dateIndex.get(lastDate) || 0) - (dateIndex.get(dateOnly(trade.entryDate)) || 0))
+    trade.markValue = Number((trade.remainingQty * trade.markPrice).toFixed(2))
+    trade.unrealizedPnl = Number((trade.realizedPnl + trade.markValue - trade.remainingCost).toFixed(2))
+    trade.realizedPct = trade.entryValue > 0
+      ? Number(((((trade.realizedPnl + trade.unrealizedPnl) / trade.entryValue) * 100)).toFixed(2))
+      : 0
+  }
+
+  const realizedPnl = Number(allTrades.filter(trade => trade.status === 'closed').reduce((sum, trade) => sum + trade.realizedPnl, 0).toFixed(2))
+  const unrealizedPnl = Number(allTrades.filter(trade => trade.status === 'open').reduce((sum, trade) => sum + trade.unrealizedPnl, 0).toFixed(2))
+  const endingCapital = equityCurve[equityCurve.length - 1]?.equity ?? startingCapital
+  const closedTrades = allTrades.filter(trade => trade.status === 'closed')
+  const wins = closedTrades.filter(trade => trade.realizedPnl > 0).length
+  const losses = closedTrades.filter(trade => trade.realizedPnl < 0).length
+  const holdDays = closedTrades.map(trade => trade.holdDays)
+  const maxDrawdownPct = equityCurve.reduce((max, point) => Math.max(max, point.drawdownPct), 0)
+
+  return {
+    summary: {
+      strategyId: strategy.id,
+      strategyName: strategy.name,
+      days,
+      tradingDays: backtestDates.length,
+      startingCapital,
+      endingCapital,
+      realizedPnl,
+      unrealizedPnl,
+      totalPnl: Number((realizedPnl + unrealizedPnl).toFixed(2)),
+      totalReturnPct: startingCapital > 0 ? Number((((endingCapital - startingCapital) / startingCapital) * 100).toFixed(2)) : 0,
+      maxDrawdownPct: Number(maxDrawdownPct.toFixed(2)),
+      tradesClosed: closedTrades.length,
+      tradesOpen: allTrades.length - closedTrades.length,
+      wins,
+      losses,
+      winRate: closedTrades.length > 0 ? Number(((wins / closedTrades.length) * 100).toFixed(2)) : null,
+      avgHoldDays: avg(holdDays.map(Number)) !== null ? Number((avg(holdDays.map(Number)) || 0).toFixed(2)) : null,
+      skippedNoToken,
+      skippedNoHistorical,
+      skippedCapitalLimited,
+      skippedPositionLimited,
+    },
+    trades: allTrades.map(trade => ({
+      symbol: trade.symbol,
+      signalDate: trade.signalDate,
+      entryDate: trade.entryDate,
+      entryPrice: trade.entryPrice,
+      qty: trade.qty,
+      buyNumber: trade.buyNumber,
+      entryValue: trade.entryValue,
+      emaAtSignal: trade.emaAtSignal,
+      deviationPct: Number(trade.deviationPct.toFixed(2)),
+      downDays: trade.downDays,
+      confidence: trade.confidence,
+      target1: trade.target1,
+      target2: trade.target2,
+      exitDate: trade.exitDate,
+      exitPrice: trade.exitPrice,
+      exitValue: trade.exitValue,
+      realizedPnl: trade.realizedPnl,
+      realizedPct: trade.realizedPct,
+      holdDays: trade.holdDays,
+      status: trade.status,
+      markPrice: trade.markPrice,
+      markValue: trade.markValue,
+      unrealizedPnl: trade.unrealizedPnl,
+      setup: trade.setup,
       t1Date: trade.t1Date,
       t2Date: trade.t2Date,
     })),

@@ -1,7 +1,7 @@
 import { NextRequest, NextResponse } from 'next/server'
 import { cookies } from 'next/headers'
 import { verifySession } from '@/lib/auth'
-import { runStrategy1Backtest } from '@/lib/backtest'
+import { runStrategyBacktest } from '@/lib/backtest'
 
 export const dynamic = 'force-dynamic'
 
@@ -18,7 +18,7 @@ export async function POST(req: NextRequest) {
 
   const body = await req.json().catch(() => ({}))
   try {
-    const result = await runStrategy1Backtest({
+    const result = await runStrategyBacktest({
       days: body.days,
       initialCapital: body.initialCapital,
       strategyId: body.strategyId,

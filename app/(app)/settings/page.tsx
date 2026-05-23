@@ -424,6 +424,7 @@ interface BacktestTrade {
   markPrice: number
   markValue: number
   unrealizedPnl: number
+  setup?: string
   t1Date?: string
   t2Date?: string
 }
@@ -879,7 +880,6 @@ function BacktestTab({ active }: { active: boolean }) {
   }, [active])
 
   const selected = strategies.find(s => s.id === strategyId) || null
-  const unsupported = selected?.type === 'momentum'
 
   async function runBacktest() {
     if (!selected) return
@@ -925,7 +925,7 @@ function BacktestTab({ active }: { active: boolean }) {
               Pick a saved strategy, choose the lookback window, and replay it on historical candles. This lets you compare tuning changes after saving them in the Strategies tab.
             </p>
           </div>
-          <button onClick={runBacktest} disabled={loading || !selected || unsupported}
+          <button onClick={runBacktest} disabled={loading || !selected}
             className="px-5 py-2.5 rounded-xl text-[12px] font-semibold tracking-wider transition-all disabled:opacity-40"
             style={{ background:'linear-gradient(135deg, #7a5510, #c9a84c)', color:'#080604' }}>
             {loading ? 'Running…' : 'Run Backtest'}
@@ -994,10 +994,10 @@ function BacktestTab({ active }: { active: boolean }) {
 
       {!loaded && <p className="text-[11px]" style={{ color:'rgba(255,255,255,0.4)' }}>Loading…</p>}
 
-      {unsupported && (
+      {selected?.type === 'momentum' && (
         <div className="rounded-lg p-3" style={{ background:'rgba(245,158,11,0.06)', border:'1px solid rgba(245,158,11,0.3)' }}>
           <p className="text-[12px]" style={{ color:'#f59e0b' }}>
-            Momentum strategies are shown in the dropdown, but the current backtest engine only replays dip strategies. Momentum replay needs full 5-minute historical simulation and is the next extension.
+            Momentum replay uses 5-minute historical candles, so it is materially heavier than dip backtests. Expect a longer run time on larger watchlists.
           </p>
         </div>
       )}
@@ -1098,7 +1098,7 @@ function BacktestTab({ active }: { active: boolean }) {
                         </td>
                         <td className="px-3 py-2.5 text-[11px]" style={{ color:'rgba(255,255,255,0.55)', fontFamily:'JetBrains Mono, monospace' }}>{trade.holdDays} d</td>
                         <td className="px-3 py-2.5 text-[11px]" style={{ color:'rgba(255,255,255,0.45)' }}>
-                          {Math.abs(trade.deviationPct).toFixed(2)}% below EMA · {trade.downDays} down days · buy #{trade.buyNumber}
+                          {trade.setup || `${Math.abs(trade.deviationPct).toFixed(2)}% below EMA · ${trade.downDays} down days · buy #${trade.buyNumber}`}
                         </td>
                       </tr>
                     )

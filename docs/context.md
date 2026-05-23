@@ -205,8 +205,8 @@ Each strategy carries a `watchlist: string[]` of internal keys it scans. Setting
 ### Phase 3 — built on 18–19 May 2026 (this thread)
 - Journal system (`lib/journal.ts`) — append-only JSONL at `~/dineshtrade/data/journal-YYYY-MM.jsonl`. Two record types: `trade` (completed BUY+SELL pair with verdict + day high/low + left-on-table) and `signal_skipped` (auto-mode BUYs blocked by preflight). Writes hooked in: strategy1 tranche exits, strategy2 SELLs, cron auto-BUY rejections. Never wiped by deployments.
 - Daily retrospective (`lib/retrospective.ts`) — `buildDailyReport(date)`: enriches today's trades with live Kite OHLC (final day-high / left-on-table reflect full session), classifies missed signals as `good_miss` vs `missed_opportunity` by EoD close, computes 30-day rolling stats (win rate, avg gain, capital efficiency, delivery open), generates up to 3 fine-tuning bullets from heuristics.
-- Strategy 1 backtest (`lib/backtest.ts`) — replays the Accumulator rules on historical daily candles for the last N trading days (default 60), using next-day opens for entries, EMA-based exits, per-trade capital sizing, position caps, and an equity curve. Exposed via `POST /api/strategy/backtest`.
-- Settings now has a dedicated **Backtest** tab beside **Strategies**. It loads all saved strategies into a dropdown, accepts a trading-day lookback, runs the authenticated backtest API, and renders summary, trades, and equity curve on the same page. Current UI allows selecting momentum strategies but only dip strategies are executable today.
+- Strategy 1 backtest (`lib/backtest.ts`) — replays the Accumulator rules on historical daily candles for the last N trading days (default 60), using next-day opens for entries and the strategy's saved T1/T2 percentage exits from entry price, plus per-trade capital sizing, position caps, and an equity curve. Exposed via `POST /api/strategy/backtest`.
+- Settings now has a dedicated **Backtest** tab beside **Strategies**. It loads all saved strategies into a dropdown, accepts a trading-day lookback, runs the authenticated backtest API, and renders summary, trades, and equity curve on the same page. Dip strategies replay from daily candles; momentum strategies replay from 5-minute candles with same-page results.
 - Monthly rollup (`buildMonthlyReport`) — totals, best/worst trades, avg daily return, signals missed, optional recommendation.
 - Email HTML — Obsidian Gold inline-styled tables for `daily_report` + `monthly_report`. Plain-text fallback included.
 - Cron retrospective at 15:35 IST with three skip rules: not a market day, SMTP unconfigured, no activity (zero trades AND zero signals).
@@ -272,7 +272,7 @@ Each strategy carries a `watchlist: string[]` of internal keys it scans. Setting
 - F&O — out of scope, ever.
 - Mobile push notifications — V2.
 - Manual override toggle UI in Settings (auto-mode currently overridden implicitly via Manual mode + manual orders).
-- Full multi-strategy intraday backtest harness — V2. Current scope includes the Settings Backtest UI plus the Strategy 1 API backtest endpoint; momentum replay remains deferred.
+- Deeper what-if tooling against unsaved strategy drafts — V2. Current scope includes the Settings Backtest UI plus saved-strategy replay for both dip and momentum strategies.
 - TMPV demerger reconciliation in Holdings P&L (cosmetic; not blocking).
 
 ---
