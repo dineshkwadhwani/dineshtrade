@@ -409,6 +409,7 @@ interface BacktestTrade {
   entryDate: string
   entryPrice: number
   qty: number
+  remainingQty: number
   buyNumber: number
   entryValue: number
   emaAtSignal: number
@@ -1132,10 +1133,10 @@ function BacktestTab({ active }: { active: boolean }) {
               </p>
             </div>
             <div className="overflow-x-auto">
-              <table className="w-full text-left min-w-[980px]">
+              <table className="w-full text-left min-w-[1380px]">
                 <thead>
                   <tr style={{ background:'rgba(255,255,255,0.02)' }}>
-                    {['Symbol', 'Strategy', 'Signal', 'Entry Price', 'Exit Price / Mark Price', 'Qty', 'Status', 'Realized Profit', 'Hold', 'Reason'].map(h => (
+                    {['Symbol', 'Strategy', 'Signal', 'Entry Price', 'T1 Date', 'T2 Date', 'Exit Price / Mark Price', 'Qty / Remaining', 'Status', 'Realized Profit', 'Hold', 'Reason'].map(h => (
                       <th key={h} className="px-3 py-2 text-[10px] tracking-widest uppercase font-medium" style={{ color:'rgba(255,255,255,0.35)', fontFamily:'JetBrains Mono, monospace' }}>{h}</th>
                     ))}
                   </tr>
@@ -1143,6 +1144,8 @@ function BacktestTab({ active }: { active: boolean }) {
                 <tbody>
                   {result.trades.map((trade, index) => {
                     const pnl = trade.realizedPnl
+                    const displayStatus = trade.status === 'closed' ? 'closed' : trade.t1Date ? 'partial' : 'open'
+                    const realizedPct = trade.entryValue > 0 ? (trade.realizedPnl / trade.entryValue) * 100 : 0
                     return (
                       <tr key={`${trade.symbol}-${trade.entryDate}-${index}`} style={{ borderTop:'1px solid rgba(255,255,255,0.05)' }}>
                         <td className="px-3 py-2.5">
@@ -1163,24 +1166,46 @@ function BacktestTab({ active }: { active: boolean }) {
                           <div style={{ color:'rgba(255,255,255,0.45)' }}>Entry Price</div>
                           <div style={{ color:'#c9a84c', fontFamily:'JetBrains Mono, monospace' }}>{formatCurrency(trade.entryPrice)}</div>
                         </td>
+                        <td className="px-3 py-2.5 text-[11px]" style={{ color:'rgba(255,255,255,0.6)', fontFamily:'JetBrains Mono, monospace' }}>
+                          {trade.t1Date || '—'}
+                        </td>
+                        <td className="px-3 py-2.5 text-[11px]" style={{ color:'rgba(255,255,255,0.6)', fontFamily:'JetBrains Mono, monospace' }}>
+                          {trade.t2Date || '—'}
+                        </td>
                         <td className="px-3 py-2.5 text-[11px]" style={{ color:'rgba(255,255,255,0.75)' }}>
                           <div>{trade.exitDate || 'Open'}</div>
                           <div style={{ color:'rgba(255,255,255,0.45)' }}>{trade.status === 'closed' ? 'Exit Price' : 'Mark Price'}</div>
                           <div style={{ color: trade.status === 'closed' ? '#52b788' : 'rgba(255,255,255,0.65)', fontFamily:'JetBrains Mono, monospace' }}>{formatCurrency(trade.status === 'closed' ? (trade.exitPrice || trade.markPrice) : trade.markPrice)}</div>
                         </td>
-                        <td className="px-3 py-2.5 text-[11px]" style={{ color:'rgba(255,255,255,0.75)', fontFamily:'JetBrains Mono, monospace' }}>{trade.qty}</td>
+                        <td className="px-3 py-2.5 text-[11px]" style={{ color:'rgba(255,255,255,0.75)', fontFamily:'JetBrains Mono, monospace' }}>
+                          <div>{trade.qty}</div>
+                          <div style={{ color:'rgba(255,255,255,0.45)' }}>remaining {trade.remainingQty}</div>
+                        </td>
                         <td className="px-3 py-2.5">
                           <span className="text-[9px] tracking-widest uppercase px-1.5 py-0.5 rounded"
-                            style={{ background: trade.status === 'closed' ? 'rgba(82,183,136,0.12)' : 'rgba(96,165,250,0.12)', border:`1px solid ${trade.status === 'closed' ? 'rgba(82,183,136,0.35)' : 'rgba(96,165,250,0.35)'}`, color: trade.status === 'closed' ? '#52b788' : '#60a5fa', fontFamily:'JetBrains Mono, monospace' }}>
-                            {trade.status}
+                            style={{
+                              background: displayStatus === 'closed'
+                                ? 'rgba(82,183,136,0.12)'
+                                : displayStatus === 'partial'
+                                  ? 'rgba(201,168,76,0.12)'
+                                  : 'rgba(96,165,250,0.12)',
+                              border: `1px solid ${displayStatus === 'closed'
+                                ? 'rgba(82,183,136,0.35)'
+                                : displayStatus === 'partial'
+                                  ? 'rgba(201,168,76,0.35)'
+                                  : 'rgba(96,165,250,0.35)'}`,
+                              color: displayStatus === 'closed' ? '#52b788' : displayStatus === 'partial' ? '#c9a84c' : '#60a5fa',
+                              fontFamily:'JetBrains Mono, monospace',
+                            }}>
+                            {displayStatus}
                           </span>
                         </td>
                         <td className="px-3 py-2.5 text-[11px]" style={{ color: pnl >= 0 ? '#52b788' : '#e05a5e', fontFamily:'JetBrains Mono, monospace' }}>
-                          {trade.status === 'closed' ? (
+                          {trade.realizedPnl !== 0 ? (
                             <>
                               <div style={{ color:'rgba(255,255,255,0.45)' }}>Profit</div>
                               <div>{formatSignedCurrency(pnl)}</div>
-                              <div>{formatSignedPct(trade.realizedPct)}</div>
+                              <div>{formatSignedPct(realizedPct)}</div>
                             </>
                           ) : (
                             <div style={{ color:'rgba(255,255,255,0.35)' }}>—</div>

@@ -20,6 +20,7 @@ export interface BacktestTrade {
   entryDate: string
   entryPrice: number
   qty: number
+  remainingQty: number
   buyNumber: number
   entryValue: number
   emaAtSignal: number
@@ -858,6 +859,7 @@ async function runAllActiveBacktest(options: BacktestOptions = {}): Promise<Stra
         entryDate: trade.entryDate,
         entryPrice: trade.entryPrice,
         qty: trade.qty,
+        remainingQty: trade.remainingQty,
         buyNumber: trade.buyNumber,
         entryValue: trade.entryValue,
         emaAtSignal: trade.emaAtSignal,
@@ -1210,6 +1212,7 @@ export async function runStrategy1Backtest(options: BacktestOptions = {}): Promi
       entryDate: trade.entryDate,
       entryPrice: trade.entryPrice,
       qty: trade.qty,
+      remainingQty: trade.remainingQty,
       buyNumber: trade.buyNumber,
       entryValue: trade.entryValue,
       emaAtSignal: trade.emaAtSignal,
@@ -1613,6 +1616,7 @@ async function runMomentumBacktest(options: BacktestOptions = {}): Promise<Strat
       entryDate: trade.entryDate,
       entryPrice: trade.entryPrice,
       qty: trade.qty,
+      remainingQty: trade.remainingQty,
       buyNumber: trade.buyNumber,
       entryValue: trade.entryValue,
       emaAtSignal: trade.emaAtSignal,
