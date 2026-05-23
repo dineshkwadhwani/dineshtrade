@@ -592,13 +592,14 @@ function StrategiesTab({ autoModeOn }: { autoModeOn: boolean }) {
   }
   function duplicateStrategy(id: string) {
     if (!draft) return
-    const orig = draft.strategies.find(s => s.id === id)
+    const currentDraft = draft
+    const orig = currentDraft.strategies.find(s => s.id === id)
     if (!orig) return
     let newId = `${id}_copy`
     let n = 2
-    while (draft.strategies.some(s => s.id === newId)) { newId = `${id}_copy_${n++}` }
+    while (currentDraft.strategies.some(s => s.id === newId)) { newId = `${id}_copy_${n++}` }
     const copy: StrategyConfig = { ...JSON.parse(JSON.stringify(orig)), id: newId, name: `${orig.name} (copy)`, active: false }
-    setDraft({ ...draft, strategies: [...draft.strategies, copy] })
+    setDraft({ ...currentDraft, strategies: [...currentDraft.strategies, copy] })
     setExpanded(newId)
   }
   function deleteStrategy(id: string) {
@@ -1043,8 +1044,16 @@ function BacktestTab({ active }: { active: boolean }) {
               <MiniMetric label="Trading Days" value={String(result.summary.tradingDays)} />
               <MiniMetric label="Wins / Losses" value={`${result.summary.wins} / ${result.summary.losses}`} />
               <MiniMetric label="Avg Hold" value={result.summary.avgHoldDays === null ? '—' : `${result.summary.avgHoldDays.toFixed(1)} d`} />
-              <MiniMetric label="Realized P&L" value={formatSignedCurrency(result.summary.realizedPnl)} />
-              <MiniMetric label="Unrealized MTM" value={formatSignedCurrency(result.summary.unrealizedPnl)} />
+              <MiniMetric
+                label="Realized P&L"
+                value={`${formatSignedCurrency(result.summary.realizedPnl)} · ${formatSignedPct((result.summary.realizedPnl / result.summary.startingCapital) * 100)}`}
+                valueColor={result.summary.realizedPnl >= 0 ? '#52b788' : '#e05a5e'}
+              />
+              <MiniMetric
+                label="Unrealized MTM"
+                value={`${formatSignedCurrency(result.summary.unrealizedPnl)} · ${formatSignedPct((result.summary.unrealizedPnl / result.summary.startingCapital) * 100)}`}
+                valueColor={result.summary.unrealizedPnl >= 0 ? '#52b788' : '#e05a5e'}
+              />
               <MiniMetric label="Skipped No Token" value={String(result.summary.skippedNoToken)} />
               <MiniMetric label="Skipped No Historical" value={String(result.summary.skippedNoHistorical)} />
               <MiniMetric label="Skipped Capital" value={String(result.summary.skippedCapitalLimited)} />
@@ -1278,11 +1287,11 @@ function Stat({ label, value, color }: { label: string; value: string; color: st
   )
 }
 
-function MiniMetric({ label, value }: { label: string; value: string }) {
+function MiniMetric({ label, value, valueColor }: { label: string; value: string; valueColor?: string }) {
   return (
     <div className="rounded-lg px-3 py-2.5" style={{ background:'rgba(255,255,255,0.02)', border:'1px solid rgba(255,255,255,0.05)' }}>
       <p className="text-[9px] tracking-widest uppercase mb-1" style={{ color:'rgba(255,255,255,0.3)', fontFamily:'JetBrains Mono, monospace' }}>{label}</p>
-      <p className="text-[12px]" style={{ color:'rgba(255,255,255,0.82)', fontFamily:'JetBrains Mono, monospace' }}>{value}</p>
+      <p className="text-[12px]" style={{ color: valueColor || 'rgba(255,255,255,0.82)', fontFamily:'JetBrains Mono, monospace' }}>{value}</p>
     </div>
   )
 }
