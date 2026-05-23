@@ -591,21 +591,28 @@ async function runMomentumBacktest(options: BacktestOptions = {}): Promise<Strat
   const calendarLookbackDays = Math.max(180, days * 3)
   const fromDaily = ymdIST(-calendarLookbackDays)
   const toDaily = ymdIST(-1)
-  const fromIntraday = `${fromDaily} 09:15:00`
   const toIntraday = `${toDaily} 15:30:00`
 
   const fetched = await mapWithLimit(symbols, 2, async (symbol): Promise<MomentumSeries | null> => {
     const token = tokens[symbol]
     if (!token) { skippedNoToken++; return null }
     try {
-      const [dailyCandles, intradayCandles] = await Promise.all([
-        getHistoricalCandles(creds, token, fromDaily, toDaily, 'day'),
-        getHistoricalCandles(creds, token, fromIntraday, toIntraday, '5minute'),
-      ])
-      if (dailyCandles.length < Math.max(25, volumeAvgDays + 2) || intradayCandles.length === 0) {
+      const dailyCandles = await getHistoricalCandles(creds, token, fromDaily, toDaily, 'day')
+      if (dailyCandles.length < Math.max(25, volumeAvgDays + 2)) {
         skippedNoHistorical++
         return null
       }
+
+      // Momentum replay only needs intraday candles for the actual replay
+      // window, not the full daily lookback used to seed EMA/volume stats.
+      const intradayStartIdx = Math.max(0, dailyCandles.length - days - 5)
+      const fromIntraday = `${dateOnly(dailyCandles[intradayStartIdx].date)} 09:15:00`
+      const intradayCandles = await getHistoricalCandles(creds, token, fromIntraday, toIntraday, '5minute')
+      if (intradayCandles.length === 0) {
+        skippedNoHistorical++
+        return null
+      }
+
       const closes = dailyCandles.map(c => c.close)
       const emaSeries = computeEMA(closes, 20)
       const candleByDate = new Map(dailyCandles.map(c => [dateOnly(c.date), c]))
