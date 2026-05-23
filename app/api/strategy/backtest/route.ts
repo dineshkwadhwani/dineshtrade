@@ -22,6 +22,7 @@ export async function POST(req: NextRequest) {
       days: body.days,
       initialCapital: body.initialCapital,
       strategyId: body.strategyId,
+      runAllActive: body.runAllActive === true,
     })
     return NextResponse.json({ result })
   } catch (err) {

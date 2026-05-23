@@ -3,15 +3,18 @@ import { getWatchlist } from './watchlistStore'
 import { computeEMA, consecutiveDownDays, deviationPct } from './ema'
 import { getHistoricalCandles, resolveAccountCreds, type HistoricalCandle, type KiteCreds } from './kite'
 import { getInstrumentTokens } from './instruments'
-import { getCapital, getStrategyById, type Strategy } from './strategyConfig'
+import { getActiveStrategies, getCapital, getStrategyById, type Strategy } from './strategyConfig'
 
 export interface BacktestOptions {
   days?: number
   initialCapital?: number
   strategyId?: string
+  runAllActive?: boolean
 }
 
 export interface BacktestTrade {
+  strategyId?: string
+  strategyName?: string
   symbol: string
   signalDate: string
   entryDate: string
@@ -88,6 +91,8 @@ export interface StrategyBacktestResult {
 
 interface PendingEntry {
   date: string
+  strategyId: string
+  strategyName: string
   symbol: string
   signalDate: string
   emaAtSignal: number
@@ -239,11 +244,635 @@ function uniqueSortedTimes(series: MomentumSeries[], date: string): string[] {
 }
 
 export async function runStrategyBacktest(options: BacktestOptions = {}): Promise<StrategyBacktestResult> {
+  if (options.runAllActive) return runAllActiveBacktest(options)
   const strategyId = options.strategyId || 'accumulator'
   const strategy = getStrategyById(strategyId)
   if (!strategy) throw new Error(`Unknown strategy: ${strategyId}`)
   if (strategy.type === 'momentum') return runMomentumBacktest(options)
   return runStrategy1Backtest(options)
+}
+
+async function runAllActiveBacktest(options: BacktestOptions = {}): Promise<StrategyBacktestResult> {
+  const activeStrategies = getActiveStrategies()
+  if (activeStrategies.length === 0) throw new Error('No active strategies configured')
+
+  const creds = await firstConnectedCreds()
+  if (!creds) throw new Error('No Kite account connected — historical candles require a connected Kite account')
+
+  const days = clampInt(options.days, 60, 10, 180)
+  const startingCapital = typeof options.initialCapital === 'number' && options.initialCapital > 0
+    ? Number(options.initialCapital.toFixed(2))
+    : 50000
+  const capitalCfg = getCapital()
+  const dipStrategies = activeStrategies.filter(strategy => strategy.type === 'dip')
+  const momentumStrategies = activeStrategies.filter(strategy => strategy.type === 'momentum')
+  const dipEmaPeriods = Array.from(new Set(dipStrategies.map(strategy => clampInt((strategy.params || {}).emaPeriod, 20, 2, 200))))
+  const maxDipEmaPeriod = dipEmaPeriods.reduce((max, period) => Math.max(max, period), 20)
+  const maxVolumeAvgDays = momentumStrategies.reduce((max, strategy) => Math.max(max, clampInt((strategy.params || {}).volumeAvgDays, 10, 1, 60)), 10)
+
+  const strategySymbolsEntries = await Promise.all(activeStrategies.map(async strategy => [strategy.id, await uniqueUniverseFromWatchlist(strategy)] as const))
+  const strategySymbols = new Map<string, string[]>(strategySymbolsEntries)
+  const allSymbols = Array.from(new Set(strategySymbolsEntries.flatMap(([, symbols]) => symbols)))
+  const momentumSymbols = new Set(momentumStrategies.flatMap(strategy => strategySymbols.get(strategy.id) || []))
+  const tokens = await getInstrumentTokens(creds, allSymbols)
+
+  let skippedNoToken = 0
+  let skippedNoHistorical = 0
+  let skippedCapitalLimited = 0
+  let skippedPositionLimited = 0
+  const gateCounts: GateCounter = {}
+
+  const calendarLookbackDays = Math.max(180, days * 3)
+  const fromDaily = ymdIST(-calendarLookbackDays)
+  const toDaily = ymdIST(-1)
+  const toIntraday = `${toDaily} 15:30:00`
+
+  const fetched = await mapWithLimit(allSymbols, 2, async (symbol): Promise<(MomentumSeries & { closes: number[]; emaByPeriod: Map<number, number[]>; latestIntradayByDate: Map<string, HistoricalCandle> }) | null> => {
+    const token = tokens[symbol]
+    if (!token) {
+      skippedNoToken++
+      bumpGate(gateCounts, 'noToken', 'Missing instrument token for symbol')
+      return null
+    }
+    try {
+      const dailyCandles = await getHistoricalCandles(creds, token, fromDaily, toDaily, 'day')
+      const minDailyRequired = Math.max(maxDipEmaPeriod + days + 2, 25, maxVolumeAvgDays + 2)
+      if (dailyCandles.length < minDailyRequired) {
+        skippedNoHistorical++
+        bumpGate(gateCounts, 'noHistorical', 'Insufficient historical candle coverage')
+        return null
+      }
+
+      let intradayCandles: HistoricalCandle[] = []
+      if (momentumSymbols.has(symbol)) {
+        const intradayStartIdx = Math.max(0, dailyCandles.length - days - 5)
+        const fromIntraday = `${dateOnly(dailyCandles[intradayStartIdx].date)} 09:15:00`
+        intradayCandles = await getHistoricalCandles(creds, token, fromIntraday, toIntraday, '5minute')
+        if (intradayCandles.length === 0) {
+          skippedNoHistorical++
+          bumpGate(gateCounts, 'noHistorical', 'Insufficient historical candle coverage')
+          return null
+        }
+      }
+
+      const closes = dailyCandles.map(candle => candle.close)
+      const emaByPeriod = new Map<number, number[]>()
+      Array.from(new Set([...dipEmaPeriods, 20])).forEach(period => {
+        emaByPeriod.set(period, computeEMA(closes, period))
+      })
+      const candleByDate = new Map(dailyCandles.map(candle => [dateOnly(candle.date), candle]))
+      const indexByDate = new Map(dailyCandles.map((candle, idx) => [dateOnly(candle.date), idx]))
+      const { byDate, byTimestamp, metaByTimestamp } = groupIntradayCandles(intradayCandles)
+      const latestIntradayByDate = new Map<string, HistoricalCandle>()
+      Array.from(byDate.entries()).forEach(([date, candles]) => {
+        const latest = candles[candles.length - 1]
+        if (latest) latestIntradayByDate.set(date, latest)
+      })
+      return {
+        symbol,
+        candles: dailyCandles,
+        closes,
+        emaSeries: emaByPeriod.get(20) || computeEMA(closes, 20),
+        emaByPeriod,
+        candleByDate,
+        indexByDate,
+        intradayByDate: byDate,
+        intradayByTimestamp: byTimestamp,
+        intradayMetaByTimestamp: metaByTimestamp,
+        latestIntradayByDate,
+        dailyAggByDate: new Map(),
+      }
+    } catch (err) {
+      console.warn(`[backtest all-active] historical fetch failed ${symbol}:`, String(err).slice(0, 120))
+      skippedNoHistorical++
+      bumpGate(gateCounts, 'noHistorical', 'Insufficient historical candle coverage')
+      return null
+    }
+  })
+  const seriesList = fetched.filter((item): item is MomentumSeries & { closes: number[]; emaByPeriod: Map<number, number[]>; latestIntradayByDate: Map<string, HistoricalCandle> } => !!item)
+  if (seriesList.length === 0) throw new Error('No symbols had sufficient historical data for the shared backtest window')
+  const seriesBySymbol = new Map(seriesList.map(item => [item.symbol, item]))
+
+  const allDates = Array.from(new Set(seriesList.flatMap(item => item.candles.map(candle => dateOnly(candle.date))))).sort()
+  const backtestDates = allDates.slice(-days)
+  const backtestDateSet = new Set(backtestDates)
+  const dateIndex = new Map(allDates.map((date, idx) => [date, idx]))
+
+  let cash = startingCapital
+  let peakEquity = startingCapital
+  const pendingByDate = new Map<string, PendingEntry[]>()
+  const openTrades: OpenTrade[] = []
+  const allTrades: OpenTrade[] = []
+  const equityCurve: BacktestEquityPoint[] = []
+
+  function pushPending(entry: PendingEntry) {
+    const arr = pendingByDate.get(entry.date) || []
+    arr.push(entry)
+    pendingByDate.set(entry.date, arr)
+  }
+
+  for (const date of backtestDates) {
+    const enteredToday = new Set<string>()
+    const todaysPending = (pendingByDate.get(date) || []).sort((a, b) => a.deviationPct - b.deviationPct || a.strategyName.localeCompare(b.strategyName) || a.symbol.localeCompare(b.symbol))
+    pendingByDate.delete(date)
+
+    for (const pending of todaysPending) {
+      const symbolSeries = seriesBySymbol.get(pending.symbol)
+      const candle = symbolSeries?.candleByDate.get(date)
+      if (!symbolSeries || !candle) continue
+
+      const symbolOpenCount = openTrades.filter(trade => trade.symbol === pending.symbol).length
+      if (openTrades.length >= capitalCfg.maxPositions) {
+        skippedPositionLimited++
+        bumpGate(gateCounts, 'maxPositions', 'Blocked by max open positions')
+        continue
+      }
+      if (symbolOpenCount >= capitalCfg.maxBuysPerSymbol) {
+        skippedPositionLimited++
+        bumpGate(gateCounts, 'maxBuysPerSymbol', 'Blocked by max buys per symbol')
+        continue
+      }
+
+      const ownerStrategy = getStrategyById(pending.strategyId)
+      if (!ownerStrategy) continue
+      const budget = Math.min(capitalCfg.perTrade, cash)
+      const qty = Math.floor(budget / candle.open)
+      if (qty < 1) {
+        skippedCapitalLimited++
+        bumpGate(gateCounts, 'capitalTooLow', 'Insufficient capital for next entry')
+        continue
+      }
+
+      const entryValue = Number((qty * candle.open).toFixed(2))
+      cash = Number((cash - entryValue).toFixed(2))
+      const t1Pct = ownerStrategy.exits?.t1Pct ?? 5
+      const t2Pct = ownerStrategy.exits?.t2Pct ?? 8
+      const trade: OpenTrade = {
+        strategyId: ownerStrategy.id,
+        strategyName: ownerStrategy.name,
+        symbol: pending.symbol,
+        signalDate: pending.signalDate,
+        entryDate: date,
+        entryPrice: candle.open,
+        qty,
+        buyNumber: symbolOpenCount + 1,
+        entryValue,
+        emaAtSignal: pending.emaAtSignal,
+        deviationPct: pending.deviationPct,
+        downDays: pending.downDays,
+        confidence: pending.confidence,
+        target1: Number((candle.open * (1 + t1Pct / 100)).toFixed(2)),
+        target2: Number((candle.open * (1 + t2Pct / 100)).toFixed(2)),
+        realizedPnl: 0,
+        realizedPct: 0,
+        holdDays: 0,
+        status: 'open',
+        markPrice: candle.close,
+        markValue: Number((qty * candle.close).toFixed(2)),
+        unrealizedPnl: Number((qty * (candle.close - candle.open)).toFixed(2)),
+        setup: `${ownerStrategy.name} · ${Math.abs(pending.deviationPct).toFixed(2)}% below EMA · ${pending.downDays} down days · T1 ${t1Pct}% / T2 ${t2Pct}%`,
+        remainingQty: qty,
+        remainingCost: entryValue,
+        t1Done: false,
+        t2Done: false,
+      }
+      openTrades.push(trade)
+      allTrades.push(trade)
+    }
+
+    for (const trade of openTrades) {
+      if (trade.strategyPhase === 'accumulator') continue
+      if (!trade.strategyId) continue
+      const ownerStrategy = getStrategyById(trade.strategyId)
+      if (!ownerStrategy || ownerStrategy.type !== 'momentum') continue
+      const handoffDays = clampInt((ownerStrategy.params || {}).deliveryHandoffDays, 15, 0, 365)
+      if (handoffDays <= 0) continue
+      const ageDays = dayDiff(dateOnly(trade.entryDate), date)
+      if (ageDays < handoffDays) continue
+      const accumulator = getStrategyById('accumulator')
+      const fallbackT1Pct = accumulator?.exits?.t1Pct ?? 5
+      const fallbackT2Pct = accumulator?.exits?.t2Pct ?? 8
+      trade.strategyPhase = 'accumulator'
+      trade.handoffDate = date
+      trade.target1 = Number((trade.entryPrice * (1 + fallbackT1Pct / 100)).toFixed(2))
+      trade.target2 = Number((trade.entryPrice * (1 + fallbackT2Pct / 100)).toFixed(2))
+      trade.setup = `${trade.setup || ownerStrategy.name} · handed off to accumulator on ${date}`
+    }
+
+    const todaysTimes = Array.from(new Set(Array.from(momentumSymbols).flatMap(symbol => (seriesBySymbol.get(symbol)?.intradayByDate.get(date) || []).map(candle => candle.date)))).sort()
+    for (const ts of todaysTimes) {
+      for (const trade of [...openTrades]) {
+        if (trade.strategyPhase === 'accumulator') continue
+        if (!trade.strategyId) continue
+        const ownerStrategy = getStrategyById(trade.strategyId)
+        if (!ownerStrategy || ownerStrategy.type !== 'momentum') continue
+        const symbolSeries = seriesBySymbol.get(trade.symbol)
+        const candle = symbolSeries?.intradayByTimestamp.get(ts)
+        if (!symbolSeries || !candle || trade.remainingQty < 1) continue
+
+        const exitPrice = candle.close
+        if (!trade.t1Done && exitPrice >= trade.target2) {
+          const sellQty = trade.remainingQty
+          const exitValue = Number((sellQty * trade.target2).toFixed(2))
+          const costBasis = trade.remainingCost
+          trade.remainingQty = 0
+          trade.remainingCost = 0
+          trade.realizedPnl = Number((trade.realizedPnl + (exitValue - costBasis)).toFixed(2))
+          cash = Number((cash + exitValue).toFixed(2))
+          trade.t2Done = true
+          trade.t2Date = ts
+          trade.exitDate = ts
+          trade.exitValue = exitValue
+          trade.exitPrice = Number((exitValue / trade.qty).toFixed(2))
+        } else if (!trade.t1Done && exitPrice >= trade.target1) {
+          const sellQty = Math.max(1, Math.floor(trade.remainingQty / 2))
+          const exitValue = Number((sellQty * trade.target1).toFixed(2))
+          const costBasis = Number((trade.entryPrice * sellQty).toFixed(2))
+          trade.remainingQty -= sellQty
+          trade.remainingCost = Number((trade.remainingCost - costBasis).toFixed(2))
+          trade.realizedPnl = Number((trade.realizedPnl + (exitValue - costBasis)).toFixed(2))
+          trade.exitValue = Number(((trade.exitValue || 0) + exitValue).toFixed(2))
+          cash = Number((cash + exitValue).toFixed(2))
+          trade.t1Done = true
+          trade.t1Date = ts
+        } else if (trade.t1Done && exitPrice >= trade.target2) {
+          const sellQty = trade.remainingQty
+          const exitValue = Number((sellQty * trade.target2).toFixed(2))
+          const costBasis = trade.remainingCost
+          trade.remainingQty = 0
+          trade.remainingCost = 0
+          trade.realizedPnl = Number((trade.realizedPnl + (exitValue - costBasis)).toFixed(2))
+          cash = Number((cash + exitValue).toFixed(2))
+          trade.t2Done = true
+          trade.t2Date = ts
+          trade.exitDate = ts
+          trade.exitValue = Number(((trade.exitValue || 0) + exitValue).toFixed(2))
+          trade.exitPrice = Number((trade.exitValue / trade.qty).toFixed(2))
+        }
+
+        if (trade.remainingQty === 0) {
+          trade.status = 'closed'
+          trade.markPrice = trade.exitPrice || trade.target2
+          trade.markValue = trade.exitValue || Number((trade.qty * trade.markPrice).toFixed(2))
+          trade.unrealizedPnl = 0
+          trade.realizedPct = trade.entryValue > 0 ? Number(((trade.realizedPnl / trade.entryValue) * 100).toFixed(2)) : 0
+          trade.holdDays = Math.max(0, (dateIndex.get(date) || 0) - (dateIndex.get(dateOnly(trade.entryDate)) || 0))
+          enteredToday.add(trade.symbol)
+        } else {
+          trade.markPrice = candle.close
+          trade.markValue = Number((trade.remainingQty * candle.close).toFixed(2))
+          trade.unrealizedPnl = Number((trade.markValue - trade.remainingCost).toFixed(2))
+        }
+      }
+
+      for (let i = openTrades.length - 1; i >= 0; i--) {
+        if (openTrades[i].status === 'closed') openTrades.splice(i, 1)
+      }
+
+      for (const strategy of momentumStrategies) {
+        const params = (strategy.params || {}) as Record<string, unknown>
+        const minDayGainPct = typeof params.minDayGainPct === 'number' ? params.minDayGainPct : 0.5
+        const maxDayGainPct = typeof params.maxDayGainPct === 'number' ? params.maxDayGainPct : 1.5
+        const consecutiveCandles = clampInt(params.consecutiveCandles, 3, 1, 10)
+        const emaProximityPct = typeof params.emaProximityPct === 'number' ? params.emaProximityPct : 3
+        const volumeAvgDays = clampInt(params.volumeAvgDays, 10, 1, 60)
+        const scanStartMin = hhmmToMinutes(typeof params.scanStartHHMM === 'string' ? params.scanStartHHMM : '09:30')
+        const scanEndMin = hhmmToMinutes(typeof params.scanEndHHMM === 'string' ? params.scanEndHHMM : '14:30')
+        const sessionStartMin = hhmmToMinutes('09:15')
+        const sessionMinutes = 375
+
+        for (const symbol of strategySymbols.get(strategy.id) || []) {
+          if (enteredToday.has(symbol)) {
+            bumpGate(gateCounts, 'enteredToday', 'Already entered this symbol today')
+            continue
+          }
+          if (openTrades.some(trade => trade.symbol === symbol)) {
+            bumpGate(gateCounts, 'alreadyOpen', 'Existing open position in symbol')
+            continue
+          }
+
+          const item = seriesBySymbol.get(symbol)
+          const candle = item?.intradayByTimestamp.get(ts)
+          const meta = item?.intradayMetaByTimestamp.get(ts)
+          const dailyIdx = item?.indexByDate.get(date)
+          if (!item || !candle || !meta || dailyIdx === undefined || dailyIdx <= 0) continue
+          if (!backtestDateSet.has(date)) continue
+
+          const currentMin = hhmmToMinutes(timeOnly(ts))
+          if (currentMin < scanStartMin || currentMin > scanEndMin) {
+            bumpGate(gateCounts, 'scanWindow', 'Outside configured scan window')
+            continue
+          }
+          if (openTrades.length >= capitalCfg.maxPositions) {
+            skippedPositionLimited++
+            bumpGate(gateCounts, 'maxPositions', 'Blocked by max open positions')
+            continue
+          }
+
+          const dayBars = item.intradayByDate.get(date) || []
+          if (meta.indexInDay < consecutiveCandles - 1) {
+            bumpGate(gateCounts, 'needMoreCandles', 'Not enough candles yet for pattern')
+            continue
+          }
+          const prevClose = item.candles[dailyIdx - 1]?.close
+          const ema20 = item.emaByPeriod.get(20)?.[dailyIdx - 1]
+          if (!prevClose || !ema20 || dailyIdx < volumeAvgDays) continue
+
+          const dayGainPct = ((candle.close - prevClose) / prevClose) * 100
+          if (dayGainPct < minDayGainPct) {
+            bumpGate(gateCounts, 'minDayGainPct', 'Below minimum day-gain threshold')
+            continue
+          }
+          if (dayGainPct > maxDayGainPct) {
+            bumpGate(gateCounts, 'maxDayGainPct', 'Above maximum day-gain threshold')
+            continue
+          }
+          const emaDev = deviationPct(candle.close, ema20)
+          if (Math.abs(emaDev) > emaProximityPct) {
+            bumpGate(gateCounts, 'emaProximity', 'Too far from EMA proximity band')
+            continue
+          }
+
+          const elapsedMin = Math.max(1, currentMin - sessionStartMin)
+          const avgVolume = item.candles.slice(dailyIdx - volumeAvgDays, dailyIdx).reduce((sum, candleRow) => sum + candleRow.volume, 0) / volumeAvgDays
+          const proratedAvgVol = avgVolume * (elapsedMin / sessionMinutes)
+          if (meta.cumulativeVolume < proratedAvgVol) {
+            bumpGate(gateCounts, 'volumeAvg', 'Volume below prorated average')
+            continue
+          }
+
+          const lastN = dayBars.slice(meta.indexInDay - consecutiveCandles + 1, meta.indexInDay + 1)
+          let rising = true
+          for (let i = 1; i < lastN.length; i++) {
+            if (lastN[i].close <= lastN[i - 1].close) { rising = false; break }
+          }
+          if (!rising) {
+            bumpGate(gateCounts, 'risingCandles', 'Consecutive rising-candle pattern not met')
+            continue
+          }
+
+          const budget = Math.min(capitalCfg.perTrade, cash)
+          const qty = Math.floor(budget / candle.close)
+          if (qty < 1) {
+            skippedCapitalLimited++
+            bumpGate(gateCounts, 'capitalTooLow', 'Insufficient capital for next entry')
+            continue
+          }
+
+          const entryValue = Number((qty * candle.close).toFixed(2))
+          cash = Number((cash - entryValue).toFixed(2))
+          const trade: OpenTrade = {
+            strategyId: strategy.id,
+            strategyName: strategy.name,
+            symbol,
+            signalDate: ts,
+            entryDate: ts,
+            entryPrice: candle.close,
+            qty,
+            buyNumber: 1,
+            entryValue,
+            emaAtSignal: Number(ema20.toFixed(2)),
+            deviationPct: Number(emaDev.toFixed(2)),
+            downDays: consecutiveCandles,
+            confidence: 'normal',
+            target1: Number((candle.close * ((strategy.exits?.t1Pct ?? 1.5) / 100 + 1)).toFixed(2)),
+            target2: Number((candle.close * ((strategy.exits?.t2Pct ?? 2) / 100 + 1)).toFixed(2)),
+            realizedPnl: 0,
+            realizedPct: 0,
+            holdDays: 0,
+            status: 'open',
+            markPrice: candle.close,
+            markValue: entryValue,
+            unrealizedPnl: 0,
+            setup: `${strategy.name} · +${dayGainPct.toFixed(2)}% day gain · ${consecutiveCandles} rising candles · vol ${Math.round(meta.cumulativeVolume).toLocaleString('en-IN')}`,
+            remainingQty: qty,
+            remainingCost: entryValue,
+            t1Done: false,
+            t2Done: false,
+            strategyPhase: 'momentum',
+          }
+          openTrades.push(trade)
+          allTrades.push(trade)
+          enteredToday.add(symbol)
+        }
+      }
+    }
+
+    for (const trade of [...openTrades]) {
+      if (trade.strategyPhase === 'momentum') continue
+      const candle = seriesBySymbol.get(trade.symbol)?.candleByDate.get(date)
+      if (!candle || trade.remainingQty < 1) continue
+
+      if (!trade.t1Done && candle.high >= trade.target1) {
+        const sellQty = Math.ceil(trade.qty / 2)
+        const exitValue = Number((sellQty * trade.target1).toFixed(2))
+        const costBasis = Number((trade.entryPrice * sellQty).toFixed(2))
+        trade.remainingQty -= sellQty
+        trade.remainingCost = Number((trade.remainingCost - costBasis).toFixed(2))
+        trade.realizedPnl = Number((trade.realizedPnl + (exitValue - costBasis)).toFixed(2))
+        trade.exitValue = Number(((trade.exitValue || 0) + exitValue).toFixed(2))
+        cash = Number((cash + exitValue).toFixed(2))
+        trade.t1Done = true
+        trade.t1Date = date
+      }
+
+      if (trade.remainingQty > 0 && candle.high >= trade.target2) {
+        const sellQty = trade.remainingQty
+        const exitValue = Number((sellQty * trade.target2).toFixed(2))
+        const costBasis = trade.remainingCost
+        trade.remainingQty = 0
+        trade.remainingCost = 0
+        trade.realizedPnl = Number((trade.realizedPnl + (exitValue - costBasis)).toFixed(2))
+        cash = Number((cash + exitValue).toFixed(2))
+        trade.t2Done = true
+        trade.t2Date = date
+        trade.exitDate = date
+        trade.exitValue = Number(((trade.exitValue || 0) + exitValue).toFixed(2))
+        trade.exitPrice = Number((trade.exitValue / trade.qty).toFixed(2))
+      }
+
+      if (trade.remainingQty === 0) {
+        trade.status = 'closed'
+        trade.markPrice = trade.exitPrice || trade.target2
+        trade.markValue = trade.exitValue || Number((trade.qty * trade.markPrice).toFixed(2))
+        trade.unrealizedPnl = 0
+        trade.exitValue = trade.exitValue || trade.markValue
+        trade.exitPrice = trade.exitPrice || Number((trade.exitValue / trade.qty).toFixed(2))
+        trade.realizedPct = trade.entryValue > 0 ? Number(((trade.realizedPnl / trade.entryValue) * 100).toFixed(2)) : 0
+        trade.holdDays = Math.max(0, (dateIndex.get(date) || 0) - (dateIndex.get(trade.entryDate) || 0))
+      } else {
+        trade.markPrice = candle.close
+        trade.markValue = Number((trade.remainingQty * candle.close).toFixed(2))
+        trade.unrealizedPnl = Number((trade.markValue - trade.remainingCost).toFixed(2))
+      }
+    }
+
+    for (let i = openTrades.length - 1; i >= 0; i--) {
+      if (openTrades[i].status === 'closed') openTrades.splice(i, 1)
+    }
+
+    for (const strategy of dipStrategies) {
+      const params = (strategy.params || {}) as Record<string, unknown>
+      const emaPeriod = clampInt(params.emaPeriod, 20, 2, 200)
+      const entryBelowPct = typeof params.entryBelowPct === 'number' ? params.entryBelowPct : 5
+      const strongBuyBelowPct = typeof params.strongBuyBelowPct === 'number' ? params.strongBuyBelowPct : 8
+      const minDownDays = clampInt(params.minDownDays, 3, 1, 20)
+      const capitulationFloorPct = typeof params.capitulationFloorPct === 'number' ? params.capitulationFloorPct : 12
+
+      for (const symbol of strategySymbols.get(strategy.id) || []) {
+        const item = seriesBySymbol.get(symbol)
+        const idx = item?.indexByDate.get(date)
+        const emaSeries = item?.emaByPeriod.get(emaPeriod)
+        if (!item || idx === undefined || idx <= 0 || idx >= item.candles.length - 1 || !emaSeries) continue
+        if (!backtestDateSet.has(date)) continue
+
+        const candle = item.candles[idx]
+        const emaYesterday = emaSeries[idx - 1]
+        if (!emaYesterday || Number.isNaN(emaYesterday)) continue
+
+        const historicalCloses = item.candles.slice(0, idx).map(row => row.close)
+        const downDays = consecutiveDownDays(historicalCloses)
+        const dev = deviationPct(candle.close, emaYesterday)
+        if (dev > -entryBelowPct) {
+          bumpGate(gateCounts, 'entryBelowPct', 'Did not breach entry-below-EMA threshold')
+          continue
+        }
+        if (dev < -capitulationFloorPct) {
+          bumpGate(gateCounts, 'capitulationFloor', 'Rejected as too far below EMA')
+          continue
+        }
+        if (downDays < minDownDays) {
+          bumpGate(gateCounts, 'minDownDays', 'Not enough consecutive down days')
+          continue
+        }
+
+        const openForSymbol = openTrades.filter(trade => trade.symbol === symbol).sort((a, b) => a.entryDate.localeCompare(b.entryDate))
+        if (openForSymbol.length > 0) {
+          const lastBuy = openForSymbol[openForSymbol.length - 1]
+          const threshold = lastBuy.entryPrice * (1 - capitalCfg.minDropBetweenBuysPct / 100)
+          if (candle.close > threshold) {
+            bumpGate(gateCounts, 'minDropBetweenBuys', 'Pyramiding drop threshold not met')
+            continue
+          }
+        }
+
+        const nextDate = item.candles[idx + 1]?.date.slice(0, 10)
+        if (!nextDate || !backtestDateSet.has(nextDate)) {
+          bumpGate(gateCounts, 'nextSessionMissing', 'No next trading session in backtest window')
+          continue
+        }
+
+        pushPending({
+          date: nextDate,
+          strategyId: strategy.id,
+          strategyName: strategy.name,
+          symbol,
+          signalDate: date,
+          emaAtSignal: emaYesterday,
+          deviationPct: dev,
+          downDays,
+          confidence: dev <= -strongBuyBelowPct ? 'high' : 'normal',
+        })
+      }
+    }
+
+    let marketValue = 0
+    for (const trade of openTrades) {
+      const item = seriesBySymbol.get(trade.symbol)
+      const priceCandle = trade.strategyPhase === 'momentum'
+        ? item?.latestIntradayByDate.get(date) || item?.candleByDate.get(date)
+        : item?.candleByDate.get(date)
+      if (!priceCandle) continue
+      trade.markPrice = priceCandle.close
+      trade.markValue = Number((trade.remainingQty * priceCandle.close).toFixed(2))
+      trade.unrealizedPnl = Number((trade.markValue - trade.remainingCost).toFixed(2))
+      marketValue += trade.markValue
+    }
+    marketValue = Number(marketValue.toFixed(2))
+    const equity = Number((cash + marketValue).toFixed(2))
+    peakEquity = Math.max(peakEquity, equity)
+    const drawdownPct = peakEquity > 0 ? Number((((peakEquity - equity) / peakEquity) * 100).toFixed(2)) : 0
+    equityCurve.push({ date, cash, marketValue, equity, drawdownPct, openTrades: openTrades.length })
+  }
+
+  const lastDate = backtestDates[backtestDates.length - 1]
+  for (const trade of allTrades) {
+    if (trade.status === 'closed') continue
+    trade.holdDays = Math.max(0, (dateIndex.get(lastDate) || 0) - (dateIndex.get(dateOnly(trade.entryDate)) || 0))
+    trade.markValue = Number((trade.remainingQty * trade.markPrice).toFixed(2))
+    trade.unrealizedPnl = Number((trade.markValue - trade.remainingCost).toFixed(2))
+    trade.realizedPct = trade.entryValue > 0
+      ? Number(((((trade.realizedPnl + trade.unrealizedPnl) / trade.entryValue) * 100)).toFixed(2))
+      : 0
+  }
+
+  const realizedPnl = Number(allTrades.reduce((sum, trade) => sum + trade.realizedPnl, 0).toFixed(2))
+  const unrealizedPnl = Number(allTrades.filter(trade => trade.status === 'open').reduce((sum, trade) => sum + trade.unrealizedPnl, 0).toFixed(2))
+  const endingCapital = equityCurve[equityCurve.length - 1]?.equity ?? startingCapital
+  const closedTrades = allTrades.filter(trade => trade.status === 'closed')
+  const wins = closedTrades.filter(trade => trade.realizedPnl > 0).length
+  const losses = closedTrades.filter(trade => trade.realizedPnl < 0).length
+  const holdDays = closedTrades.map(trade => trade.holdDays)
+
+  return {
+    summary: {
+      strategyId: 'all-active',
+      strategyName: `All Active Strategies (${activeStrategies.length})`,
+      days,
+      tradingDays: backtestDates.length,
+      startingCapital,
+      endingCapital,
+      realizedPnl,
+      unrealizedPnl,
+      totalPnl: Number((realizedPnl + unrealizedPnl).toFixed(2)),
+      totalReturnPct: startingCapital > 0 ? Number((((endingCapital - startingCapital) / startingCapital) * 100).toFixed(2)) : 0,
+      maxDrawdownPct: Number(equityCurve.reduce((max, point) => Math.max(max, point.drawdownPct), 0).toFixed(2)),
+      tradesClosed: closedTrades.length,
+      tradesOpen: allTrades.length - closedTrades.length,
+      wins,
+      losses,
+      winRate: closedTrades.length > 0 ? Number(((wins / closedTrades.length) * 100).toFixed(2)) : null,
+      avgHoldDays: avg(holdDays.map(Number)) !== null ? Number((avg(holdDays.map(Number)) || 0).toFixed(2)) : null,
+      skippedNoToken,
+      skippedNoHistorical,
+      skippedCapitalLimited,
+      skippedPositionLimited,
+      gateBreakdown: toGateBreakdown(gateCounts),
+    },
+    trades: allTrades
+      .map(trade => ({
+        strategyId: trade.strategyId,
+        strategyName: trade.strategyName,
+        symbol: trade.symbol,
+        signalDate: trade.signalDate,
+        entryDate: trade.entryDate,
+        entryPrice: trade.entryPrice,
+        qty: trade.qty,
+        buyNumber: trade.buyNumber,
+        entryValue: trade.entryValue,
+        emaAtSignal: trade.emaAtSignal,
+        deviationPct: Number(trade.deviationPct.toFixed(2)),
+        downDays: trade.downDays,
+        confidence: trade.confidence,
+        target1: trade.target1,
+        target2: trade.target2,
+        exitDate: trade.exitDate,
+        exitPrice: trade.exitPrice,
+        exitValue: trade.exitValue,
+        realizedPnl: trade.realizedPnl,
+        realizedPct: trade.realizedPct,
+        holdDays: trade.holdDays,
+        status: trade.status,
+        markPrice: trade.markPrice,
+        markValue: trade.markValue,
+        unrealizedPnl: trade.unrealizedPnl,
+        setup: trade.setup,
+        t1Date: trade.t1Date,
+        t2Date: trade.t2Date,
+      }))
+      .sort((a, b) => a.entryDate.localeCompare(b.entryDate) || (a.strategyName || '').localeCompare(b.strategyName || '') || a.symbol.localeCompare(b.symbol)),
+    equityCurve,
+  }
 }
 
 export async function runStrategy1Backtest(options: BacktestOptions = {}): Promise<StrategyBacktestResult> {
@@ -486,6 +1115,8 @@ export async function runStrategy1Backtest(options: BacktestOptions = {}): Promi
 
       pushPending({
         date: nextDate,
+        strategyId: strategy.id,
+        strategyName: strategy.name,
         symbol: item.symbol,
         signalDate: date,
         emaAtSignal: emaYesterday,
@@ -557,6 +1188,8 @@ export async function runStrategy1Backtest(options: BacktestOptions = {}): Promi
       gateBreakdown: toGateBreakdown(gateCounts),
     },
     trades: allTrades.map(trade => ({
+      strategyId: strategy.id,
+      strategyName: strategy.name,
       symbol: trade.symbol,
       signalDate: trade.signalDate,
       entryDate: trade.entryDate,
@@ -953,6 +1586,8 @@ async function runMomentumBacktest(options: BacktestOptions = {}): Promise<Strat
       gateBreakdown: toGateBreakdown(gateCounts),
     },
     trades: allTrades.map(trade => ({
+      strategyId: strategy.id,
+      strategyName: strategy.name,
       symbol: trade.symbol,
       signalDate: trade.signalDate,
       entryDate: trade.entryDate,

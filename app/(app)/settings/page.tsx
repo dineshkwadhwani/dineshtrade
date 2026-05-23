@@ -401,6 +401,8 @@ interface StrategyConfig {
 }
 
 interface BacktestTrade {
+  strategyId?: string
+  strategyName?: string
   symbol: string
   signalDate: string
   entryDate: string
@@ -888,9 +890,11 @@ function BacktestTab({ active }: { active: boolean }) {
   }, [active])
 
   const selected = strategies.find(s => s.id === strategyId) || null
+  const activeStrategies = strategies.filter(s => s.active)
 
-  async function runBacktest() {
-    if (!selected) return
+  async function runBacktest(runAllActive = false) {
+    if (!runAllActive && !selected) return
+    if (runAllActive && activeStrategies.length === 0) return
     setLoading(true)
     setError('')
     setInfo('')
@@ -899,7 +903,8 @@ function BacktestTab({ active }: { active: boolean }) {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({
-          strategyId: selected.id,
+          strategyId: runAllActive ? undefined : selected?.id,
+          runAllActive,
           days: Math.max(10, Math.min(180, Math.round(days || 60))),
           initialCapital: Math.max(1000, Math.round(capital || 50000)),
         }),
@@ -911,7 +916,7 @@ function BacktestTab({ active }: { active: boolean }) {
         return
       }
       setResult(data.result || null)
-      setInfo(`Backtest completed for ${selected.name}`)
+      setInfo(runAllActive ? `Backtest completed for ${activeStrategies.length} active strategies` : `Backtest completed for ${selected?.name}`)
     } catch {
       setResult(null)
       setError('Network error while running backtest')
@@ -930,14 +935,21 @@ function BacktestTab({ active }: { active: boolean }) {
               Strategy Backtest
             </h2>
             <p className="text-[12px] max-w-xl" style={{ color:'rgba(255,255,255,0.45)' }}>
-              Pick a saved strategy, choose the lookback window, and replay it on historical candles. This lets you compare tuning changes after saving them in the Strategies tab.
+              Pick a saved strategy, choose the lookback window, and replay it on historical candles. `Run All Active` simulates the real shared-capital environment where active strategies run together and compete for the same cash pool and position limits.
             </p>
           </div>
-          <button onClick={runBacktest} disabled={loading || !selected}
-            className="px-5 py-2.5 rounded-xl text-[12px] font-semibold tracking-wider transition-all disabled:opacity-40"
-            style={{ background:'linear-gradient(135deg, #7a5510, #c9a84c)', color:'#080604' }}>
-            {loading ? 'Running…' : 'Run Backtest'}
-          </button>
+          <div className="flex gap-2 flex-wrap">
+            <button onClick={() => runBacktest(false)} disabled={loading || !selected}
+              className="px-5 py-2.5 rounded-xl text-[12px] font-semibold tracking-wider transition-all disabled:opacity-40"
+              style={{ background:'linear-gradient(135deg, #7a5510, #c9a84c)', color:'#080604' }}>
+              {loading ? 'Running…' : 'Run Selected'}
+            </button>
+            <button onClick={() => runBacktest(true)} disabled={loading || activeStrategies.length === 0}
+              className="px-5 py-2.5 rounded-xl text-[12px] font-semibold tracking-wider transition-all disabled:opacity-40"
+              style={{ background:'rgba(82,183,136,0.16)', border:'1px solid rgba(82,183,136,0.35)', color:'#52b788' }}>
+              {loading ? 'Running…' : `Run All Active (${activeStrategies.length})`}
+            </button>
+          </div>
         </div>
 
         <div className="grid grid-cols-1 md:grid-cols-3 gap-4 mt-5">
@@ -995,7 +1007,7 @@ function BacktestTab({ active }: { active: boolean }) {
             )}
           </div>
           <p className="text-[11px]" style={{ color:'rgba(255,255,255,0.32)' }}>
-            Backtest runs against the saved strategy configuration.
+            Backtest runs against the saved strategy configuration. `Run All Active` now uses one shared capital pool across active saved strategies.
           </p>
         </div>
       </div>
@@ -1128,6 +1140,12 @@ function BacktestTab({ active }: { active: boolean }) {
                         <td className="px-3 py-2.5">
                           <div className="flex items-center gap-2">
                             <span className="text-[12px] font-medium" style={{ color:'rgba(255,255,255,0.85)' }}>{trade.symbol}</span>
+                            {trade.strategyName && result.summary.strategyId === 'all-active' && (
+                              <span className="text-[9px] tracking-widest uppercase px-1.5 py-0.5 rounded"
+                                style={{ background:'rgba(96,165,250,0.12)', border:'1px solid rgba(96,165,250,0.35)', color:'#60a5fa', fontFamily:'JetBrains Mono, monospace' }}>
+                                {trade.strategyName}
+                              </span>
+                            )}
                             <span className="text-[9px] tracking-widest uppercase px-1.5 py-0.5 rounded"
                               style={{ background: trade.confidence === 'high' ? 'rgba(82,183,136,0.12)' : 'rgba(201,168,76,0.12)', border:`1px solid ${trade.confidence === 'high' ? 'rgba(82,183,136,0.35)' : 'rgba(201,168,76,0.35)'}`, color: trade.confidence === 'high' ? '#52b788' : '#c9a84c', fontFamily:'JetBrains Mono, monospace' }}>
                               {trade.confidence}
