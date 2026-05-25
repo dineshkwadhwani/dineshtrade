@@ -2,14 +2,13 @@
 // One-time backfill: adds `sector` to every WatchlistEntry that doesn't have
 // one yet. Safe to re-run — skips entries that already have a sector.
 //
-// Usage (on EC2 where NSE API is reachable):
+// Usage:
 //   STATE_FILE_PATH=~/dineshtrade/data/state.json npx tsx scripts/backfill-sectors.ts
 //
-// NSE blocks requests from outside India — run this on the EC2 instance.
+// Uses Yahoo Finance (yahoo-finance2) — no cookies or India-only access needed.
 
 import { promises as fs } from 'fs'
 import * as path from 'path'
-import { NseIndia } from 'stock-nse-india'
 import { mapIndustryToSector } from '../lib/nse'
 
 const STATE_FILE_PATH = process.env.STATE_FILE_PATH
@@ -64,27 +63,21 @@ async function main(): Promise<void> {
     return
   }
 
-  console.log(`Backfilling sectors for ${toProcess.length} symbol(s) — 1s delay between calls…\n`)
+  console.log(`Backfilling sectors for ${toProcess.length} symbol(s) via Yahoo Finance — 500ms delay between calls…\n`)
 
-  const nse = new NseIndia()
-
-  // NSE requires a cookie warm-up request before any API calls — without it
-  // the API returns 403 regardless of geography.
-  try {
-    await (nse as any).getCookies()
-    console.log('NSE session initialised.\n')
-  } catch (err) {
-    console.warn('Warning: cookie init failed, continuing anyway:', String(err).slice(0, 80))
-  }
+  const mod = await import('yahoo-finance2')
+  const YF = (mod.default || mod) as any
+  const yf = new YF({ suppressNotices: ['yahooSurvey'] })
 
   let ok = 0; let failed = 0
 
   for (const { listKey, index, nse: symbol } of toProcess) {
+    const ticker = `${symbol.toUpperCase()}.NS`
     try {
-      const data = await (nse as any).getEquityDetails(symbol.toUpperCase()) as any
-      const industry: string = data?.info?.industry || data?.metadata?.industry || ''
+      const data = await yf.quoteSummary(ticker, { modules: ['assetProfile'] }) as any
+      const industry: string = data?.assetProfile?.industry || ''
       if (!industry) {
-        console.log(`  ${symbol.padEnd(14)} — no industry field in NSE response (skipping)`)
+        console.log(`  ${symbol.padEnd(14)} — no industry field in Yahoo response (skipping)`)
         failed++
       } else {
         const sector = mapIndustryToSector(industry)
@@ -96,7 +89,7 @@ async function main(): Promise<void> {
       console.log(`  ${symbol.padEnd(14)} — fetch failed: ${String(err).slice(0, 80)}`)
       failed++
     }
-    await sleep(1000)
+    await sleep(500)
   }
 
   // Write back atomically — preserve original shape (seed uses top-level keys,

@@ -11,275 +11,316 @@
       "nse": "BAJFINANCE",
       "name": "Bajaj Finance",
       "trades": 91,
-      "lastTraded": "2026-12-02"
+      "lastTraded": "2026-12-02",
+      "sector": "banking_finance"
     },
     {
       "nse": "TMPV",
       "name": "Tata Motors PV (TMPV)",
       "trades": 81,
-      "lastTraded": "2026-03-27"
+      "lastTraded": "2026-03-27",
+      "sector": "auto"
     },
     {
       "nse": "RELIANCE",
       "name": "Reliance Industries",
       "trades": 74,
-      "lastTraded": "2025-11-06"
+      "lastTraded": "2025-11-06",
+      "sector": "energy"
     },
     {
       "nse": "BIRLACORPN",
       "name": "Birla Corporation",
       "trades": 62,
-      "lastTraded": "2026-05-01"
+      "lastTraded": "2026-05-01",
+      "sector": "others"
     },
     {
       "nse": "TATASTEEL",
       "name": "Tata Steel",
       "trades": 60,
-      "lastTraded": "2026-09-03"
+      "lastTraded": "2026-09-03",
+      "sector": "metals_mining"
     },
     {
       "nse": "MARUTI",
       "name": "Maruti Suzuki",
       "trades": 53,
-      "lastTraded": "2026-12-03"
+      "lastTraded": "2026-12-03",
+      "sector": "auto"
     },
     {
       "nse": "INDUSINDBK",
       "name": "IndusInd Bank",
       "trades": 50,
-      "lastTraded": "2025-11-12"
+      "lastTraded": "2025-11-12",
+      "sector": "banking_finance"
     },
     {
       "nse": "BAJAJ-AUTO",
       "name": "Bajaj Auto",
       "trades": 46,
-      "lastTraded": "2026-11-03"
+      "lastTraded": "2026-11-03",
+      "sector": "auto"
     },
     {
       "nse": "JSWSTEEL",
       "name": "JSW Steel",
       "trades": 45,
-      "lastTraded": "2024-11-12"
+      "lastTraded": "2024-11-12",
+      "sector": "metals_mining"
     },
     {
       "nse": "M&M",
       "name": "Mahindra & Mahindra",
       "trades": 44,
-      "lastTraded": "2026-11-03"
+      "lastTraded": "2026-11-03",
+      "sector": "auto"
     },
     {
       "nse": "TATACHEM",
       "name": "Tata Chemicals",
       "trades": 41,
-      "lastTraded": "2026-05-08"
+      "lastTraded": "2026-05-08",
+      "sector": "commodities"
     },
     {
       "nse": "INTELLECT",
       "name": "Intellect Design Arena",
       "trades": 41,
-      "lastTraded": "2026-12-02"
+      "lastTraded": "2026-12-02",
+      "sector": "it_technology"
     },
     {
       "nse": "SAIL",
       "name": "SAIL",
       "trades": 40,
-      "lastTraded": "2026-12-05"
+      "lastTraded": "2026-12-05",
+      "sector": "metals_mining"
     },
     {
       "nse": "AXISBANK",
       "name": "Axis Bank",
       "trades": 36,
-      "lastTraded": "2025-10-06"
+      "lastTraded": "2025-10-06",
+      "sector": "banking_finance"
     },
     {
       "nse": "ICICIBANK",
       "name": "ICICI Bank",
       "trades": 35,
-      "lastTraded": "2026-04-06"
+      "lastTraded": "2026-04-06",
+      "sector": "banking_finance"
     },
     {
       "nse": "SBIN",
       "name": "State Bank of India",
       "trades": 32,
-      "lastTraded": "2026-05-11"
+      "lastTraded": "2026-05-11",
+      "sector": "banking_finance"
     },
     {
       "nse": "HDFCBANK",
       "name": "HDFC Bank",
       "trades": 30,
-      "lastTraded": "2026-06-01"
+      "lastTraded": "2026-06-01",
+      "sector": "banking_finance"
     },
     {
       "nse": "ADANIENT",
       "name": "Adani Enterprises",
       "trades": 27,
-      "lastTraded": "2025-12-11"
+      "lastTraded": "2025-12-11",
+      "sector": "energy"
     },
     {
       "nse": "TCS",
       "name": "TCS",
       "trades": 24,
-      "lastTraded": "2025-12-11"
+      "lastTraded": "2025-12-11",
+      "sector": "it_technology"
     },
     {
       "nse": "BSE",
       "name": "BSE Ltd",
       "trades": 23,
-      "lastTraded": "2026-04-13"
+      "lastTraded": "2026-04-13",
+      "sector": "banking_finance"
     },
     {
       "nse": "ADANIPOWER",
       "name": "Adani Power",
       "trades": 22,
-      "lastTraded": "2024-10-18"
+      "lastTraded": "2024-10-18",
+      "sector": "energy"
     },
     {
       "nse": "SUZLON",
       "name": "Suzlon Energy",
       "trades": 21,
-      "lastTraded": "2025-09-01"
+      "lastTraded": "2025-09-01",
+      "sector": "industrials"
     },
     {
       "nse": "INFY",
       "name": "Infosys",
       "trades": 21,
-      "lastTraded": "2024-12-06"
+      "lastTraded": "2024-12-06",
+      "sector": "it_technology"
     },
     {
       "nse": "JIOFIN",
       "name": "Jio Financial Services",
       "trades": 17,
-      "lastTraded": "2026-09-03"
+      "lastTraded": "2026-09-03",
+      "sector": "banking_finance"
     },
-
     {
       "nse": "RPOWER",
       "name": "Reliance Power",
       "trades": 17,
-      "lastTraded": "2025-10-06"
+      "lastTraded": "2025-10-06",
+      "sector": "energy"
     },
     {
       "nse": "ADANIPORTS",
       "name": "Adani Ports",
       "trades": 17,
-      "lastTraded": "2025-07-29"
+      "lastTraded": "2025-07-29",
+      "sector": "others"
     },
     {
       "nse": "MCX",
       "name": "MCX India",
       "trades": 16,
-      "lastTraded": "2026-04-13"
+      "lastTraded": "2026-04-13",
+      "sector": "banking_finance"
     },
     {
       "nse": "JINDALSTEL",
       "name": "Jindal Steel & Power",
       "trades": 16,
-      "lastTraded": "2026-04-05"
+      "lastTraded": "2026-04-05",
+      "sector": "metals_mining"
     },
-
     {
       "nse": "OFSS",
       "name": "Oracle Financial Services",
       "trades": 15,
-      "lastTraded": "2025-05-06"
+      "lastTraded": "2025-05-06",
+      "sector": "it_technology"
     },
     {
       "nse": "PNB",
       "name": "Punjab National Bank",
       "trades": 14,
-      "lastTraded": "2026-11-05"
+      "lastTraded": "2026-11-05",
+      "sector": "banking_finance"
     },
     {
       "nse": "HEROMOTOCO",
       "name": "Hero MotoCorp",
       "trades": 14,
-      "lastTraded": "2025-10-06"
+      "lastTraded": "2025-10-06",
+      "sector": "auto"
     },
     {
       "nse": "TATAPOWER",
       "name": "Tata Power",
       "trades": 13,
-      "lastTraded": "2025-10-06"
+      "lastTraded": "2025-10-06",
+      "sector": "energy"
     },
     {
       "nse": "ADANIENSOL",
       "name": "Adani Energy Solutions",
       "trades": 11,
-      "lastTraded": "2024-10-16"
+      "lastTraded": "2024-10-16",
+      "sector": "energy"
     },
     {
       "nse": "INDIANB",
       "name": "Indian Bank",
       "trades": 10,
-      "lastTraded": "2025-02-06"
+      "lastTraded": "2025-02-06",
+      "sector": "banking_finance"
     },
     {
       "nse": "M&MFIN",
       "name": "Mahindra Finance",
       "trades": 8,
-      "lastTraded": "2024-07-05"
+      "lastTraded": "2024-07-05",
+      "sector": "it_technology"
     },
     {
       "nse": "BANKINDIA",
       "name": "Bank of India",
       "trades": 7,
-      "lastTraded": "2025-09-07"
+      "lastTraded": "2025-09-07",
+      "sector": "banking_finance"
     },
     {
       "nse": "WIPRO",
       "name": "Wipro",
       "trades": 7,
-      "lastTraded": "2024-07-01"
+      "lastTraded": "2024-07-01",
+      "sector": "it_technology"
     },
-
     {
       "nse": "HDFCAMC",
       "name": "HDFC AMC",
       "trades": 6,
-      "lastTraded": "2024-10-09"
+      "lastTraded": "2024-10-09",
+      "sector": "banking_finance"
     },
     {
       "nse": "COCHINSHIP",
       "name": "Cochin Shipyard",
       "trades": 6,
-      "lastTraded": "2025-06-02"
+      "lastTraded": "2025-06-02",
+      "sector": "others"
     },
     {
       "nse": "BSOFT",
       "name": "Birlasoft",
       "trades": 6,
-      "lastTraded": "2024-07-11"
+      "lastTraded": "2024-07-11",
+      "sector": "it_technology"
     },
     {
       "nse": "ITC",
       "name": "ITC Ltd",
       "trades": 6,
-      "lastTraded": "2026-05-04"
+      "lastTraded": "2026-05-04",
+      "sector": "consumer"
     },
-
     {
       "nse": "ADANIGREEN",
       "name": "Adani Green",
       "trades": 5,
-      "lastTraded": "2026-03-02"
+      "lastTraded": "2026-03-02",
+      "sector": "others"
     },
     {
       "nse": "BHEL",
       "name": "BHEL",
       "trades": 4,
-      "lastTraded": "2026-04-10"
+      "lastTraded": "2026-04-10",
+      "sector": "industrials"
     },
     {
       "nse": "DABUR",
       "name": "Dabur India",
       "trades": 4,
-      "lastTraded": "2025-09-07"
+      "lastTraded": "2025-09-07",
+      "sector": "consumer"
     },
     {
       "nse": "IEX",
       "name": "Indian Energy Exchange",
       "trades": 4,
-      "lastTraded": "2024-06-18"
+      "lastTraded": "2024-06-18",
+      "sector": "others"
     },
     {
       "nse": "JSLHISAR",
@@ -291,99 +332,113 @@
       "nse": "IRFC",
       "name": "IRFC",
       "trades": 3,
-      "lastTraded": "2025-04-06"
+      "lastTraded": "2025-04-06",
+      "sector": "it_technology"
     },
-
     {
       "nse": "DRREDDY",
       "name": "Dr. Reddy's Labs",
       "trades": 3,
-      "lastTraded": "2024-07-22"
+      "lastTraded": "2024-07-22",
+      "sector": "pharma"
     },
     {
       "nse": "BERGEPAINT",
       "name": "Berger Paints",
       "trades": 3,
-      "lastTraded": "2025-05-06"
+      "lastTraded": "2025-05-06",
+      "sector": "commodities"
     },
     {
       "nse": "GROWW",
       "name": "GROWW",
       "trades": 2,
-      "lastTraded": "2026-11-02"
+      "lastTraded": "2026-11-02",
+      "sector": "others"
     },
     {
       "nse": "COALINDIA",
       "name": "Coal India",
       "trades": 2,
-      "lastTraded": "2024-05-22"
+      "lastTraded": "2024-05-22",
+      "sector": "energy"
     },
     {
       "nse": "HINDALCO",
       "name": "Hindalco Industries",
       "trades": 2,
-      "lastTraded": "2024-05-27"
+      "lastTraded": "2024-05-27",
+      "sector": "metals_mining"
     },
     {
       "nse": "BHARATFORG",
       "name": "BHARATFORG",
       "trades": 2,
-      "lastTraded": "2025-09-06"
+      "lastTraded": "2025-09-06",
+      "sector": "auto"
     },
     {
       "nse": "CENTRALBK",
       "name": "Central Bank of India",
       "trades": 2,
-      "lastTraded": "2024-11-05"
+      "lastTraded": "2024-11-05",
+      "sector": "banking_finance"
     },
     {
       "nse": "AUBANK",
       "name": "AU Small Finance Bank",
       "trades": 2,
-      "lastTraded": "2024-06-05"
+      "lastTraded": "2024-06-05",
+      "sector": "banking_finance"
     },
     {
       "nse": "ANGELONE",
       "name": "Angel One",
       "trades": 2,
-      "lastTraded": "2024-10-03"
+      "lastTraded": "2024-10-03",
+      "sector": "others"
     },
     {
       "nse": "APARINDS",
       "name": "Apar Industries",
       "trades": 2,
-      "lastTraded": "2024-09-11"
+      "lastTraded": "2024-09-11",
+      "sector": "others"
     },
     {
       "nse": "ASTERDM",
       "name": "ASTERDM",
       "trades": 2,
-      "lastTraded": "2025-05-06"
+      "lastTraded": "2025-05-06",
+      "sector": "pharma"
     },
     {
       "nse": "BAJAJFINSV",
       "name": "Bajaj Finserv",
       "trades": 2,
-      "lastTraded": "2025-12-06"
+      "lastTraded": "2025-12-06",
+      "sector": "banking_finance"
     },
     {
       "nse": "CAMS",
       "name": "Computer Age Management Services",
       "trades": 2,
-      "lastTraded": "2024-12-02"
+      "lastTraded": "2024-12-02",
+      "sector": "it_technology"
     },
     {
       "nse": "IDFCFIRSTB",
       "name": "IDFC First Bank",
       "trades": 2,
-      "lastTraded": "2024-10-07"
+      "lastTraded": "2024-10-07",
+      "sector": "banking_finance"
     },
-
     {
       "nse": "HYUNDAI",
       "name": "Hyundai Motor India",
       "trades": 2,
-      "lastTraded": "2025-06-20"
+      "lastTraded": "2025-06-20",
+      "sector": "auto"
     }
   ],
   "listB": [
@@ -391,281 +446,323 @@
       "nse": "ICICIPRULI",
       "name": "ICICIPRULI",
       "trades": 2,
-      "lastTraded": "2025-09-07"
+      "lastTraded": "2025-09-07",
+      "sector": "banking_finance"
     },
-
-
-
     {
       "nse": "UNITECH",
       "name": "Unitech",
       "trades": 5,
-      "lastTraded": "2024-10-28"
+      "lastTraded": "2024-10-28",
+      "sector": "others"
     },
     {
       "nse": "UNOMINDA",
       "name": "Uno Minda",
       "trades": 5,
-      "lastTraded": "2024-10-11"
+      "lastTraded": "2024-10-11",
+      "sector": "auto"
     },
     {
       "nse": "IOB",
       "name": "Indian Overseas Bank",
       "trades": 5,
-      "lastTraded": "2024-09-16"
+      "lastTraded": "2024-09-16",
+      "sector": "banking_finance"
     },
-
     {
       "nse": "UNIONBANK",
       "name": "Union Bank of India",
       "trades": 5,
-      "lastTraded": "2024-06-03"
+      "lastTraded": "2024-06-03",
+      "sector": "banking_finance"
     },
     {
       "nse": "HUDCO",
       "name": "Housing & Urban Development Corp",
       "trades": 2,
-      "lastTraded": "2024-06-03"
-    },    
+      "lastTraded": "2024-06-03",
+      "sector": "it_technology"
+    },
     {
       "nse": "NATIONALUM",
       "name": "NATIONALUM",
       "trades": 5,
-      "lastTraded": "2024-10-07"
+      "lastTraded": "2024-10-07",
+      "sector": "metals_mining"
     },
-        {
+    {
       "nse": "HBLENGINE",
       "name": "HBL Engineering",
       "trades": 5,
-      "lastTraded": "2024-12-06"
+      "lastTraded": "2024-12-06",
+      "sector": "others"
     },
-        {
+    {
       "nse": "RAILTEL",
       "name": "Railtel Corporation",
       "trades": 17,
-      "lastTraded": "2024-12-07"
+      "lastTraded": "2024-12-07",
+      "sector": "telecom"
     },
     {
       "nse": "NLCINDIA",
       "name": "NLC India",
       "trades": 2,
-      "lastTraded": "2024-07-15"
+      "lastTraded": "2024-07-15",
+      "sector": "others"
     },
     {
       "nse": "CANBK",
       "name": "Canara Bank",
       "trades": 15,
-      "lastTraded": "2025-05-30"
+      "lastTraded": "2025-05-30",
+      "sector": "banking_finance"
     },
     {
       "nse": "BEL",
       "name": "Bharat Electronics",
       "trades": 7,
-      "lastTraded": "2024-12-17"
+      "lastTraded": "2024-12-17",
+      "sector": "others"
     },
     {
       "nse": "PFC",
       "name": "Power Finance Corp",
       "trades": 2,
-      "lastTraded": "2024-07-26"
+      "lastTraded": "2024-07-26",
+      "sector": "it_technology"
     },
     {
       "nse": "PERSISTENT",
       "name": "Persistent Systems",
       "trades": 2,
-      "lastTraded": "2024-07-04"
+      "lastTraded": "2024-07-04",
+      "sector": "it_technology"
     },
     {
       "nse": "NAZARA",
       "name": "Nazara Technologies",
       "trades": 2,
-      "lastTraded": "2024-09-12"
+      "lastTraded": "2024-09-12",
+      "sector": "telecom"
     },
     {
       "nse": "JBCHEPHARM",
       "name": "J B Chemicals & Pharmaceuticals",
       "trades": 2,
-      "lastTraded": "2024-08-14"
+      "lastTraded": "2024-08-14",
+      "sector": "pharma"
     },
     {
       "nse": "JPPOWER",
       "name": "JPPOWER",
       "trades": 2,
-      "lastTraded": "2025-07-05"
+      "lastTraded": "2025-07-05",
+      "sector": "energy"
     },
     {
       "nse": "IRCON",
       "name": "IRCON",
       "trades": 2,
-      "lastTraded": "2024-06-09"
+      "lastTraded": "2024-06-09",
+      "sector": "industrials"
     },
     {
       "nse": "IREDA",
       "name": "IREDA",
       "trades": 2,
-      "lastTraded": "2024-07-02"
+      "lastTraded": "2024-07-02",
+      "sector": "it_technology"
     },
     {
       "nse": "JSWENERGY",
       "name": "JSWENERGY",
       "trades": 2,
-      "lastTraded": "2025-10-07"
+      "lastTraded": "2025-10-07",
+      "sector": "energy"
     },
     {
       "nse": "MTARTECH",
       "name": "MTAR Technologies",
       "trades": 2,
-      "lastTraded": "2025-05-15"
+      "lastTraded": "2025-05-15",
+      "sector": "industrials"
     },
-        {
+    {
       "nse": "PARAGMILK",
       "name": "Parag Milk Foods",
       "trades": 6,
-      "lastTraded": "2024-10-09"
+      "lastTraded": "2024-10-09",
+      "sector": "consumer"
     },
     {
       "nse": "POWERGRID",
       "name": "Power Grid",
       "trades": 6,
-      "lastTraded": "2024-07-26"
+      "lastTraded": "2024-07-26",
+      "sector": "others"
     },
-        {
+    {
       "nse": "EASEMYTRIP",
       "name": "Easy Trip Planners (EaseMyTrip)",
       "trades": 3,
-      "lastTraded": "2024-09-25"
+      "lastTraded": "2024-09-25",
+      "sector": "others"
     },
     {
       "nse": "BDL",
       "name": "Bharat Dynamics",
       "trades": 3,
-      "lastTraded": "2025-05-15"
+      "lastTraded": "2025-05-15",
+      "sector": "others"
     },
     {
       "nse": "HCC",
       "name": "Hindustan Construction Co",
       "trades": 3,
-      "lastTraded": "2024-09-19"
+      "lastTraded": "2024-09-19",
+      "sector": "industrials"
     },
     {
       "nse": "KOPRAN",
       "name": "Kopran",
       "trades": 3,
-      "lastTraded": "2024-08-19"
+      "lastTraded": "2024-08-19",
+      "sector": "pharma"
     },
     {
       "nse": "ABSLAMC",
       "name": "ABSLAMC",
       "trades": 3,
-      "lastTraded": "2025-11-07"
+      "lastTraded": "2025-11-07",
+      "sector": "banking_finance"
     },
     {
       "nse": "ASTEC",
       "name": "Astec LifeSciences",
       "trades": 3,
-      "lastTraded": "2024-07-11"
+      "lastTraded": "2024-07-11",
+      "sector": "commodities"
     },
     {
       "nse": "MAXHEALTH",
       "name": "Max Healthcare",
       "trades": 2,
-      "lastTraded": "2024-09-19"
+      "lastTraded": "2024-09-19",
+      "sector": "pharma"
     },
     {
       "nse": "KALYANKJIL",
       "name": "Kalyan Jewellers",
       "trades": 2,
-      "lastTraded": "2024-06-28"
+      "lastTraded": "2024-06-28",
+      "sector": "others"
     },
     {
       "nse": "POONAWALLA",
       "name": "POONAWALLA",
       "trades": 2,
-      "lastTraded": "2025-09-06"
+      "lastTraded": "2025-09-06",
+      "sector": "it_technology"
     },
     {
       "nse": "SJVN",
       "name": "SJVN",
       "trades": 2,
-      "lastTraded": "2024-07-04"
+      "lastTraded": "2024-07-04",
+      "sector": "others"
     },
     {
       "nse": "SIEMENS",
       "name": "SIEMENS",
       "trades": 2,
-      "lastTraded": "2025-12-11"
+      "lastTraded": "2025-12-11",
+      "sector": "industrials"
     },
     {
       "nse": "MOTHERSON",
       "name": "Samvardhana Motherson International",
       "trades": 2,
-      "lastTraded": "2024-10-14"
+      "lastTraded": "2024-10-14",
+      "sector": "auto"
     },
     {
       "nse": "RVNL",
       "name": "Rail Vikas Nigam",
       "trades": 2,
-      "lastTraded": "2024-06-03"
+      "lastTraded": "2024-06-03",
+      "sector": "industrials"
     },
     {
       "nse": "RADHIKAJWE",
       "name": "RADHIKAJWE",
       "trades": 2,
-      "lastTraded": "2024-06-09"
+      "lastTraded": "2024-06-09",
+      "sector": "others"
     },
     {
       "nse": "RATNAMANI",
       "name": "Ratnamani Metals",
       "trades": 2,
-      "lastTraded": "2024-09-02"
+      "lastTraded": "2024-09-02",
+      "sector": "metals_mining"
     },
     {
       "nse": "RECLTD",
       "name": "REC Limited",
       "trades": 2,
-      "lastTraded": "2024-07-26"
+      "lastTraded": "2024-07-26",
+      "sector": "it_technology"
     },
     {
       "nse": "QUESS",
       "name": "Quess Corp",
       "trades": 2,
-      "lastTraded": "2024-07-25"
+      "lastTraded": "2024-07-25",
+      "sector": "others"
     },
     {
       "nse": "SIEMENS",
       "name": "Siemens",
       "trades": 2,
-      "lastTraded": "2026-03-06"
+      "lastTraded": "2026-03-06",
+      "sector": "industrials"
     },
     {
       "nse": "TDPOWERSYS",
       "name": "TDPOWERSYS",
       "trades": 2,
-      "lastTraded": "2024-08-07"
+      "lastTraded": "2024-08-07",
+      "sector": "industrials"
     },
     {
       "nse": "SRF",
       "name": "SRF",
       "trades": 2,
-      "lastTraded": "2025-09-01"
+      "lastTraded": "2025-09-01",
+      "sector": "others"
     },
     {
       "nse": "TORNTPOWER",
       "name": "Torrent Power",
       "trades": 2,
-      "lastTraded": "2024-10-21"
+      "lastTraded": "2024-10-21",
+      "sector": "energy"
     },
     {
       "nse": "USHAMART",
       "name": "Usha Martin",
       "trades": 2,
-      "lastTraded": "2025-05-15"
+      "lastTraded": "2025-05-15",
+      "sector": "metals_mining"
     },
     {
       "nse": "VBL",
       "name": "Varun Beverages",
       "trades": 2,
-      "lastTraded": "2024-06-14"
+      "lastTraded": "2024-06-14",
+      "sector": "consumer"
     }
   ]
 }
