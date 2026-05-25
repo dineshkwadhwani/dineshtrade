@@ -67,6 +67,16 @@ async function main(): Promise<void> {
   console.log(`Backfilling sectors for ${toProcess.length} symbol(s) — 1s delay between calls…\n`)
 
   const nse = new NseIndia()
+
+  // NSE requires a cookie warm-up request before any API calls — without it
+  // the API returns 403 regardless of geography.
+  try {
+    await (nse as any).getCookies()
+    console.log('NSE session initialised.\n')
+  } catch (err) {
+    console.warn('Warning: cookie init failed, continuing anyway:', String(err).slice(0, 80))
+  }
+
   let ok = 0; let failed = 0
 
   for (const { listKey, index, nse: symbol } of toProcess) {
