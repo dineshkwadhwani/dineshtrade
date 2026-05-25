@@ -75,6 +75,10 @@ export interface DipParams {
   reactiveDrop: number
   reactiveIntervalMin: number
   firesOnAnyMode: boolean
+  // Sector concentration gate — max DineshTrade-tracked open positions in the
+  // same sector before new auto-BUYs for this strategy are blocked. Skip gate
+  // when undefined / 0 or when the symbol has no sector in the watchlist.
+  maxPerSector?: number
 }
 
 export interface MomentumParams {

@@ -3,7 +3,7 @@
 // funds-available, idempotency. Phase 2 will add a seed-from-Kite on cron startup.
 
 import { getState, recordIdempotency, makeIdempotencyKey, getBuyHistory, resetBuyHistoryForSymbol } from '@/lib/state'
-import { getCapital } from '@/lib/strategyConfig'
+import { getCapital, getStrategyById } from '@/lib/strategyConfig'
 import { getAccountSecrets } from '@/lib/accounts'
 import { isMarketOpen } from '@/lib/market'
 import { checkIntradayCircuit } from '@/lib/intradayCircuit'
@@ -33,6 +33,9 @@ export interface PreflightInput {
   side: 'BUY' | 'SELL'
   quantity: number
   pricePerShare: number
+  // Strategy id — used by the sector concentration gate. Optional; absent means
+  // skip sector gate (e.g. manual orders, legacy callers).
+  strategyId?: string
   // When true, user is placing an explicit manual order via the UI. Skip the
   // rate-limit gates (per-trade cap, idempotency, day quota, position cap,
   // no-loss-sell). Only the essential safety gates apply:
@@ -155,6 +158,44 @@ export async function runPreflight(input: PreflightInput): Promise<PreflightResu
           return {
             ok: false, gate: 'pyramid',
             reason: `${account}: ${symbol} at ₹${pricePerShare.toFixed(2)} — must be ≤ ₹${requiredCeiling.toFixed(2)} (${minDropPct}% below previous BUY @ ₹${lastPrice.toFixed(2)})`,
+          }
+        }
+      }
+    }
+  }
+
+  // GATE 4d — sector concentration (auto BUYs with a strategyId only).
+  // Blocks new BUYs when DineshTrade-tracked open positions in the same sector
+  // already reach the strategy's maxPerSector cap. Gate is skipped when:
+  //   - manual order
+  //   - no strategyId provided
+  //   - strategy is not type 'dip' or has no maxPerSector set
+  //   - symbol's sector is unknown in the watchlist
+  if (!manual && side === 'BUY' && input.strategyId) {
+    const strategy = getStrategyById(input.strategyId)
+    const maxPerSector = strategy?.type === 'dip'
+      ? (strategy.params as any).maxPerSector
+      : undefined
+    if (typeof maxPerSector === 'number' && maxPerSector > 0) {
+      const { getWatchlist } = await import('@/lib/watchlistStore')
+      const wl = await getWatchlist()
+      const symbolSectors = new Map<string, string>()
+      for (const entries of Object.values(wl.lists)) {
+        for (const e of entries) {
+          if (e.sector) symbolSectors.set(e.nse.toUpperCase(), e.sector)
+        }
+      }
+      const thisSector = symbolSectors.get(symbol.toUpperCase())
+      if (thisSector) {
+        const { listPositions } = await import('@/lib/positions')
+        const positions = await listPositions()
+        const sectorCount = positions.filter(
+          p => p.account === account && symbolSectors.get(p.symbol.toUpperCase()) === thisSector
+        ).length
+        if (sectorCount >= maxPerSector) {
+          return {
+            ok: false, gate: 'sectorConcentration',
+            reason: `${account}: already ${sectorCount}/${maxPerSector} positions in sector "${thisSector}" (${symbol})`,
           }
         }
       }

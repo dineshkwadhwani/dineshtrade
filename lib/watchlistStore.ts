@@ -18,6 +18,7 @@ import bundled from '@/config/watchlist.json'
 export interface WatchlistEntry {
   nse: string                  // NSE tradingsymbol (uppercase, no spaces)
   name: string                 // display name (company name)
+  sector?: string              // normalised sector key from lib/nse.ts (undefined until backfilled)
   trades?: number              // optional: historical trade count from seed data
   lastTraded?: string          // optional: yyyy-mm-dd of last historical trade
 }

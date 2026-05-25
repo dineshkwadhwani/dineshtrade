@@ -512,6 +512,7 @@ const DIP_PARAM_DESCRIPTIONS: Record<string, string> = {
   reactiveDrop: 'Intraday % drop that triggers an off-cycle re-scan (default 3%).',
   reactiveIntervalMin: 'How often (in min) the reactive scan runs during the day.',
   firesOnAnyMode: 'When true, the reactive scan fires regardless of market mode (dip / catalyst).',
+  maxPerSector: 'Sector concentration cap — max DineshTrade-tracked open positions in the same NSE sector before new auto-BUYs for this strategy are blocked. Set to 0 to disable. Requires sector data in the watchlist (run the backfill script on EC2).',
 }
 
 const MOMENTUM_PARAM_DESCRIPTIONS: Record<string, string> = {
@@ -530,6 +531,7 @@ const DEFAULT_DIP_PARAMS = {
   emaPeriod: 20, entryBelowPct: 5, strongBuyBelowPct: 8, minDownDays: 3,
   capitulationFloorPct: 12,
   tranche2AboveEMAPct: 3.0, reactiveDrop: 3.0, reactiveIntervalMin: 30, firesOnAnyMode: true,
+  maxPerSector: 3,
 }
 const DEFAULT_MOMENTUM_PARAMS = {
   minDayGainPct: 0.5, maxDayGainPct: 1.5, consecutiveCandles: 3, emaProximityPct: 3.0,

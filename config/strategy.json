@@ -37,7 +37,8 @@
         "tranche2AboveEMAPct": 3.0,
         "reactiveDrop": 3.0,
         "reactiveIntervalMin": 30,
-        "firesOnAnyMode": true
+        "firesOnAnyMode": true,
+        "maxPerSector": 3
       },
       "exits": {
         "t1Pct": 5.0,

@@ -132,6 +132,7 @@ async function autoBuyOnAccount(account: string, accountDisplayName: string | un
     const pre = await runPreflight({
       account, symbol: rec.symbol, side: 'BUY',
       quantity: rec.suggestedQty, pricePerShare: rec.price,
+      strategyId: rec.strategy,
     })
     if (!pre.ok) {
       recordSkipped({

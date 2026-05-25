@@ -18,6 +18,7 @@ import { cookies } from 'next/headers'
 import { verifySession } from '@/lib/auth'
 import { getWatchlist, saveWatchlist, isListKey, type Watchlist, type WatchlistEntry, type ListMeta } from '@/lib/watchlistStore'
 import { getStrategies } from '@/lib/strategyConfig'
+import { fetchSymbolSector } from '@/lib/nse'
 
 export const dynamic = 'force-dynamic'
 
@@ -44,11 +45,50 @@ function cleanEntries(arr: any): WatchlistEntry[] {
     out.push({
       nse,
       name: typeof e.name === 'string' && e.name ? e.name : nse,
+      sector: typeof e.sector === 'string' && e.sector ? e.sector : undefined,
       trades: typeof e.trades === 'number' ? e.trades : undefined,
       lastTraded: typeof e.lastTraded === 'string' ? e.lastTraded : undefined,
     })
   }
   return out
+}
+
+// Fetches sectors for symbols that are new to the watchlist (not in prev) and
+// currently lack a sector. Runs after saveWatchlist — reads, patches, writes back.
+// NSE blocks requests outside India so fetchSymbolSector returns null safely there.
+async function enrichNewSectors(prev: Watchlist, next: Watchlist): Promise<void> {
+  const prevSymbols = new Set<string>()
+  for (const entries of Object.values(prev.lists)) {
+    for (const e of entries) prevSymbols.add(e.nse.toUpperCase())
+  }
+  const toFetch: Array<{ listKey: string; nse: string }> = []
+  const seen = new Set<string>()
+  for (const [k, entries] of Object.entries(next.lists)) {
+    for (const e of entries) {
+      const sym = e.nse.toUpperCase()
+      if (!e.sector && !prevSymbols.has(sym) && !seen.has(sym)) {
+        toFetch.push({ listKey: k, nse: sym })
+        seen.add(sym)
+      }
+    }
+  }
+  if (toFetch.length === 0) return
+
+  const current = await getWatchlist()
+  let updated = false
+  for (const { listKey, nse } of toFetch) {
+    const sector = await fetchSymbolSector(nse)
+    if (!sector) continue
+    const arr = current.lists[listKey]
+    if (!arr) continue
+    const idx = arr.findIndex(e => e.nse.toUpperCase() === nse)
+    if (idx >= 0 && !arr[idx].sector) {
+      arr[idx].sector = sector
+      updated = true
+      console.log(`[watchlist] sector enriched: ${nse} → ${sector}`)
+    }
+  }
+  if (updated) await saveWatchlist(current)
 }
 
 export async function POST(req: Request) {
@@ -95,11 +135,15 @@ export async function POST(req: Request) {
     meta,
     lists,
   }
+  const prevWl = await getWatchlist()
   try {
     await saveWatchlist(next)
   } catch (e) {
     return NextResponse.json({ error: String(e).slice(0, 200) }, { status: 500 })
   }
+  // Fire-and-forget: fetch NSE sector for newly added symbols that have none.
+  // Compares new lists against prevWl to avoid re-fetching existing entries.
+  enrichNewSectors(prevWl, next).catch(err => console.error('[watchlist] sector enrichment failed:', err))
   const saved = await getWatchlist()
   return NextResponse.json({ ok: true, counts: Object.fromEntries(Object.entries(saved.lists).map(([k, v]) => [k, v.length])) })
 }
