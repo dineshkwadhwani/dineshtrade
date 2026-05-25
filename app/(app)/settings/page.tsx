@@ -523,6 +523,7 @@ interface BacktestHistoryEntry {
 
 type BacktestHistorySortKey = keyof BacktestHistoryEntry
 type SortDirection = 'asc' | 'desc'
+type BacktestWorkspaceTab = 'run' | 'history'
 type BacktestHistoryView = 'overview' | 'performance' | 'risk' | 'config'
 
 interface BacktestHistoryColumn {
@@ -920,6 +921,7 @@ function StrategiesTab({ autoModeOn }: { autoModeOn: boolean }) {
 }
 
 function BacktestTab({ active }: { active: boolean }) {
+  const [workspaceTab, setWorkspaceTab] = useState<BacktestWorkspaceTab>('run')
   const [strategies, setStrategies] = useState<StrategyConfig[]>([])
   const [strategyId, setStrategyId] = useState('accumulator')
   const [days, setDays] = useState(60)
@@ -1064,6 +1066,7 @@ function BacktestTab({ active }: { active: boolean }) {
   }
 
   function loadHistoryRun(entry: BacktestHistoryEntry) {
+    setWorkspaceTab('run')
     setDays(entry.backtestDays)
     setCapital(entry.startingAmount)
     setLoadedRunId(entry.runId)
@@ -1154,6 +1157,29 @@ function BacktestTab({ active }: { active: boolean }) {
 
   return (
     <div className="space-y-5">
+      <div className="flex gap-1 rounded-lg p-1 w-fit" style={{ background:'rgba(255,255,255,0.03)', border:'1px solid rgba(255,255,255,0.06)' }}>
+        {([
+          { id: 'run', label: 'Backtest' },
+          { id: 'history', label: 'Backtest History' },
+        ] as const).map(tab => {
+          const activeTab = workspaceTab === tab.id
+          return (
+            <button key={tab.id} onClick={() => setWorkspaceTab(tab.id)}
+              className="px-4 py-1.5 rounded-md text-[11px] transition-all"
+              style={{
+                background: activeTab ? 'rgba(201,168,76,0.12)' : 'transparent',
+                border: activeTab ? '1px solid rgba(201,168,76,0.3)' : '1px solid transparent',
+                color: activeTab ? '#c9a84c' : 'rgba(255,255,255,0.5)',
+                fontFamily:'JetBrains Mono, monospace',
+              }}>
+              {tab.label}
+            </button>
+          )
+        })}
+      </div>
+
+      {workspaceTab === 'run' && (
+        <>
       <div className="rounded-xl p-5" style={{ background:'rgba(255,255,255,0.03)', border:'1px solid rgba(255,255,255,0.08)' }}>
         <div className="flex items-start justify-between gap-4 flex-wrap">
           <div>
@@ -1166,16 +1192,6 @@ function BacktestTab({ active }: { active: boolean }) {
             </p>
           </div>
           <div className="flex gap-2 flex-wrap">
-            <button onClick={resetTests} disabled={historyLoading || history.length === 0}
-              className="px-4 py-2.5 rounded-xl text-[12px] font-semibold tracking-wider transition-all disabled:opacity-40"
-              style={{ background:'rgba(224,90,94,0.12)', border:'1px solid rgba(224,90,94,0.35)', color:'#e05a5e' }}>
-              Reset Tests
-            </button>
-            <button onClick={analyseTests} disabled={analysisLoading || history.length < 3}
-              className="px-4 py-2.5 rounded-xl text-[12px] font-semibold tracking-wider transition-all disabled:opacity-40"
-              style={{ background:'rgba(96,165,250,0.12)', border:'1px solid rgba(96,165,250,0.35)', color:'#60a5fa' }}>
-              {analysisLoading ? 'Analysing…' : 'Analyse Tests'}
-            </button>
             <button onClick={() => runBacktest(false)} disabled={loading || !selected}
               className="px-5 py-2.5 rounded-xl text-[12px] font-semibold tracking-wider transition-all disabled:opacity-40"
               style={{ background:'linear-gradient(135deg, #7a5510, #c9a84c)', color:'#080604' }}>
@@ -1274,9 +1290,12 @@ function BacktestTab({ active }: { active: boolean }) {
         )}
       </div>
 
+      </>
+      )}
+
       {!loaded && <p className="text-[11px]" style={{ color:'rgba(255,255,255,0.4)' }}>Loading…</p>}
 
-      {selected?.type === 'momentum' && (
+      {workspaceTab === 'run' && selected?.type === 'momentum' && (
         <div className="rounded-lg p-3" style={{ background:'rgba(245,158,11,0.06)', border:'1px solid rgba(245,158,11,0.3)' }}>
           <p className="text-[12px]" style={{ color:'#f59e0b' }}>
             Momentum replay uses 5-minute historical candles, so it is materially heavier than dip backtests. Expect a longer run time on larger watchlists.
@@ -1296,7 +1315,7 @@ function BacktestTab({ active }: { active: boolean }) {
         </div>
       )}
 
-      {analysis && (
+      {workspaceTab === 'history' && analysis && (
         <div className="rounded-xl overflow-hidden" style={{ background:'rgba(96,165,250,0.05)', border:'1px solid rgba(96,165,250,0.2)' }}>
           <div className="px-4 py-2.5" style={{ borderBottom:'1px solid rgba(96,165,250,0.14)' }}>
             <p className="text-[11px] tracking-widest uppercase" style={{ color:'#60a5fa', fontFamily:'JetBrains Mono, monospace' }}>
@@ -1309,6 +1328,7 @@ function BacktestTab({ active }: { active: boolean }) {
         </div>
       )}
 
+      {workspaceTab === 'history' && (
       <div className="rounded-xl overflow-hidden" style={{ background:'rgba(255,255,255,0.02)', border:'1px solid rgba(255,255,255,0.08)' }}>
         <div className="px-4 py-2.5 flex items-center justify-between gap-3 flex-wrap" style={{ borderBottom:'1px solid rgba(255,255,255,0.06)' }}>
           <div>
@@ -1319,7 +1339,27 @@ function BacktestTab({ active }: { active: boolean }) {
               Every completed run is saved on the server and can be reloaded into the backtest config.
             </p>
           </div>
-          <div className="flex gap-1 rounded-lg p-1" style={{ background:'rgba(255,255,255,0.03)', border:'1px solid rgba(255,255,255,0.06)' }}>
+          <div className="flex gap-2 flex-wrap justify-end">
+            <button onClick={loadHistory} disabled={historyLoading}
+              className="px-4 py-2.5 rounded-xl text-[12px] font-semibold tracking-wider transition-all disabled:opacity-40"
+              style={{ background:'rgba(255,255,255,0.05)', border:'1px solid rgba(255,255,255,0.12)', color:'rgba(255,255,255,0.78)' }}>
+              {historyLoading ? 'Refreshing…' : 'Refresh'}
+            </button>
+            <button onClick={resetTests} disabled={historyLoading || history.length === 0}
+              className="px-4 py-2.5 rounded-xl text-[12px] font-semibold tracking-wider transition-all disabled:opacity-40"
+              style={{ background:'rgba(224,90,94,0.12)', border:'1px solid rgba(224,90,94,0.35)', color:'#e05a5e' }}>
+              Reset Tests
+            </button>
+            <button onClick={analyseTests} disabled={analysisLoading || history.length < 3}
+              className="px-4 py-2.5 rounded-xl text-[12px] font-semibold tracking-wider transition-all disabled:opacity-40"
+              style={{ background:'rgba(96,165,250,0.12)', border:'1px solid rgba(96,165,250,0.35)', color:'#60a5fa' }}>
+              {analysisLoading ? 'Analysing…' : 'Analyse Tests'}
+            </button>
+          </div>
+        </div>
+
+        <div className="px-4 pt-4">
+          <div className="flex gap-1 rounded-lg p-1 w-fit" style={{ background:'rgba(255,255,255,0.03)', border:'1px solid rgba(255,255,255,0.06)' }}>
             {BACKTEST_HISTORY_VIEWS.map(view => {
               const activeView = historyView === view.id
               return (
@@ -1454,8 +1494,9 @@ function BacktestTab({ active }: { active: boolean }) {
           </div>
         )}
       </div>
+      )}
 
-      {result && (
+      {workspaceTab === 'run' && result && (
         <div className="space-y-5">
           <div className="rounded-xl overflow-hidden" style={{ background:'rgba(201,168,76,0.04)', border:'1px solid rgba(201,168,76,0.2)' }}>
             <div className="px-4 py-2.5" style={{ borderBottom:'1px solid rgba(201,168,76,0.12)' }}>
