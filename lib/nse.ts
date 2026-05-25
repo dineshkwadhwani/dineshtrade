@@ -1,8 +1,7 @@
-// NSE equity metadata helpers — sector lookup + keyword mapping.
+// Equity metadata helpers — sector lookup + keyword mapping.
 //
-// NOTE: NSE blocks direct API calls from outside India (403 response). These
-// functions will silently return null/undefined when called from localhost.
-// They are designed to run on EC2 (India region) where NSE access works.
+// Sector lookup uses Yahoo Finance because it works consistently from local
+// development and deployment environments without NSE-specific access limits.
 
 export type Sector =
   | 'banking_finance'
@@ -51,10 +50,11 @@ export function mapIndustryToSector(industry: string): Sector {
 // Callers should treat null as "sector unknown" and skip sector-based gates.
 export async function fetchSymbolSector(symbol: string): Promise<Sector | null> {
   try {
-    const { NseIndia } = await import('stock-nse-india')
-    const nse = new NseIndia()
-    const data = await nse.getEquityDetails(symbol.toUpperCase()) as any
-    const industry: string = data?.info?.industry || data?.metadata?.industry || ''
+    const mod = await import('yahoo-finance2')
+    const YF = (mod.default || mod) as any
+    const yf = new YF({ suppressNotices: ['yahooSurvey'] })
+    const data = await yf.quoteSummary(`${symbol.toUpperCase()}.NS`, { modules: ['assetProfile'] }) as any
+    const industry: string = data?.assetProfile?.industry || ''
     if (!industry) return null
     return mapIndustryToSector(industry)
   } catch (err) {
