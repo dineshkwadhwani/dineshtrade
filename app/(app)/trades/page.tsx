@@ -1,5 +1,6 @@
 'use client'
 import { useEffect, useState } from 'react'
+import { usePathname, useRouter, useSearchParams } from 'next/navigation'
 import type { DailyReport, EnrichedTrade, EnrichedMissed } from '@/lib/retrospective'
 import FundsCard from '@/components/FundsCard'
 
@@ -22,7 +23,24 @@ interface Order {
 type View = 'orders' | 'retro'
 
 export default function TradesPage() {
-  const [view, setView] = useState<View>('orders')
+  const searchParams = useSearchParams()
+  const pathname = usePathname()
+  const router = useRouter()
+  const requestedView = searchParams.get('view')
+  const [view, setView] = useState<View>(requestedView === 'retro' ? 'retro' : 'orders')
+
+  useEffect(() => {
+    setView(requestedView === 'retro' ? 'retro' : 'orders')
+  }, [requestedView])
+
+  function changeView(next: View) {
+    setView(next)
+    const params = new URLSearchParams(searchParams.toString())
+    if (next === 'retro') params.set('view', 'retro')
+    else params.delete('view')
+    const query = params.toString()
+    router.replace(query ? `${pathname}?${query}` : pathname, { scroll: false })
+  }
 
   return (
     <div className="space-y-5 pb-4">
@@ -39,7 +57,7 @@ export default function TradesPage() {
           ].map(t => {
             const active = view === t.id
             return (
-              <button key={t.id} onClick={() => setView(t.id)}
+              <button key={t.id} onClick={() => changeView(t.id)}
                 className="px-4 py-1.5 rounded-md text-[11px] transition-all"
                 style={{
                   background: active ? 'rgba(201,168,76,0.12)' : 'transparent',

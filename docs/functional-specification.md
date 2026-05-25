@@ -367,6 +367,17 @@ Fires on the last trading day of the month (after the daily report). Shows: tota
 - Carry-in rule: if a position was opened before the From date but exits partially or fully inside the window, it still appears and stays linked to the original BUY so the report does not produce orphaned SELLs.
 - Open rows are marked at the selected **To Date**, allowing realized and unrealized MTM to be shown in the same shape as the backtest screen.
 
+### F7.8 — Backtest History
+
+- Every completed Backtest run is automatically appended to persistent server storage at `~/dineshtrade/data/backtest-history.json`.
+- Each saved run stores the timestamp, the strategy snapshot used for the run, exit snapshot, trading-window inputs, and the key summary metrics needed to compare runs later.
+- The Backtest tab shows the saved runs in a horizontally scrollable sortable table. Any column header can be clicked to sort by that field.
+- Every row has a **Load** button. Loading a row restores that run's capital / days inputs and injects the saved strategy snapshot into an editable JSON block so the user can rerun or tweak it without overwriting the current saved strategy config.
+- The Backtest tab exposes two history actions:
+  - **Reset Tests** — asks for confirmation, then irreversibly clears the history file.
+  - **Analyse Tests** — asks for confirmation, then sends all saved runs to the app's configured AI provider for concise parameter analysis.
+- The analysis action is blocked when fewer than 3 runs exist and shows: `Run at least 3 backtests with different parameters before analysing for meaningful insights.`
+
 ### Nuances
 - **Why enrich with OHLC at report time, not write time:** at SELL time the day isn't over. EoD high may be higher than what we recorded. Enriching at 15:35 IST gives the user the "what would have been" honestly.
 - **Why JSONL not JSON:** atomic append (one write syscall, never partial). No risk of corrupting earlier records on a crash.

@@ -1,26 +1,61 @@
 'use client'
 import { useEffect, useRef, useState } from 'react'
 import Link from 'next/link'
-import { usePathname, useRouter } from 'next/navigation'
+import { usePathname, useRouter, useSearchParams } from 'next/navigation'
 import LiveTicker from '@/components/LiveTicker'
 
-const NAV = [
-  { href: '/dashboard', label: 'Dashboard',         icon: '▦' },
-  { href: '/watchlist', label: 'Watchlist',         icon: '◎' },
-  { href: '/engine',    label: 'Trading Engine',    icon: '⚡' },
-  { href: '/holdings',  label: 'Current Holdings',  icon: '◐' },
-  { href: '/positions', label: "Today's Positions", icon: '◈' },
-  { href: '/trades',    label: "Today's Orders",    icon: '≡' },
-  { href: '/manage-lists', label: 'Manage Lists',   icon: '✎' },
-  { href: '/trade-report', label: 'Trade Report',   icon: '▤' },
-  { href: '/settings',  label: 'Settings',          icon: '⚙' },
+interface NavItem {
+  href: string
+  label: string
+  icon: string
+  isActive?: (pathname: string, view: string | null) => boolean
+}
+
+interface NavGroup {
+  title: string
+  items: NavItem[]
+}
+
+const NAV_GROUPS: NavGroup[] = [
+  {
+    title: 'Account',
+    items: [
+      { href: '/dashboard', label: 'Dashboard', icon: '▦' },
+      { href: '/settings', label: 'Settings', icon: '⚙' },
+    ],
+  },
+  {
+    title: 'Lists',
+    items: [
+      { href: '/watchlist', label: 'Watchlist', icon: '◎' },
+      { href: '/manage-lists', label: 'Manage Lists', icon: '✎' },
+    ],
+  },
+  {
+    title: 'Trades',
+    items: [
+      { href: '/engine', label: 'Trading Engine', icon: '⚡' },
+      { href: '/holdings', label: 'Current Holdings', icon: '◐' },
+      { href: '/trades', label: "Today's Orders", icon: '≡', isActive: (pathname, view) => pathname === '/trades' && view !== 'retro' },
+      { href: '/positions', label: "Today's Positions", icon: '◈' },
+    ],
+  },
+  {
+    title: 'Reports',
+    items: [
+      { href: '/trade-report', label: 'Trade Reports', icon: '▤' },
+      { href: '/trades?view=retro', label: 'Retrospection Report', icon: '◫', isActive: (pathname, view) => pathname === '/trades' && view === 'retro' },
+    ],
+  },
 ]
 
 export default function AppShell({ children }: { children: React.ReactNode }) {
   const pathname = usePathname()
+  const searchParams = useSearchParams()
   const router = useRouter()
   const [menuOpen, setMenuOpen] = useState(false)
   const menuRef = useRef<HTMLDivElement>(null)
+  const currentView = searchParams.get('view')
 
   // Close on outside click + Escape
   useEffect(() => {
@@ -88,7 +123,7 @@ export default function AppShell({ children }: { children: React.ReactNode }) {
 
             {menuOpen && (
               <div role="menu"
-                className="absolute right-0 top-11 w-56 rounded-xl overflow-hidden z-50 shadow-2xl"
+                className="absolute right-0 top-11 w-72 rounded-xl overflow-hidden z-50 shadow-2xl"
                 style={{ background:'#100e0a', border:'1px solid rgba(201,168,76,0.15)' }}>
 
                 {/* Identity header */}
@@ -98,21 +133,39 @@ export default function AppShell({ children }: { children: React.ReactNode }) {
                 </div>
 
                 {/* Nav links */}
-                <div className="py-1">
-                  {NAV.map(n => {
-                    const active = pathname === n.href
-                    return (
-                      <Link key={n.href} href={n.href} role="menuitem"
-                        className={`flex items-center gap-3 px-4 py-2.5 text-[13px] transition-all ${
-                          active
-                            ? 'text-[#c9a84c] bg-[rgba(201,168,76,0.08)]'
-                            : 'text-white/60 hover:text-white/90 hover:bg-white/5'
-                        }`}>
-                        <span className="text-base leading-none" style={{ width: '1.2em', textAlign: 'center' }}>{n.icon}</span>
-                        <span>{n.label}</span>
-                      </Link>
-                    )
-                  })}
+                <div className="py-2">
+                  {NAV_GROUPS.map(group => (
+                    <div key={group.title} className="px-2 pb-2 last:pb-0">
+                      <p className="px-2 pb-1.5 text-[10px] tracking-[0.22em] uppercase"
+                        style={{ color:'rgba(201,168,76,0.45)', fontFamily:'JetBrains Mono, monospace' }}>
+                        {group.title}
+                      </p>
+                      <div className="rounded-lg overflow-hidden" style={{ background:'rgba(255,255,255,0.015)', border:'1px solid rgba(255,255,255,0.04)' }}>
+                        {group.items.map(item => {
+                          const active = item.isActive ? item.isActive(pathname, currentView) : pathname === item.href
+                          return (
+                            <Link key={item.href} href={item.href} role="menuitem"
+                              className={`flex items-center justify-between gap-3 px-4 py-2.5 text-[13px] transition-all ${
+                                active
+                                  ? 'text-[#c9a84c] bg-[rgba(201,168,76,0.08)]'
+                                  : 'text-white/60 hover:text-white/90 hover:bg-white/5'
+                              }`}>
+                              <span className="flex items-center gap-3 min-w-0">
+                                <span className="text-base leading-none" style={{ width: '1.2em', textAlign: 'center' }}>{item.icon}</span>
+                                <span className="truncate">{item.label}</span>
+                              </span>
+                              {active && (
+                                <span className="text-[10px] tracking-widest uppercase"
+                                  style={{ color:'rgba(201,168,76,0.7)', fontFamily:'JetBrains Mono, monospace' }}>
+                                  Open
+                                </span>
+                              )}
+                            </Link>
+                          )
+                        })}
+                      </div>
+                    </div>
+                  ))}
                 </div>
 
                 {/* Logout */}

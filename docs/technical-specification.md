@@ -57,6 +57,8 @@ This document covers the *how* — architecture, stack choices, infrastructure, 
 │   │   ├── market/route.ts
 │   │   ├── positions/route.ts              # NEW — joined positions
 │   │   ├── state/route.ts
+│   │   ├── strategy/backtest/history/route.ts          # Backtest history list + reset
+│   │   ├── strategy/backtest/history/analyze/route.ts  # Backtest history analysis
 │   │   ├── trade-report/route.ts           # NEW — real trade report
 │   │   ├── strategy/route.ts
 │   │   ├── strategy/monitor/route.ts
@@ -76,6 +78,7 @@ This document covers the *how* — architecture, stack choices, infrastructure, 
 │   ├── accounts.ts                 # Env-prefix account enumeration
 │   ├── ai.ts                       # Multi-provider AI dispatcher
 │   ├── auth.ts                     # ddmmyyyyhh password + JWT
+│   ├── backtestHistory.ts          # Persistent backtest-history store + configured-AI analysis helper
 │   ├── cron.ts                     # Tick + retrospective registration
 │   ├── ema.ts                      # EMA computation
 │   ├── email.ts                    # nodemailer + HTML templates
@@ -332,7 +335,7 @@ Centralised wrappers — every caller goes through these. Never make raw HTTP ca
 - Returns summary metrics, per-trade outcomes, and an equity curve for the selected lookback window
 - Backtest output now includes estimated Zerodha-style equity charges. Same-day trades are classified as `intraday`; multi-day trades are classified as `delivery`. Open positions use the last mark price to estimate remaining exit-side charges for net MTM.
 - HTTP surface: `POST /api/strategy/backtest` (authenticated)
-- Current frontend surface: Settings → Backtest tab. It fetches saved strategies from `GET /api/strategies`, lets the user pick a strategy + day window, and renders summary/trades/equity inline for both dip and momentum strategies. The summary hero uses net-after-charges values, and the trade table includes a per-row `Charges` column plus net profit display.
+- Current frontend surface: Settings → Backtest tab. It fetches saved strategies from `GET /api/strategies`, lets the user pick a strategy + day window, renders summary/trades/equity inline for both dip and momentum strategies, and persists every completed run into server-side Backtest History. The summary hero uses net-after-charges values, the trade table includes a per-row `Charges` column plus net profit display, and the history table supports reload/reset plus a confirmation-gated analysis call through the configured AI provider.
 
 ### 5.6 `lib/tradeReport.ts` *(new 23 May 2026)*
 

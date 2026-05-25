@@ -10,6 +10,8 @@ export interface BacktestOptions {
   initialCapital?: number
   strategyId?: string
   runAllActive?: boolean
+  strategySnapshot?: Strategy | null
+  strategySnapshots?: Strategy[] | null
 }
 
 export interface BacktestTrade {
@@ -337,15 +339,25 @@ function uniqueSortedTimes(series: MomentumSeries[], date: string): string[] {
 export async function runStrategyBacktest(options: BacktestOptions = {}): Promise<StrategyBacktestResult> {
   if (options.runAllActive) return runAllActiveBacktest(options)
   const strategyId = options.strategyId || 'accumulator'
-  const strategy = getStrategyById(strategyId)
+  const strategy = resolveBacktestStrategy(options, strategyId)
   if (!strategy) throw new Error(`Unknown strategy: ${strategyId}`)
   if (strategy.type === 'momentum') return runMomentumBacktest(options)
   return runStrategy1Backtest(options)
 }
 
+function resolveBacktestStrategy(options: BacktestOptions, strategyId: string): Strategy | null {
+  const snapshot = options.strategySnapshot
+  if (snapshot && snapshot.id === strategyId) return snapshot
+  return getStrategyById(strategyId)
+}
+
 async function runAllActiveBacktest(options: BacktestOptions = {}): Promise<StrategyBacktestResult> {
-  const activeStrategies = getActiveStrategies()
+  const activeStrategies = Array.isArray(options.strategySnapshots) && options.strategySnapshots.length > 0
+    ? options.strategySnapshots.filter(strategy => strategy.active)
+    : getActiveStrategies()
   if (activeStrategies.length === 0) throw new Error('No active strategies configured')
+  const strategyById = new Map(activeStrategies.map(strategy => [strategy.id, strategy]))
+  const resolveActiveStrategy = (strategyId: string): Strategy | null => strategyById.get(strategyId) || getStrategyById(strategyId)
 
   const creds = await firstConnectedCreds()
   if (!creds) throw new Error('No Kite account connected — historical candles require a connected Kite account')
@@ -486,7 +498,7 @@ async function runAllActiveBacktest(options: BacktestOptions = {}): Promise<Stra
         continue
       }
 
-      const ownerStrategy = getStrategyById(pending.strategyId)
+      const ownerStrategy = resolveActiveStrategy(pending.strategyId)
       if (!ownerStrategy) continue
       const budget = Math.min(capitalCfg.perTrade, cash)
       const qty = Math.floor(budget / candle.open)
@@ -536,13 +548,13 @@ async function runAllActiveBacktest(options: BacktestOptions = {}): Promise<Stra
     for (const trade of openTrades) {
       if (trade.strategyPhase === 'accumulator') continue
       if (!trade.strategyId) continue
-      const ownerStrategy = getStrategyById(trade.strategyId)
+      const ownerStrategy = resolveActiveStrategy(trade.strategyId)
       if (!ownerStrategy || ownerStrategy.type !== 'momentum') continue
       const handoffDays = clampInt((ownerStrategy.params || {}).deliveryHandoffDays, 15, 0, 365)
       if (handoffDays <= 0) continue
       const ageDays = dayDiff(dateOnly(trade.entryDate), date)
       if (ageDays < handoffDays) continue
-      const accumulator = getStrategyById('accumulator')
+      const accumulator = resolveActiveStrategy('accumulator')
       const fallbackT1Pct = accumulator?.exits?.t1Pct ?? 5
       const fallbackT2Pct = accumulator?.exits?.t2Pct ?? 8
       trade.strategyPhase = 'accumulator'
@@ -557,7 +569,7 @@ async function runAllActiveBacktest(options: BacktestOptions = {}): Promise<Stra
       for (const trade of [...openTrades]) {
         if (trade.strategyPhase === 'accumulator') continue
         if (!trade.strategyId) continue
-        const ownerStrategy = getStrategyById(trade.strategyId)
+        const ownerStrategy = resolveActiveStrategy(trade.strategyId)
         if (!ownerStrategy || ownerStrategy.type !== 'momentum') continue
         const symbolSeries = seriesBySymbol.get(trade.symbol)
         const candle = symbolSeries?.intradayByTimestamp.get(ts)
@@ -991,7 +1003,7 @@ async function runAllActiveBacktest(options: BacktestOptions = {}): Promise<Stra
 
 export async function runStrategy1Backtest(options: BacktestOptions = {}): Promise<StrategyBacktestResult> {
   const strategyId = options.strategyId || 'accumulator'
-  const strategy = getStrategyById(strategyId)
+  const strategy = resolveBacktestStrategy(options, strategyId)
   if (!strategy) throw new Error(`Unknown strategy: ${strategyId}`)
   if (strategy.type !== 'dip') throw new Error(`Backtest currently supports dip strategies only; got ${strategy.type}`)
 
@@ -1356,7 +1368,7 @@ export async function runStrategy1Backtest(options: BacktestOptions = {}): Promi
 
 async function runMomentumBacktest(options: BacktestOptions = {}): Promise<StrategyBacktestResult> {
   const strategyId = options.strategyId || 'catalyst'
-  const strategy = getStrategyById(strategyId)
+  const strategy = resolveBacktestStrategy(options, strategyId)
   if (!strategy) throw new Error(`Unknown strategy: ${strategyId}`)
   if (strategy.type !== 'momentum') throw new Error(`Backtest currently supports momentum strategies only here; got ${strategy.type}`)
 

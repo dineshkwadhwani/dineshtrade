@@ -494,6 +494,52 @@ interface StrategyBacktestResult {
   equityCurve: BacktestEquityPoint[]
 }
 
+interface BacktestHistoryEntry {
+  runId: string
+  timestamp: string
+  strategyName: string
+  strategyType: 'dip' | 'momentum' | 'all'
+  entryParams: Record<string, unknown>
+  exitCriteria: Record<string, unknown>
+  startingAmount: number
+  maxBuysPerDay: number
+  maxSellsPerDay: number
+  backtestDays: number
+  closedTrades: number
+  openTrades: number
+  avgHoldDays: number | null
+  avgDrawdownPct: number
+  netProfitRupees: number
+  netProfitPct: number
+  realizedProfitRupees: number
+  realizedProfitPct: number
+  unrealizedMTM: number
+  winRate: number | null
+  capitalEfficiency: number
+  avgDeployedCapital: number
+  strategySnapshot?: StrategyConfig | null
+  strategySnapshots?: StrategyConfig[]
+}
+
+type BacktestHistorySortKey = keyof BacktestHistoryEntry
+type SortDirection = 'asc' | 'desc'
+type BacktestHistoryView = 'overview' | 'performance' | 'risk' | 'config'
+
+interface BacktestHistoryColumn {
+  key: BacktestHistorySortKey
+  label: string
+  minWidth?: number
+  render: (entry: BacktestHistoryEntry) => React.ReactNode
+  color?: (entry: BacktestHistoryEntry) => string
+}
+
+const BACKTEST_HISTORY_VIEWS: { id: BacktestHistoryView; label: string }[] = [
+  { id: 'overview', label: 'Overview' },
+  { id: 'performance', label: 'Performance' },
+  { id: 'risk', label: 'Risk' },
+  { id: 'config', label: 'Config' },
+]
+
 // One-line descriptions for each capital field — surfaced inline so the user
 // understands what they're looking at without opening docs.
 const CAPITAL_DESCRIPTIONS: Record<string, string> = {
@@ -878,6 +924,17 @@ function BacktestTab({ active }: { active: boolean }) {
   const [strategyId, setStrategyId] = useState('accumulator')
   const [days, setDays] = useState(60)
   const [capital, setCapital] = useState(50000)
+  const [history, setHistory] = useState<BacktestHistoryEntry[]>([])
+  const [historyLoading, setHistoryLoading] = useState(false)
+  const [historyError, setHistoryError] = useState('')
+  const [historySortKey, setHistorySortKey] = useState<BacktestHistorySortKey>('timestamp')
+  const [historySortDirection, setHistorySortDirection] = useState<SortDirection>('desc')
+  const [historyView, setHistoryView] = useState<BacktestHistoryView>('overview')
+  const [analysis, setAnalysis] = useState('')
+  const [analysisLoading, setAnalysisLoading] = useState(false)
+  const [loadedRunId, setLoadedRunId] = useState('')
+  const [loadedRunType, setLoadedRunType] = useState<'dip' | 'momentum' | 'all' | ''>('')
+  const [snapshotEditor, setSnapshotEditor] = useState('')
   const [loading, setLoading] = useState(false)
   const [loaded, setLoaded] = useState(false)
   const [error, setError] = useState('')
@@ -891,16 +948,21 @@ function BacktestTab({ active }: { active: boolean }) {
     async function loadStrategies() {
       try {
         setError('')
-        const data = await fetch('/api/strategies').then(r => r.json())
+        const [strategyRes, historyRes] = await Promise.all([
+          fetch('/api/strategies').then(r => r.json()),
+          fetch('/api/strategy/backtest/history').then(r => r.json()).catch(() => ({ runs: [] })),
+        ])
         if (cancelled) return
-        if (data.error) {
+        if (strategyRes.error) {
           setStrategies([])
-          setError(data.error)
+          setError(strategyRes.error)
           return
         }
-        const nextStrategies = Array.isArray(data.strategies) ? data.strategies as StrategyConfig[] : []
+        const nextStrategies = Array.isArray(strategyRes.strategies) ? strategyRes.strategies as StrategyConfig[] : []
         setStrategies(nextStrategies)
         setStrategyId(current => nextStrategies.some(s => s.id === current) ? current : (nextStrategies[0]?.id || 'accumulator'))
+        setHistory(Array.isArray(historyRes.runs) ? historyRes.runs as BacktestHistoryEntry[] : [])
+        setHistoryError(historyRes.error || '')
       } catch {
         if (!cancelled) {
           setStrategies([])
@@ -918,6 +980,45 @@ function BacktestTab({ active }: { active: boolean }) {
   const selected = strategies.find(s => s.id === strategyId) || null
   const activeStrategies = strategies.filter(s => s.active)
 
+  async function loadHistory() {
+    setHistoryLoading(true)
+    setHistoryError('')
+    try {
+      const data = await fetch('/api/strategy/backtest/history').then(r => r.json())
+      if (data.error) {
+        setHistoryError(data.error)
+        return
+      }
+      setHistory(Array.isArray(data.runs) ? data.runs as BacktestHistoryEntry[] : [])
+    } catch {
+      setHistoryError('Failed to load backtest history')
+    } finally {
+      setHistoryLoading(false)
+    }
+  }
+
+  function toggleHistorySort(key: BacktestHistorySortKey) {
+    if (historySortKey === key) {
+      setHistorySortDirection(current => current === 'asc' ? 'desc' : 'asc')
+      return
+    }
+    setHistorySortKey(key)
+    setHistorySortDirection('desc')
+  }
+
+  function parseLoadedSnapshot(runAllActive: boolean): { strategyId?: string; strategySnapshot?: StrategyConfig; strategySnapshots?: StrategyConfig[] } {
+    if (!loadedRunId || !snapshotEditor.trim()) return {}
+    const parsed = JSON.parse(snapshotEditor)
+    if (runAllActive) {
+      if (!Array.isArray(parsed)) throw new Error('Loaded Run All snapshot must be a JSON array of strategies')
+      return { strategySnapshots: parsed as StrategyConfig[] }
+    }
+    if (!parsed || typeof parsed !== 'object' || typeof parsed.id !== 'string') {
+      throw new Error('Loaded strategy snapshot must be a JSON object with an id')
+    }
+    return { strategyId: parsed.id, strategySnapshot: parsed as StrategyConfig }
+  }
+
   async function runBacktest(runAllActive = false) {
     if (!runAllActive && !selected) return
     if (runAllActive && activeStrategies.length === 0) return
@@ -925,14 +1026,17 @@ function BacktestTab({ active }: { active: boolean }) {
     setError('')
     setInfo('')
     try {
+      const overrides = parseLoadedSnapshot(runAllActive)
       const res = await fetch('/api/strategy/backtest', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({
-          strategyId: runAllActive ? undefined : selected?.id,
+          strategyId: runAllActive ? undefined : (overrides.strategyId || selected?.id),
           runAllActive,
           days: Math.max(10, Math.min(180, Math.round(days || 60))),
           initialCapital: Math.max(1000, Math.round(capital || 50000)),
+          strategySnapshot: runAllActive ? undefined : overrides.strategySnapshot,
+          strategySnapshots: runAllActive ? overrides.strategySnapshots : undefined,
         }),
       })
       const data = await res.json()
@@ -942,14 +1046,111 @@ function BacktestTab({ active }: { active: boolean }) {
         return
       }
       setResult(data.result || null)
-      setInfo(runAllActive ? `Backtest completed for ${activeStrategies.length} active strategies` : `Backtest completed for ${selected?.name}`)
-    } catch {
+      if (data.historyEntry) {
+        setHistory(current => [data.historyEntry as BacktestHistoryEntry, ...current.filter(item => item.runId !== data.historyEntry.runId)])
+      } else {
+        void loadHistory()
+      }
+      setInfo(runAllActive
+        ? `Backtest completed for ${activeStrategies.length} active strategies and saved to history`
+        : `Backtest completed for ${overrides.strategySnapshot?.name || selected?.name} and saved to history`)
+    } catch (err) {
       setResult(null)
-      setError('Network error while running backtest')
+      const message = err instanceof Error ? err.message : ''
+      setError(message || (loadedRunId ? 'Failed to run the loaded backtest snapshot' : 'Network error while running backtest'))
     } finally {
       setLoading(false)
     }
   }
+
+  function loadHistoryRun(entry: BacktestHistoryEntry) {
+    setDays(entry.backtestDays)
+    setCapital(entry.startingAmount)
+    setLoadedRunId(entry.runId)
+    setLoadedRunType(entry.strategyType)
+    setResult(null)
+    setError('')
+    setAnalysis('')
+    if (entry.strategyType === 'all') {
+      setSnapshotEditor(JSON.stringify(entry.strategySnapshots || [], null, 2))
+      setInfo(`Loaded ${entry.strategyName} snapshot from history. Run All Active will use the saved strategy set from ${formatDateTime(entry.timestamp)}.`)
+      return
+    }
+    if (entry.strategySnapshot?.id) setStrategyId(entry.strategySnapshot.id)
+    setSnapshotEditor(JSON.stringify(entry.strategySnapshot || {}, null, 2))
+    setInfo(`Loaded ${entry.strategyName} snapshot from history. You can tweak the JSON below and rerun.`)
+  }
+
+  function clearLoadedRun() {
+    setLoadedRunId('')
+    setLoadedRunType('')
+    setSnapshotEditor('')
+    setInfo('Loaded backtest snapshot cleared')
+  }
+
+  async function resetTests() {
+    if (!confirm('Reset Tests will permanently delete all saved backtest history. This cannot be undone. Continue?')) return
+    setHistoryLoading(true)
+    setError('')
+    setInfo('')
+    try {
+      const res = await fetch('/api/strategy/backtest/history', { method: 'DELETE' })
+      const data = await res.json().catch(() => ({}))
+      if (!res.ok) {
+        setError(data.error || `Reset failed (HTTP ${res.status})`)
+        return
+      }
+      setHistory([])
+      setAnalysis('')
+      setInfo('Backtest history reset')
+    } catch {
+      setError('Failed to reset backtest history')
+    } finally {
+      setHistoryLoading(false)
+    }
+  }
+
+  async function analyseTests() {
+    if (history.length < 3) {
+      setError('Run at least 3 backtests with different parameters before analysing for meaningful insights.')
+      return
+    }
+    if (!confirm(`Analyse ${history.length} saved backtest runs with the configured AI provider? This will make one API call.`)) return
+    setAnalysisLoading(true)
+    setError('')
+    setInfo('')
+    try {
+      const res = await fetch('/api/strategy/backtest/history/analyze', { method: 'POST' })
+      const data = await res.json().catch(() => ({}))
+      if (!res.ok) {
+        setError(data.error || `Analysis failed (HTTP ${res.status})`)
+        return
+      }
+      setAnalysis(typeof data.analysis === 'string' ? data.analysis : '')
+      setInfo('Backtest history analysis completed')
+    } catch {
+      setError('Failed to analyse backtest history')
+    } finally {
+      setAnalysisLoading(false)
+    }
+  }
+
+  const sortedHistory = [...history].sort((a, b) => compareBacktestHistory(a, b, historySortKey, historySortDirection))
+  const historyColumns = getBacktestHistoryColumns(historyView)
+  const bestHistoryRun = sortedHistory.reduce<BacktestHistoryEntry | null>((best, entry) => {
+    if (!best || entry.netProfitRupees > best.netProfitRupees) return entry
+    return best
+  }, null)
+  const worstHistoryRun = sortedHistory.reduce<BacktestHistoryEntry | null>((worst, entry) => {
+    if (!worst || entry.netProfitRupees < worst.netProfitRupees) return entry
+    return worst
+  }, null)
+  const avgHistoryNetProfit = sortedHistory.length > 0
+    ? sortedHistory.reduce((sum, entry) => sum + entry.netProfitRupees, 0) / sortedHistory.length
+    : null
+  const avgHistoryWinRate = sortedHistory.length > 0
+    ? sortedHistory.reduce((sum, entry) => sum + (entry.winRate ?? 0), 0) / sortedHistory.length
+    : null
 
   return (
     <div className="space-y-5">
@@ -965,6 +1166,16 @@ function BacktestTab({ active }: { active: boolean }) {
             </p>
           </div>
           <div className="flex gap-2 flex-wrap">
+            <button onClick={resetTests} disabled={historyLoading || history.length === 0}
+              className="px-4 py-2.5 rounded-xl text-[12px] font-semibold tracking-wider transition-all disabled:opacity-40"
+              style={{ background:'rgba(224,90,94,0.12)', border:'1px solid rgba(224,90,94,0.35)', color:'#e05a5e' }}>
+              Reset Tests
+            </button>
+            <button onClick={analyseTests} disabled={analysisLoading || history.length < 3}
+              className="px-4 py-2.5 rounded-xl text-[12px] font-semibold tracking-wider transition-all disabled:opacity-40"
+              style={{ background:'rgba(96,165,250,0.12)', border:'1px solid rgba(96,165,250,0.35)', color:'#60a5fa' }}>
+              {analysisLoading ? 'Analysing…' : 'Analyse Tests'}
+            </button>
             <button onClick={() => runBacktest(false)} disabled={loading || !selected}
               className="px-5 py-2.5 rounded-xl text-[12px] font-semibold tracking-wider transition-all disabled:opacity-40"
               style={{ background:'linear-gradient(135deg, #7a5510, #c9a84c)', color:'#080604' }}>
@@ -1036,6 +1247,31 @@ function BacktestTab({ active }: { active: boolean }) {
             Backtest runs against the saved strategy configuration. `Run All Active` now uses one shared capital pool across active saved strategies.
           </p>
         </div>
+
+        {loadedRunId && (
+          <div className="mt-4 rounded-lg p-4" style={{ background:'rgba(96,165,250,0.06)', border:'1px solid rgba(96,165,250,0.25)' }}>
+            <div className="flex items-center justify-between gap-3 flex-wrap mb-3">
+              <p className="text-[11px] tracking-widest uppercase" style={{ color:'#60a5fa', fontFamily:'JetBrains Mono, monospace' }}>
+                Loaded Historical Snapshot · {loadedRunId}
+              </p>
+              <button onClick={clearLoadedRun}
+                className="px-3 py-1.5 rounded-lg text-[11px] font-semibold tracking-wider"
+                style={{ background:'rgba(255,255,255,0.04)', border:'1px solid rgba(255,255,255,0.1)', color:'rgba(255,255,255,0.7)' }}>
+                Clear Loaded Snapshot
+              </button>
+            </div>
+            <p className="text-[11px] mb-3" style={{ color:'rgba(255,255,255,0.42)' }}>
+              This editor is populated from the saved run. Adjust the snapshot JSON and rerun to compare variants without overwriting today&apos;s saved strategy config.
+            </p>
+            <textarea
+              value={snapshotEditor}
+              onChange={e => setSnapshotEditor(e.target.value)}
+              rows={loadedRunType === 'all' ? 18 : 12}
+              className="w-full px-3 py-2.5 rounded-lg text-[11px] outline-none"
+              style={{ background:'rgba(255,255,255,0.03)', border:'1px solid rgba(96,165,250,0.22)', color:'rgba(255,255,255,0.82)', fontFamily:'JetBrains Mono, monospace' }}
+            />
+          </div>
+        )}
       </div>
 
       {!loaded && <p className="text-[11px]" style={{ color:'rgba(255,255,255,0.4)' }}>Loading…</p>}
@@ -1059,6 +1295,165 @@ function BacktestTab({ active }: { active: boolean }) {
           <p className="text-[12px]" style={{ color:'rgba(224,90,94,0.9)' }}>✗ {error}</p>
         </div>
       )}
+
+      {analysis && (
+        <div className="rounded-xl overflow-hidden" style={{ background:'rgba(96,165,250,0.05)', border:'1px solid rgba(96,165,250,0.2)' }}>
+          <div className="px-4 py-2.5" style={{ borderBottom:'1px solid rgba(96,165,250,0.14)' }}>
+            <p className="text-[11px] tracking-widest uppercase" style={{ color:'#60a5fa', fontFamily:'JetBrains Mono, monospace' }}>
+              Backtest Analysis
+            </p>
+          </div>
+          <div className="p-4">
+            <pre className="whitespace-pre-wrap text-[12px] leading-6" style={{ color:'rgba(255,255,255,0.82)', fontFamily:'Outfit, sans-serif' }}>{analysis}</pre>
+          </div>
+        </div>
+      )}
+
+      <div className="rounded-xl overflow-hidden" style={{ background:'rgba(255,255,255,0.02)', border:'1px solid rgba(255,255,255,0.08)' }}>
+        <div className="px-4 py-2.5 flex items-center justify-between gap-3 flex-wrap" style={{ borderBottom:'1px solid rgba(255,255,255,0.06)' }}>
+          <div>
+            <p className="text-[11px] tracking-widest uppercase" style={{ color:'rgba(201,168,76,0.6)', fontFamily:'JetBrains Mono, monospace' }}>
+              Backtest History ({history.length})
+            </p>
+            <p className="text-[10px] mt-1" style={{ color:'rgba(255,255,255,0.3)' }}>
+              Every completed run is saved on the server and can be reloaded into the backtest config.
+            </p>
+          </div>
+          <div className="flex gap-1 rounded-lg p-1" style={{ background:'rgba(255,255,255,0.03)', border:'1px solid rgba(255,255,255,0.06)' }}>
+            {BACKTEST_HISTORY_VIEWS.map(view => {
+              const activeView = historyView === view.id
+              return (
+                <button key={view.id} onClick={() => setHistoryView(view.id)}
+                  className="px-3 py-1.5 rounded-md text-[10px] tracking-widest uppercase transition-all"
+                  style={{
+                    background: activeView ? 'rgba(201,168,76,0.12)' : 'transparent',
+                    border: activeView ? '1px solid rgba(201,168,76,0.28)' : '1px solid transparent',
+                    color: activeView ? '#c9a84c' : 'rgba(255,255,255,0.45)',
+                    fontFamily:'JetBrains Mono, monospace',
+                  }}>
+                  {view.label}
+                </button>
+              )
+            })}
+          </div>
+        </div>
+
+        {history.length > 0 && (
+          <div className="grid grid-cols-2 xl:grid-cols-4 gap-3 px-4 pt-4">
+            <MiniMetric
+              label="Best Net Run"
+              value={bestHistoryRun ? formatSignedCurrency(bestHistoryRun.netProfitRupees) : '—'}
+              valueColor={bestHistoryRun && bestHistoryRun.netProfitRupees >= 0 ? '#52b788' : '#e05a5e'}
+            />
+            <MiniMetric
+              label="Worst Net Run"
+              value={worstHistoryRun ? formatSignedCurrency(worstHistoryRun.netProfitRupees) : '—'}
+              valueColor={worstHistoryRun && worstHistoryRun.netProfitRupees >= 0 ? '#52b788' : '#e05a5e'}
+            />
+            <MiniMetric
+              label="Average Net"
+              value={avgHistoryNetProfit === null ? '—' : formatSignedCurrency(avgHistoryNetProfit)}
+              valueColor={avgHistoryNetProfit !== null && avgHistoryNetProfit >= 0 ? '#52b788' : '#e05a5e'}
+            />
+            <MiniMetric
+              label="Average Win Rate"
+              value={avgHistoryWinRate === null ? '—' : `${avgHistoryWinRate.toFixed(2)}%`}
+              valueColor="#c9a84c"
+            />
+          </div>
+        )}
+
+        {historyError && (
+          <div className="px-4 pt-4">
+            <div className="rounded-lg p-3" style={{ background:'rgba(224,90,94,0.06)', border:'1px solid rgba(224,90,94,0.25)' }}>
+              <p className="text-[12px]" style={{ color:'rgba(224,90,94,0.9)' }}>✗ {historyError}</p>
+            </div>
+          </div>
+        )}
+
+        {history.length < 3 && (
+          <div className="px-4 pt-4">
+            <div className="rounded-lg p-3" style={{ background:'rgba(245,158,11,0.06)', border:'1px solid rgba(245,158,11,0.25)' }}>
+              <p className="text-[12px]" style={{ color:'#f59e0b' }}>
+                Run at least 3 backtests with different parameters before analysing for meaningful insights.
+              </p>
+            </div>
+          </div>
+        )}
+
+        {historyLoading && history.length === 0 ? (
+          <p className="px-4 py-4 text-[11px]" style={{ color:'rgba(255,255,255,0.4)' }}>Loading backtest history…</p>
+        ) : (
+          <div className="overflow-x-auto">
+            <table className="w-full text-left min-w-[1280px]">
+              <thead>
+                <tr style={{ background:'rgba(255,255,255,0.02)' }}>
+                  <th className="px-3 py-2 text-[10px] tracking-widest uppercase font-medium sticky left-0 z-20" style={{ minWidth:120, background:'#15120d', color:'rgba(255,255,255,0.35)', fontFamily:'JetBrains Mono, monospace' }}>
+                    <button onClick={() => toggleHistorySort('runId')} className="inline-flex items-center gap-1" style={{ color:'inherit' }}>
+                      <span>Run ID</span>
+                      {historySortKey === 'runId' && <span>{historySortDirection === 'asc' ? '↑' : '↓'}</span>}
+                    </button>
+                  </th>
+                  <th className="px-3 py-2 text-[10px] tracking-widest uppercase font-medium sticky left-[120px] z-20" style={{ minWidth:170, background:'#15120d', color:'rgba(255,255,255,0.35)', fontFamily:'JetBrains Mono, monospace' }}>
+                    <button onClick={() => toggleHistorySort('timestamp')} className="inline-flex items-center gap-1" style={{ color:'inherit' }}>
+                      <span>Timestamp</span>
+                      {historySortKey === 'timestamp' && <span>{historySortDirection === 'asc' ? '↑' : '↓'}</span>}
+                    </button>
+                  </th>
+                  <th className="px-3 py-2 text-[10px] tracking-widest uppercase font-medium sticky left-[290px] z-20" style={{ minWidth:220, background:'#15120d', color:'rgba(255,255,255,0.35)', fontFamily:'JetBrains Mono, monospace' }}>
+                    <button onClick={() => toggleHistorySort('strategyName')} className="inline-flex items-center gap-1" style={{ color:'inherit' }}>
+                      <span>Strategy</span>
+                      {historySortKey === 'strategyName' && <span>{historySortDirection === 'asc' ? '↑' : '↓'}</span>}
+                    </button>
+                  </th>
+                  {historyColumns.map(column => (
+                    <th key={column.key} className="px-3 py-2 text-[10px] tracking-widest uppercase font-medium" style={{ minWidth:column.minWidth, color:'rgba(255,255,255,0.35)', fontFamily:'JetBrains Mono, monospace' }}>
+                      <button onClick={() => toggleHistorySort(column.key)} className="inline-flex items-center gap-1" style={{ color:'inherit' }}>
+                        <span>{column.label}</span>
+                        {historySortKey === column.key && <span>{historySortDirection === 'asc' ? '↑' : '↓'}</span>}
+                      </button>
+                    </th>
+                  ))}
+                  <th className="px-3 py-2 text-[10px] tracking-widest uppercase font-medium sticky right-0 z-20 text-right" style={{ minWidth:110, background:'#15120d', color:'rgba(255,255,255,0.35)', fontFamily:'JetBrains Mono, monospace' }}>Action</th>
+                </tr>
+              </thead>
+              <tbody>
+                {sortedHistory.map(entry => (
+                  <tr key={entry.runId} style={{ borderTop:'1px solid rgba(255,255,255,0.05)' }}>
+                    <td className="px-3 py-2.5 text-[11px] sticky left-0 z-10" style={{ minWidth:120, background:'#100e0a', color:'#c9a84c', fontFamily:'JetBrains Mono, monospace' }}>{entry.runId}</td>
+                    <td className="px-3 py-2.5 text-[11px] sticky left-[120px] z-10" style={{ minWidth:170, background:'#100e0a', color:'rgba(255,255,255,0.7)', fontFamily:'JetBrains Mono, monospace' }}>{formatDateTime(entry.timestamp)}</td>
+                    <td className="px-3 py-2.5 sticky left-[290px] z-10" style={{ minWidth:220, background:'#100e0a' }}>
+                      <div className="flex flex-col gap-1">
+                        <span className="text-[11px]" style={{ color:'rgba(255,255,255,0.82)' }}>{entry.strategyName}</span>
+                        <span className="text-[10px] tracking-widest uppercase" style={{ color: entry.strategyType === 'all' ? '#60a5fa' : entry.strategyType === 'momentum' ? '#52b788' : '#c9a84c', fontFamily:'JetBrains Mono, monospace' }}>{entry.strategyType}</span>
+                      </div>
+                    </td>
+                    {historyColumns.map(column => (
+                      <td key={column.key} className="px-3 py-2.5 text-[11px] align-top" style={{ minWidth:column.minWidth, color:column.color ? column.color(entry) : 'rgba(255,255,255,0.74)', fontFamily:'JetBrains Mono, monospace' }}>
+                        {column.render(entry)}
+                      </td>
+                    ))}
+                    <td className="px-3 py-2.5 sticky right-0 z-10 text-right" style={{ minWidth:110, background:'#100e0a' }}>
+                      <button onClick={() => loadHistoryRun(entry)}
+                        className="px-3 py-1.5 rounded-lg text-[11px] font-semibold tracking-wider"
+                        style={{ background:'rgba(201,168,76,0.12)', border:'1px solid rgba(201,168,76,0.3)', color:'#c9a84c' }}>
+                        Load
+                      </button>
+                    </td>
+                  </tr>
+                ))}
+                {sortedHistory.length === 0 && (
+                  <tr>
+                    <td colSpan={historyColumns.length + 4} className="px-4 py-8 text-center text-[11px]" style={{ color:'rgba(255,255,255,0.35)' }}>
+                      No saved backtests yet. Run a backtest and it will appear here automatically.
+                    </td>
+                  </tr>
+                )}
+              </tbody>
+            </table>
+          </div>
+        )}
+      </div>
 
       {result && (
         <div className="space-y-5">
@@ -1406,6 +1801,273 @@ function formatSignedCurrency(value: number): string {
 function formatSignedPct(value: number): string {
   const sign = value > 0 ? '+' : value < 0 ? '-' : ''
   return `${sign}${Math.abs(value).toFixed(2)}%`
+}
+
+function formatDateTime(value: string): string {
+  const dt = new Date(value)
+  if (Number.isNaN(dt.getTime())) return value
+  return dt.toLocaleString('en-IN', {
+    year: 'numeric',
+    month: 'short',
+    day: '2-digit',
+    hour: '2-digit',
+    minute: '2-digit',
+  })
+}
+
+function compactJson(value: unknown): string {
+  try {
+    return JSON.stringify(value)
+  } catch {
+    return String(value)
+  }
+}
+
+function summarizeConfigValue(value: unknown): string {
+  if (Array.isArray(value)) return value.map(item => summarizeConfigValue(item)).join(', ')
+  if (typeof value === 'number') return Number.isInteger(value) ? String(value) : value.toFixed(2)
+  if (typeof value === 'boolean') return value ? 'true' : 'false'
+  if (value === null || value === undefined) return '—'
+  if (typeof value === 'object') return compactJson(value)
+  return String(value)
+}
+
+function renderConfigSummary(config: Record<string, unknown>): React.ReactNode {
+  const entries = Object.entries(config || {})
+  if (entries.length === 0) {
+    return <span style={{ color:'rgba(255,255,255,0.35)' }}>—</span>
+  }
+
+  return (
+    <div className="flex flex-wrap gap-1.5 max-w-full whitespace-normal">
+      {entries.map(([key, value]) => (
+        <span key={key} className="inline-flex items-center gap-1 rounded-md px-2 py-1 leading-snug"
+          style={{ background:'rgba(255,255,255,0.03)', border:'1px solid rgba(255,255,255,0.06)' }}>
+          <span style={{ color:'rgba(255,255,255,0.38)' }}>{key}:</span>
+          <span style={{ color:'rgba(255,255,255,0.78)' }}>{summarizeConfigValue(value)}</span>
+        </span>
+      ))}
+    </div>
+  )
+}
+
+function getBacktestHistoryColumns(view: BacktestHistoryView): BacktestHistoryColumn[] {
+  switch (view) {
+    case 'performance':
+      return [
+        {
+          key: 'netProfitRupees',
+          label: 'Net Profit ₹',
+          minWidth: 130,
+          render: entry => formatSignedCurrency(entry.netProfitRupees),
+          color: entry => entry.netProfitRupees >= 0 ? '#52b788' : '#e05a5e',
+        },
+        {
+          key: 'netProfitPct',
+          label: 'Net Profit %',
+          minWidth: 120,
+          render: entry => formatSignedPct(entry.netProfitPct),
+          color: entry => entry.netProfitPct >= 0 ? '#52b788' : '#e05a5e',
+        },
+        {
+          key: 'realizedProfitRupees',
+          label: 'Realized ₹',
+          minWidth: 130,
+          render: entry => formatSignedCurrency(entry.realizedProfitRupees),
+          color: entry => entry.realizedProfitRupees >= 0 ? '#52b788' : '#e05a5e',
+        },
+        {
+          key: 'realizedProfitPct',
+          label: 'Realized %',
+          minWidth: 120,
+          render: entry => formatSignedPct(entry.realizedProfitPct),
+          color: entry => entry.realizedProfitPct >= 0 ? '#52b788' : '#e05a5e',
+        },
+        {
+          key: 'unrealizedMTM',
+          label: 'Unrealized MTM',
+          minWidth: 130,
+          render: entry => formatSignedCurrency(entry.unrealizedMTM),
+          color: entry => entry.unrealizedMTM >= 0 ? '#52b788' : '#e05a5e',
+        },
+        {
+          key: 'winRate',
+          label: 'Win Rate',
+          minWidth: 110,
+          render: entry => entry.winRate === null ? '—' : `${entry.winRate.toFixed(2)}%`,
+          color: () => '#c9a84c',
+        },
+        {
+          key: 'capitalEfficiency',
+          label: 'Capital Efficiency',
+          minWidth: 150,
+          render: entry => formatSignedPct(entry.capitalEfficiency),
+          color: entry => entry.capitalEfficiency >= 0 ? '#52b788' : '#e05a5e',
+        },
+      ]
+    case 'risk':
+      return [
+        {
+          key: 'closedTrades',
+          label: 'Closed Trades',
+          minWidth: 110,
+          render: entry => entry.closedTrades,
+        },
+        {
+          key: 'openTrades',
+          label: 'Open Trades',
+          minWidth: 100,
+          render: entry => entry.openTrades,
+        },
+        {
+          key: 'avgHoldDays',
+          label: 'Avg Hold',
+          minWidth: 110,
+          render: entry => entry.avgHoldDays === null ? '—' : `${entry.avgHoldDays.toFixed(1)} d`,
+        },
+        {
+          key: 'avgDrawdownPct',
+          label: 'Avg Drawdown %',
+          minWidth: 130,
+          render: entry => `${entry.avgDrawdownPct.toFixed(2)}%`,
+          color: () => 'rgba(224,90,94,0.9)',
+        },
+        {
+          key: 'backtestDays',
+          label: 'Backtest Days',
+          minWidth: 120,
+          render: entry => entry.backtestDays,
+        },
+        {
+          key: 'startingAmount',
+          label: 'Starting Amount',
+          minWidth: 140,
+          render: entry => formatCurrency(entry.startingAmount),
+        },
+        {
+          key: 'avgDeployedCapital',
+          label: 'Avg Deployed',
+          minWidth: 130,
+          render: entry => formatCurrency(entry.avgDeployedCapital),
+        },
+      ]
+    case 'config':
+      return [
+        {
+          key: 'strategyType',
+          label: 'Strategy Type',
+          minWidth: 120,
+          render: entry => entry.strategyType,
+          color: entry => entry.strategyType === 'all' ? '#60a5fa' : entry.strategyType === 'momentum' ? '#52b788' : '#c9a84c',
+        },
+        {
+          key: 'entryParams',
+          label: 'Entry Params',
+          minWidth: 280,
+          render: entry => renderConfigSummary(entry.entryParams),
+          color: () => 'rgba(255,255,255,0.62)',
+        },
+        {
+          key: 'exitCriteria',
+          label: 'Exit Criteria',
+          minWidth: 220,
+          render: entry => renderConfigSummary(entry.exitCriteria),
+          color: () => 'rgba(255,255,255,0.62)',
+        },
+        {
+          key: 'maxBuysPerDay',
+          label: 'Max Buys',
+          minWidth: 100,
+          render: entry => entry.maxBuysPerDay,
+        },
+        {
+          key: 'maxSellsPerDay',
+          label: 'Max Sells',
+          minWidth: 100,
+          render: entry => entry.maxSellsPerDay,
+        },
+        {
+          key: 'startingAmount',
+          label: 'Starting Amount',
+          minWidth: 140,
+          render: entry => formatCurrency(entry.startingAmount),
+        },
+        {
+          key: 'backtestDays',
+          label: 'Backtest Days',
+          minWidth: 120,
+          render: entry => entry.backtestDays,
+        },
+      ]
+    case 'overview':
+    default:
+      return [
+        {
+          key: 'strategyType',
+          label: 'Strategy Type',
+          minWidth: 120,
+          render: entry => entry.strategyType,
+          color: entry => entry.strategyType === 'all' ? '#60a5fa' : entry.strategyType === 'momentum' ? '#52b788' : '#c9a84c',
+        },
+        {
+          key: 'backtestDays',
+          label: 'Days',
+          minWidth: 90,
+          render: entry => entry.backtestDays,
+        },
+        {
+          key: 'closedTrades',
+          label: 'Closed',
+          minWidth: 90,
+          render: entry => entry.closedTrades,
+        },
+        {
+          key: 'openTrades',
+          label: 'Open',
+          minWidth: 90,
+          render: entry => entry.openTrades,
+        },
+        {
+          key: 'netProfitRupees',
+          label: 'Net Profit ₹',
+          minWidth: 130,
+          render: entry => formatSignedCurrency(entry.netProfitRupees),
+          color: entry => entry.netProfitRupees >= 0 ? '#52b788' : '#e05a5e',
+        },
+        {
+          key: 'netProfitPct',
+          label: 'Net Profit %',
+          minWidth: 120,
+          render: entry => formatSignedPct(entry.netProfitPct),
+          color: entry => entry.netProfitPct >= 0 ? '#52b788' : '#e05a5e',
+        },
+        {
+          key: 'winRate',
+          label: 'Win Rate',
+          minWidth: 110,
+          render: entry => entry.winRate === null ? '—' : `${entry.winRate.toFixed(2)}%`,
+          color: () => '#c9a84c',
+        },
+      ]
+  }
+}
+
+function compareHistoryValue(a: unknown, b: unknown): number {
+  if (typeof a === 'number' && typeof b === 'number') return a - b
+  if (typeof a === 'string' && typeof b === 'string') return a.localeCompare(b)
+  if (a === null || a === undefined) return -1
+  if (b === null || b === undefined) return 1
+  return compactJson(a).localeCompare(compactJson(b))
+}
+
+function compareBacktestHistory(
+  a: BacktestHistoryEntry,
+  b: BacktestHistoryEntry,
+  key: BacktestHistorySortKey,
+  direction: SortDirection,
+): number {
+  const result = compareHistoryValue(a[key], b[key])
+  return direction === 'asc' ? result : -result
 }
 
 function StrategyCard({ s, expanded, onToggle, watchlistOptions, onPatch, onToggleActive, onReset, onDuplicate, onDelete, canReset, isProtected, locked }: {
