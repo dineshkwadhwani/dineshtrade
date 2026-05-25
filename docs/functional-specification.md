@@ -643,7 +643,7 @@ Every order-placing button across the app (Buy / Sell on Watchlist + Holdings, S
 - Multi-user — single user, multi-account
 - Mobile native app — responsive web only
 - Push notifications — email only (mobile push deferred to V2)
-- Draft-aware what-if backtest harness — V2 (current implementation includes a Settings → Backtest UI and authenticated saved-strategy replay for both Strategy 1/dip and Strategy 2-style momentum strategies)
+- Draft-aware what-if backtest harness — V2 (current implementation includes a Settings → Backtest UI and authenticated saved-strategy replay for both Strategy 1/dip and Strategy 2-style momentum strategies, with estimated brokerage/statutory charges and net-after-charges summary tiles)
 
 ---
 

@@ -32,13 +32,19 @@ export interface BacktestTrade {
   exitDate?: string
   exitPrice?: number
   exitValue?: number
+  charges?: number
+  incurredCharges?: number
+  chargeModel?: 'intraday' | 'delivery'
   realizedPnl: number
+  netRealizedPnl?: number
   realizedPct: number
   holdDays: number
   status: 'closed' | 'open'
   markPrice: number
   markValue: number
   unrealizedPnl: number
+  netUnrealizedPnl?: number
+  netTotalPnl?: number
   setup?: string
   t1Date?: string
   t2Date?: string
@@ -68,10 +74,17 @@ export interface BacktestSummary {
   momentumDays: number
   startingCapital: number
   endingCapital: number
+  totalCharges?: number
+  incurredCharges?: number
   realizedPnl: number
+  netRealizedPnl?: number
   unrealizedPnl: number
+  netUnrealizedPnl?: number
   totalPnl: number
+  netTotalPnl?: number
   totalReturnPct: number
+  netTotalReturnPct?: number
+  netEndingCapital?: number
   maxDrawdownPct: number
   tradesClosed: number
   tradesOpen: number
@@ -214,6 +227,81 @@ function dayDiff(fromYmd: string, toYmd: string): number {
   const start = new Date(`${fromYmd}T00:00:00Z`)
   const end = new Date(`${toYmd}T00:00:00Z`)
   return Math.max(0, Math.floor((end.getTime() - start.getTime()) / (24 * 60 * 60 * 1000)))
+}
+
+function round2(value: number): number {
+  return Number(value.toFixed(2))
+}
+
+function estimateBacktestCharges(mode: 'intraday' | 'delivery', buyValue: number, sellValue: number, deliverySellDays: number): number {
+  const turnover = buyValue + sellValue
+  const brokerage = mode === 'intraday'
+    ? Math.min(20, buyValue * 0.0003) + (sellValue > 0 ? Math.min(20, sellValue * 0.0003) : 0)
+    : 0
+  const stt = mode === 'intraday'
+    ? sellValue * 0.00025
+    : (buyValue * 0.001) + (sellValue * 0.001)
+  const exchange = turnover * 0.0000297
+  const sebi = turnover * 0.000001
+  const gst = (brokerage + exchange + sebi) * 0.18
+  const stamp = buyValue * (mode === 'intraday' ? 0.00003 : 0.00015)
+  const dp = mode === 'delivery' && sellValue > 0 ? deliverySellDays * 15.93 : 0
+  return round2(brokerage + stt + exchange + sebi + gst + stamp + dp)
+}
+
+function applyBacktestCharges(trades: BacktestTrade[], effectiveExitDate: string): {
+  totalCharges: number
+  incurredCharges: number
+  netRealizedPnl: number
+  netUnrealizedPnl: number
+  netTotalPnl: number
+} {
+  let totalCharges = 0
+  let incurredCharges = 0
+  let netRealizedPnl = 0
+  let netTotalPnl = 0
+
+  for (const trade of trades) {
+    const realizedSellValue = trade.exitValue || 0
+    const projectedSellValue = realizedSellValue + (trade.remainingQty > 0 ? trade.markValue : 0)
+    const closeDate = trade.status === 'closed' ? (trade.exitDate || effectiveExitDate) : effectiveExitDate
+    const chargeModel: 'intraday' | 'delivery' = dateOnly(trade.entryDate) === dateOnly(closeDate) ? 'intraday' : 'delivery'
+
+    const realizedSellDays = new Set<string>()
+    if (trade.t1Date) realizedSellDays.add(dateOnly(trade.t1Date))
+    if (trade.t2Date) realizedSellDays.add(dateOnly(trade.t2Date))
+    if (trade.exitDate) realizedSellDays.add(dateOnly(trade.exitDate))
+
+    const projectedSellDays = new Set(realizedSellDays)
+    if (trade.remainingQty > 0) projectedSellDays.add(dateOnly(effectiveExitDate))
+
+    const realizedTradeCharges = realizedSellValue > 0
+      ? estimateBacktestCharges(chargeModel, trade.entryValue, realizedSellValue, realizedSellDays.size)
+      : 0
+    const estimatedTradeCharges = estimateBacktestCharges(chargeModel, trade.entryValue, projectedSellValue, projectedSellDays.size)
+    const tradeNetRealized = realizedSellValue > 0 ? round2(trade.realizedPnl - realizedTradeCharges) : 0
+    const tradeNetTotal = round2(trade.realizedPnl + trade.unrealizedPnl - estimatedTradeCharges)
+
+    trade.chargeModel = chargeModel
+    trade.incurredCharges = realizedTradeCharges
+    trade.charges = estimatedTradeCharges
+    trade.netRealizedPnl = tradeNetRealized
+    trade.netTotalPnl = tradeNetTotal
+    trade.netUnrealizedPnl = round2(tradeNetTotal - tradeNetRealized)
+
+    totalCharges += estimatedTradeCharges
+    incurredCharges += realizedTradeCharges
+    netRealizedPnl += tradeNetRealized
+    netTotalPnl += tradeNetTotal
+  }
+
+  return {
+    totalCharges: round2(totalCharges),
+    incurredCharges: round2(incurredCharges),
+    netRealizedPnl: round2(netRealizedPnl),
+    netUnrealizedPnl: round2(netTotalPnl - netRealizedPnl),
+    netTotalPnl: round2(netTotalPnl),
+  }
 }
 
 function groupIntradayCandles(candles: HistoricalCandle[]): {
@@ -818,9 +906,10 @@ async function runAllActiveBacktest(options: BacktestOptions = {}): Promise<Stra
   const realizedPnl = Number(allTrades.reduce((sum, trade) => sum + trade.realizedPnl, 0).toFixed(2))
   const unrealizedPnl = Number(allTrades.filter(trade => trade.status === 'open').reduce((sum, trade) => sum + trade.unrealizedPnl, 0).toFixed(2))
   const endingCapital = equityCurve[equityCurve.length - 1]?.equity ?? startingCapital
+  const chargeSummary = applyBacktestCharges(allTrades, lastDate)
   const closedTrades = allTrades.filter(trade => trade.status === 'closed')
-  const wins = closedTrades.filter(trade => trade.realizedPnl > 0).length
-  const losses = closedTrades.filter(trade => trade.realizedPnl < 0).length
+  const wins = closedTrades.filter(trade => (trade.netRealizedPnl ?? trade.realizedPnl) > 0).length
+  const losses = closedTrades.filter(trade => (trade.netRealizedPnl ?? trade.realizedPnl) < 0).length
   const holdDays = closedTrades.map(trade => trade.holdDays)
 
   return {
@@ -833,10 +922,17 @@ async function runAllActiveBacktest(options: BacktestOptions = {}): Promise<Stra
       momentumDays: momentumDaySet.size,
       startingCapital,
       endingCapital,
+      totalCharges: chargeSummary.totalCharges,
+      incurredCharges: chargeSummary.incurredCharges,
       realizedPnl,
+      netRealizedPnl: chargeSummary.netRealizedPnl,
       unrealizedPnl,
+      netUnrealizedPnl: chargeSummary.netUnrealizedPnl,
       totalPnl: Number((realizedPnl + unrealizedPnl).toFixed(2)),
+      netTotalPnl: chargeSummary.netTotalPnl,
       totalReturnPct: startingCapital > 0 ? Number((((endingCapital - startingCapital) / startingCapital) * 100).toFixed(2)) : 0,
+      netTotalReturnPct: startingCapital > 0 ? round2((chargeSummary.netTotalPnl / startingCapital) * 100) : 0,
+      netEndingCapital: round2(startingCapital + chargeSummary.netTotalPnl),
       maxDrawdownPct: Number(equityCurve.reduce((max, point) => Math.max(max, point.drawdownPct), 0).toFixed(2)),
       tradesClosed: closedTrades.length,
       tradesOpen: allTrades.length - closedTrades.length,
@@ -871,13 +967,19 @@ async function runAllActiveBacktest(options: BacktestOptions = {}): Promise<Stra
         exitDate: trade.exitDate,
         exitPrice: trade.exitPrice,
         exitValue: trade.exitValue,
+        charges: trade.charges,
+        incurredCharges: trade.incurredCharges,
+        chargeModel: trade.chargeModel,
         realizedPnl: trade.realizedPnl,
+        netRealizedPnl: trade.netRealizedPnl,
         realizedPct: trade.realizedPct,
         holdDays: trade.holdDays,
         status: trade.status,
         markPrice: trade.markPrice,
         markValue: trade.markValue,
         unrealizedPnl: trade.unrealizedPnl,
+        netUnrealizedPnl: trade.netUnrealizedPnl,
+        netTotalPnl: trade.netTotalPnl,
         setup: trade.setup,
         t1Date: trade.t1Date,
         t2Date: trade.t2Date,
@@ -1171,9 +1273,10 @@ export async function runStrategy1Backtest(options: BacktestOptions = {}): Promi
   const realizedPnl = Number(allTrades.reduce((sum, trade) => sum + trade.realizedPnl, 0).toFixed(2))
   const unrealizedPnl = Number(allTrades.filter(trade => trade.status === 'open').reduce((sum, trade) => sum + trade.unrealizedPnl, 0).toFixed(2))
   const endingCapital = equityCurve[equityCurve.length - 1]?.equity ?? startingCapital
+  const chargeSummary = applyBacktestCharges(allTrades, lastDate)
   const closedTrades = allTrades.filter(trade => trade.status === 'closed')
-  const wins = closedTrades.filter(trade => trade.realizedPnl > 0).length
-  const losses = closedTrades.filter(trade => trade.realizedPnl < 0).length
+  const wins = closedTrades.filter(trade => (trade.netRealizedPnl ?? trade.realizedPnl) > 0).length
+  const losses = closedTrades.filter(trade => (trade.netRealizedPnl ?? trade.realizedPnl) < 0).length
   const holdDays = closedTrades.map(trade => trade.holdDays)
   const maxDrawdownPct = equityCurve.reduce((max, point) => Math.max(max, point.drawdownPct), 0)
 
@@ -1187,10 +1290,17 @@ export async function runStrategy1Backtest(options: BacktestOptions = {}): Promi
       momentumDays: 0,
       startingCapital,
       endingCapital,
+      totalCharges: chargeSummary.totalCharges,
+      incurredCharges: chargeSummary.incurredCharges,
       realizedPnl,
+      netRealizedPnl: chargeSummary.netRealizedPnl,
       unrealizedPnl,
+      netUnrealizedPnl: chargeSummary.netUnrealizedPnl,
       totalPnl: Number((realizedPnl + unrealizedPnl).toFixed(2)),
+      netTotalPnl: chargeSummary.netTotalPnl,
       totalReturnPct: startingCapital > 0 ? Number((((endingCapital - startingCapital) / startingCapital) * 100).toFixed(2)) : 0,
+      netTotalReturnPct: startingCapital > 0 ? round2((chargeSummary.netTotalPnl / startingCapital) * 100) : 0,
+      netEndingCapital: round2(startingCapital + chargeSummary.netTotalPnl),
       maxDrawdownPct: Number(maxDrawdownPct.toFixed(2)),
       tradesClosed: closedTrades.length,
       tradesOpen: allTrades.length - closedTrades.length,
@@ -1224,13 +1334,19 @@ export async function runStrategy1Backtest(options: BacktestOptions = {}): Promi
       exitDate: trade.exitDate,
       exitPrice: trade.exitPrice,
       exitValue: trade.exitValue,
+      charges: trade.charges,
+      incurredCharges: trade.incurredCharges,
+      chargeModel: trade.chargeModel,
       realizedPnl: trade.realizedPnl,
+      netRealizedPnl: trade.netRealizedPnl,
       realizedPct: trade.realizedPct,
       holdDays: trade.holdDays,
       status: trade.status,
       markPrice: trade.markPrice,
       markValue: trade.markValue,
       unrealizedPnl: trade.unrealizedPnl,
+      netUnrealizedPnl: trade.netUnrealizedPnl,
+      netTotalPnl: trade.netTotalPnl,
       t1Date: trade.t1Date,
       t2Date: trade.t2Date,
     })),
@@ -1575,9 +1691,10 @@ async function runMomentumBacktest(options: BacktestOptions = {}): Promise<Strat
   const realizedPnl = Number(allTrades.reduce((sum, trade) => sum + trade.realizedPnl, 0).toFixed(2))
   const unrealizedPnl = Number(allTrades.filter(trade => trade.status === 'open').reduce((sum, trade) => sum + trade.unrealizedPnl, 0).toFixed(2))
   const endingCapital = equityCurve[equityCurve.length - 1]?.equity ?? startingCapital
+  const chargeSummary = applyBacktestCharges(allTrades, lastDate)
   const closedTrades = allTrades.filter(trade => trade.status === 'closed')
-  const wins = closedTrades.filter(trade => trade.realizedPnl > 0).length
-  const losses = closedTrades.filter(trade => trade.realizedPnl < 0).length
+  const wins = closedTrades.filter(trade => (trade.netRealizedPnl ?? trade.realizedPnl) > 0).length
+  const losses = closedTrades.filter(trade => (trade.netRealizedPnl ?? trade.realizedPnl) < 0).length
   const holdDays = closedTrades.map(trade => trade.holdDays)
   const maxDrawdownPct = equityCurve.reduce((max, point) => Math.max(max, point.drawdownPct), 0)
 
@@ -1591,10 +1708,17 @@ async function runMomentumBacktest(options: BacktestOptions = {}): Promise<Strat
       momentumDays: momentumDaySet.size,
       startingCapital,
       endingCapital,
+      totalCharges: chargeSummary.totalCharges,
+      incurredCharges: chargeSummary.incurredCharges,
       realizedPnl,
+      netRealizedPnl: chargeSummary.netRealizedPnl,
       unrealizedPnl,
+      netUnrealizedPnl: chargeSummary.netUnrealizedPnl,
       totalPnl: Number((realizedPnl + unrealizedPnl).toFixed(2)),
+      netTotalPnl: chargeSummary.netTotalPnl,
       totalReturnPct: startingCapital > 0 ? Number((((endingCapital - startingCapital) / startingCapital) * 100).toFixed(2)) : 0,
+      netTotalReturnPct: startingCapital > 0 ? round2((chargeSummary.netTotalPnl / startingCapital) * 100) : 0,
+      netEndingCapital: round2(startingCapital + chargeSummary.netTotalPnl),
       maxDrawdownPct: Number(maxDrawdownPct.toFixed(2)),
       tradesClosed: closedTrades.length,
       tradesOpen: allTrades.length - closedTrades.length,
@@ -1628,13 +1752,19 @@ async function runMomentumBacktest(options: BacktestOptions = {}): Promise<Strat
       exitDate: trade.exitDate,
       exitPrice: trade.exitPrice,
       exitValue: trade.exitValue,
+      charges: trade.charges,
+      incurredCharges: trade.incurredCharges,
+      chargeModel: trade.chargeModel,
       realizedPnl: trade.realizedPnl,
+      netRealizedPnl: trade.netRealizedPnl,
       realizedPct: trade.realizedPct,
       holdDays: trade.holdDays,
       status: trade.status,
       markPrice: trade.markPrice,
       markValue: trade.markValue,
       unrealizedPnl: trade.unrealizedPnl,
+      netUnrealizedPnl: trade.netUnrealizedPnl,
+      netTotalPnl: trade.netTotalPnl,
       setup: trade.setup,
       t1Date: trade.t1Date,
       t2Date: trade.t2Date,

@@ -330,8 +330,9 @@ Centralised wrappers — every caller goes through these. Never make raw HTTP ca
 - Uses daily historical candles only; evaluates signals from day-close vs previous day's EMA, enters at the next trading day's open, and exits at the strategy's saved `t1Pct` / `t2Pct` from entry price (matching the live Strategy 1 monitor)
 - Momentum replay uses 5-minute candles: scans between `scanStartHHMM` and `scanEndHHMM`, checks day-gain / EMA proximity / prorated volume / rising-candle conditions, exits on 5-minute closes at T1 / T2, and hands off aged positions to accumulator-style targets.
 - Returns summary metrics, per-trade outcomes, and an equity curve for the selected lookback window
+- Backtest output now includes estimated Zerodha-style equity charges. Same-day trades are classified as `intraday`; multi-day trades are classified as `delivery`. Open positions use the last mark price to estimate remaining exit-side charges for net MTM.
 - HTTP surface: `POST /api/strategy/backtest` (authenticated)
-- Current frontend surface: Settings → Backtest tab. It fetches saved strategies from `GET /api/strategies`, lets the user pick a strategy + day window, and renders summary/trades/equity inline for both dip and momentum strategies.
+- Current frontend surface: Settings → Backtest tab. It fetches saved strategies from `GET /api/strategies`, lets the user pick a strategy + day window, and renders summary/trades/equity inline for both dip and momentum strategies. The summary hero uses net-after-charges values, and the trade table includes a per-row `Charges` column plus net profit display.
 
 ### 5.6 `lib/tradeReport.ts` *(new 23 May 2026)*
 
