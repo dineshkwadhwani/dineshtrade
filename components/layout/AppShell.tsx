@@ -123,20 +123,20 @@ export default function AppShell({ children }: { children: React.ReactNode }) {
 
             {menuOpen && (
               <div role="menu"
-                className="absolute right-0 top-11 w-72 rounded-xl overflow-hidden z-50 shadow-2xl"
+                className="absolute right-0 top-11 z-50 w-[min(19rem,calc(100vw-1rem))] max-h-[calc(100vh-4.5rem)] overflow-y-auto rounded-xl shadow-2xl"
                 style={{ background:'#100e0a', border:'1px solid rgba(201,168,76,0.15)' }}>
 
                 {/* Identity header */}
-                <div className="px-4 py-3 border-b" style={{ borderColor:'rgba(201,168,76,0.1)' }}>
-                  <p className="text-[12px] text-white/70">Dinesh Wadhwani</p>
-                  <p className="text-[10px]" style={{ color:'rgba(201,168,76,0.5)', fontFamily:'JetBrains Mono, monospace' }}>Trader</p>
+                <div className="px-3.5 py-2.5 border-b" style={{ borderColor:'rgba(201,168,76,0.1)' }}>
+                  <p className="text-[11px] text-white/75">Dinesh Wadhwani</p>
+                  <p className="text-[9px] tracking-[0.2em] uppercase" style={{ color:'rgba(201,168,76,0.48)', fontFamily:'JetBrains Mono, monospace' }}>Trader</p>
                 </div>
 
                 {/* Nav links */}
-                <div className="py-2">
+                <div className="py-1.5">
                   {NAV_GROUPS.map(group => (
-                    <div key={group.title} className="px-2 pb-2 last:pb-0">
-                      <p className="px-2 pb-1.5 text-[10px] tracking-[0.22em] uppercase"
+                    <div key={group.title} className="px-1.5 pb-1.5 last:pb-0">
+                      <p className="px-2 pb-1 text-[9px] tracking-[0.24em] uppercase"
                         style={{ color:'rgba(201,168,76,0.45)', fontFamily:'JetBrains Mono, monospace' }}>
                         {group.title}
                       </p>
@@ -145,20 +145,17 @@ export default function AppShell({ children }: { children: React.ReactNode }) {
                           const active = item.isActive ? item.isActive(pathname, currentView) : pathname === item.href
                           return (
                             <Link key={item.href} href={item.href} role="menuitem"
-                              className={`flex items-center justify-between gap-3 px-4 py-2.5 text-[13px] transition-all ${
+                              className={`flex items-center justify-between gap-2.5 px-3 py-2 text-[12px] transition-all ${
                                 active
                                   ? 'text-[#c9a84c] bg-[rgba(201,168,76,0.08)]'
                                   : 'text-white/60 hover:text-white/90 hover:bg-white/5'
                               }`}>
-                              <span className="flex items-center gap-3 min-w-0">
-                                <span className="text-base leading-none" style={{ width: '1.2em', textAlign: 'center' }}>{item.icon}</span>
+                              <span className="flex min-w-0 items-center gap-2.5">
+                                <span className="text-[14px] leading-none opacity-90" style={{ width: '1.1em', textAlign: 'center' }}>{item.icon}</span>
                                 <span className="truncate">{item.label}</span>
                               </span>
                               {active && (
-                                <span className="text-[10px] tracking-widest uppercase"
-                                  style={{ color:'rgba(201,168,76,0.7)', fontFamily:'JetBrains Mono, monospace' }}>
-                                  Open
-                                </span>
+                                <span className="h-1.5 w-1.5 rounded-full flex-shrink-0" style={{ background:'#c9a84c' }} />
                               )}
                             </Link>
                           )
@@ -170,9 +167,9 @@ export default function AppShell({ children }: { children: React.ReactNode }) {
 
                 {/* Logout */}
                 <button onClick={handleLogout} role="menuitem"
-                  className="w-full flex items-center gap-3 px-4 py-2.5 text-[13px] text-[#e05a5e]/80 hover:text-[#e05a5e] hover:bg-white/5 transition-all text-left border-t"
+                  className="w-full flex items-center gap-2.5 px-3 py-2 text-[12px] text-[#e05a5e]/80 hover:text-[#e05a5e] hover:bg-white/5 transition-all text-left border-t"
                   style={{ borderColor:'rgba(201,168,76,0.08)' }}>
-                  <span className="text-base leading-none" style={{ width: '1.2em', textAlign: 'center' }}>→</span>
+                  <span className="text-[14px] leading-none" style={{ width: '1.1em', textAlign: 'center' }}>→</span>
                   <span>Logout</span>
                 </button>
               </div>

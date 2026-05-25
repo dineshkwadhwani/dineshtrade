@@ -541,6 +541,37 @@ const BACKTEST_HISTORY_VIEWS: { id: BacktestHistoryView; label: string }[] = [
   { id: 'config', label: 'Config' },
 ]
 
+const STRATEGY_FIELD_LABELS: Record<string, string> = {
+  id: 'Strategy ID',
+  name: 'Strategy Name',
+  type: 'Strategy Type',
+  scanIntervalMin: 'Scan Interval',
+  watchlist: 'Watchlists',
+  active: 'Active',
+  t1Pct: 'Target 1',
+  t2Pct: 'Target 2',
+  enabled: 'Enabled',
+  minPct: 'Minimum GIFT Nifty %',
+  maxPct: 'Maximum GIFT Nifty %',
+}
+
+const STRATEGY_FIELD_DESCRIPTIONS: Record<string, string> = {
+  scanIntervalMin: 'How often this strategy scans for entries during market hours.',
+  watchlist: 'The saved watchlists this run used for symbol selection.',
+  active: 'Whether the strategy was active in the saved snapshot.',
+}
+
+const EXIT_DESCRIPTIONS: Record<string, string> = {
+  t1Pct: 'First take-profit threshold used by the saved strategy snapshot.',
+  t2Pct: 'Second take-profit threshold used by the saved strategy snapshot.',
+}
+
+const GIFT_GATE_DESCRIPTIONS: Record<string, string> = {
+  enabled: 'Whether GIFT Nifty gating was enabled for this strategy snapshot.',
+  minPct: 'Minimum GIFT Nifty move allowed before the strategy may enter.',
+  maxPct: 'Maximum GIFT Nifty move allowed before the strategy is blocked.',
+}
+
 // One-line descriptions for each capital field — surfaced inline so the user
 // understands what they're looking at without opening docs.
 const CAPITAL_DESCRIPTIONS: Record<string, string> = {
@@ -936,6 +967,7 @@ function BacktestTab({ active }: { active: boolean }) {
   const [analysisLoading, setAnalysisLoading] = useState(false)
   const [loadedRunId, setLoadedRunId] = useState('')
   const [loadedRunType, setLoadedRunType] = useState<'dip' | 'momentum' | 'all' | ''>('')
+  const [previewEntry, setPreviewEntry] = useState<BacktestHistoryEntry | null>(null)
   const [snapshotEditor, setSnapshotEditor] = useState('')
   const [loading, setLoading] = useState(false)
   const [loaded, setLoaded] = useState(false)
@@ -1089,6 +1121,16 @@ function BacktestTab({ active }: { active: boolean }) {
     setLoadedRunType('')
     setSnapshotEditor('')
     setInfo('Loaded backtest snapshot cleared')
+  }
+
+  function openHistoryPreview(entry: BacktestHistoryEntry) {
+    setPreviewEntry(entry)
+  }
+
+  function confirmHistoryLoad() {
+    if (!previewEntry) return
+    loadHistoryRun(previewEntry)
+    setPreviewEntry(null)
   }
 
   async function resetTests() {
@@ -1474,7 +1516,7 @@ function BacktestTab({ active }: { active: boolean }) {
                       </td>
                     ))}
                     <td className="px-3 py-2.5 sticky right-0 z-10 text-right" style={{ minWidth:110, background:'#100e0a' }}>
-                      <button onClick={() => loadHistoryRun(entry)}
+                      <button onClick={() => openHistoryPreview(entry)}
                         className="px-3 py-1.5 rounded-lg text-[11px] font-semibold tracking-wider"
                         style={{ background:'rgba(201,168,76,0.12)', border:'1px solid rgba(201,168,76,0.3)', color:'#c9a84c' }}>
                         Load
@@ -1741,6 +1783,85 @@ function BacktestTab({ active }: { active: boolean }) {
           </div>
         </div>
       )}
+
+      {previewEntry && createPortal(
+        <div className="fixed inset-0 z-50 flex items-center justify-center px-4 py-8"
+          style={{ background:'rgba(0,0,0,0.72)', backdropFilter:'blur(4px)' }} onClick={() => setPreviewEntry(null)}>
+          <div className="w-full max-w-5xl rounded-xl overflow-hidden" onClick={e => e.stopPropagation()}
+            style={{ background:'#100e0a', border:'1px solid rgba(201,168,76,0.25)' }}>
+            <div className="px-5 py-3 flex items-center justify-between gap-3"
+              style={{ borderBottom:'1px solid rgba(201,168,76,0.15)' }}>
+              <div>
+                <p className="text-[12px] tracking-widest uppercase" style={{ color:'#c9a84c', fontFamily:'JetBrains Mono, monospace' }}>
+                  Review Saved Backtest
+                </p>
+                <p className="text-[11px] mt-1" style={{ color:'rgba(255,255,255,0.55)' }}>
+                  {previewEntry.strategyName} · saved on {formatDateTime(previewEntry.timestamp)}
+                </p>
+              </div>
+              <button onClick={() => setPreviewEntry(null)} className="text-white/40 hover:text-white/80">✕</button>
+            </div>
+
+            <div className="p-5 max-h-[75vh] overflow-y-auto space-y-5">
+              <div className="grid grid-cols-2 xl:grid-cols-4 gap-3">
+                <MiniMetric label="Starting Capital" value={formatCurrency(previewEntry.startingAmount)} valueColor="#c9a84c" />
+                <MiniMetric label="Trading Days" value={String(previewEntry.backtestDays)} valueColor="rgba(255,255,255,0.82)" />
+                <MiniMetric label="Max Buys / Day" value={String(previewEntry.maxBuysPerDay)} valueColor="rgba(255,255,255,0.82)" />
+                <MiniMetric label="Max Sells / Day" value={String(previewEntry.maxSellsPerDay)} valueColor="rgba(255,255,255,0.82)" />
+              </div>
+
+              <div className="grid grid-cols-2 xl:grid-cols-4 gap-3">
+                <MiniMetric label="Net Profit" value={formatSignedCurrency(previewEntry.netProfitRupees)} valueColor={previewEntry.netProfitRupees >= 0 ? '#52b788' : '#e05a5e'} />
+                <MiniMetric label="Win Rate" value={previewEntry.winRate === null ? '—' : `${previewEntry.winRate.toFixed(2)}%`} valueColor="#c9a84c" />
+                <MiniMetric label="Closed Trades" value={String(previewEntry.closedTrades)} valueColor="rgba(255,255,255,0.82)" />
+                <MiniMetric label="Open Trades" value={String(previewEntry.openTrades)} valueColor="rgba(255,255,255,0.82)" />
+              </div>
+
+              {previewEntry.strategyType === 'all' ? (
+                <div className="space-y-4">
+                  <div className="rounded-lg p-4" style={{ background:'rgba(96,165,250,0.06)', border:'1px solid rgba(96,165,250,0.2)' }}>
+                    <p className="text-[11px] tracking-widest uppercase mb-1" style={{ color:'#60a5fa', fontFamily:'JetBrains Mono, monospace' }}>
+                      Run All Active Snapshot
+                    </p>
+                    <p className="text-[12px]" style={{ color:'rgba(255,255,255,0.58)' }}>
+                      This saved run contains {previewEntry.strategySnapshots?.length || 0} strategy snapshots. Loading it will restore the saved multi-strategy setup into the Backtest tab for rerun.
+                    </p>
+                  </div>
+                  {(previewEntry.strategySnapshots || []).map(snapshot => (
+                    <StrategySnapshotPreviewCard key={snapshot.id} snapshot={snapshot} />
+                  ))}
+                </div>
+              ) : previewEntry.strategySnapshot ? (
+                <StrategySnapshotPreviewCard snapshot={previewEntry.strategySnapshot} />
+              ) : (
+                <div className="rounded-xl p-4" style={{ background:'rgba(255,255,255,0.02)', border:'1px solid rgba(255,255,255,0.08)' }}>
+                  <p className="text-[11px] tracking-widest uppercase mb-3" style={{ color:'rgba(201,168,76,0.65)', fontFamily:'JetBrains Mono, monospace' }}>
+                    Saved Parameters
+                  </p>
+                  <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+                    <PreviewRecordSection title="Entry Parameters" values={previewEntry.entryParams} descriptions={previewEntry.strategyType === 'momentum' ? MOMENTUM_PARAM_DESCRIPTIONS : DIP_PARAM_DESCRIPTIONS} />
+                    <PreviewRecordSection title="Exit Criteria" values={previewEntry.exitCriteria} descriptions={EXIT_DESCRIPTIONS} />
+                  </div>
+                </div>
+              )}
+            </div>
+
+            <div className="px-5 py-3 flex justify-end gap-2" style={{ borderTop:'1px solid rgba(255,255,255,0.06)' }}>
+              <button onClick={() => setPreviewEntry(null)}
+                className="px-3 py-1.5 rounded-md text-[11px]"
+                style={{ background:'rgba(255,255,255,0.04)', border:'1px solid rgba(255,255,255,0.1)', color:'rgba(255,255,255,0.6)' }}>
+                Close
+              </button>
+              <button onClick={confirmHistoryLoad}
+                className="px-4 py-1.5 rounded-md text-[11px] font-semibold tracking-wider"
+                style={{ background:'linear-gradient(135deg, #8a6a1a, #c9a84c)', color:'#080604' }}>
+                Load Into Backtest
+              </button>
+            </div>
+          </div>
+        </div>,
+        document.body
+      )}
     </div>
   )
 }
@@ -1812,6 +1933,74 @@ function Row({ label, value, desc }: { label: string; value: string; desc?: stri
   )
 }
 
+function PreviewRecordSection({ title, values, descriptions }: { title: string; values: Record<string, unknown>; descriptions?: Record<string, string> }) {
+  const entries = Object.entries(values || {})
+
+  return (
+    <div className="rounded-lg p-4" style={{ background:'rgba(255,255,255,0.02)', border:'1px solid rgba(255,255,255,0.06)' }}>
+      <p className="text-[10px] tracking-widest uppercase mb-3" style={{ color:'rgba(201,168,76,0.6)', fontFamily:'JetBrains Mono, monospace' }}>
+        {title}
+      </p>
+      {entries.length === 0 ? (
+        <p className="text-[11px]" style={{ color:'rgba(255,255,255,0.35)' }}>No saved values</p>
+      ) : (
+        <div className="space-y-2">
+          {entries.map(([key, value]) => (
+            <Row
+              key={key}
+              label={getPreviewLabel(key)}
+              value={formatPreviewValue(key, value)}
+              desc={descriptions?.[key] || STRATEGY_FIELD_DESCRIPTIONS[key]}
+            />
+          ))}
+        </div>
+      )}
+    </div>
+  )
+}
+
+function StrategySnapshotPreviewCard({ snapshot }: { snapshot: StrategyConfig }) {
+  const paramDescriptions = snapshot.type === 'momentum' ? MOMENTUM_PARAM_DESCRIPTIONS : DIP_PARAM_DESCRIPTIONS
+
+  return (
+    <div className="rounded-xl p-4" style={{ background:'rgba(255,255,255,0.02)', border:`1px solid ${snapshot.color}33` }}>
+      <div className="flex items-start justify-between gap-3 flex-wrap mb-4">
+        <div>
+          <p className="text-[15px]" style={{ color:'rgba(255,255,255,0.88)' }}>{snapshot.name}</p>
+          <p className="text-[10px] tracking-widest uppercase mt-1" style={{ color:snapshot.color, fontFamily:'JetBrains Mono, monospace' }}>
+            {snapshot.type} · {snapshot.id}
+          </p>
+        </div>
+        <div className="flex gap-2 flex-wrap">
+          <span className="text-[10px] tracking-widest uppercase px-2 py-1 rounded"
+            style={{ background:'rgba(255,255,255,0.04)', border:'1px solid rgba(255,255,255,0.08)', color:'rgba(255,255,255,0.55)', fontFamily:'JetBrains Mono, monospace' }}>
+            {snapshot.active ? 'Active' : 'Inactive'}
+          </span>
+          <span className="text-[10px] tracking-widest uppercase px-2 py-1 rounded"
+            style={{ background:'rgba(255,255,255,0.04)', border:'1px solid rgba(255,255,255,0.08)', color:'rgba(255,255,255,0.55)', fontFamily:'JetBrains Mono, monospace' }}>
+            {snapshot.watchlist.length} watchlist{snapshot.watchlist.length === 1 ? '' : 's'}
+          </span>
+        </div>
+      </div>
+
+      <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+        <PreviewRecordSection
+          title="Setup"
+          values={{
+            scanIntervalMin: snapshot.scanIntervalMin,
+            watchlist: snapshot.watchlist,
+            active: snapshot.active,
+          }}
+          descriptions={STRATEGY_FIELD_DESCRIPTIONS}
+        />
+        <PreviewRecordSection title="Entry Parameters" values={snapshot.params} descriptions={paramDescriptions} />
+        <PreviewRecordSection title="Exit Criteria" values={snapshot.exits} descriptions={EXIT_DESCRIPTIONS} />
+        <PreviewRecordSection title="GIFT Nifty Gate" values={snapshot.giftNiftyGate || { enabled: false }} descriptions={GIFT_GATE_DESCRIPTIONS} />
+      </div>
+    </div>
+  )
+}
+
 function Stat({ label, value, color }: { label: string; value: string; color: string }) {
   return (
     <div className="p-3" style={{ background:'#100e0a' }}>
@@ -1864,12 +2053,33 @@ function compactJson(value: unknown): string {
   }
 }
 
+function getPreviewLabel(key: string): string {
+  return STRATEGY_FIELD_LABELS[key] || key.replace(/([A-Z])/g, ' $1').replace(/^./, c => c.toUpperCase())
+}
+
+function formatPreviewValue(key: string, value: unknown): string {
+  if (Array.isArray(value)) return value.join(', ')
+  if (typeof value === 'boolean') return value ? 'Yes' : 'No'
+  if (typeof value === 'number') {
+    if (/(Rupees|Amount|Capital|MTM|Profit|Deployed)/i.test(key)) return formatCurrency(value)
+    if (/(Pct|Rate|Drawdown|Gain|Drop|Below|Above|Proximity|Efficiency)/i.test(key)) return `${value.toFixed(2)}%`
+    if (/Min$/i.test(key)) return `${value} min`
+    return Number.isInteger(value) ? String(value) : value.toFixed(2)
+  }
+  if (value === null || value === undefined || value === '') return '—'
+  if (typeof value === 'object') return compactJson(value)
+  return String(value)
+}
+
 function summarizeConfigValue(value: unknown): string {
-  if (Array.isArray(value)) return value.map(item => summarizeConfigValue(item)).join(', ')
+  if (Array.isArray(value)) {
+    if (value.length > 0 && value.every(item => item && typeof item === 'object' && 'id' in item)) return `${value.length} strategy snapshots`
+    return value.map(item => summarizeConfigValue(item)).join(', ')
+  }
   if (typeof value === 'number') return Number.isInteger(value) ? String(value) : value.toFixed(2)
   if (typeof value === 'boolean') return value ? 'true' : 'false'
   if (value === null || value === undefined) return '—'
-  if (typeof value === 'object') return compactJson(value)
+  if (typeof value === 'object') return `${Object.keys(value as Record<string, unknown>).length} saved fields`
   return String(value)
 }
 
