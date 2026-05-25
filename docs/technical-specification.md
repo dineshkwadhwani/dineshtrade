@@ -95,7 +95,7 @@ This document covers the *how* — architecture, stack choices, infrastructure, 
 │   ├── strategy.ts                 # Mode resolver
 │   ├── strategy1.ts                # Accumulator (dip / EMA two-tranche) monitor
 │   ├── strategy2.ts                # Catalyst (momentum) monitor
-│   ├── tradeReport.ts              # Date-range real-trade replay from journaled order legs
+│   ├── tradeReport.ts              # Date-range real-trade replay from journaled order legs + estimated net-after-charges metrics
 │   ├── strategyConfig.ts           # Strategy schema + reader (DipParams, MomentumParams, CapitalConfig)
 │   ├── strategyConfigStore.ts      # Runtime overlay at data/strategy.json + legacy id migration
 │   ├── strategy2Positions.ts       # Thin facade over positions.ts (back-compat)

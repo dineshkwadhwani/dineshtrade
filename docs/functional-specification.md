@@ -361,6 +361,7 @@ Fires on the last trading day of the month (after the daily report). Shows: tota
   - secondary metric tiles
   - detailed trade table
   - equity-curve table
+- Profit presentation mirrors the backtest report as well: the trade table shows **Gross Profit**, **Brokerage**, and **Net Profit**, while the summary includes both gross MTM and net-after-charges MTM / return tiles.
 - Data source is the append-only journaled order ledger, so both **manual** and **auto** trades are included.
 - Rows are position-based, not sell-event-based. A row stays open after tranche 1 and shows `partial` until the remaining quantity exits.
 - Carry-in rule: if a position was opened before the From date but exits partially or fully inside the window, it still appears and stays linked to the original BUY so the report does not produce orphaned SELLs.

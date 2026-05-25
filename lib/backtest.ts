@@ -249,7 +249,7 @@ function estimateBacktestCharges(mode: 'intraday' | 'delivery', buyValue: number
   return round2(brokerage + stt + exchange + sebi + gst + stamp + dp)
 }
 
-function applyBacktestCharges(trades: BacktestTrade[], effectiveExitDate: string): {
+export function applyBacktestCharges(trades: BacktestTrade[], effectiveExitDate: string): {
   totalCharges: number
   incurredCharges: number
   netRealizedPnl: number

@@ -214,7 +214,9 @@ export default function TradeReportPage() {
             </div>
             <div className="grid grid-cols-2 md:grid-cols-4 gap-px" style={{ background:'rgba(255,255,255,0.04)' }}>
               <Stat label="Total P&L (MTM)" value={formatSignedCurrency(result.summary.totalPnl)} color={result.summary.totalPnl >= 0 ? '#52b788' : '#e05a5e'} />
+              <Stat label="Net P&L (MTM)" value={formatSignedCurrency(result.summary.netTotalPnl ?? result.summary.totalPnl)} color={(result.summary.netTotalPnl ?? result.summary.totalPnl) >= 0 ? '#52b788' : '#e05a5e'} />
               <Stat label="Return (MTM)" value={formatSignedPct(result.summary.totalReturnPct)} color={result.summary.totalReturnPct >= 0 ? '#52b788' : '#e05a5e'} />
+              <Stat label="Net Return (MTM)" value={formatSignedPct(result.summary.netTotalReturnPct ?? result.summary.totalReturnPct)} color={(result.summary.netTotalReturnPct ?? result.summary.totalReturnPct) >= 0 ? '#52b788' : '#e05a5e'} />
               <Stat label="Win Rate" value={result.summary.winRate === null ? '—' : `${result.summary.winRate.toFixed(2)}%`} color="#c9a84c" />
               <Stat label="Max Drawdown" value={`${result.summary.maxDrawdownPct.toFixed(2)}%`} color="rgba(224,90,94,0.85)" />
               <Stat label="Starting Capital" value={formatCurrency(result.summary.startingCapital)} color="rgba(255,255,255,0.7)" />
@@ -234,10 +236,16 @@ export default function TradeReportPage() {
                 valueColor={result.summary.realizedPnl >= 0 ? '#52b788' : '#e05a5e'}
               />
               <MiniMetric
+                label="Net Realized P&L"
+                value={`${formatSignedCurrency(result.summary.netRealizedPnl ?? result.summary.realizedPnl)} · ${formatSignedPct(result.summary.startingCapital > 0 ? ((result.summary.netRealizedPnl ?? result.summary.realizedPnl) / result.summary.startingCapital) * 100 : 0)}`}
+                valueColor={(result.summary.netRealizedPnl ?? result.summary.realizedPnl) >= 0 ? '#52b788' : '#e05a5e'}
+              />
+              <MiniMetric
                 label="Unrealized MTM"
                 value={`${formatSignedCurrency(result.summary.unrealizedPnl)} · ${formatSignedPct(result.summary.startingCapital > 0 ? (result.summary.unrealizedPnl / result.summary.startingCapital) * 100 : 0)}`}
                 valueColor={result.summary.unrealizedPnl >= 0 ? '#52b788' : '#e05a5e'}
               />
+              <MiniMetric label="Estimated Charges" value={formatCurrency(result.summary.totalCharges || 0)} valueColor="#c9a84c" />
               <MiniMetric label="Skipped No Token" value={String(result.summary.skippedNoToken)} />
               <MiniMetric label="Skipped No Historical" value={String(result.summary.skippedNoHistorical)} />
               <MiniMetric label="Skipped Capital" value={String(result.summary.skippedCapitalLimited)} />
@@ -267,16 +275,19 @@ export default function TradeReportPage() {
               <table className="w-full text-left min-w-[1380px]">
                 <thead>
                   <tr style={{ background:'rgba(255,255,255,0.02)' }}>
-                    {['Symbol', 'Strategy', 'Signal', 'Entry Price', 'T1 Date', 'T2 Date', 'Exit Price / Mark Price', 'Qty / Remaining', 'Status', 'Realized Profit', 'Hold', 'Reason'].map(h => (
+                    {['Symbol', 'Strategy', 'Signal', 'Entry Price', 'T1 Date', 'T2 Date', 'Exit Price / Mark Price', 'Qty / Remaining', 'Status', 'Gross Profit', 'Brokerage', 'Net Profit', 'Hold', 'Reason'].map(h => (
                       <th key={h} className="px-3 py-2 text-[10px] tracking-widest uppercase font-medium" style={{ color:'rgba(255,255,255,0.35)', fontFamily:'JetBrains Mono, monospace' }}>{h}</th>
                     ))}
                   </tr>
                 </thead>
                 <tbody>
                   {result.trades.map((trade, index) => {
-                    const pnl = trade.realizedPnl
+                    const grossPnl = trade.realizedPnl
+                    const brokerage = trade.incurredCharges ?? trade.charges ?? 0
+                    const netPnl = trade.netRealizedPnl ?? grossPnl
                     const displayStatus = trade.status === 'closed' ? 'closed' : trade.t1Date ? 'partial' : 'open'
                     const realizedPct = trade.entryValue > 0 ? (trade.realizedPnl / trade.entryValue) * 100 : 0
+                    const netRealizedPct = trade.entryValue > 0 ? ((trade.netRealizedPnl ?? trade.realizedPnl) / trade.entryValue) * 100 : 0
                     return (
                       <tr key={`${trade.symbol}-${trade.entryDate}-${index}`} style={{ borderTop:'1px solid rgba(255,255,255,0.05)' }}>
                         <td className="px-3 py-2.5">
@@ -331,12 +342,32 @@ export default function TradeReportPage() {
                             {displayStatus}
                           </span>
                         </td>
-                        <td className="px-3 py-2.5 text-[11px]" style={{ color: pnl >= 0 ? '#52b788' : '#e05a5e', fontFamily:'JetBrains Mono, monospace' }}>
+                        <td className="px-3 py-2.5 text-[11px]" style={{ color: grossPnl >= 0 ? '#52b788' : '#e05a5e', fontFamily:'JetBrains Mono, monospace' }}>
                           {trade.realizedPnl !== 0 ? (
                             <>
                               <div style={{ color:'rgba(255,255,255,0.45)' }}>Profit</div>
-                              <div>{formatSignedCurrency(pnl)}</div>
+                              <div>{formatSignedCurrency(grossPnl)}</div>
                               <div>{formatSignedPct(realizedPct)}</div>
+                            </>
+                          ) : (
+                            <div style={{ color:'rgba(255,255,255,0.35)' }}>—</div>
+                          )}
+                        </td>
+                        <td className="px-3 py-2.5 text-[11px]" style={{ color:'#c9a84c', fontFamily:'JetBrains Mono, monospace' }}>
+                          {trade.realizedPnl !== 0 ? (
+                            <>
+                              <div>{formatCurrency(brokerage)}</div>
+                              <div style={{ color:'rgba(255,255,255,0.45)' }}>{displayStatus === 'closed' ? (trade.chargeModel || 'actual') : `est. ${trade.chargeModel || 'delivery'}`}</div>
+                            </>
+                          ) : (
+                            <div style={{ color:'rgba(255,255,255,0.35)' }}>—</div>
+                          )}
+                        </td>
+                        <td className="px-3 py-2.5 text-[11px]" style={{ color: netPnl >= 0 ? '#52b788' : '#e05a5e', fontFamily:'JetBrains Mono, monospace' }}>
+                          {trade.realizedPnl !== 0 ? (
+                            <>
+                              <div>{formatSignedCurrency(netPnl)}</div>
+                              <div>{formatSignedPct(netRealizedPct)}</div>
                             </>
                           ) : (
                             <div style={{ color:'rgba(255,255,255,0.35)' }}>—</div>

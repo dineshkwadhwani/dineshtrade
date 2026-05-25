@@ -3,7 +3,7 @@ import { getInstrumentTokens } from './instruments'
 import { listJournalDates, readJournalRange, type OrderRecord } from './journal'
 import { getStrategies, getStrategyById } from './strategyConfig'
 import { getState } from './state'
-import type { BacktestEquityPoint, BacktestTrade, StrategyBacktestResult } from './backtest'
+import { applyBacktestCharges, type BacktestEquityPoint, type BacktestTrade, type StrategyBacktestResult } from './backtest'
 
 export interface LiveTradeReportOptions {
   fromDate: string
@@ -315,9 +315,10 @@ export async function buildLiveTradeReport(options: LiveTradeReportOptions): Pro
   const unrealizedPnl = clampMoney(includedTrades.reduce((sum, trade) => sum + trade.unrealizedPnl, 0))
   const totalPnl = clampMoney(realizedPnl + unrealizedPnl)
   const endingCapital = clampMoney(startingCapital + totalPnl)
+  const chargeSummary = applyBacktestCharges(includedTrades, toDate)
   const closedTrades = includedTrades.filter(trade => trade.remainingQty === 0)
-  const wins = closedTrades.filter(trade => trade.realizedPnl > 0).length
-  const losses = closedTrades.filter(trade => trade.realizedPnl < 0).length
+  const wins = closedTrades.filter(trade => (trade.netRealizedPnl ?? trade.realizedPnl) > 0).length
+  const losses = closedTrades.filter(trade => (trade.netRealizedPnl ?? trade.realizedPnl) < 0).length
   const avgHold = closedTrades.length > 0
     ? closedTrades.reduce((sum, trade) => sum + trade.holdDays, 0) / closedTrades.length
     : null
@@ -339,10 +340,17 @@ export async function buildLiveTradeReport(options: LiveTradeReportOptions): Pro
       momentumDays,
       startingCapital,
       endingCapital,
+      totalCharges: chargeSummary.totalCharges,
+      incurredCharges: chargeSummary.incurredCharges,
       realizedPnl,
+      netRealizedPnl: chargeSummary.netRealizedPnl,
       unrealizedPnl,
+      netUnrealizedPnl: chargeSummary.netUnrealizedPnl,
       totalPnl,
+      netTotalPnl: chargeSummary.netTotalPnl,
       totalReturnPct: startingCapital > 0 ? Number(((totalPnl / startingCapital) * 100).toFixed(2)) : 0,
+      netTotalReturnPct: startingCapital > 0 ? Number(((chargeSummary.netTotalPnl / startingCapital) * 100).toFixed(2)) : 0,
+      netEndingCapital: clampMoney(startingCapital + chargeSummary.netTotalPnl),
       maxDrawdownPct: Number(maxDrawdownPct.toFixed(2)),
       tradesClosed: closedTrades.length,
       tradesOpen: includedTrades.length - closedTrades.length,
