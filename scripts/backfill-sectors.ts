@@ -36,7 +36,17 @@ async function main(): Promise<void> {
   }
 
   const watchlist = JSON.parse(raw) as any
-  const lists: Record<string, any[]> = watchlist.lists || {}
+  // Support both runtime shape ({ lists: { listA: [...] } }) and seed/legacy
+  // shape (top-level listA / listB keys directly on the root object).
+  const lists: Record<string, any[]> = {}
+  if (watchlist.lists && typeof watchlist.lists === 'object') {
+    for (const [k, v] of Object.entries(watchlist.lists)) {
+      if (Array.isArray(v)) lists[k] = v as any[]
+    }
+  }
+  for (const [k, v] of Object.entries(watchlist)) {
+    if (/^list[A-Za-z0-9]+$/.test(k) && Array.isArray(v) && !lists[k]) lists[k] = v as any[]
+  }
 
   // Collect all symbols that need a sector
   const toProcess: Array<{ listKey: string; index: number; nse: string }> = []
@@ -79,8 +89,15 @@ async function main(): Promise<void> {
     await sleep(1000)
   }
 
-  // Write back atomically
-  watchlist.lists = lists
+  // Write back atomically — preserve original shape (seed uses top-level keys,
+  // runtime uses { lists: { ... } }).
+  if (watchlist.lists && typeof watchlist.lists === 'object') {
+    watchlist.lists = lists
+  } else {
+    for (const [k, v] of Object.entries(lists)) {
+      watchlist[k] = v
+    }
+  }
   const tmp = WATCHLIST_PATH + '.tmp'
   await fs.writeFile(tmp, JSON.stringify(watchlist, null, 2) + '\n', { encoding: 'utf8', mode: 0o600 })
   await fs.rename(tmp, WATCHLIST_PATH)
