@@ -137,9 +137,9 @@ export async function monitorAccount(account: string): Promise<MonitorResult> {
       continue
     }
 
-    // Age check — handoff to Accumulator if too old
+    // Age check — handoff to Accumulator if too old (skip when handoffDays=0 i.e. never hand off)
     const ageDays = ageInCalendarDays(pos.firstBuyAt)
-    if (ageDays >= handoffDays) {
+    if (handoffDays > 0 && ageDays >= handoffDays) {
       const handedOff = await ensureStrategy1Tracking(account, symbol, pos.remainingQty, pos.firstBuyPrice, `strategy2_age_${Math.floor(ageDays)}d`)
         .catch(err => { console.error('[strategy2] handoff to s1 failed:', err); return false })
       await removeStrategy2Position(account, symbol)

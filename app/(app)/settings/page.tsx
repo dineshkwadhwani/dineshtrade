@@ -537,6 +537,9 @@ const MOMENTUM_PARAM_DESCRIPTIONS: Record<string, string> = {
   scanStartHHMM: 'Daily scan window start (IST 24-hr "HH:MM").',
   scanEndHHMM: 'Daily scan window end (IST 24-hr "HH:MM").',
   deliveryHandoffDays: 'Calendar days after first BUY before this strategy\'s position hands off to Accumulator (universal mean-reversion parking lot). Default 15. Set to 0 to disable handoff (position stays with this strategy indefinitely).',
+  exitSameDayTime: 'Time (IST HH:MM) to check EOD behaviour. Default 15:10.',
+  exitSameDayOnPositive: 'Sell at end of day if position is in profit — frees capital for tomorrow.',
+  squareOffEOD: 'Always square all positions at end of day regardless of profit or loss. Never takes delivery. Overrides the no-loss gate.',
 }
 
 // Default param sets for the Duplicate / Create-New / Reset flows
@@ -550,6 +553,7 @@ const DEFAULT_MOMENTUM_PARAMS = {
   minDayGainPct: 0.5, maxDayGainPct: 1.5, consecutiveCandles: 3, emaProximityPct: 3.0,
   volumeAvgDays: 10, scanStartHHMM: '09:30', scanEndHHMM: '14:30',
   deliveryHandoffDays: 15,
+  exitSameDayTime: '15:10', exitSameDayOnPositive: false, squareOffEOD: false,
 }
 
 function StrategiesTab({ autoModeOn }: { autoModeOn: boolean }) {
@@ -1529,12 +1533,25 @@ function StrategyCard({ s, expanded, onToggle, watchlistOptions, onPatch, onTogg
           {/* Params editable */}
           <div className="space-y-2.5">
             <p className="text-[10px] tracking-widest uppercase" style={{ color:'rgba(255,255,255,0.4)', fontFamily:'JetBrains Mono, monospace' }}>Params</p>
-            {Object.entries(s.params).map(([k, v]) => {
-              if (typeof v === 'boolean') return <BoolField key={k} label={k} value={v} onChange={x => patchParam(k, x)} desc={paramDescs[k]} disabled={locked} />
-              if (typeof v === 'number')  return <NumField  key={k} label={k} value={v} onChange={x => patchParam(k, x)} desc={paramDescs[k]} disabled={locked} />
-              return <TextField key={k} label={k} value={String(v)} onChange={x => patchParam(k, x)} desc={paramDescs[k]} disabled={locked} />
-            })}
+            {(() => {
+              const EOD_PARAM_KEYS = new Set(['exitSameDayTime', 'exitSameDayOnPositive', 'squareOffEOD'])
+              return Object.entries(s.params).filter(([k]) => !EOD_PARAM_KEYS.has(k)).map(([k, v]) => {
+                if (typeof v === 'boolean') return <BoolField key={k} label={k} value={v} onChange={x => patchParam(k, x)} desc={paramDescs[k]} disabled={locked} />
+                if (typeof v === 'number')  return <NumField  key={k} label={k} value={v} onChange={x => patchParam(k, x)} desc={paramDescs[k]} disabled={locked} />
+                return <TextField key={k} label={k} value={String(v)} onChange={x => patchParam(k, x)} desc={paramDescs[k]} disabled={locked} />
+              })
+            })()}
           </div>
+
+          {/* End of Day Behaviour (momentum only) */}
+          {s.type === 'momentum' && (
+            <div className="space-y-2.5">
+              <p className="text-[10px] tracking-widest uppercase" style={{ color:'rgba(255,255,255,0.4)', fontFamily:'JetBrains Mono, monospace' }}>End of Day Behaviour</p>
+              <TextField label="exitSameDayTime" value={String((s.params as any).exitSameDayTime ?? '15:10')} onChange={x => patchParam('exitSameDayTime', x)} desc={MOMENTUM_PARAM_DESCRIPTIONS.exitSameDayTime} disabled={locked} />
+              <BoolField label="exitSameDayOnPositive" value={Boolean((s.params as any).exitSameDayOnPositive)} onChange={x => patchParam('exitSameDayOnPositive', x)} desc={MOMENTUM_PARAM_DESCRIPTIONS.exitSameDayOnPositive} disabled={locked} />
+              <BoolField label="squareOffEOD" value={Boolean((s.params as any).squareOffEOD)} onChange={x => patchParam('squareOffEOD', x)} desc={MOMENTUM_PARAM_DESCRIPTIONS.squareOffEOD} disabled={locked} />
+            </div>
+          )}
 
           {/* Exits editable */}
           <div className="space-y-2.5">

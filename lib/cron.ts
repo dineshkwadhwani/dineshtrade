@@ -25,14 +25,19 @@ import { monitorAllConnected, STRATEGY_2_BUY_TAG } from './strategy2'
 import {
   monitorAllAccountsStrategy1, recordStrategy1Buy, STRATEGY_1_BUY_TAG,
 } from './strategy1'
-import { resolveAccountCreds, placeKiteOrder } from './kite'
+import { resolveAccountCreds, placeKiteOrder, getQuotes } from './kite'
 import { runPreflight, markPlaced } from './preflight'
 import { appendJournal, istDateString } from './journal'
 import { buildDailyReport, buildMonthlyReport, isLastWeekdayOfMonth } from './retrospective'
+import { listPositions, removePosition } from './positions'
 
 let started = false
 let tickTask: ScheduledTask | null = null
 let eodTask: ScheduledTask | null = null
+
+// Prevents runEODSquareOff from firing twice for the same strategy on the same
+// calendar day (key=strategyId, value=YYYY-MM-DD IST date key).
+let eodSquareOffDone: Record<string, string> = {}
 
 // Per-strategy scan tasks. Each active strategy in strategy.json gets its own
 // cron task at its scanIntervalMin. The map keys are strategy ids so we can
@@ -201,6 +206,95 @@ async function autoBuyOnAccount(account: string, accountDisplayName: string | un
   }
 }
 
+// ──────── EOD SQUARE-OFF (momentum strategies) ────────
+//
+// Runs inside each 5-min tick. Fires once per strategy per day at exactly
+// exitSameDayTime (default 15:10 IST). Two modes (non-exclusive):
+//   squareOffEOD=true         → sell everything regardless of P&L (bypasses no-loss gate)
+//   exitSameDayOnPositive=true → sell only positions where LTP > firstBuyPrice
+
+async function runEODSquareOff(): Promise<void> {
+  const t = istHHMM()
+  const today = istDateKey()
+  const state = await getState()
+  if (state.mode !== 'auto') return
+
+  const strategies = getActiveStrategies().filter(s => s.type === 'momentum')
+  for (const strategy of strategies) {
+    const params = strategy.params as any
+    const squareOffEOD: boolean = params.squareOffEOD === true
+    const exitOnPositive: boolean = params.exitSameDayOnPositive === true
+    if (!squareOffEOD && !exitOnPositive) continue
+
+    const exitTime: string = typeof params.exitSameDayTime === 'string' ? params.exitSameDayTime : '15:10'
+    if (t !== exitTime) continue
+    if (eodSquareOffDone[strategy.id] === today) continue
+
+    // Mark done immediately to prevent re-entry if any await below takes time
+    eodSquareOffDone[strategy.id] = today
+    console.log(`[cron eod] ${t} IST — ${strategy.id}: running EOD square-off (squareOffEOD=${squareOffEOD}, exitOnPositive=${exitOnPositive})`)
+
+    const accounts = getAccountList()
+    const targetAccounts = Object.keys(state.kiteTokens)
+    for (const account of targetAccounts) {
+      const displayName = accounts.find(a => a.name === account)?.displayName
+      const creds = await resolveAccountCreds(account)
+      if (!creds.ok) {
+        console.warn(`[cron eod] ${strategy.id} ${account}: creds not available — skipping`)
+        continue
+      }
+
+      const positions = await listPositions({ account, strategyId: strategy.id })
+      if (positions.length === 0) continue
+
+      const symbols = positions.map(p => `NSE:${p.symbol.toUpperCase()}`)
+      const quotes = await getQuotes(creds, symbols)
+
+      for (const pos of positions) {
+        const quoteKey = `NSE:${pos.symbol.toUpperCase()}`
+        const ltp: number | undefined = quotes[quoteKey]?.last_price
+        if (ltp === undefined) {
+          console.warn(`[cron eod] ${strategy.id} ${account} ${pos.symbol}: no LTP — skipping`)
+          continue
+        }
+
+        const shouldSell = squareOffEOD || (exitOnPositive && ltp > pos.firstBuyPrice)
+        if (!shouldSell) continue
+
+        const qty = pos.remainingQty
+        const pre = await runPreflight({
+          account, symbol: pos.symbol, side: 'SELL',
+          quantity: qty, pricePerShare: ltp,
+          strategyId: strategy.id,
+          bypassNoLossSell: squareOffEOD,
+        })
+        const sellQty = pre.adjustedQty ?? qty
+        if (!pre.ok) {
+          recordFailed({ time: t, account, symbol: pos.symbol, side: 'SELL', quantity: sellQty, reason: `[${pre.gate}] ${pre.reason}` })
+          continue
+        }
+
+        const placed = await placeKiteOrder(creds, { symbol: pos.symbol, side: 'SELL', quantity: sellQty, tag: `dt-eod-${strategy.id}` })
+        if (placed.ok && placed.data?.data?.order_id) {
+          await markPlaced(account, pos.symbol, 'SELL')
+          await removePosition(account, pos.symbol)
+          recordExecuted({ time: t, account, symbol: pos.symbol, side: 'SELL', quantity: sellQty, price: ltp, orderId: placed.data.data.order_id, reason: squareOffEOD ? 'EOD square-off' : 'EOD exit on positive' })
+          sendEmail('trade_executed', {
+            account, accountDisplayName: displayName, symbol: pos.symbol,
+            side: 'SELL', quantity: sellQty, price: ltp,
+            orderId: placed.data.data.order_id,
+            reason: squareOffEOD ? `EOD square-off (${strategy.name})` : `EOD exit on positive (${strategy.name})`,
+            mode: 'auto',
+          }).catch(err => console.error('[cron eod] email failed:', err))
+        } else {
+          const errMsg = placed.data?.message || placed.data?.error_type || `Kite HTTP ${placed.status}`
+          recordFailed({ time: t, account, symbol: pos.symbol, side: 'SELL', quantity: sellQty, price: ltp, reason: errMsg })
+        }
+      }
+    }
+  }
+}
+
 // ──────── TICK ────────
 
 async function tick(): Promise<void> {
@@ -251,7 +345,10 @@ async function tick(): Promise<void> {
     console.error('[cron tick] Strategy 1 monitor failed:', err)
   }
 
-  // 1c. REACTIVE DIP scan — Strategy 1 intraday trigger.
+  // 1c. EOD square-off for momentum strategies
+  try { await runEODSquareOff() } catch (err) { console.error('[cron tick] EOD square-off failed:', err) }
+
+  // 1d. REACTIVE DIP scan
   // Fires every 30 min between 09:15 and 14:00 IST (independent of market mode
   // and of the dip-mode once-per-day BUY scan). Looks for List A stocks that
   // dropped ≥3% intraday, re-evaluates Strategy 1 with today counted as a down

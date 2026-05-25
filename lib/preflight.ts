@@ -44,6 +44,9 @@ export interface PreflightInput {
   //   - BUY: funds available
   //   - SELL: noShort (with qty clamping)
   manual?: boolean
+  // When true, GATE 9 (no-loss sell) is skipped even in auto mode. Used by
+  // squareOffEOD — it must sell regardless of P&L at end of day.
+  bypassNoLossSell?: boolean
 }
 
 export interface PreflightResult {
@@ -280,7 +283,8 @@ export async function runPreflight(input: PreflightInput): Promise<PreflightResu
 
     // GATE 9 — Auto-mode never sells at a loss. Manual mode lets you override.
     // Also skipped for explicit manual orders (user knows what they're doing).
-    if (state.mode === 'auto' && !manual) {
+    // Also skipped when bypassNoLossSell=true (used by squareOffEOD).
+    if (state.mode === 'auto' && !manual && !input.bypassNoLossSell) {
       const avg = Number(holding?.average_price ?? dayPos?.average_price ?? dayPos?.day_buy_price ?? 0)
       const ltp = Number(holding?.last_price ?? dayPos?.last_price ?? pricePerShare ?? 0)
       if (avg > 0 && ltp > 0 && ltp < avg) {

@@ -93,6 +93,10 @@ export interface MomentumParams {
   // Accumulator (the universal mean-reversion parking lot). 0 = never hand off.
   // Default 15 matches the original catalyst behaviour.
   deliveryHandoffDays: number
+  // End-of-day behaviour — checked once at exitSameDayTime each trading day.
+  exitSameDayTime?: string        // "HH:MM" IST, default "15:10"
+  exitSameDayOnPositive?: boolean // sell at exitSameDayTime if LTP > firstBuyPrice
+  squareOffEOD?: boolean          // sell all at exitSameDayTime regardless of P&L; overrides no-loss gate
 }
 
 export interface Strategy {
