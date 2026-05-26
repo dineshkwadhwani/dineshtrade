@@ -966,6 +966,7 @@ function BacktestTab({ active }: { active: boolean }) {
   const [analysis, setAnalysis] = useState('')
   const [analysisLoading, setAnalysisLoading] = useState(false)
   const [loadedRunId, setLoadedRunId] = useState('')
+  const [loadedRunLabel, setLoadedRunLabel] = useState('')
   const [loadedRunType, setLoadedRunType] = useState<'dip' | 'momentum' | 'all' | ''>('')
   const [previewEntry, setPreviewEntry] = useState<BacktestHistoryEntry | null>(null)
   const [snapshotEditor, setSnapshotEditor] = useState('')
@@ -1102,6 +1103,7 @@ function BacktestTab({ active }: { active: boolean }) {
     setDays(entry.backtestDays)
     setCapital(entry.startingAmount)
     setLoadedRunId(entry.runId)
+    setLoadedRunLabel(`${entry.strategyName} · ${formatDateTime(entry.timestamp)}`)
     setLoadedRunType(entry.strategyType)
     setResult(null)
     setError('')
@@ -1118,6 +1120,7 @@ function BacktestTab({ active }: { active: boolean }) {
 
   function clearLoadedRun() {
     setLoadedRunId('')
+    setLoadedRunLabel('')
     setLoadedRunType('')
     setSnapshotEditor('')
     setInfo('Loaded backtest snapshot cleared')
@@ -1183,15 +1186,15 @@ function BacktestTab({ active }: { active: boolean }) {
   const sortedHistory = [...history].sort((a, b) => compareBacktestHistory(a, b, historySortKey, historySortDirection))
   const historyColumns = getBacktestHistoryColumns(historyView)
   const bestHistoryRun = sortedHistory.reduce<BacktestHistoryEntry | null>((best, entry) => {
-    if (!best || entry.netProfitRupees > best.netProfitRupees) return entry
+    if (!best || entry.realizedProfitRupees > best.realizedProfitRupees) return entry
     return best
   }, null)
   const worstHistoryRun = sortedHistory.reduce<BacktestHistoryEntry | null>((worst, entry) => {
-    if (!worst || entry.netProfitRupees < worst.netProfitRupees) return entry
+    if (!worst || entry.realizedProfitRupees < worst.realizedProfitRupees) return entry
     return worst
   }, null)
-  const avgHistoryNetProfit = sortedHistory.length > 0
-    ? sortedHistory.reduce((sum, entry) => sum + entry.netProfitRupees, 0) / sortedHistory.length
+  const avgHistoryRealizedProfit = sortedHistory.length > 0
+    ? sortedHistory.reduce((sum, entry) => sum + entry.realizedProfitRupees, 0) / sortedHistory.length
     : null
   const avgHistoryWinRate = sortedHistory.length > 0
     ? sortedHistory.reduce((sum, entry) => sum + (entry.winRate ?? 0), 0) / sortedHistory.length
@@ -1310,7 +1313,7 @@ function BacktestTab({ active }: { active: boolean }) {
           <div className="mt-4 rounded-lg p-4" style={{ background:'rgba(96,165,250,0.06)', border:'1px solid rgba(96,165,250,0.25)' }}>
             <div className="flex items-center justify-between gap-3 flex-wrap mb-3">
               <p className="text-[11px] tracking-widest uppercase" style={{ color:'#60a5fa', fontFamily:'JetBrains Mono, monospace' }}>
-                Loaded Historical Snapshot · {loadedRunId}
+                Loaded Historical Snapshot · {loadedRunLabel || loadedRunId}
               </p>
               <button onClick={clearLoadedRun}
                 className="px-3 py-1.5 rounded-lg text-[11px] font-semibold tracking-wider"
@@ -1361,7 +1364,7 @@ function BacktestTab({ active }: { active: boolean }) {
         <div className="rounded-xl overflow-hidden" style={{ background:'rgba(96,165,250,0.05)', border:'1px solid rgba(96,165,250,0.2)' }}>
           <div className="px-4 py-2.5" style={{ borderBottom:'1px solid rgba(96,165,250,0.14)' }}>
             <p className="text-[11px] tracking-widest uppercase" style={{ color:'#60a5fa', fontFamily:'JetBrains Mono, monospace' }}>
-              Backtest Analysis
+              Backtest Insights
             </p>
           </div>
           <div className="p-4">
@@ -1423,19 +1426,19 @@ function BacktestTab({ active }: { active: boolean }) {
         {history.length > 0 && (
           <div className="grid grid-cols-2 xl:grid-cols-4 gap-3 px-4 pt-4">
             <MiniMetric
-              label="Best Net Run"
-              value={bestHistoryRun ? formatSignedCurrency(bestHistoryRun.netProfitRupees) : '—'}
-              valueColor={bestHistoryRun && bestHistoryRun.netProfitRupees >= 0 ? '#52b788' : '#e05a5e'}
+              label="Best Realized Run"
+              value={bestHistoryRun ? formatSignedCurrency(bestHistoryRun.realizedProfitRupees) : '—'}
+              valueColor={bestHistoryRun && bestHistoryRun.realizedProfitRupees >= 0 ? '#52b788' : '#e05a5e'}
             />
             <MiniMetric
-              label="Worst Net Run"
-              value={worstHistoryRun ? formatSignedCurrency(worstHistoryRun.netProfitRupees) : '—'}
-              valueColor={worstHistoryRun && worstHistoryRun.netProfitRupees >= 0 ? '#52b788' : '#e05a5e'}
+              label="Worst Realized Run"
+              value={worstHistoryRun ? formatSignedCurrency(worstHistoryRun.realizedProfitRupees) : '—'}
+              valueColor={worstHistoryRun && worstHistoryRun.realizedProfitRupees >= 0 ? '#52b788' : '#e05a5e'}
             />
             <MiniMetric
-              label="Average Net"
-              value={avgHistoryNetProfit === null ? '—' : formatSignedCurrency(avgHistoryNetProfit)}
-              valueColor={avgHistoryNetProfit !== null && avgHistoryNetProfit >= 0 ? '#52b788' : '#e05a5e'}
+              label="Average Realized"
+              value={avgHistoryRealizedProfit === null ? '—' : formatSignedCurrency(avgHistoryRealizedProfit)}
+              valueColor={avgHistoryRealizedProfit !== null && avgHistoryRealizedProfit >= 0 ? '#52b788' : '#e05a5e'}
             />
             <MiniMetric
               label="Average Win Rate"
@@ -1467,22 +1470,16 @@ function BacktestTab({ active }: { active: boolean }) {
           <p className="px-4 py-4 text-[11px]" style={{ color:'rgba(255,255,255,0.4)' }}>Loading backtest history…</p>
         ) : (
           <div className="overflow-x-auto">
-            <table className="w-full text-left min-w-[1280px]">
+            <table className="w-full text-left min-w-[1120px]">
               <thead>
                 <tr style={{ background:'rgba(255,255,255,0.02)' }}>
-                  <th className="px-3 py-2 text-[10px] tracking-widest uppercase font-medium sticky left-0 z-20" style={{ minWidth:120, background:'#15120d', color:'rgba(255,255,255,0.35)', fontFamily:'JetBrains Mono, monospace' }}>
-                    <button onClick={() => toggleHistorySort('runId')} className="inline-flex items-center gap-1" style={{ color:'inherit' }}>
-                      <span>Run ID</span>
-                      {historySortKey === 'runId' && <span>{historySortDirection === 'asc' ? '↑' : '↓'}</span>}
-                    </button>
-                  </th>
-                  <th className="px-3 py-2 text-[10px] tracking-widest uppercase font-medium sticky left-[120px] z-20" style={{ minWidth:170, background:'#15120d', color:'rgba(255,255,255,0.35)', fontFamily:'JetBrains Mono, monospace' }}>
+                  <th className="px-3 py-2 text-[10px] tracking-widest uppercase font-medium sticky left-0 z-20" style={{ minWidth:190, background:'#15120d', color:'rgba(255,255,255,0.35)', fontFamily:'JetBrains Mono, monospace' }}>
                     <button onClick={() => toggleHistorySort('timestamp')} className="inline-flex items-center gap-1" style={{ color:'inherit' }}>
-                      <span>Timestamp</span>
+                      <span>Saved On</span>
                       {historySortKey === 'timestamp' && <span>{historySortDirection === 'asc' ? '↑' : '↓'}</span>}
                     </button>
                   </th>
-                  <th className="px-3 py-2 text-[10px] tracking-widest uppercase font-medium sticky left-[290px] z-20" style={{ minWidth:220, background:'#15120d', color:'rgba(255,255,255,0.35)', fontFamily:'JetBrains Mono, monospace' }}>
+                  <th className="px-3 py-2 text-[10px] tracking-widest uppercase font-medium sticky left-[190px] z-20" style={{ minWidth:260, background:'#15120d', color:'rgba(255,255,255,0.35)', fontFamily:'JetBrains Mono, monospace' }}>
                     <button onClick={() => toggleHistorySort('strategyName')} className="inline-flex items-center gap-1" style={{ color:'inherit' }}>
                       <span>Strategy</span>
                       {historySortKey === 'strategyName' && <span>{historySortDirection === 'asc' ? '↑' : '↓'}</span>}
@@ -1502,20 +1499,19 @@ function BacktestTab({ active }: { active: boolean }) {
               <tbody>
                 {sortedHistory.map(entry => (
                   <tr key={entry.runId} style={{ borderTop:'1px solid rgba(255,255,255,0.05)' }}>
-                    <td className="px-3 py-2.5 text-[11px] sticky left-0 z-10" style={{ minWidth:120, background:'#100e0a', color:'#c9a84c', fontFamily:'JetBrains Mono, monospace' }}>{entry.runId}</td>
-                    <td className="px-3 py-2.5 text-[11px] sticky left-[120px] z-10" style={{ minWidth:170, background:'#100e0a', color:'rgba(255,255,255,0.7)', fontFamily:'JetBrains Mono, monospace' }}>{formatDateTime(entry.timestamp)}</td>
-                    <td className="px-3 py-2.5 sticky left-[290px] z-10" style={{ minWidth:220, background:'#100e0a' }}>
+                    <td className="px-3 py-3 text-[11px] sticky left-0 z-10 whitespace-nowrap align-middle" style={{ minWidth:190, background:'#100e0a', color:'rgba(255,255,255,0.7)', fontFamily:'JetBrains Mono, monospace' }}>{formatDateTime(entry.timestamp)}</td>
+                    <td className="px-3 py-3 sticky left-[190px] z-10 align-middle" style={{ minWidth:260, background:'#100e0a' }}>
                       <div className="flex flex-col gap-1">
                         <span className="text-[11px]" style={{ color:'rgba(255,255,255,0.82)' }}>{entry.strategyName}</span>
                         <span className="text-[10px] tracking-widest uppercase" style={{ color: entry.strategyType === 'all' ? '#60a5fa' : entry.strategyType === 'momentum' ? '#52b788' : '#c9a84c', fontFamily:'JetBrains Mono, monospace' }}>{entry.strategyType}</span>
                       </div>
                     </td>
                     {historyColumns.map(column => (
-                      <td key={column.key} className="px-3 py-2.5 text-[11px] align-top" style={{ minWidth:column.minWidth, color:column.color ? column.color(entry) : 'rgba(255,255,255,0.74)', fontFamily:'JetBrains Mono, monospace' }}>
+                      <td key={column.key} className="px-3 py-3 text-[11px] align-middle whitespace-nowrap" style={{ minWidth:column.minWidth, color:column.color ? column.color(entry) : 'rgba(255,255,255,0.74)', fontFamily:'JetBrains Mono, monospace' }}>
                         {column.render(entry)}
                       </td>
                     ))}
-                    <td className="px-3 py-2.5 sticky right-0 z-10 text-right" style={{ minWidth:110, background:'#100e0a' }}>
+                    <td className="px-3 py-3 sticky right-0 z-10 text-right align-middle" style={{ minWidth:110, background:'#100e0a' }}>
                       <button onClick={() => openHistoryPreview(entry)}
                         className="px-3 py-1.5 rounded-lg text-[11px] font-semibold tracking-wider"
                         style={{ background:'rgba(201,168,76,0.12)', border:'1px solid rgba(201,168,76,0.3)', color:'#c9a84c' }}>
@@ -1526,7 +1522,7 @@ function BacktestTab({ active }: { active: boolean }) {
                 ))}
                 {sortedHistory.length === 0 && (
                   <tr>
-                    <td colSpan={historyColumns.length + 4} className="px-4 py-8 text-center text-[11px]" style={{ color:'rgba(255,255,255,0.35)' }}>
+                    <td colSpan={historyColumns.length + 3} className="px-4 py-8 text-center text-[11px]" style={{ color:'rgba(255,255,255,0.35)' }}>
                       No saved backtests yet. Run a backtest and it will appear here automatically.
                     </td>
                   </tr>
@@ -1811,7 +1807,8 @@ function BacktestTab({ active }: { active: boolean }) {
               </div>
 
               <div className="grid grid-cols-2 xl:grid-cols-4 gap-3">
-                <MiniMetric label="Net Profit" value={formatSignedCurrency(previewEntry.netProfitRupees)} valueColor={previewEntry.netProfitRupees >= 0 ? '#52b788' : '#e05a5e'} />
+                <MiniMetric label="Realized Profit" value={formatSignedCurrency(previewEntry.realizedProfitRupees)} valueColor={previewEntry.realizedProfitRupees >= 0 ? '#52b788' : '#e05a5e'} />
+                <MiniMetric label="Open MTM" value={formatSignedCurrency(previewEntry.unrealizedMTM)} valueColor={previewEntry.unrealizedMTM >= 0 ? '#52b788' : '#e05a5e'} />
                 <MiniMetric label="Win Rate" value={previewEntry.winRate === null ? '—' : `${previewEntry.winRate.toFixed(2)}%`} valueColor="#c9a84c" />
                 <MiniMetric label="Closed Trades" value={String(previewEntry.closedTrades)} valueColor="rgba(255,255,255,0.82)" />
                 <MiniMetric label="Open Trades" value={String(previewEntry.openTrades)} valueColor="rgba(255,255,255,0.82)" />
@@ -2150,7 +2147,7 @@ function getBacktestHistoryColumns(view: BacktestHistoryView): BacktestHistoryCo
         },
         {
           key: 'capitalEfficiency',
-          label: 'Capital Efficiency',
+          label: 'Realized Efficiency',
           minWidth: 150,
           render: entry => formatSignedPct(entry.capitalEfficiency),
           color: entry => entry.capitalEfficiency >= 0 ? '#52b788' : '#e05a5e',
@@ -2213,16 +2210,11 @@ function getBacktestHistoryColumns(view: BacktestHistoryView): BacktestHistoryCo
         },
         {
           key: 'entryParams',
-          label: 'Entry Params',
-          minWidth: 280,
-          render: entry => renderConfigSummary(entry.entryParams),
-          color: () => 'rgba(255,255,255,0.62)',
-        },
-        {
-          key: 'exitCriteria',
-          label: 'Exit Criteria',
-          minWidth: 220,
-          render: entry => renderConfigSummary(entry.exitCriteria),
+          label: 'Snapshot',
+          minWidth: 240,
+          render: entry => entry.strategyType === 'all'
+            ? `${entry.strategySnapshots?.length || 0} saved strategies · open in Load preview`
+            : 'Saved setup available in Load preview',
           color: () => 'rgba(255,255,255,0.62)',
         },
         {
@@ -2248,6 +2240,12 @@ function getBacktestHistoryColumns(view: BacktestHistoryView): BacktestHistoryCo
           label: 'Backtest Days',
           minWidth: 120,
           render: entry => entry.backtestDays,
+        },
+        {
+          key: 'openTrades',
+          label: 'Open Trades',
+          minWidth: 110,
+          render: entry => entry.openTrades,
         },
       ]
     case 'overview':
@@ -2279,18 +2277,25 @@ function getBacktestHistoryColumns(view: BacktestHistoryView): BacktestHistoryCo
           render: entry => entry.openTrades,
         },
         {
-          key: 'netProfitRupees',
-          label: 'Net Profit ₹',
-          minWidth: 130,
-          render: entry => formatSignedCurrency(entry.netProfitRupees),
-          color: entry => entry.netProfitRupees >= 0 ? '#52b788' : '#e05a5e',
+          key: 'realizedProfitRupees',
+          label: 'Realized P&L ₹',
+          minWidth: 140,
+          render: entry => formatSignedCurrency(entry.realizedProfitRupees),
+          color: entry => entry.realizedProfitRupees >= 0 ? '#52b788' : '#e05a5e',
         },
         {
-          key: 'netProfitPct',
-          label: 'Net Profit %',
+          key: 'realizedProfitPct',
+          label: 'Realized Return %',
+          minWidth: 150,
+          render: entry => formatSignedPct(entry.realizedProfitPct),
+          color: entry => entry.realizedProfitPct >= 0 ? '#52b788' : '#e05a5e',
+        },
+        {
+          key: 'unrealizedMTM',
+          label: 'Open MTM',
           minWidth: 120,
-          render: entry => formatSignedPct(entry.netProfitPct),
-          color: entry => entry.netProfitPct >= 0 ? '#52b788' : '#e05a5e',
+          render: entry => formatSignedCurrency(entry.unrealizedMTM),
+          color: entry => entry.unrealizedMTM >= 0 ? '#52b788' : '#e05a5e',
         },
         {
           key: 'winRate',

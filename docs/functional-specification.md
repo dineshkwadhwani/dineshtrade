@@ -371,11 +371,12 @@ Fires on the last trading day of the month (after the daily report). Shows: tota
 
 - Every completed Backtest run is automatically appended to persistent server storage at `~/dineshtrade/data/backtest-history.json`.
 - Each saved run stores the timestamp, the strategy snapshot used for the run, exit snapshot, trading-window inputs, and the key summary metrics needed to compare runs later.
-- The Backtest tab shows the saved runs in a horizontally scrollable sortable table. Any column header can be clicked to sort by that field.
-- Every row has a **Load** button. Loading a row restores that run's capital / days inputs and injects the saved strategy snapshot into an editable JSON block so the user can rerun or tweak it without overwriting the current saved strategy config.
+- Settings → Backtest now has two internal tabs: **Backtest** and **Backtest History**.
+- The Backtest History tab shows the saved runs in a sortable comparison table. The Overview tab uses **realized** P&L / return for ranking and summaries; open MTM is shown separately and is not treated as booked profit or loss.
+- Every row has a **Load** button. Clicking it opens a user-friendly preview modal with readable parameter names, descriptions, and values before loading the saved snapshot into the editable Backtest rerun panel.
 - The Backtest tab exposes two history actions:
   - **Reset Tests** — asks for confirmation, then irreversibly clears the history file.
-  - **Analyse Tests** — asks for confirmation, then sends all saved runs to the app's configured AI provider for concise parameter analysis.
+  - **Analyse Tests** — asks for confirmation, then sends all saved runs to the app's configured AI provider for plain-English strategy insights based on **realized** results only.
 - The analysis action is blocked when fewer than 3 runs exist and shows: `Run at least 3 backtests with different parameters before analysing for meaningful insights.`
 
 ### Nuances

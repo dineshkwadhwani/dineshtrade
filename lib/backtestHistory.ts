@@ -42,7 +42,16 @@ interface DiskShape {
 }
 
 const SCHEMA_VERSION = 1
-export const BACKTEST_ANALYSIS_SYSTEM_PROMPT = 'You are a trading strategy analyst. Analyse these backtest results and provide: 1) Overall winner — the single best run by risk-adjusted return (net profit % divided by drawdown %). Show the calculation. 2) Quality Score ranking — rank all runs by net profit % divided by drawdown %, highest to lowest. 3) Parameter sensitivity — for each parameter that varied across runs, show how changing it affected profit and drawdown. Identify which parameters had the most impact. 4) Sweet spot detection — for numeric parameters that have 3 or more different values across runs, identify the optimal value and flag where diminishing returns begin. 5) Consistency check — flag any run where top 3 trades contributed more than 30% of total profit (concentrated = unreliable). 6) Capital efficiency ranking — net profit divided by average deployed capital. 7) Final recommendation — one specific parameter set that balances profit, drawdown, consistency and capital efficiency. Show exactly which values to use and why. Format your response with clear section headers and keep each section concise — maximum 3 sentences per insight.'
+export const BACKTEST_ANALYSIS_SYSTEM_PROMPT = [
+  'You are a trading strategy coach writing for a non-technical retail investor.',
+  'Use only realizedProfitRupees and realizedProfitPct to judge whether a run performed well.',
+  'Treat unrealizedMTM and openTrades as pending exposure only. Never count them as profit or loss when deciding winners, rankings, or recommendations.',
+  'Never mention internal ids or raw JSON keys unless absolutely necessary. Refer to each run using strategyName, timestampLabel, and backtestDays.',
+  'Focus on practical insight: which strategy family is behaving better, which parameter changes seem to help or hurt realized profit, and what the user should test next.',
+  'Write in plain English with short sections and bullets.',
+  'Your response must contain exactly these sections: 1) Executive Summary, 2) Best Performing Strategy Right Now, 3) What Improved Results, 4) What Hurt Results, 5) Suggested Next Backtests.',
+  'In Suggested Next Backtests, provide 3 specific experiments with exact parameter changes and the reason for each.',
+].join(' ')
 
 function historyPath(): string {
   const stateFilePath = process.env.STATE_FILE_PATH || ''
@@ -191,7 +200,7 @@ export function buildBacktestHistoryEntry(input: {
     realizedProfitPct,
     unrealizedMTM: round2(summary.unrealizedPnl),
     winRate: summary.winRate,
-    capitalEfficiency: avgDeployedCapital > 0 ? round2((netProfitRupees / avgDeployedCapital) * 100) : 0,
+    capitalEfficiency: avgDeployedCapital > 0 ? round2((realizedProfitRupees / avgDeployedCapital) * 100) : 0,
     avgDeployedCapital,
     tradePnls,
     strategySnapshot: singleStrategy,
@@ -219,8 +228,13 @@ export async function analyseBacktestHistory(runs: BacktestHistoryEntry[]): Prom
   if (runs.length < 3) throw new Error('Run at least 3 backtests with different parameters before analysing for meaningful insights.')
 
   const payloadRuns = runs.map(run => ({
-    runId: run.runId,
-    timestamp: run.timestamp,
+    timestampLabel: new Date(run.timestamp).toLocaleString('en-IN', {
+      year: 'numeric',
+      month: 'short',
+      day: '2-digit',
+      hour: '2-digit',
+      minute: '2-digit',
+    }),
     strategyName: run.strategyName,
     strategyType: run.strategyType,
     entryParams: run.entryParams,
@@ -233,19 +247,19 @@ export async function analyseBacktestHistory(runs: BacktestHistoryEntry[]): Prom
     openTrades: run.openTrades,
     avgHoldDays: run.avgHoldDays,
     avgDrawdownPct: run.avgDrawdownPct,
-    netProfitRupees: run.netProfitRupees,
-    netProfitPct: run.netProfitPct,
+    totalMtmRupees: run.netProfitRupees,
+    totalMtmPct: run.netProfitPct,
     realizedProfitRupees: run.realizedProfitRupees,
     realizedProfitPct: run.realizedProfitPct,
     unrealizedMTM: run.unrealizedMTM,
     winRate: run.winRate,
-    capitalEfficiency: run.capitalEfficiency,
+    realizedCapitalEfficiency: run.capitalEfficiency,
     avgDeployedCapital: run.avgDeployedCapital,
     tradePnls: run.tradePnls,
   }))
 
   const ai = await callAI({
-    prompt: `${BACKTEST_ANALYSIS_SYSTEM_PROMPT}\n\nAnalyse these stored backtest runs. Data is JSON.\n\n${JSON.stringify(payloadRuns, null, 2)}`,
+    prompt: `${BACKTEST_ANALYSIS_SYSTEM_PROMPT}\n\nAnalyse these stored backtest runs. The data is JSON. Remember: realized profit decides what is working; open MTM does not.\n\n${JSON.stringify(payloadRuns, null, 2)}`,
     maxTokens: 3000,
   })
   if (!ai.ok) {

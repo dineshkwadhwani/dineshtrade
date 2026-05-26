@@ -335,7 +335,7 @@ Centralised wrappers — every caller goes through these. Never make raw HTTP ca
 - Returns summary metrics, per-trade outcomes, and an equity curve for the selected lookback window
 - Backtest output now includes estimated Zerodha-style equity charges. Same-day trades are classified as `intraday`; multi-day trades are classified as `delivery`. Open positions use the last mark price to estimate remaining exit-side charges for net MTM.
 - HTTP surface: `POST /api/strategy/backtest` (authenticated)
-- Current frontend surface: Settings → Backtest tab. It fetches saved strategies from `GET /api/strategies`, lets the user pick a strategy + day window, renders summary/trades/equity inline for both dip and momentum strategies, and persists every completed run into server-side Backtest History. The summary hero uses net-after-charges values, the trade table includes a per-row `Charges` column plus net profit display, and the history table supports reload/reset plus a confirmation-gated analysis call through the configured AI provider.
+- Current frontend surface: Settings → Backtest tab. It fetches saved strategies from `GET /api/strategies`, lets the user pick a strategy + day window, renders summary/trades/equity inline for both dip and momentum strategies, and persists every completed run into server-side Backtest History. The summary hero uses net-after-charges values, the trade table includes a per-row `Charges` column plus net profit display, and the history area is split into a run tab plus a Backtest History tab. The history overview and AI analysis use realized profit / return for comparisons, while unrealized MTM remains a separate exposure metric for open positions.
 
 ### 5.6 `lib/tradeReport.ts` *(new 23 May 2026)*
 
