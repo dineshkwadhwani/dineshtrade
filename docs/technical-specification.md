@@ -332,6 +332,7 @@ Centralised wrappers — every caller goes through these. Never make raw HTTP ca
 - Reuses live strategy inputs: watchlist universe, `strategy.json` dip params, `capital.perTrade`, `maxPositions`, `maxBuysPerSymbol`, and `minDropBetweenBuysPct`
 - Uses daily historical candles only; evaluates signals from day-close vs previous day's EMA, enters at the next trading day's open, and exits at the strategy's saved `t1Pct` / `t2Pct` from entry price (matching the live Strategy 1 monitor)
 - Momentum replay uses 5-minute candles: scans between `scanStartHHMM` and `scanEndHHMM`, checks day-gain / EMA proximity / prorated volume / rising-candle conditions, exits on 5-minute closes at T1 / T2, and hands off aged positions to accumulator-style targets.
+- Live Strategy 2 monitoring now combines `/quote` LTP with the latest completed Kite 5-minute candle per open position. This closes the gap between cron ticks: if the candle high has already crossed T1 or T2 but the current LTP has retreated, the monitor still sends the market SELL immediately and bypasses the normal no-loss gate for that specific already-hit target case.
 - Returns summary metrics, per-trade outcomes, and an equity curve for the selected lookback window
 - Backtest output now includes estimated Zerodha-style equity charges. Same-day trades are classified as `intraday`; multi-day trades are classified as `delivery`. Open positions use the last mark price to estimate remaining exit-side charges for net MTM.
 - HTTP surface: `POST /api/strategy/backtest` (authenticated)

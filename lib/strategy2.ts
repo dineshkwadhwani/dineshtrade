@@ -15,7 +15,7 @@
 // Order tags: 'dt-s2' (BUY), 'dt-s2-exit' (SELL).
 
 import {
-  resolveAccountCreds, getPositions, getOrders, getQuotes, placeKiteOrder,
+  resolveAccountCreds, getPositions, getOrders, getQuotes, placeKiteOrder, getHistoricalCandles,
   type KitePosition, type KiteOrder,
 } from './kite'
 import { runPreflight, markPlaced } from './preflight'
@@ -28,11 +28,37 @@ import {
   listStrategy2Positions, removeStrategy2Position, markTranche1Sold,
   recordStrategy2Buy, ageInCalendarDays,
 } from './strategy2Positions'
+import { getInstrumentTokens } from './instruments'
 
 export const STRATEGY_2_BUY_TAG = 'dt-s2'
 export const STRATEGY_2_SELL_TAG = 'dt-s2-exit'
 
 const HANDOFF_DAYS_DEFAULT = 15   // calendar days from firstBuyAt
+
+function currentIst(): Date {
+  return new Date(new Date().toLocaleString('en-US', { timeZone: 'Asia/Kolkata' }))
+}
+
+function formatKiteDateTime(date: Date): string {
+  const year = date.getFullYear()
+  const month = String(date.getMonth() + 1).padStart(2, '0')
+  const day = String(date.getDate()).padStart(2, '0')
+  const hours = String(date.getHours()).padStart(2, '0')
+  const minutes = String(date.getMinutes()).padStart(2, '0')
+  const seconds = String(date.getSeconds()).padStart(2, '0')
+  return `${year}-${month}-${day} ${hours}:${minutes}:${seconds}`
+}
+
+function latestCompletedFiveMinuteRange(): { from: string; to: string } {
+  const probe = new Date(currentIst().getTime() - 60_000)
+  probe.setSeconds(0, 0)
+  probe.setMinutes(probe.getMinutes() - (probe.getMinutes() % 5))
+  const from = new Date(probe.getTime() - 10 * 60_000)
+  return {
+    from: formatKiteDateTime(from),
+    to: formatKiteDateTime(probe),
+  }
+}
 
 export type MonitorAction = 'sold' | 'sold_failed' | 'held' | 'delivery' | 'skipped'
 
@@ -108,6 +134,8 @@ export async function monitorAccount(account: string): Promise<MonitorResult> {
 
   const symbols = positions.map(p => p.symbol)
   const quotes = await getQuotes(creds, symbols)
+  const instrumentTokens = await getInstrumentTokens(creds, symbols).catch(() => ({} as Record<string, number>))
+  const candleWindow = latestCompletedFiveMinuteRange()
 
   console.log(`[strategy2 monitor] ${account}: ${positions.length} open S2 position(s) — ${symbols.join(', ')}`)
 
@@ -162,25 +190,48 @@ export async function monitorAccount(account: string): Promise<MonitorResult> {
     const t2Price = pos.firstBuyPrice * (1 + t2Pct / 100)
     const gainPct = ((ltp - pos.firstBuyPrice) / pos.firstBuyPrice) * 100
     const tranche1Done = !!pos.tranche1At
+    let recentCompletedHigh: number | null = null
+
+    const token = instrumentTokens[symbol]
+    if (token) {
+      const candles = await getHistoricalCandles(creds, token, candleWindow.from, candleWindow.to, '5minute').catch(() => [])
+      const lastCandle = candles[candles.length - 1]
+      recentCompletedHigh = lastCandle ? lastCandle.high : null
+    }
 
     // Decide what to sell, if anything
     let sellQty = 0
     let sellReason = ''
     let willCompletePosition = false
+    let bypassNoLossSell = false
     if (!tranche1Done && ltp >= t2Price) {
       // LTP jumped past T2 before T1 fired — sell entire position at T2
       sellQty = pos.remainingQty
       sellReason = `LTP ₹${ltp.toFixed(2)} ≥ T2 ₹${t2Price.toFixed(2)} (skipped past T1) — selling entire position`
       willCompletePosition = true
+    } else if (!tranche1Done && recentCompletedHigh !== null && recentCompletedHigh >= t2Price && ltp < t2Price) {
+      sellQty = pos.remainingQty
+      sellReason = `T2 was hit intraday at ₹${recentCompletedHigh.toFixed(2)} but price retreated to ₹${ltp.toFixed(2)} — selling at market`
+      willCompletePosition = true
+      bypassNoLossSell = true
     } else if (!tranche1Done && ltp >= t1Price) {
       // Tranche 1: sell ~50%. Use Math.ceil so a qty of 1 still triggers
       // tranche1 (we never want to leave 0/1 on a tranche).
       sellQty = Math.max(1, Math.floor(pos.remainingQty / 2))
       sellReason = `LTP ₹${ltp.toFixed(2)} ≥ T1 ₹${t1Price.toFixed(2)} — tranche 1 sell (50% of ${pos.remainingQty})`
+    } else if (!tranche1Done && recentCompletedHigh !== null && recentCompletedHigh >= t1Price && ltp < t1Price) {
+      sellQty = Math.max(1, Math.floor(pos.remainingQty / 2))
+      sellReason = `T1 was hit intraday at ₹${recentCompletedHigh.toFixed(2)} but price retreated to ₹${ltp.toFixed(2)} — selling at market`
+      bypassNoLossSell = true
     } else if (tranche1Done && ltp >= t2Price) {
       sellQty = pos.remainingQty
       sellReason = `LTP ₹${ltp.toFixed(2)} ≥ T2 ₹${t2Price.toFixed(2)} — tranche 2 sell (remainder)`
       willCompletePosition = true
+    } else if (tranche1Done && recentCompletedHigh !== null && recentCompletedHigh >= t2Price && ltp < t2Price) {
+      sellQty = pos.remainingQty
+      sellReason = `T2 was hit intraday at ₹${recentCompletedHigh.toFixed(2)} but price retreated to ₹${ltp.toFixed(2)} — selling at market`
+      willCompletePosition = true
+      bypassNoLossSell = true
     }
 
     if (sellQty === 0) {
@@ -196,7 +247,7 @@ export async function monitorAccount(account: string): Promise<MonitorResult> {
     }
 
     // Fire SELL — preflight enforces market/no-short/no-loss
-    const pre = await runPreflight({ account, symbol, side: 'SELL', quantity: sellQty, pricePerShare: ltp })
+    const pre = await runPreflight({ account, symbol, side: 'SELL', quantity: sellQty, pricePerShare: ltp, bypassNoLossSell })
     if (!pre.ok) {
       entries.push({
         account, accountDisplayName: displayName, symbol,

@@ -47,6 +47,7 @@ export default function HoldingsPage() {
   const [activeTab, setActiveTab] = useState<string | null>(null)
   const [loading, setLoading] = useState(false)
   const [error, setError] = useState('')
+  const [lastRefreshedAt, setLastRefreshedAt] = useState<string | null>(null)
   const [margins, setMargins] = useState<MarginsResponse | null>(null)
   const [holdings, setHoldings] = useState<Holding[]>([])
   // Maps "ACCOUNT:SYMBOL" → strategy info from the unified position store.
@@ -142,6 +143,7 @@ export default function HoldingsPage() {
         })
       }
       setPosTags(tagMap)
+      setLastRefreshedAt(new Date().toISOString())
     } catch {
       setError('Failed to load data')
     } finally {
@@ -177,11 +179,23 @@ export default function HoldingsPage() {
           Current <span className="gold-text">Holdings</span>
         </h1>
         {activeTab && (
-          <button onClick={() => load(activeTab)} disabled={loading}
-            className="px-4 py-2 rounded-lg text-[11px] font-medium transition-all"
-            style={{ background:'rgba(201,168,76,0.1)', border:'1px solid rgba(201,168,76,0.2)', color:'#c9a84c' }}>
-            {loading ? '↻ Loading…' : '↻ Refresh'}
-          </button>
+          <div className="flex items-end gap-3 flex-wrap justify-end">
+            {lastRefreshedAt && (
+              <div className="text-right">
+                <p className="text-[9px] tracking-widest uppercase" style={{ color:'rgba(255,255,255,0.28)', fontFamily:'JetBrains Mono, monospace' }}>
+                  Last Refreshed
+                </p>
+                <p className="text-[11px]" style={{ color:'rgba(255,255,255,0.58)', fontFamily:'JetBrains Mono, monospace' }}>
+                  {formatTimestamp(lastRefreshedAt)}
+                </p>
+              </div>
+            )}
+            <button onClick={() => load(activeTab)} disabled={loading}
+              className="px-4 py-2 rounded-lg text-[11px] font-medium transition-all"
+              style={{ background:'rgba(201,168,76,0.1)', border:'1px solid rgba(201,168,76,0.2)', color:'#c9a84c' }}>
+              {loading ? '↻ Loading…' : '↻ Refresh'}
+            </button>
+          </div>
         )}
       </div>
 
@@ -406,6 +420,18 @@ function fmtSignedPct(p: number | null | undefined): string {
   return `${p >= 0 ? '+' : ''}${p.toFixed(2)}%`
 }
 
+
+function formatTimestamp(value: string): string {
+  const dt = new Date(value)
+  if (Number.isNaN(dt.getTime())) return value
+  return dt.toLocaleString('en-IN', {
+    hour: '2-digit',
+    minute: '2-digit',
+    second: '2-digit',
+    day: '2-digit',
+    month: 'short',
+  })
+}
 function fmtPnl(v: number): string {
   const abs = Math.round(Math.abs(v)).toLocaleString('en-IN')
   return v >= 0 ? `+₹${abs}` : `-₹${abs}`

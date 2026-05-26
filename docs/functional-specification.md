@@ -69,6 +69,7 @@ This spec documents the *user-visible* behaviour: what the app does, when, and w
 
 ### F3.2 — Holdings page
 - Lists Kite holdings (multi-day positions held via CNC) for the active account tab.
+- Refresh pulls live quote data after holdings load, recalculates row P&L from that quote snapshot, and shows a visible "Last Refreshed" timestamp for the current account view.
 - Joins with `/api/strategy/positions` to label each row:
   - **S1 (gold)** — managed by Strategy 1 (tracked in `strategy1.json`)
   - **OOS (gray)** — Out Of System; pre-existing or hand-entered, **never** auto-managed
@@ -131,6 +132,7 @@ Strategy 1 has **two trigger paths** — a once-per-day morning scan and a react
   4. LTP within **±3% of 20-day EMA** (not a runaway)
   5. Within the 9:30–14:30 IST scan window
 - **Tranche exits (replaced 19 May):** T1 = entry × (1 + `t1Pct`/100), T2 = entry × (1 + `t2Pct`/100). T1 fires first, sells 50%. T2 fires later, sells remainder. Defaults: T1 = 1.5%, T2 = 2.0%. Both anchored to **first BUY price** (pyramid-aware).
+- On every cron tick, the Strategy 2 exit monitor checks both live LTP and the most recent completed 5-minute candle. If that candle's high already touched T1 or T2 but the current price has fallen back below the target, the matching sell still fires immediately at market so intraday target touches are not missed between cron runs.
 - **Multi-day handoff (replaced the old 3:00 PM cutoff):** Strategy 2 keeps trying its T1/T2 every day until `firstBuyAt` age ≥ `deliveryHandoffDays` (default **15 calendar days**, per-strategy configurable). At handoff the position's `strategyId` is re-stamped to `accumulator` in the unified position store — accumulator's monitor takes over with EMA-based exits, no time limit.
 - **Order tags:** `dt-catalyst` (BUY, new scheme), `dt-s2-exit` (SELL — legacy literal preserved for back-compat).
 
