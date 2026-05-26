@@ -22,6 +22,11 @@ interface Holding {
   day_change_percentage: number
 }
 
+interface QuoteEntry {
+  last_price?: number
+  ohlc?: { close?: number }
+}
+
 function totalQty(h: Holding): number {
   return (h.quantity || 0) + (h.t1_quantity || 0)
 }
@@ -94,7 +99,38 @@ export default function HoldingsPage() {
       if (hRes.error && !mRes.error) {
         setError(hRes.error)
       } else if (Array.isArray(hRes.data)) {
-        setHoldings(hRes.data)
+        const rawHoldings = hRes.data as Holding[]
+        const symbols = Array.from(new Set(rawHoldings
+          .map(item => `${item.exchange || 'NSE'}:${item.tradingsymbol}`)
+          .filter(Boolean)))
+
+        let liveQuotes: Record<string, QuoteEntry> = {}
+        if (symbols.length > 0) {
+          const quoteRes = await fetch(`/api/zerodha?account=${encodeURIComponent(account)}&action=quote&symbols=${encodeURIComponent(symbols.join(','))}`)
+            .then(r => r.json())
+            .catch(() => null)
+          if (quoteRes?.data && typeof quoteRes.data === 'object') {
+            liveQuotes = quoteRes.data as Record<string, QuoteEntry>
+          }
+        }
+
+        const enrichedHoldings = rawHoldings.map(item => {
+          const quoteKey = `${item.exchange || 'NSE'}:${item.tradingsymbol}`
+          const quote = liveQuotes[quoteKey]
+          const liveLtp = Number(quote?.last_price) || item.last_price || 0
+          const prevClose = Number(quote?.ohlc?.close) || item.close_price || 0
+          const qty = totalQty(item)
+          const dayChange = liveLtp - prevClose
+          return {
+            ...item,
+            last_price: liveLtp,
+            day_change: dayChange,
+            day_change_percentage: prevClose > 0 ? (dayChange / prevClose) * 100 : item.day_change_percentage,
+            pnl: qty * (liveLtp - (item.average_price || 0)),
+          }
+        })
+
+        setHoldings(enrichedHoldings)
       }
       const tagMap = new Map<string, { strategyId: string; strategyName: string; strategyColor: string; strategyType?: string }>()
       for (const p of (sRes?.positions || []) as any[]) {
