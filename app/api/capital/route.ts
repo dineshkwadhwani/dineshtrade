@@ -8,11 +8,17 @@ import { cookies } from 'next/headers'
 import { verifySession } from '@/lib/auth'
 import { resolveAccountCreds, kiteRequest, getPositions, getHoldings } from '@/lib/kite'
 import { computeDeployable, getCapital } from '@/lib/strategyConfig'
+import { listJournalDates } from '@/lib/journal'
+import { buildLiveTradeReport } from '@/lib/tradeReport'
 
 export const dynamic = 'force-dynamic'
 
 interface MarginsResponse {
   equity?: { available?: { live_balance?: number; cash?: number } }
+}
+
+function todayYmd(): string {
+  return new Date().toISOString().slice(0, 10)
 }
 
 export async function GET(req: Request) {
@@ -53,10 +59,29 @@ export async function GET(req: Request) {
 
   const snapshot = computeDeployable(available, deployed)
   const capital = getCapital()
+  const liveCapital = Number((available + deployed).toFixed(2))
+
+  let netRealizedPnl = 0
+  let netUnrealizedPnl = 0
+  let netLivePnl = 0
+  try {
+    const journalDates = await listJournalDates()
+    const earliest = [...journalDates].sort()[0] || todayYmd()
+    const report = await buildLiveTradeReport({ fromDate: earliest, toDate: todayYmd(), account })
+    netRealizedPnl = report.summary.netRealizedPnl ?? report.summary.realizedPnl
+    netUnrealizedPnl = report.summary.netUnrealizedPnl ?? report.summary.unrealizedPnl
+    netLivePnl = report.summary.netTotalPnl ?? report.summary.totalPnl
+  } catch {
+    // Best-effort only — capital tile should still render from live broker cash + holdings.
+  }
 
   return NextResponse.json({
     account,
     ...snapshot,
+    liveCapital,
+    netRealizedPnl,
+    netUnrealizedPnl,
+    netLivePnl,
     maxDeployPct: capital.maxDeployPct,
     fetchedAt: new Date().toISOString(),
   }, { headers: { 'Cache-Control': 'no-store' } })

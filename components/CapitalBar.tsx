@@ -8,6 +8,10 @@ interface CapitalSnapshot {
   maxDeployable: number
   deployed: number
   remaining: number
+  liveCapital: number
+  netRealizedPnl: number
+  netUnrealizedPnl: number
+  netLivePnl: number
   maxDeployPct: number
   fetchedAt: string
 }
@@ -39,6 +43,7 @@ export default function CapitalBar({ account }: { account: string | null }) {
   if (!account) return null
 
   const fmt = (n: number) => `₹${Math.round(n).toLocaleString('en-IN')}`
+  const fmtSigned = (n: number) => `${n >= 0 ? '+' : '-'}₹${Math.round(Math.abs(n)).toLocaleString('en-IN')}`
   const dep = snap ? (snap.maxDeployable > 0 ? (snap.deployed / snap.maxDeployable) * 100 : 0) : 0
 
   return (
@@ -74,6 +79,10 @@ export default function CapitalBar({ account }: { account: string | null }) {
           color={dep > 90 ? '#e05a5e' : dep > 75 ? '#f59e0b' : '#52b788'} />
         <Cell label="Reserve" value={snap ? fmt(snap.reserve) : '—'} sub={snap ? `${(100 - snap.maxDeployPct)}% buffer` : ''} color="rgba(255,255,255,0.6)" />
         <Cell label="Remaining deployable" value={snap ? fmt(snap.remaining) : '—'} sub="for new entries" color={snap && snap.remaining > 0 ? '#52b788' : 'rgba(255,255,255,0.4)'} />
+        <Cell label="Net Realized P&L" value={snap ? fmtSigned(snap.netRealizedPnl) : '—'} sub="after trade charges" color={snap && snap.netRealizedPnl >= 0 ? '#52b788' : '#e05a5e'} />
+        <Cell label="Net Unrealized MTM" value={snap ? fmtSigned(snap.netUnrealizedPnl) : '—'} sub="open positions only" color={snap && snap.netUnrealizedPnl >= 0 ? '#52b788' : '#e05a5e'} />
+        <Cell label="Net Live P&L" value={snap ? fmtSigned(snap.netLivePnl) : '—'} sub="realized + unrealized" color={snap && snap.netLivePnl >= 0 ? '#52b788' : '#e05a5e'} />
+        <Cell label="Live Capital" value={snap ? fmt(snap.liveCapital) : '—'} sub="available + deployed" color="rgba(255,255,255,0.82)" />
       </div>
     </div>
   )
