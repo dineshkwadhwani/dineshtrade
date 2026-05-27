@@ -247,7 +247,7 @@ async function runEODSquareOff(): Promise<void> {
       const positions = await listPositions({ account, strategyId: strategy.id })
       if (positions.length === 0) continue
 
-      const symbols = positions.map(p => `NSE:${p.symbol.toUpperCase()}`)
+      const symbols = positions.map(p => p.symbol.toUpperCase())  // getQuotes adds NSE: internally
       const quotes = await getQuotes(creds, symbols)
 
       for (const pos of positions) {
