@@ -6,6 +6,7 @@ export interface AccountDisplay {
   initials: string     // avatar initials (e.g. "DW")
   color: string        // hex color for UI accents
   note: string         // short description
+  reconciliationBase?: number // optional funded-capital base for live capital reconciliation
 }
 
 export interface AccountSecrets {
@@ -44,6 +45,10 @@ export function getAccountList(): AccountDisplay[] {
     })
   }
   return accounts
+}
+
+export function getAccountDisplay(name: string): AccountDisplay | null {
+  return displayByName.get(name) || null
 }
 
 // Server-only. Returns null if either secret env var is missing for this account

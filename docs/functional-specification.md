@@ -155,6 +155,16 @@ Two stacked sections — Recommendations (top) and Full Scan tiles (bottom).
 - Each recommendation shows: symbol, price, T1, T2, stop loss, suggested qty (computed from per-trade cap), reason text, source.
 - In **Manual mode**, each rec has an Execute button. In **Auto mode**, the cron is already firing them; the page is informational.
 
+#### Capital reconciliation strip
+- The Engine header includes a live capital strip sourced from `/api/capital` for the selected account.
+- `Available`, `Overall Deployed`, `Reserve`, and `Remaining Deployable` come directly from the live broker snapshot (`available + deployed`, then the configured deployable % split).
+- `Funded Base` is an account-level configured baseline used only for reconciliation math.
+- `Net Realized P&L` is the charge-aware realized result from journaled trades.
+- `Net Unrealized MTM` is the live open-position/holding MTM across the full current broker book.
+- `Net MTM = Net Realized P&L + Net Unrealized MTM`.
+- `Ledger Adjustment` is the residual needed to reconcile the configured funded base plus Net MTM back to broker-truth live capital. This captures external cashflows or broker-side debits/credits that are not represented in DineshTrade's journal.
+- `Live Capital` remains the broker-truth number and is always `available + deployed`.
+
 #### Full Scan tiles section
 A richer UI layer over the **same** scan logic — no change to the underlying strategies or cron. Surfaces *every* List A stock as a tile so you can see **why** filtered-out stocks didn't make it to recommendations.
 

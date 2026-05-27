@@ -199,6 +199,26 @@ Single Node.js process managed by PM2. Inside:
 
 ### 4.1 Persistent files
 
+#### `config/accounts.json`
+Static account display metadata plus optional reconciliation metadata:
+
+```jsonc
+[
+  {
+    "name": "DINESH",
+    "displayName": "Dinesh Wadhwani",
+    "initials": "DW",
+    "color": "#c9a84c",
+    "note": "Primary trading account",
+    "reconciliationBase": 100002
+  }
+]
+```
+
+- `reconciliationBase` is optional and represents the funded capital baseline for that account after known deposits/withdrawals/charges the user wants treated as principal rather than P&L.
+- `/api/capital` uses this value to compute `reconciliationResidual = liveCapital - (reconciliationBase + livePnl)`.
+- This keeps `liveCapital` broker-sourced while making unexplained broker-side debits/credits visible instead of hiding them inside the capital tile.
+
 #### `data/state.json`
 ```jsonc
 {

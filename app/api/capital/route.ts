@@ -6,6 +6,7 @@
 import { NextResponse } from 'next/server'
 import { cookies } from 'next/headers'
 import { verifySession } from '@/lib/auth'
+import { getAccountDisplay } from '@/lib/accounts'
 import { resolveAccountCreds, kiteRequest, getPositions, getHoldings, getQuotes } from '@/lib/kite'
 import { computeDeployable, getCapital } from '@/lib/strategyConfig'
 import { listJournalDates } from '@/lib/journal'
@@ -82,6 +83,7 @@ export async function GET(req: Request) {
   const snapshot = computeDeployable(available, deployed)
   const capital = getCapital()
   const liveCapital = Number((available + deployed).toFixed(2))
+  const reconciliationBase = Number(getAccountDisplay(account)?.reconciliationBase ?? 0)
 
   let netRealizedPnl = 0
   try {
@@ -93,11 +95,18 @@ export async function GET(req: Request) {
     // Best-effort only — capital tile should still render from live broker cash + holdings.
   }
   const livePnl = Number((netRealizedPnl + liveUnrealizedPnl).toFixed(2))
+  const explainedCapital = reconciliationBase > 0 ? Number((reconciliationBase + livePnl).toFixed(2)) : null
+  const reconciliationResidual = explainedCapital === null
+    ? null
+    : Number((liveCapital - explainedCapital).toFixed(2))
 
   return NextResponse.json({
     account,
     ...snapshot,
     liveCapital,
+    reconciliationBase: reconciliationBase > 0 ? reconciliationBase : null,
+    explainedCapital,
+    reconciliationResidual,
     netRealizedPnl,
     liveUnrealizedPnl,
     livePnl,

@@ -9,6 +9,9 @@ interface CapitalSnapshot {
   deployed: number
   remaining: number
   liveCapital: number
+  reconciliationBase: number | null
+  explainedCapital: number | null
+  reconciliationResidual: number | null
   netRealizedPnl: number
   liveUnrealizedPnl: number
   livePnl: number
@@ -72,16 +75,18 @@ export default function CapitalBar({ account }: { account: string | null }) {
       {error && (
         <p className="text-[11px] px-4 py-2" style={{ color:'rgba(224,90,94,0.85)' }}>✗ {error}</p>
       )}
-      <div className="grid grid-cols-2 sm:grid-cols-4 gap-px" style={{ background:'rgba(255,255,255,0.04)' }}>
+      <div className="grid grid-cols-2 sm:grid-cols-5 gap-px" style={{ background:'rgba(255,255,255,0.04)' }}>
         <Cell label="Available" value={snap ? fmt(snap.available) : '—'} sub="from Kite" color="#c9a84c" />
         <Cell label="Overall Deployed" value={snap ? fmt(snap.deployed) : '—'}
           sub={snap ? `${dep.toFixed(0)}% of cap` : ''}
           color={dep > 90 ? '#e05a5e' : dep > 75 ? '#f59e0b' : '#52b788'} />
         <Cell label="Reserve" value={snap ? fmt(snap.reserve) : '—'} sub={snap ? `${(100 - snap.maxDeployPct)}% buffer` : ''} color="rgba(255,255,255,0.6)" />
         <Cell label="Remaining deployable" value={snap ? fmt(snap.remaining) : '—'} sub="for new entries" color={snap && snap.remaining > 0 ? '#52b788' : 'rgba(255,255,255,0.4)'} />
+        <Cell label="Funded Base" value={snap && snap.reconciliationBase !== null ? fmt(snap.reconciliationBase) : '—'} sub="configured cash base" color="rgba(255,255,255,0.82)" />
         <Cell label="Net Realized P&L" value={snap ? fmtSigned(snap.netRealizedPnl) : '—'} sub="journaled trades after charges" color={snap && snap.netRealizedPnl >= 0 ? '#52b788' : '#e05a5e'} />
-        <Cell label="Live Unrealized MTM" value={snap ? fmtSigned(snap.liveUnrealizedPnl) : '—'} sub="all open holdings + positions" color={snap && snap.liveUnrealizedPnl >= 0 ? '#52b788' : '#e05a5e'} />
-        <Cell label="Live P&L" value={snap ? fmtSigned(snap.livePnl) : '—'} sub="net realized + live unrealized" color={snap && snap.livePnl >= 0 ? '#52b788' : '#e05a5e'} />
+        <Cell label="Net Unrealized MTM" value={snap ? fmtSigned(snap.liveUnrealizedPnl) : '—'} sub="all open holdings + positions" color={snap && snap.liveUnrealizedPnl >= 0 ? '#52b788' : '#e05a5e'} />
+        <Cell label="Net MTM" value={snap ? fmtSigned(snap.livePnl) : '—'} sub="net realized + unrealized" color={snap && snap.livePnl >= 0 ? '#52b788' : '#e05a5e'} />
+        <Cell label="Ledger Adjustment" value={snap && snap.reconciliationResidual !== null ? fmtSigned(snap.reconciliationResidual) : '—'} sub="residual to broker live capital" color={snap && snap.reconciliationResidual !== null ? (snap.reconciliationResidual >= 0 ? '#52b788' : '#e05a5e') : 'rgba(255,255,255,0.4)'} />
         <Cell label="Live Capital" value={snap ? fmt(snap.liveCapital) : '—'} sub="available + deployed" color="rgba(255,255,255,0.82)" />
       </div>
     </div>
