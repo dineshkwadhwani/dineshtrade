@@ -1,4 +1,4 @@
-import { getHistoricalCandles, getQuotes, resolveAccountCreds, type HistoricalCandle, type KiteCreds } from './kite'
+import { getHistoricalCandles, getHoldings, getPositions, kiteRequest, getQuotes, resolveAccountCreds, type HistoricalCandle, type KiteCreds } from './kite'
 import { getInstrumentTokens } from './instruments'
 import { listJournalDates, readJournalRange, type OrderRecord } from './journal'
 import { getStrategies, getStrategyById } from './strategyConfig'
@@ -69,6 +69,43 @@ async function firstConnectedCreds(): Promise<KiteCreds | null> {
     if (resolved.ok) return { apiKey: resolved.apiKey, accessToken: resolved.accessToken }
   }
   return null
+}
+
+interface MarginsResponse {
+  equity?: { available?: { live_balance?: number; cash?: number } }
+}
+
+async function loadLiveCapitalBase(accounts: string[]): Promise<number | null> {
+  const uniqueAccounts = Array.from(new Set(accounts.map(account => account.trim().toUpperCase()).filter(Boolean)))
+  if (uniqueAccounts.length === 0) return null
+
+  const totals = await Promise.all(uniqueAccounts.map(async account => {
+    const resolved = await resolveAccountCreds(account)
+    if (!resolved.ok) return null
+    const creds = { apiKey: resolved.apiKey, accessToken: resolved.accessToken }
+    const [marginsResult, positionsResult, holdingsResult] = await Promise.all([
+      kiteRequest<{ data?: MarginsResponse }>('/user/margins', creds).catch(() => null),
+      getPositions(creds).catch(() => ({ net: [], day: [] })),
+      getHoldings(creds).catch(() => [] as Awaited<ReturnType<typeof getHoldings>>),
+    ])
+
+    const available = Number(marginsResult?.data?.data?.equity?.available?.live_balance ?? marginsResult?.data?.data?.equity?.available?.cash ?? 0)
+    const bySymbol = new Map<string, number>()
+    for (const position of positionsResult.net) {
+      if (position.quantity > 0) bySymbol.set(position.tradingsymbol.toUpperCase(), position.quantity * (position.last_price || 0))
+    }
+    for (const holding of holdingsResult) {
+      const symbol = holding.tradingsymbol.toUpperCase()
+      const heldQty = (holding.quantity || 0) + ((holding as any).t1_quantity || 0)
+      if (!bySymbol.has(symbol) && heldQty > 0) bySymbol.set(symbol, heldQty * (holding.last_price || 0))
+    }
+    const deployed = Array.from(bySymbol.values()).reduce((sum, value) => sum + value, 0)
+    return clampMoney(available + deployed)
+  }))
+
+  const usable = totals.filter((value): value is number => typeof value === 'number' && Number.isFinite(value) && value > 0)
+  if (usable.length === 0) return null
+  return clampMoney(usable.reduce((sum, value) => sum + value, 0))
 }
 
 function minusDays(dateYmd: string, days: number): string {
@@ -251,6 +288,9 @@ export async function buildLiveTradeReport(options: LiveTradeReportOptions): Pro
   const symbols = Array.from(new Set(includedTrades.map(trade => trade.symbol)))
   const closeSeries = await loadDailyCloses(symbols, fromDate, toDate)
   const todayMarks = await loadTodayMarks(symbols, toDate)
+  const liveCapitalBase = await loadLiveCapitalBase(
+    accountFilter ? [accountFilter] : Array.from(new Set(includedTrades.map(trade => trade.account)))
+  )
 
   for (const trade of includedTrades) {
     const soldQty = trade.sellEvents.reduce((sum, event) => sum + event.qty, 0)
@@ -310,7 +350,8 @@ export async function buildLiveTradeReport(options: LiveTradeReportOptions): Pro
     maxDrawdownPct = Math.max(maxDrawdownPct, point.drawdownPct)
   }
 
-  const startingCapital = clampMoney(includedTrades.reduce((sum, trade) => sum + trade.entryValue, 0))
+  const tradeNotionalCapital = clampMoney(includedTrades.reduce((sum, trade) => sum + trade.entryValue, 0))
+  const startingCapital = liveCapitalBase ?? tradeNotionalCapital
   const realizedPnl = clampMoney(includedTrades.reduce((sum, trade) => sum + trade.realizedPnl, 0))
   const unrealizedPnl = clampMoney(includedTrades.reduce((sum, trade) => sum + trade.unrealizedPnl, 0))
   const totalPnl = clampMoney(realizedPnl + unrealizedPnl)

@@ -348,6 +348,7 @@ Centralised wrappers — every caller goes through these. Never make raw HTTP ca
   - carries pre-range open positions forward so exits inside the selected window stay linked correctly
   - filters the final report to rows with actual activity inside the selected range
   - uses daily historical candles to mark open positions and build a daily equity curve
+  - summary capital / return fields use the live total capital base for the selected account scope (`available + deployed`), not just the selected trades' entry notional
 - HTTP surface: `POST /api/trade-report` (authenticated)
 - Current frontend surface: top-level `/trade-report` page with From / To date pickers and the same summary / trades / equity layout as Settings → Backtest.
 

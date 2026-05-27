@@ -93,7 +93,7 @@ export default function TradeReportPage() {
               Real Trade History
             </h2>
             <p className="text-[12px] max-w-3xl" style={{ color:'rgba(255,255,255,0.45)' }}>
-              Pick a date range and replay the actual journaled BUY and SELL legs into the same trade-report format as the backtest screen. Summary values use total entry notional for the included rows, while open trades are marked at the selected To date.
+              Pick a date range and replay the actual journaled BUY and SELL legs into the same trade-report format as the backtest screen. Summary capital and return values use the live total capital base for the selected account scope, while open trades are marked at the selected To date.
             </p>
           </div>
           <button onClick={() => runReport()} disabled={loading || !fromDate || !toDate}

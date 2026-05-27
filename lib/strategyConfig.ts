@@ -154,16 +154,17 @@ export function getStrategyById(id: string): Strategy | null {
 
 export interface DeployableFunds {
   available: number            // raw cash from Zerodha
-  reserve: number              // available × (1 − maxDeployPct/100)
-  maxDeployable: number        // available × maxDeployPct/100
+  reserve: number              // (available + deployed) × (1 − maxDeployPct/100)
+  maxDeployable: number        // (available + deployed) × maxDeployPct/100
   deployed: number             // sum of current open-position values
   remaining: number            // maxDeployable − deployed (clamped to >= 0)
 }
 
 export function computeDeployable(available: number, deployed: number): DeployableFunds {
   const cap = getCapital()
-  const maxDeployable = (available * cap.maxDeployPct) / 100
-  const reserve = available - maxDeployable
+  const totalCapital = available + deployed
+  const maxDeployable = (totalCapital * cap.maxDeployPct) / 100
+  const reserve = totalCapital - maxDeployable
   return {
     available,
     reserve,
