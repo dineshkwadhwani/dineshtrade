@@ -15,7 +15,7 @@
 // Order tags: 'dt-s2' (BUY), 'dt-s2-exit' (SELL).
 
 import {
-  resolveAccountCreds, getPositions, getOrders, getQuotes, placeKiteOrder, getHistoricalCandles,
+  resolveAccountCreds, getPositions, getHoldings, getOrders, getQuotes, placeKiteOrder, getHistoricalCandles,
   type KitePosition, type KiteOrder,
 } from './kite'
 import { runPreflight, markPlaced } from './preflight'
@@ -124,12 +124,18 @@ export async function monitorAccount(account: string): Promise<MonitorResult> {
     return { account, ranAt, positionsChecked: 0, entries: [] }
   }
 
-  // Live Kite positions + holdings → know what's actually held
-  const { day, net } = await getPositions(creds)
+  // Live Kite positions + holdings → know what's actually held.
+  // Holdings must be included so CNC positions carried forward from prior days
+  // are not wrongly treated as zero-qty (which would drop them from the store).
+  const [{ day, net }, holdings] = await Promise.all([getPositions(creds), getHoldings(creds)])
   const liveQtyBySymbol = new Map<string, number>()
   for (const p of [...day, ...net]) {
     const sym = p.tradingsymbol.toUpperCase()
     liveQtyBySymbol.set(sym, (liveQtyBySymbol.get(sym) || 0) + (p.quantity || 0))
+  }
+  for (const h of holdings) {
+    const sym = h.tradingsymbol.toUpperCase()
+    liveQtyBySymbol.set(sym, (liveQtyBySymbol.get(sym) || 0) + (h.quantity || 0))
   }
 
   const symbols = positions.map(p => p.symbol)
