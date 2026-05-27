@@ -229,9 +229,23 @@ export async function runPreflight(input: PreflightInput): Promise<PreflightResu
       kiteGet<{ data?: any[] }>('/portfolio/holdings', apiKey, accessToken),
       kiteGet<{ data?: { net?: any[] } }>('/portfolio/positions', apiKey, accessToken),
     ])
-    const holdingsCount = holdingsJson?.data?.length || 0
-    const netPositions = positionsJson?.data?.net?.filter((p: any) => p.quantity !== 0).length || 0
-    const totalOpen = holdingsCount + netPositions
+    const openSymbols = new Set<string>()
+    const holdings = holdingsJson?.data || []
+    const netPositions = positionsJson?.data?.net || []
+
+    for (const h of holdings) {
+      const heldQty = Number(h?.quantity || 0) + Number(h?.t1_quantity || 0)
+      const symbol = String(h?.tradingsymbol || '').toUpperCase()
+      if (heldQty > 0 && symbol) openSymbols.add(symbol)
+    }
+
+    for (const p of netPositions) {
+      const qty = Number(p?.quantity || 0)
+      const symbol = String(p?.tradingsymbol || '').toUpperCase()
+      if (qty !== 0 && symbol) openSymbols.add(symbol)
+    }
+
+    const totalOpen = openSymbols.size
     const maxOpen = cap.maxPositions
     if (totalOpen >= maxOpen) {
       return { ok: false, gate: 'positions', reason: `${account}: ${totalOpen}/${maxOpen} positions already open` }

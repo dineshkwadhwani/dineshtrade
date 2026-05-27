@@ -68,8 +68,10 @@ This spec documents the *user-visible* behaviour: what the app does, when, and w
 - See Epic 12 for the full Manage Lists UX. Watchlist page UI itself is read-only: dynamic tabs (one per list), search filter, batched live LTPs, green/red colouring.
 
 ### F3.2 — Holdings page
-- Lists Kite holdings (multi-day positions held via CNC) for the active account tab.
+- Lists Kite holdings for the active account tab and now also merges still-open non-zero positions from today's Positions feed into the same table for a consolidated view.
 - Refresh pulls live quote data after holdings load, recalculates row P&L from that quote snapshot, and shows a visible "Last Refreshed" timestamp for the current account view.
+- Same-day supplemental long rows are marked with a `T0` badge. Same-day short rows are marked `T0 SHORT` and render a cover BUY action. Fully closed same-day rows (`qty = 0`) are excluded from this view.
+- The top holdings summary cards remain long-holdings oriented and do not mix same-day short exposure into Invested / Current / Overall P&L totals.
 - Joins with `/api/strategy/positions` to label each row:
   - **S1 (gold)** — managed by Strategy 1 (tracked in `strategy1.json`)
   - **OOS (gray)** — Out Of System; pre-existing or hand-entered, **never** auto-managed

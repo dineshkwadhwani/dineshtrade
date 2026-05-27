@@ -5,7 +5,7 @@
 import { NextResponse } from 'next/server'
 import { cookies } from 'next/headers'
 import { verifySession } from '@/lib/auth'
-import strategyCfg from '@/config/strategy.json'
+import { getCapital } from '@/lib/strategyConfig'
 import { generateRecommendations, runReactiveDipScan } from '@/lib/strategyEngine'
 
 export const dynamic = 'force-dynamic'
@@ -15,6 +15,7 @@ export async function POST() {
   if (!session || !(await verifySession(session))) {
     return NextResponse.json({ error: 'Unauthorized' }, { status: 401 })
   }
+  const capital = getCapital()
 
   // Run the regular mode-based scan AND the reactive dip scan in parallel.
   // Reactive recs (List A stocks intraday-down 3%+ and meeting Strategy 1
@@ -46,8 +47,8 @@ export async function POST() {
       skipReason: reactive.skipReason,
     },
     limits: {
-      buysRemaining: strategyCfg.limits.maxBuysPerDay,
-      sellsRemaining: strategyCfg.limits.maxSellsPerDay,
+      buysRemaining: capital.maxBuysPerDay,
+      sellsRemaining: capital.maxSellsPerDay,
     },
   }, { status: result.mode === 'error' ? 502 : 200 })
 }

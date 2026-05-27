@@ -49,16 +49,23 @@ export default function EnginePage() {
   const [loading, setLoading] = useState(false)
   const [loaded, setLoaded] = useState(false)
   const [todayOrders, setTodayOrders] = useState<KiteOrder[]>([])
+  const [quotaCaps, setQuotaCaps] = useState<{ buyCap: number; sellCap: number }>({ buyCap: 0, sellCap: 0 })
 
   useEffect(() => {
     Promise.all([
       fetch('/api/accounts').then(r => r.json()),
       fetch('/api/state').then(r => r.json()),
-    ]).then(([a, s]) => {
+      fetch('/api/strategies', { cache: 'no-store' }).then(r => r.json()).catch(() => null),
+    ]).then(([a, s, strategiesRes]) => {
       setAccounts(a.accounts || [])
       setConnected(s.accountsWithToken || [])
       setSelected(s.selectedAccounts || [])
       setTradeMode(s.mode === 'auto' ? 'auto' : 'manual')
+      const capital = strategiesRes?.capital
+      setQuotaCaps({
+        buyCap: typeof capital?.maxBuysPerDay === 'number' ? capital.maxBuysPerDay : 0,
+        sellCap: typeof capital?.maxSellsPerDay === 'number' ? capital.maxSellsPerDay : 0,
+      })
     }).catch(() => {})
       .finally(() => setLoaded(true))
   }, [])
@@ -103,6 +110,12 @@ export default function EnginePage() {
       })
       const data = await res.json()
       setScan(data)
+      if (data?.limits) {
+        setQuotaCaps({
+          buyCap: typeof data.limits.buysRemaining === 'number' ? data.limits.buysRemaining : 0,
+          sellCap: typeof data.limits.sellsRemaining === 'number' ? data.limits.sellsRemaining : 0,
+        })
+      }
     } catch {}
     finally { setLoading(false) }
   }
@@ -247,7 +260,12 @@ export default function EnginePage() {
       {/* TODAY'S ACTIVITY — persistent (fetched on mount + after every execute).
           Uses live Kite orders for the first selected account, NOT the config max,
           so the "remaining" numbers actually reflect what was placed. */}
-      <TodayActivity orders={todayOrders} account={selected[0] || connected[0] || null} />
+      <TodayActivity
+        orders={todayOrders}
+        account={selected[0] || connected[0] || null}
+        buyCap={quotaCaps.buyCap}
+        sellCap={quotaCaps.sellCap}
+      />
 
       {/* Available funds — manual-refresh card so you don't have to leave this
           page to know if you can still place trades. */}
@@ -328,7 +346,7 @@ export default function EnginePage() {
 // for the active account and shows the actual today's BUYs / SELLs +
 // remaining-vs-cap. Refreshes on every successful execute.
 
-function TodayActivity({ orders, account }: { orders: KiteOrder[]; account: string | null }) {
+function TodayActivity({ orders, account, buyCap, sellCap }: { orders: KiteOrder[]; account: string | null; buyCap: number; sellCap: number }) {
   // Filter to today's COMPLETE orders only. Kite returns ALL orders since
   // session start (we're already today-scoped via /orders endpoint).
   const completed = orders.filter(o => o.status === 'COMPLETE')
@@ -336,7 +354,6 @@ function TodayActivity({ orders, account }: { orders: KiteOrder[]; account: stri
   const sells = completed.filter(o => o.transaction_type === 'SELL')
   const buyValue = buys.reduce((s, o) => s + o.average_price * (o.filled_quantity ?? o.quantity), 0)
   const sellValue = sells.reduce((s, o) => s + o.average_price * (o.filled_quantity ?? o.quantity), 0)
-  const buyCap = 3, sellCap = 3   // from strategy.json — informational
   const buysLeft = Math.max(0, buyCap - buys.length)
   const sellsLeft = Math.max(0, sellCap - sells.length)
 

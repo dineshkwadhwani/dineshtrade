@@ -1,6 +1,7 @@
 'use client'
 import { useEffect, useState } from 'react'
 import OrderModal from '@/components/OrderModal'
+import type { EnrichedPosition } from '@/app/api/positions/route'
 import { isMarketOpen } from '@/lib/market'
 
 interface AccountDisplay { name: string; displayName: string; initials: string; color: string; note: string }
@@ -20,6 +21,7 @@ interface Holding {
   pnl: number
   day_change: number
   day_change_percentage: number
+  source?: 'holding' | 't0'
 }
 
 interface QuoteEntry {
@@ -29,6 +31,28 @@ interface QuoteEntry {
 
 function totalQty(h: Holding): number {
   return (h.quantity || 0) + (h.t1_quantity || 0)
+}
+
+function positionToHolding(position: EnrichedPosition): Holding {
+  const dayChangePct = position.dayChangePct ?? 0
+  const prevClose = dayChangePct === -100
+    ? position.ltp
+    : position.ltp / (1 + (dayChangePct / 100))
+  const dayChange = position.ltp - prevClose
+  return {
+    tradingsymbol: position.symbol,
+    exchange: position.exchange || 'NSE',
+    product: position.product,
+    quantity: Math.max(0, position.qty),
+    t1_quantity: 0,
+    average_price: position.avgPrice || 0,
+    last_price: position.ltp || 0,
+    close_price: Number.isFinite(prevClose) ? prevClose : position.ltp || 0,
+    pnl: position.unrealized,
+    day_change: Number.isFinite(dayChange) ? dayChange : 0,
+    day_change_percentage: dayChangePct,
+    source: 't0',
+  }
 }
 
 interface MarginsAvailable {
@@ -87,10 +111,11 @@ export default function HoldingsPage() {
     setMargins(null)
     setHoldings([])
     try {
-      const [mRes, hRes, sRes] = await Promise.all([
+      const [mRes, hRes, sRes, pRes] = await Promise.all([
         fetch(`/api/zerodha?account=${encodeURIComponent(account)}&action=margins`).then(r => r.json()),
         fetch(`/api/zerodha?account=${encodeURIComponent(account)}&action=holdings`).then(r => r.json()),
         fetch('/api/strategy/positions').then(r => r.json()).catch(() => ({ positions: [] })),
+        fetch(`/api/positions?account=${encodeURIComponent(account)}&_t=${Date.now()}`, { cache: 'no-store' }).then(r => r.json()).catch(() => ({ positions: [] })),
       ])
       if (mRes.error) {
         setError(mRes.error)
@@ -101,7 +126,8 @@ export default function HoldingsPage() {
         setError(hRes.error)
       } else if (Array.isArray(hRes.data)) {
         const rawHoldings = hRes.data as Holding[]
-        const symbols = Array.from(new Set(rawHoldings
+        const baseHoldings = rawHoldings.filter(item => totalQty(item) > 0)
+        const symbols = Array.from(new Set(baseHoldings
           .map(item => `${item.exchange || 'NSE'}:${item.tradingsymbol}`)
           .filter(Boolean)))
 
@@ -115,7 +141,7 @@ export default function HoldingsPage() {
           }
         }
 
-        const enrichedHoldings = rawHoldings.map(item => {
+        const enrichedHoldings = baseHoldings.map(item => {
           const quoteKey = `${item.exchange || 'NSE'}:${item.tradingsymbol}`
           const quote = liveQuotes[quoteKey]
           const liveLtp = Number(quote?.last_price) || item.last_price || 0
@@ -131,7 +157,17 @@ export default function HoldingsPage() {
           }
         })
 
-        setHoldings(enrichedHoldings)
+        const holdingSymbols = new Set(enrichedHoldings.map(item => item.tradingsymbol.toUpperCase()))
+        const t0Rows = Array.isArray(pRes?.positions)
+          ? (pRes.positions as EnrichedPosition[])
+              .filter(position => position.qty !== 0 && !holdingSymbols.has(position.symbol.toUpperCase()))
+              .map(positionToHolding)
+          : []
+
+        setHoldings(
+          [...enrichedHoldings.map(item => ({ ...item, source: 'holding' as const })), ...t0Rows]
+            .sort((left, right) => left.tradingsymbol.localeCompare(right.tradingsymbol))
+        )
       }
       const tagMap = new Map<string, { strategyId: string; strategyName: string; strategyColor: string; strategyType?: string }>()
       for (const p of (sRes?.positions || []) as any[]) {
@@ -160,7 +196,7 @@ export default function HoldingsPage() {
   const usedMargin = margins?.equity?.utilised?.debits ?? null
   const netEquity = margins?.equity?.net ?? null
 
-  const totals = holdings.reduce(
+  const totals = holdings.filter(h => totalQty(h) > 0).reduce(
     (acc, h) => {
       const q = totalQty(h)
       acc.invested += h.average_price * q
@@ -287,7 +323,10 @@ export default function HoldingsPage() {
                 const pnlColor = h.pnl >= 0 ? '#52b788' : '#e05a5e'
                 const dayColor = h.day_change_percentage >= 0 ? '#52b788' : '#e05a5e'
                 const isT1Only = (h.t1_quantity || 0) > 0 && (h.quantity || 0) === 0
+                const isT0Position = h.source === 't0'
                 const qty = totalQty(h)
+                const isShortPosition = qty < 0
+                const actionQty = Math.abs(qty)
                 const pnlPct = h.average_price > 0 ? ((h.last_price - h.average_price) / h.average_price) * 100 : 0
 
                 const Badge = (
@@ -303,14 +342,14 @@ export default function HoldingsPage() {
                 )
 
                 const BuyBtn = (
-                  <button onClick={() => setOrderModal({ open: true, symbol: h.tradingsymbol, side: 'BUY', ltp: h.last_price, dayChangePct: h.day_change_percentage })}
+                  <button onClick={() => setOrderModal({ open: true, symbol: h.tradingsymbol, side: 'BUY', ltp: h.last_price, initialQty: isShortPosition ? actionQty : undefined, dayChangePct: h.day_change_percentage })}
                     disabled={!market.open} title={!market.open ? 'Market closed' : undefined}
                     className="px-3 py-1.5 rounded text-[10px] font-semibold tracking-wider transition-all disabled:opacity-30 disabled:cursor-not-allowed"
                     style={{ background:'rgba(82,183,136,0.12)', border:'1px solid rgba(82,183,136,0.3)', color:'#52b788', fontFamily:'JetBrains Mono, monospace' }}>
-                    Buy
+                    {isShortPosition ? 'Cover' : 'Buy'}
                   </button>
                 )
-                const SellBtn = (
+                const SellBtn = isShortPosition ? null : (
                   <button onClick={() => setOrderModal({ open: true, symbol: h.tradingsymbol, side: 'SELL', ltp: h.last_price, initialQty: qty, dayChangePct: h.day_change_percentage })}
                     disabled={!market.open} title={!market.open ? 'Market closed' : undefined}
                     className="px-3 py-1.5 rounded text-[10px] font-semibold tracking-wider transition-all disabled:opacity-30 disabled:cursor-not-allowed"
@@ -329,6 +368,10 @@ export default function HoldingsPage() {
                       <div className="min-w-0 flex flex-col gap-1" style={{ fontFamily:'JetBrains Mono, monospace' }}>
                         <div className="flex items-center gap-1.5 flex-wrap">
                           <span className="text-[16px] font-semibold" style={{ color:'rgba(255,255,255,0.9)' }}>{h.tradingsymbol}</span>
+                          {isT0Position && (
+                            <span className="text-[8px] px-1.5 py-0.5 rounded tracking-wider"
+                              style={{ background:'rgba(56,189,248,0.12)', color:'rgba(56,189,248,0.82)', border:'1px solid rgba(56,189,248,0.28)' }}>{isShortPosition ? 'T0 SHORT' : 'T0'}</span>
+                          )}
                           {isT1Only && (
                             <span className="text-[8px] px-1.5 py-0.5 rounded tracking-wider"
                               style={{ background:'rgba(96,165,250,0.12)', color:'rgba(96,165,250,0.8)', border:'1px solid rgba(96,165,250,0.25)' }}>T1</span>
@@ -363,6 +406,10 @@ export default function HoldingsPage() {
                     <div className="hidden sm:grid grid-cols-12 items-center">
                       <div className="col-span-3 flex items-center gap-2 flex-wrap">
                         <span className="font-semibold text-white/85" style={{ fontFamily:'JetBrains Mono, monospace' }}>{h.tradingsymbol}</span>
+                        {isT0Position && (
+                          <span className="text-[8px] px-1.5 py-0.5 rounded tracking-wider"
+                            style={{ background:'rgba(56,189,248,0.12)', color:'rgba(56,189,248,0.82)', border:'1px solid rgba(56,189,248,0.28)', fontFamily:'JetBrains Mono, monospace' }}>{isShortPosition ? 'T0 SHORT' : 'T0'}</span>
+                        )}
                         {isT1Only && (
                           <span className="text-[8px] px-1.5 py-0.5 rounded tracking-wider"
                             style={{ background:'rgba(96,165,250,0.12)', color:'rgba(96,165,250,0.8)', border:'1px solid rgba(96,165,250,0.25)', fontFamily:'JetBrains Mono, monospace' }}>T1</span>
