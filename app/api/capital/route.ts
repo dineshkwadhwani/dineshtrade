@@ -6,7 +6,7 @@
 import { NextResponse } from 'next/server'
 import { cookies } from 'next/headers'
 import { verifySession } from '@/lib/auth'
-import { resolveAccountCreds, kiteRequest, getPositions, getHoldings } from '@/lib/kite'
+import { resolveAccountCreds, kiteRequest, getPositions, getHoldings, getQuotes } from '@/lib/kite'
 import { computeDeployable, getCapital } from '@/lib/strategyConfig'
 import { listJournalDates } from '@/lib/journal'
 import { buildLiveTradeReport } from '@/lib/tradeReport'
@@ -41,47 +41,66 @@ export async function GET(req: Request) {
   const m = marginsResult?.data?.data?.equity?.available
   const available = Number(m?.live_balance ?? m?.cash ?? 0)
 
-  // Deployed = sum of (qty × last_price) across BOTH open positions and holdings.
+  const quoteSymbols = Array.from(new Set([
+    ...positionsResult.net.filter(position => position.quantity > 0).map(position => position.tradingsymbol.toUpperCase()),
+    ...holdingsResult.filter(holding => ((holding.quantity || 0) + ((holding as any).t1_quantity || 0)) > 0).map(holding => holding.tradingsymbol.toUpperCase()),
+  ]))
+  const quotes = quoteSymbols.length > 0
+    ? await getQuotes(creds, quoteSymbols).catch(() => ({} as Awaited<ReturnType<typeof getQuotes>>))
+    : ({} as Awaited<ReturnType<typeof getQuotes>>)
+
+  // Deployed = sum of (qty × live_ltp) across BOTH open positions and holdings.
   // We avoid double-counting by keying on tradingsymbol; positions take priority
-  // because their last_price is slightly more current than holdings'.
-  const bySymbol = new Map<string, number>()
+  // because they represent the same live exposure as today's holdings rows.
+  const bySymbol = new Map<string, { deployed: number; unrealized: number }>()
   for (const p of positionsResult.net) {
-    if (p.quantity > 0) bySymbol.set(p.tradingsymbol.toUpperCase(), p.quantity * (p.last_price || 0))
+    if (p.quantity > 0) {
+      const symbol = p.tradingsymbol.toUpperCase()
+      const liveLtp = Number(quotes[`NSE:${symbol}`]?.last_price) || p.last_price || 0
+      bySymbol.set(symbol, {
+        deployed: p.quantity * liveLtp,
+        unrealized: p.quantity * (liveLtp - (p.average_price || 0)),
+      })
+    }
   }
   for (const h of holdingsResult) {
     const sym = h.tradingsymbol.toUpperCase()
     // Holdings split long qty across `quantity` (T+1 settled) and `t1_quantity`
     // (bought today). Both count for capital-deployed accounting — we own them.
     const heldQty = (h.quantity || 0) + ((h as any).t1_quantity || 0)
-    if (!bySymbol.has(sym) && heldQty > 0) bySymbol.set(sym, heldQty * (h.last_price || 0))
+    if (!bySymbol.has(sym) && heldQty > 0) {
+      const liveLtp = Number(quotes[`NSE:${sym}`]?.last_price) || h.last_price || 0
+      bySymbol.set(sym, {
+        deployed: heldQty * liveLtp,
+        unrealized: heldQty * (liveLtp - (h.average_price || 0)),
+      })
+    }
   }
-  const deployed = Array.from(bySymbol.values()).reduce((s, v) => s + v, 0)
+  const deployed = Number(Array.from(bySymbol.values()).reduce((sum, row) => sum + row.deployed, 0).toFixed(2))
+  const liveUnrealizedPnl = Number(Array.from(bySymbol.values()).reduce((sum, row) => sum + row.unrealized, 0).toFixed(2))
 
   const snapshot = computeDeployable(available, deployed)
   const capital = getCapital()
   const liveCapital = Number((available + deployed).toFixed(2))
 
   let netRealizedPnl = 0
-  let netUnrealizedPnl = 0
-  let netLivePnl = 0
   try {
     const journalDates = await listJournalDates()
     const earliest = [...journalDates].sort()[0] || todayYmd()
     const report = await buildLiveTradeReport({ fromDate: earliest, toDate: todayYmd(), account })
     netRealizedPnl = report.summary.netRealizedPnl ?? report.summary.realizedPnl
-    netUnrealizedPnl = report.summary.netUnrealizedPnl ?? report.summary.unrealizedPnl
-    netLivePnl = report.summary.netTotalPnl ?? report.summary.totalPnl
   } catch {
     // Best-effort only — capital tile should still render from live broker cash + holdings.
   }
+  const livePnl = Number((netRealizedPnl + liveUnrealizedPnl).toFixed(2))
 
   return NextResponse.json({
     account,
     ...snapshot,
     liveCapital,
     netRealizedPnl,
-    netUnrealizedPnl,
-    netLivePnl,
+    liveUnrealizedPnl,
+    livePnl,
     maxDeployPct: capital.maxDeployPct,
     fetchedAt: new Date().toISOString(),
   }, { headers: { 'Cache-Control': 'no-store' } })

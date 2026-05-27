@@ -10,8 +10,8 @@ interface CapitalSnapshot {
   remaining: number
   liveCapital: number
   netRealizedPnl: number
-  netUnrealizedPnl: number
-  netLivePnl: number
+  liveUnrealizedPnl: number
+  livePnl: number
   maxDeployPct: number
   fetchedAt: string
 }
@@ -79,9 +79,9 @@ export default function CapitalBar({ account }: { account: string | null }) {
           color={dep > 90 ? '#e05a5e' : dep > 75 ? '#f59e0b' : '#52b788'} />
         <Cell label="Reserve" value={snap ? fmt(snap.reserve) : '—'} sub={snap ? `${(100 - snap.maxDeployPct)}% buffer` : ''} color="rgba(255,255,255,0.6)" />
         <Cell label="Remaining deployable" value={snap ? fmt(snap.remaining) : '—'} sub="for new entries" color={snap && snap.remaining > 0 ? '#52b788' : 'rgba(255,255,255,0.4)'} />
-        <Cell label="Net Realized P&L" value={snap ? fmtSigned(snap.netRealizedPnl) : '—'} sub="after trade charges" color={snap && snap.netRealizedPnl >= 0 ? '#52b788' : '#e05a5e'} />
-        <Cell label="Net Unrealized MTM" value={snap ? fmtSigned(snap.netUnrealizedPnl) : '—'} sub="open positions only" color={snap && snap.netUnrealizedPnl >= 0 ? '#52b788' : '#e05a5e'} />
-        <Cell label="Net Live P&L" value={snap ? fmtSigned(snap.netLivePnl) : '—'} sub="realized + unrealized" color={snap && snap.netLivePnl >= 0 ? '#52b788' : '#e05a5e'} />
+        <Cell label="Net Realized P&L" value={snap ? fmtSigned(snap.netRealizedPnl) : '—'} sub="journaled trades after charges" color={snap && snap.netRealizedPnl >= 0 ? '#52b788' : '#e05a5e'} />
+        <Cell label="Live Unrealized MTM" value={snap ? fmtSigned(snap.liveUnrealizedPnl) : '—'} sub="all open holdings + positions" color={snap && snap.liveUnrealizedPnl >= 0 ? '#52b788' : '#e05a5e'} />
+        <Cell label="Live P&L" value={snap ? fmtSigned(snap.livePnl) : '—'} sub="net realized + live unrealized" color={snap && snap.livePnl >= 0 ? '#52b788' : '#e05a5e'} />
         <Cell label="Live Capital" value={snap ? fmt(snap.liveCapital) : '—'} sub="available + deployed" color="rgba(255,255,255,0.82)" />
       </div>
     </div>
