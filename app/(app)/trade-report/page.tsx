@@ -81,18 +81,18 @@ export default function TradeReportPage() {
   return (
     <div className="space-y-5 pb-4 max-w-7xl">
       <div className="flex items-center justify-between gap-3 flex-wrap">
-        <h1 className="text-2xl font-light" style={{ fontFamily:'Cormorant Garamond, serif', color:'rgba(255,255,255,0.9)' }}>
+        <h1 className="text-2xl font-light dt-text-primary" style={{ fontFamily:'Cormorant Garamond, serif' }}>
           <span className="gold-text">Trade Report</span>
         </h1>
       </div>
 
-      <div className="rounded-xl p-5" style={{ background:'rgba(255,255,255,0.03)', border:'1px solid rgba(255,255,255,0.08)' }}>
+      <div className="rounded-xl p-5 dt-card">
         <div className="flex items-start justify-between gap-4 flex-wrap">
           <div>
             <h2 className="text-[11px] tracking-widest uppercase mb-2" style={{ color:'rgba(201,168,76,0.6)', fontFamily:'JetBrains Mono, monospace' }}>
               Real Trade History
             </h2>
-            <p className="text-[12px] max-w-3xl" style={{ color:'rgba(255,255,255,0.45)' }}>
+            <p className="text-[12px] max-w-3xl dt-text-muted">
               Pick a date range and inspect the actual journaled BUY and SELL executions for that window. Open rows are marked to the selected To date. Synthetic backtest-style equity curve and drawdown analytics are intentionally excluded here so this page stays grounded in broker-truth trade activity.
             </p>
           </div>
@@ -184,13 +184,13 @@ export default function TradeReportPage() {
         </div>
 
         <div className="flex items-center justify-between gap-3 flex-wrap mt-4">
-          <p className="text-[11px]" style={{ color:'rgba(255,255,255,0.32)' }}>
+          <p className="text-[11px] dt-text-muted">
             Manual and auto trades are both included when their journaled activity falls inside the selected range. Carry-in positions from before the From date stay linked correctly when they partially or fully exit inside the window. Net and charges fields below remain estimated because Zerodha's historical per-leg charge breakdown is not persisted in the journal.
           </p>
         </div>
       </div>
 
-      {!loaded && <p className="text-[11px]" style={{ color:'rgba(255,255,255,0.4)' }}>Loading…</p>}
+      {!loaded && <p className="text-[11px] dt-text-muted">Loading…</p>}
 
       {info && (
         <div className="rounded-lg p-3" style={{ background:'rgba(82,183,136,0.06)', border:'1px solid rgba(82,183,136,0.3)' }}>
@@ -206,7 +206,7 @@ export default function TradeReportPage() {
 
       {result && (
         <div className="space-y-5">
-          <div className="rounded-xl overflow-hidden" style={{ background:'rgba(201,168,76,0.04)', border:'1px solid rgba(201,168,76,0.2)' }}>
+          <div className="rounded-xl overflow-hidden dt-card-gold">
             <div className="px-4 py-2.5" style={{ borderBottom:'1px solid rgba(201,168,76,0.12)' }}>
               <p className="text-[11px] tracking-widest uppercase" style={{ color:'#c9a84c', fontFamily:'JetBrains Mono, monospace' }}>
                 Summary · {result.summary.strategyName}
@@ -240,8 +240,8 @@ export default function TradeReportPage() {
             </div>
             {result.summary.tradesOpen > 0 && (
               <div className="px-4 pb-4">
-                <div className="rounded-lg p-3" style={{ background:'rgba(255,255,255,0.02)', border:'1px solid rgba(255,255,255,0.06)' }}>
-                  <p className="text-[11px]" style={{ color:'rgba(255,255,255,0.45)' }}>
+                <div className="rounded-lg p-3 dt-card">
+                  <p className="text-[11px] dt-text-muted">
                     MTM includes positions still open at the selected To date. Those rows use the end-of-range mark price, while realized sells remain broken out separately above. Net numbers stay estimate-based because the journal does not store Zerodha's historical charge ledger per leg.
                   </p>
                 </div>
@@ -249,21 +249,21 @@ export default function TradeReportPage() {
             )}
           </div>
 
-          <div className="rounded-xl overflow-hidden" style={{ background:'rgba(255,255,255,0.02)', border:'1px solid rgba(255,255,255,0.08)' }}>
-            <div className="px-4 py-2.5 flex items-center justify-between gap-3" style={{ borderBottom:'1px solid rgba(255,255,255,0.06)' }}>
+          <div className="rounded-xl overflow-hidden dt-card">
+            <div className="px-4 py-2.5 flex items-center justify-between gap-3 dt-border-b">
               <p className="text-[11px] tracking-widest uppercase" style={{ color:'rgba(201,168,76,0.6)', fontFamily:'JetBrains Mono, monospace' }}>
                 Trades ({result.trades.length})
               </p>
-              <p className="text-[10px]" style={{ color:'rgba(255,255,255,0.3)' }}>
+              <p className="text-[10px] dt-text-muted">
                 Real journaled executions; open rows are marked to the selected To date.
               </p>
             </div>
             <div className="overflow-x-auto">
               <table className="w-full text-left min-w-[1380px]">
                 <thead>
-                  <tr style={{ background:'rgba(255,255,255,0.02)' }}>
+                  <tr className="dt-table-head">
                     {['Symbol', 'Strategy', 'Signal', 'Entry Price', 'T1 Date', 'T2 Date', 'Exit Price / Mark Price', 'Qty / Remaining', 'Status', 'Gross Realized', 'Charges (Est.)', 'Net Realized (Est.)', 'Hold', 'Reason'].map(h => (
-                      <th key={h} className="px-3 py-2 text-[10px] tracking-widest uppercase font-medium" style={{ color:'rgba(255,255,255,0.35)', fontFamily:'JetBrains Mono, monospace' }}>{h}</th>
+                      <th key={h} className="px-3 py-2 text-[10px] tracking-widest uppercase font-medium" style={{ fontFamily:'JetBrains Mono, monospace' }}>{h}</th>
                     ))}
                   </tr>
                 </thead>
@@ -276,10 +276,10 @@ export default function TradeReportPage() {
                     const realizedPct = trade.entryValue > 0 ? (trade.realizedPnl / trade.entryValue) * 100 : 0
                     const netRealizedPct = trade.entryValue > 0 ? ((trade.netRealizedPnl ?? trade.realizedPnl) / trade.entryValue) * 100 : 0
                     return (
-                      <tr key={`${trade.symbol}-${trade.entryDate}-${index}`} style={{ borderTop:'1px solid rgba(255,255,255,0.05)' }}>
+                      <tr key={`${trade.symbol}-${trade.entryDate}-${index}`} className="dt-table-row">
                         <td className="px-3 py-2.5">
                           <div className="flex items-center gap-2">
-                            <span className="text-[12px] font-medium" style={{ color:'rgba(255,255,255,0.85)' }}>{trade.symbol}</span>
+                            <span className="text-[12px] font-medium dt-text-primary">{trade.symbol}</span>
                             <span className="text-[9px] tracking-widest uppercase px-1.5 py-0.5 rounded"
                               style={{ background: trade.confidence === 'high' ? 'rgba(82,183,136,0.12)' : 'rgba(201,168,76,0.12)', border:`1px solid ${trade.confidence === 'high' ? 'rgba(82,183,136,0.35)' : 'rgba(201,168,76,0.35)'}`, color: trade.confidence === 'high' ? '#52b788' : '#c9a84c', fontFamily:'JetBrains Mono, monospace' }}>
                               {trade.confidence}
@@ -289,26 +289,26 @@ export default function TradeReportPage() {
                         <td className="px-3 py-2.5 text-[11px]" style={{ color:'#60a5fa', fontFamily:'JetBrains Mono, monospace' }}>
                           {trade.strategyName || '—'}
                         </td>
-                        <td className="px-3 py-2.5 text-[11px]" style={{ color:'rgba(255,255,255,0.55)', fontFamily:'JetBrains Mono, monospace' }}>{trade.signalDate}</td>
-                        <td className="px-3 py-2.5 text-[11px]" style={{ color:'rgba(255,255,255,0.75)' }}>
+                        <td className="px-3 py-2.5 text-[11px] dt-text-secondary" style={{ fontFamily:'JetBrains Mono, monospace' }}>{trade.signalDate}</td>
+                        <td className="px-3 py-2.5 text-[11px] dt-text-secondary">
                           <div>{trade.entryDate}</div>
-                          <div style={{ color:'rgba(255,255,255,0.45)' }}>Entry Price</div>
+                          <div className="dt-text-muted">Entry Price</div>
                           <div style={{ color:'#c9a84c', fontFamily:'JetBrains Mono, monospace' }}>{formatCurrency(trade.entryPrice)}</div>
                         </td>
-                        <td className="px-3 py-2.5 text-[11px]" style={{ color:'rgba(255,255,255,0.6)', fontFamily:'JetBrains Mono, monospace' }}>
+                        <td className="px-3 py-2.5 text-[11px] dt-text-secondary" style={{ fontFamily:'JetBrains Mono, monospace' }}>
                           {trade.t1Date || '—'}
                         </td>
-                        <td className="px-3 py-2.5 text-[11px]" style={{ color:'rgba(255,255,255,0.6)', fontFamily:'JetBrains Mono, monospace' }}>
+                        <td className="px-3 py-2.5 text-[11px] dt-text-secondary" style={{ fontFamily:'JetBrains Mono, monospace' }}>
                           {trade.t2Date || '—'}
                         </td>
-                        <td className="px-3 py-2.5 text-[11px]" style={{ color:'rgba(255,255,255,0.75)' }}>
+                        <td className="px-3 py-2.5 text-[11px] dt-text-secondary">
                           <div>{trade.exitDate || 'Open'}</div>
-                          <div style={{ color:'rgba(255,255,255,0.45)' }}>{trade.status === 'closed' ? 'Exit Price' : 'Mark Price'}</div>
+                          <div className="dt-text-muted">{trade.status === 'closed' ? 'Exit Price' : 'Mark Price'}</div>
                           <div style={{ color: trade.status === 'closed' ? '#52b788' : 'rgba(255,255,255,0.65)', fontFamily:'JetBrains Mono, monospace' }}>{formatCurrency(trade.status === 'closed' ? (trade.exitPrice || trade.markPrice) : trade.markPrice)}</div>
                         </td>
-                        <td className="px-3 py-2.5 text-[11px]" style={{ color:'rgba(255,255,255,0.75)', fontFamily:'JetBrains Mono, monospace' }}>
+                        <td className="px-3 py-2.5 text-[11px] dt-text-secondary" style={{ fontFamily:'JetBrains Mono, monospace' }}>
                           <div>{trade.qty}</div>
-                          <div style={{ color:'rgba(255,255,255,0.45)' }}>remaining {trade.remainingQty}</div>
+                          <div className="dt-text-muted">remaining {trade.remainingQty}</div>
                         </td>
                         <td className="px-3 py-2.5">
                           <span className="text-[9px] tracking-widest uppercase px-1.5 py-0.5 rounded"
@@ -332,21 +332,21 @@ export default function TradeReportPage() {
                         <td className="px-3 py-2.5 text-[11px]" style={{ color: grossPnl >= 0 ? '#52b788' : '#e05a5e', fontFamily:'JetBrains Mono, monospace' }}>
                           {trade.realizedPnl !== 0 ? (
                             <>
-                              <div style={{ color:'rgba(255,255,255,0.45)' }}>Profit</div>
+                              <div className="dt-text-muted">Profit</div>
                               <div>{formatSignedCurrency(grossPnl)}</div>
                             </>
                           ) : (
-                            <div style={{ color:'rgba(255,255,255,0.35)' }}>—</div>
+                            <div className="dt-text-muted">—</div>
                           )}
                         </td>
                         <td className="px-3 py-2.5 text-[11px]" style={{ color:'#c9a84c', fontFamily:'JetBrains Mono, monospace' }}>
                           {trade.realizedPnl !== 0 ? (
                             <>
                               <div>{formatCurrency(brokerage)}</div>
-                              <div style={{ color:'rgba(255,255,255,0.45)' }}>{displayStatus === 'closed' ? (trade.chargeModel || 'actual') : `est. ${trade.chargeModel || 'delivery'}`}</div>
+                              <div className="dt-text-muted">{displayStatus === 'closed' ? (trade.chargeModel || 'actual') : `est. ${trade.chargeModel || 'delivery'}`}</div>
                             </>
                           ) : (
-                            <div style={{ color:'rgba(255,255,255,0.35)' }}>—</div>
+                            <div className="dt-text-muted">—</div>
                           )}
                         </td>
                         <td className="px-3 py-2.5 text-[11px]" style={{ color: netPnl >= 0 ? '#52b788' : '#e05a5e', fontFamily:'JetBrains Mono, monospace' }}>
@@ -355,11 +355,11 @@ export default function TradeReportPage() {
                               <div>{formatSignedCurrency(netPnl)}</div>
                             </>
                           ) : (
-                            <div style={{ color:'rgba(255,255,255,0.35)' }}>—</div>
+                            <div className="dt-text-muted">—</div>
                           )}
                         </td>
-                        <td className="px-3 py-2.5 text-[11px]" style={{ color:'rgba(255,255,255,0.55)', fontFamily:'JetBrains Mono, monospace' }}>{trade.holdDays} d</td>
-                        <td className="px-3 py-2.5 text-[11px]" style={{ color:'rgba(255,255,255,0.45)' }}>
+                        <td className="px-3 py-2.5 text-[11px] dt-text-secondary" style={{ fontFamily:'JetBrains Mono, monospace' }}>{trade.holdDays} d</td>
+                        <td className="px-3 py-2.5 text-[11px] dt-text-muted">
                           {trade.setup || `${Math.abs(trade.deviationPct).toFixed(2)}% below EMA · ${trade.downDays} down days · buy #${trade.buyNumber}`}
                         </td>
                       </tr>
@@ -378,8 +378,8 @@ export default function TradeReportPage() {
 
 function Stat({ label, value, color }: { label: string; value: string; color: string }) {
   return (
-    <div className="p-3" style={{ background:'#100e0a' }}>
-      <p className="text-[9px] tracking-widest uppercase mb-1" style={{ color:'rgba(255,255,255,0.3)', fontFamily:'JetBrains Mono, monospace' }}>{label}</p>
+    <div className="p-3 dt-card-inner">
+      <p className="text-[9px] tracking-widest uppercase mb-1 dt-text-muted" style={{ fontFamily:'JetBrains Mono, monospace' }}>{label}</p>
       <p style={{ color, fontFamily:'JetBrains Mono, monospace', fontSize: 15, fontWeight: 600 }}>{value}</p>
     </div>
   )

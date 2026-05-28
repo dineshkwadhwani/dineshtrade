@@ -45,12 +45,12 @@ export default function TradesPage() {
   return (
     <div className="space-y-5 pb-4">
       <div className="flex items-center justify-between flex-wrap gap-3">
-        <h1 className="text-2xl font-light" style={{ fontFamily:'Cormorant Garamond, serif', color:'rgba(255,255,255,0.9)' }}>
+        <h1 className="text-2xl font-light dt-text-primary" style={{ fontFamily:'Cormorant Garamond, serif' }}>
           {view === 'orders'
             ? <>Today's <span className="gold-text">Orders</span></>
             : <span className="gold-text">Retrospective</span>}
         </h1>
-        <div className="flex gap-1 rounded-lg p-1" style={{ background:'rgba(255,255,255,0.03)', border:'1px solid rgba(255,255,255,0.06)' }}>
+        <div className="flex gap-1 rounded-lg p-1 dt-card">
           {[
             { id:'orders' as View, label:"Today's Orders" },
             { id:'retro'  as View, label:'Retrospective' },
@@ -133,8 +133,7 @@ function OrdersView() {
       <div className="flex items-center justify-end">
         {activeTab && (
           <button onClick={() => load(activeTab)} disabled={loading}
-            className="px-4 py-2 rounded-lg text-[11px] font-medium transition-all"
-            style={{ background:'rgba(201,168,76,0.1)', border:'1px solid rgba(201,168,76,0.2)', color:'#c9a84c' }}>
+            className="px-4 py-2 rounded-lg text-[11px] font-medium transition-all dt-card-gold">
             {loading ? '↻ Loading…' : '↻ Refresh'}
           </button>
         )}
@@ -145,11 +144,10 @@ function OrdersView() {
       {activeTab && <FundsCard account={activeTab} />}
 
       {loaded && connected.length === 0 && (
-        <div className="rounded-xl p-6 text-center"
-          style={{ background:'rgba(201,168,76,0.05)', border:'1px solid rgba(201,168,76,0.15)' }}>
+        <div className="rounded-xl p-6 text-center dt-banner-gold">
           <p className="text-4xl mb-3 opacity-20">⚙</p>
           <p className="text-sm mb-1" style={{ color:'rgba(201,168,76,0.7)' }}>No accounts connected</p>
-          <p className="text-[12px]" style={{ color:'rgba(255,255,255,0.4)' }}>Go to Settings, paste today's Kite access token, and Connect.</p>
+          <p className="text-[12px] dt-text-muted">Go to Settings, paste today's Kite access token, and Connect.</p>
         </div>
       )}
 
@@ -162,23 +160,23 @@ function OrdersView() {
               { label:'Capital Used', val:`₹${Math.round(totalBuyValue).toLocaleString('en-IN')}`, color: activeAccount?.color || '#c9a84c' },
               { label:"Day P&L", val: dayPnL >= 0 ? `+₹${Math.round(dayPnL).toLocaleString('en-IN')}` : `-₹${Math.round(Math.abs(dayPnL)).toLocaleString('en-IN')}`, color: dayPnL >= 0 ? '#52b788' : '#e05a5e' },
             ].map(s => (
-              <div key={s.label} className="rounded-xl p-4" style={{ background:'rgba(255,255,255,0.03)', border:'1px solid rgba(255,255,255,0.06)' }}>
-                <p className="text-[9px] tracking-widest uppercase mb-2" style={{ color:'rgba(255,255,255,0.3)', fontFamily:'JetBrains Mono, monospace' }}>{s.label}</p>
+              <div key={s.label} className="rounded-xl p-4 dt-card">
+                <p className="text-[9px] tracking-widest uppercase mb-2 dt-text-muted" style={{ fontFamily:'JetBrains Mono, monospace' }}>{s.label}</p>
                 <p className="text-xl font-semibold" style={{ color:s.color, fontFamily:'JetBrains Mono, monospace' }}>{s.val}</p>
               </div>
             ))}
           </div>
 
           {error && (
-            <div className="rounded-xl p-4" style={{ background:'rgba(224,90,94,0.05)', border:'1px solid rgba(224,90,94,0.2)' }}>
+            <div className="rounded-xl p-4 dt-banner-error">
               <p className="text-sm" style={{ color:'rgba(224,90,94,0.85)' }}>✗ {error}</p>
             </div>
           )}
 
           {orders.length > 0 && (
-            <div className="rounded-xl overflow-hidden" style={{ border:'1px solid rgba(255,255,255,0.06)' }}>
-              <div className="grid grid-cols-6 gap-2 px-4 py-2 text-[9px] tracking-widest uppercase"
-                style={{ background:'rgba(255,255,255,0.02)', color:'rgba(255,255,255,0.25)', fontFamily:'JetBrains Mono, monospace', borderBottom:'1px solid rgba(255,255,255,0.06)' }}>
+            <div className="rounded-xl overflow-hidden dt-card">
+              <div className="grid grid-cols-6 gap-2 px-4 py-2 text-[9px] tracking-widest uppercase dt-table-head"
+                style={{ fontFamily:'JetBrains Mono, monospace' }}>
                 <span>Time</span>
                 <span>Symbol</span>
                 <span className="text-center">Type</span>
@@ -216,7 +214,7 @@ function OrdersView() {
           {!loading && !error && orders.length === 0 && (
             <div className="text-center py-16">
               <p className="text-4xl mb-3 opacity-20">≡</p>
-              <p className="text-base" style={{ fontFamily:'Cormorant Garamond, serif', color:'rgba(255,255,255,0.35)', fontSize:'18px' }}>No orders today</p>
+              <p className="text-base dt-text-muted" style={{ fontFamily:'Cormorant Garamond, serif', fontSize:'18px' }}>No orders today</p>
             </div>
           )}
         </>
@@ -254,11 +252,10 @@ function RetrospectiveView() {
 
   if (dates.length === 0 && !error) {
     return (
-      <div className="rounded-xl p-6 text-center"
-        style={{ background:'rgba(201,168,76,0.05)', border:'1px solid rgba(201,168,76,0.15)' }}>
+      <div className="rounded-xl p-6 text-center dt-banner-gold">
         <p className="text-4xl mb-3 opacity-20">≡</p>
         <p className="text-sm mb-1" style={{ color:'rgba(201,168,76,0.7)' }}>No journal entries yet</p>
-        <p className="text-[12px]" style={{ color:'rgba(255,255,255,0.4)' }}>
+        <p className="text-[12px] dt-text-muted">
           Once Auto mode runs (or a manual trade closes), the day will appear here at 15:35 IST.
         </p>
       </div>
@@ -268,22 +265,19 @@ function RetrospectiveView() {
   return (
     <div className="space-y-5">
       <div className="flex items-center gap-3">
-        <span className="text-[10px] tracking-widest uppercase" style={{ color:'rgba(255,255,255,0.3)', fontFamily:'JetBrains Mono, monospace' }}>
+        <span className="text-[10px] tracking-widest uppercase dt-text-muted" style={{ fontFamily:'JetBrains Mono, monospace' }}>
           Date
         </span>
         <select value={selected || ''} onChange={e => setSelected(e.target.value)}
-          className="px-3 py-2 rounded-lg text-[12px]"
-          style={{
-            background:'rgba(255,255,255,0.03)', border:'1px solid rgba(201,168,76,0.25)',
-            color:'#c9a84c', fontFamily:'JetBrains Mono, monospace',
-          }}>
+          className="px-3 py-2 rounded-lg text-[12px] dt-card"
+          style={{ color:'#c9a84c', fontFamily:'JetBrains Mono, monospace' }}>
           {dates.map(d => <option key={d} value={d} style={{ background:'#100e0a', color:'#c9a84c' }}>{d}</option>)}
         </select>
-        {loading && <span className="text-[10px]" style={{ color:'rgba(255,255,255,0.3)' }}>↻ Loading…</span>}
+        {loading && <span className="text-[10px] dt-text-muted">↻ Loading…</span>}
       </div>
 
       {error && (
-        <div className="rounded-xl p-4" style={{ background:'rgba(224,90,94,0.05)', border:'1px solid rgba(224,90,94,0.2)' }}>
+        <div className="rounded-xl p-4 dt-banner-error">
           <p className="text-sm" style={{ color:'rgba(224,90,94,0.85)' }}>✗ {error}</p>
         </div>
       )}
@@ -330,9 +324,9 @@ function ReportBody({ r }: { r: DailyReport }) {
       {/* ACTIVITY TODAY */}
       {r.activityToday.length > 0 && (
         <Section title={`Activity today (${r.activityToday.length})`}>
-          <div className="rounded-xl overflow-hidden" style={{ background:'#100e0a', border:'1px solid rgba(255,255,255,0.08)' }}>
-            <div className="grid grid-cols-12 px-4 py-2.5 text-[9px] tracking-widest uppercase"
-              style={{ background:'rgba(255,255,255,0.02)', color:'rgba(255,255,255,0.3)', fontFamily:'JetBrains Mono, monospace', borderBottom:'1px solid rgba(255,255,255,0.08)' }}>
+          <div className="rounded-xl overflow-hidden dt-card-inner">
+            <div className="grid grid-cols-12 px-4 py-2.5 text-[9px] tracking-widest uppercase dt-table-head"
+              style={{ fontFamily:'JetBrains Mono, monospace' }}>
               <span className="col-span-2">Time</span>
               <span className="col-span-3">Symbol</span>
               <span className="col-span-2">Side</span>
@@ -341,13 +335,13 @@ function ReportBody({ r }: { r: DailyReport }) {
               <span className="col-span-2 text-right">Tag</span>
             </div>
             {r.activityToday.map((a, i) => (
-              <div key={i} className="grid grid-cols-12 px-4 py-2 items-center text-[11px]"
-                style={{ borderBottom:'1px solid rgba(255,255,255,0.04)', fontFamily:'JetBrains Mono, monospace' }}>
-                <span className="col-span-2" style={{ color:'rgba(255,255,255,0.5)' }}>{a.time}</span>
-                <span className="col-span-3 font-semibold" style={{ color:'rgba(255,255,255,0.85)' }}>{a.symbol}</span>
+              <div key={i} className="grid grid-cols-12 px-4 py-2 items-center text-[11px] dt-table-row"
+                style={{ fontFamily:'JetBrains Mono, monospace' }}>
+                <span className="col-span-2 dt-text-secondary">{a.time}</span>
+                <span className="col-span-3 font-semibold dt-text-primary">{a.symbol}</span>
                 <span className="col-span-2 font-semibold" style={{ color: a.side === 'BUY' ? '#52b788' : '#e05a5e' }}>{a.side === 'BUY' ? '▲ BUY' : '▼ SELL'}</span>
-                <span className="col-span-1 text-right" style={{ color:'rgba(255,255,255,0.6)' }}>× {a.qty}</span>
-                <span className="col-span-2 text-right" style={{ color:'rgba(255,255,255,0.6)' }}>₹{a.price.toFixed(2)}</span>
+                <span className="col-span-1 text-right dt-text-secondary">× {a.qty}</span>
+                <span className="col-span-2 text-right dt-text-secondary">₹{a.price.toFixed(2)}</span>
                 <span className="col-span-2 text-right text-[9px]" style={{ color:'rgba(96,165,250,0.7)' }}>{a.tag || '—'}</span>
               </div>
             ))}
@@ -358,9 +352,9 @@ function ReportBody({ r }: { r: DailyReport }) {
       {/* OPEN POSITIONS */}
       {r.openPositions.length > 0 && (
         <Section title={`Open positions (${r.openPositions.length})`}>
-          <div className="rounded-xl overflow-hidden" style={{ background:'#100e0a', border:'1px solid rgba(255,255,255,0.08)' }}>
-            <div className="grid grid-cols-12 px-4 py-2.5 text-[9px] tracking-widest uppercase"
-              style={{ background:'rgba(255,255,255,0.02)', color:'rgba(255,255,255,0.3)', fontFamily:'JetBrains Mono, monospace', borderBottom:'1px solid rgba(255,255,255,0.08)' }}>
+          <div className="rounded-xl overflow-hidden dt-card-inner">
+            <div className="grid grid-cols-12 px-4 py-2.5 text-[9px] tracking-widest uppercase dt-table-head"
+              style={{ fontFamily:'JetBrains Mono, monospace' }}>
               <span className="col-span-2">Symbol</span>
               <span className="col-span-2">Source</span>
               <span className="col-span-1 text-right">Qty</span>
@@ -373,23 +367,23 @@ function ReportBody({ r }: { r: DailyReport }) {
               const srcColor = p.strategySource === 's1' ? '#c9a84c' : p.strategySource === 's2' ? '#60a5fa' : p.strategySource === 'mixed' ? '#f59e0b' : 'rgba(255,255,255,0.55)'
               const note = [p.pyramidStatus, p.s2HandoffIn !== undefined ? `handoff in ${p.s2HandoffIn}d` : null].filter(Boolean).join(' · ')
               return (
-                <div key={i} className="grid grid-cols-12 px-4 py-2.5 items-center text-[11px]"
-                  style={{ borderBottom:'1px solid rgba(255,255,255,0.04)', fontFamily:'JetBrains Mono, monospace' }}>
-                  <span className="col-span-2 font-semibold" style={{ color:'rgba(255,255,255,0.85)' }}>{p.symbol}</span>
+                <div key={i} className="grid grid-cols-12 px-4 py-2.5 items-center text-[11px] dt-table-row"
+                  style={{ fontFamily:'JetBrains Mono, monospace' }}>
+                  <span className="col-span-2 font-semibold dt-text-primary">{p.symbol}</span>
                   <span className="col-span-2">
                     <span className="text-[8px] font-semibold tracking-widest px-1.5 py-0.5 rounded"
                       style={{ background:`${srcColor}22`, color: srcColor, border:`1px solid ${srcColor}55` }}>
                       {p.strategySource.toUpperCase()}
                     </span>
                   </span>
-                  <span className="col-span-1 text-right" style={{ color:'rgba(255,255,255,0.6)' }}>{p.qty}</span>
-                  <span className="col-span-2 text-right text-[10px]" style={{ color:'rgba(255,255,255,0.6)' }}>
+                  <span className="col-span-1 text-right dt-text-secondary">{p.qty}</span>
+                  <span className="col-span-2 text-right text-[10px] dt-text-secondary">
                     ₹{p.avgPrice.toFixed(2)} → ₹{p.ltp.toFixed(2)}
                   </span>
                   <span className="col-span-2 text-right font-semibold" style={{ color: pnlC }}>
                     {signedRupees(p.pnl)} <span className="text-[9px] opacity-70">({p.pnlPct >= 0 ? '+' : ''}{p.pnlPct.toFixed(2)}%)</span>
                   </span>
-                  <span className="col-span-3 text-right text-[9px]" style={{ color:'rgba(255,255,255,0.4)' }}>{note || '—'}</span>
+                  <span className="col-span-3 text-right text-[9px] dt-text-muted">{note || '—'}</span>
                 </div>
               )
             })}
@@ -418,9 +412,9 @@ function ReportBody({ r }: { r: DailyReport }) {
 
       {r.missedSignals.length > 0 && (
         <Section title={`Missed signals (${r.missedSignals.length})`}>
-          <div className="rounded-xl overflow-hidden" style={{ background:'#100e0a', border:'1px solid rgba(255,255,255,0.08)' }}>
-            <div className="grid grid-cols-12 px-4 py-2.5 text-[9px] tracking-widest uppercase"
-              style={{ background:'rgba(255,255,255,0.02)', color:'rgba(255,255,255,0.3)', fontFamily:'JetBrains Mono, monospace', borderBottom:'1px solid rgba(255,255,255,0.08)' }}>
+          <div className="rounded-xl overflow-hidden dt-card-inner">
+            <div className="grid grid-cols-12 px-4 py-2.5 text-[9px] tracking-widest uppercase dt-table-head"
+              style={{ fontFamily:'JetBrains Mono, monospace' }}>
               <span className="col-span-2">Time</span>
               <span className="col-span-2">Symbol</span>
               <span className="col-span-5">Reason</span>
@@ -433,8 +427,8 @@ function ReportBody({ r }: { r: DailyReport }) {
 
       {r.fineTuning.length > 0 && (
         <Section title="Fine-tuning signals">
-          <div className="rounded-xl p-5" style={{ background:'#100e0a', border:'1px solid rgba(255,255,255,0.08)' }}>
-            <ul className="list-disc pl-5 space-y-2 text-[12px] leading-relaxed" style={{ color:'rgba(255,255,255,0.85)' }}>
+          <div className="rounded-xl p-5 dt-card-inner">
+            <ul className="list-disc pl-5 space-y-2 text-[12px] leading-relaxed dt-text-primary">
               {r.fineTuning.map((b, i) => <li key={i}>{b}</li>)}
             </ul>
           </div>
@@ -444,7 +438,7 @@ function ReportBody({ r }: { r: DailyReport }) {
       {r.trades.length === 0 && r.missedSignals.length === 0 && r.activityToday.length === 0 && r.openPositions.length === 0 && (
         <div className="text-center py-12">
           <p className="text-4xl mb-3 opacity-20">∅</p>
-          <p className="text-base" style={{ fontFamily:'Cormorant Garamond, serif', color:'rgba(255,255,255,0.35)', fontSize:'18px' }}>
+          <p className="text-base dt-text-muted" style={{ fontFamily:'Cormorant Garamond, serif', fontSize:'18px' }}>
             No activity recorded on this date
           </p>
         </div>
@@ -455,10 +449,10 @@ function ReportBody({ r }: { r: DailyReport }) {
 
 function StatCardSub({ label, value, sub, color }: { label: string; value: string; sub: string; color: string }) {
   return (
-    <div className="rounded-xl p-4" style={{ background:'rgba(201,168,76,0.04)', border:'1px solid rgba(201,168,76,0.15)' }}>
-      <p className="text-[9px] tracking-widest uppercase mb-2" style={{ color:'rgba(255,255,255,0.3)', fontFamily:'JetBrains Mono, monospace' }}>{label}</p>
+    <div className="rounded-xl p-4 dt-card-gold">
+      <p className="text-[9px] tracking-widest uppercase mb-2 dt-text-muted" style={{ fontFamily:'JetBrains Mono, monospace' }}>{label}</p>
       <p className="text-xl font-semibold" style={{ color, fontFamily:'JetBrains Mono, monospace' }}>{value}</p>
-      <p className="text-[9px] mt-1" style={{ color:'rgba(255,255,255,0.4)', fontFamily:'JetBrains Mono, monospace' }}>{sub}</p>
+      <p className="text-[9px] mt-1 dt-text-muted" style={{ fontFamily:'JetBrains Mono, monospace' }}>{sub}</p>
     </div>
   )
 }
@@ -467,20 +461,20 @@ function StrategyHealthCardUI({ s }: { s: DailyReport['strategyHealth'][number] 
   const statusColor = !s.active ? 'rgba(255,255,255,0.35)' : s.warning ? '#f59e0b' : '#52b788'
   const lastSignal = s.daysSinceLastSignal === null ? 'never' : s.daysSinceLastSignal === 0 ? 'today' : `${s.daysSinceLastSignal}d ago`
   return (
-    <div className="rounded-xl p-4"
-      style={{ background:'#100e0a', border:`1px solid ${s.warning ? 'rgba(245,158,11,0.3)' : 'rgba(255,255,255,0.08)'}` }}>
+    <div className="rounded-xl p-4 dt-card-inner"
+      style={{ border:`1px solid ${s.warning ? 'rgba(245,158,11,0.3)' : 'rgba(255,255,255,0.08)'}` }}>
       <div className="flex items-center justify-between mb-3">
-        <span className="font-semibold text-[14px]" style={{ color:'rgba(255,255,255,0.85)' }}>{s.name}</span>
+        <span className="font-semibold text-[14px] dt-text-primary">{s.name}</span>
         <span className="text-[9px] font-semibold tracking-widest px-2 py-0.5 rounded"
           style={{ background:`${statusColor}22`, color: statusColor, border:`1px solid ${statusColor}55`, fontFamily:'JetBrains Mono, monospace' }}>
           {s.active ? 'ACTIVE' : 'INACTIVE'}
         </span>
       </div>
       <div className="grid grid-cols-2 sm:grid-cols-4 gap-3 text-[10px]" style={{ fontFamily:'JetBrains Mono, monospace' }}>
-        <div><span style={{ color:'rgba(255,255,255,0.4)' }}>Scans (30d)</span> <span style={{ color:'rgba(255,255,255,0.85)' }}>{s.scans30d}</span></div>
-        <div><span style={{ color:'rgba(255,255,255,0.4)' }}>Signals</span> <span style={{ color:'rgba(255,255,255,0.85)' }}>{s.signals30d}</span></div>
-        <div><span style={{ color:'rgba(255,255,255,0.4)' }}>Executions</span> <span style={{ color:'rgba(255,255,255,0.85)' }}>{s.executions30d}</span></div>
-        <div><span style={{ color:'rgba(255,255,255,0.4)' }}>Last signal</span> <span style={{ color:'rgba(255,255,255,0.85)' }}>{lastSignal}</span></div>
+        <div><span className="dt-text-muted">Scans (30d)</span> <span className="dt-text-primary">{s.scans30d}</span></div>
+        <div><span className="dt-text-muted">Signals</span> <span className="dt-text-primary">{s.signals30d}</span></div>
+        <div><span className="dt-text-muted">Executions</span> <span className="dt-text-primary">{s.executions30d}</span></div>
+        <div><span className="dt-text-muted">Last signal</span> <span className="dt-text-primary">{lastSignal}</span></div>
       </div>
       {s.warning && (
         <div className="mt-3 rounded-md px-3 py-2 text-[11px]"
@@ -503,8 +497,8 @@ function Section({ title, children }: { title: string; children: React.ReactNode
 
 function StatCard({ label, value, color }: { label: string; value: string; color: string }) {
   return (
-    <div className="rounded-xl p-4" style={{ background:'rgba(201,168,76,0.04)', border:'1px solid rgba(201,168,76,0.15)' }}>
-      <p className="text-[9px] tracking-widest uppercase mb-2" style={{ color:'rgba(255,255,255,0.3)', fontFamily:'JetBrains Mono, monospace' }}>{label}</p>
+    <div className="rounded-xl p-4 dt-card-gold">
+      <p className="text-[9px] tracking-widest uppercase mb-2 dt-text-muted" style={{ fontFamily:'JetBrains Mono, monospace' }}>{label}</p>
       <p className="text-xl font-semibold" style={{ color, fontFamily:'JetBrains Mono, monospace' }}>{value}</p>
     </div>
   )
@@ -520,11 +514,11 @@ function TradeCard({ t }: { t: EnrichedTrade }) {
     ? Math.max(0, Math.round((new Date(t.exitTime).getTime() - new Date(t.entryTime).getTime()) / 60000))
     : null
   return (
-    <div className="rounded-xl p-4" style={{ background:'#100e0a', border:'1px solid rgba(255,255,255,0.08)' }}>
+    <div className="rounded-xl p-4 dt-card-inner">
       <div className="flex items-start justify-between mb-3">
         <div>
-          <p className="text-base font-bold" style={{ color:'rgba(255,255,255,0.85)', fontFamily:'JetBrains Mono, monospace' }}>{t.symbol}</p>
-          <p className="text-[10px] mt-0.5" style={{ color:'rgba(255,255,255,0.35)' }}>
+          <p className="text-base font-bold dt-text-primary" style={{ fontFamily:'JetBrains Mono, monospace' }}>{t.symbol}</p>
+          <p className="text-[10px] mt-0.5 dt-text-muted">
             {t.account} · {t.qty} sh · {t.strategy}{heldMin !== null ? ` · ${heldMin} min` : ''}
           </p>
         </div>
@@ -534,15 +528,15 @@ function TradeCard({ t }: { t: EnrichedTrade }) {
         </span>
       </div>
       <div className="grid grid-cols-2 gap-x-4 gap-y-1.5 text-[11px]" style={{ fontFamily:'JetBrains Mono, monospace' }}>
-        <div style={{ color:'rgba(255,255,255,0.55)' }}>Entry <span style={{ color:'rgba(255,255,255,0.85)' }}>₹{t.entryPrice.toFixed(2)}</span></div>
-        <div style={{ color:'rgba(255,255,255,0.55)' }}>Exit <span style={{ color:'rgba(255,255,255,0.85)' }}>₹{t.exitPrice.toFixed(2)}</span></div>
-        <div style={{ color:'rgba(255,255,255,0.55)' }}>P&L <span style={{ color:pnlColor, fontWeight:600 }}>{signedRupees(t.pnlRupees)} ({t.pnlPct >= 0 ? '+' : ''}{t.pnlPct.toFixed(2)}%)</span></div>
-        <div style={{ color:'rgba(255,255,255,0.55)' }}>Day high <span style={{ color:'rgba(255,255,255,0.85)' }}>₹{dayHigh.toFixed(2)}</span></div>
-        <div className="col-span-2" style={{ color:'rgba(255,255,255,0.55)' }}>
+        <div className="dt-text-secondary">Entry <span className="dt-text-primary">₹{t.entryPrice.toFixed(2)}</span></div>
+        <div className="dt-text-secondary">Exit <span className="dt-text-primary">₹{t.exitPrice.toFixed(2)}</span></div>
+        <div className="dt-text-secondary">P&L <span style={{ color:pnlColor, fontWeight:600 }}>{signedRupees(t.pnlRupees)} ({t.pnlPct >= 0 ? '+' : ''}{t.pnlPct.toFixed(2)}%)</span></div>
+        <div className="dt-text-secondary">Day high <span className="dt-text-primary">₹{dayHigh.toFixed(2)}</span></div>
+        <div className="col-span-2 dt-text-secondary">
           Left on table <span style={{ color: leftOnTable > 0 ? '#f59e0b' : 'rgba(255,255,255,0.35)' }}>{leftOnTable > 0 ? `₹${leftOnTable.toFixed(2)}` : '—'}</span>
         </div>
       </div>
-      {t.notes && <p className="text-[10px] mt-3 italic" style={{ color:'rgba(255,255,255,0.35)' }}>{t.notes}</p>}
+      {t.notes && <p className="text-[10px] mt-3 italic dt-text-muted">{t.notes}</p>}
     </div>
   )
 }
@@ -551,18 +545,18 @@ function MissedRow({ m }: { m: EnrichedMissed }) {
   const oColor = m.outcome === 'missed_opportunity' ? '#f59e0b' : m.outcome === 'good_miss' ? '#52b788' : 'rgba(255,255,255,0.55)'
   const oLabel = m.outcome === 'missed_opportunity' ? 'MISSED OPPORTUNITY' : m.outcome === 'good_miss' ? 'GOOD MISS' : 'UNKNOWN'
   return (
-    <div className="grid grid-cols-12 px-4 py-3 items-start text-[11px]"
-      style={{ borderBottom:'1px solid rgba(255,255,255,0.04)', fontFamily:'JetBrains Mono, monospace' }}>
-      <span className="col-span-2" style={{ color:'rgba(255,255,255,0.5)' }}>
+    <div className="grid grid-cols-12 px-4 py-3 items-start text-[11px] dt-table-row"
+      style={{ fontFamily:'JetBrains Mono, monospace' }}>
+      <span className="col-span-2 dt-text-secondary">
         {m.count > 1 ? (
           <>
             <div>{m.firstTime}–{m.lastTime}</div>
-            <div className="text-[9px] mt-0.5" style={{ color:'rgba(255,255,255,0.35)' }}>×{m.count} times</div>
+            <div className="text-[9px] mt-0.5 dt-text-muted">×{m.count} times</div>
           </>
         ) : m.firstTime}
       </span>
-      <span className="col-span-2 font-semibold" style={{ color:'rgba(255,255,255,0.85)' }}>{m.symbol}</span>
-      <span className="col-span-5 text-[10px]" style={{ color:'rgba(255,255,255,0.5)' }}>{m.reasonSkipped}</span>
+      <span className="col-span-2 font-semibold dt-text-primary">{m.symbol}</span>
+      <span className="col-span-5 text-[10px] dt-text-secondary">{m.reasonSkipped}</span>
       <span className="col-span-3 text-right">
         <span className="px-2 py-1 rounded text-[8px] font-semibold tracking-widest"
           style={{ background:`${oColor}22`, color:oColor, border:`1px solid ${oColor}66` }}>
@@ -628,7 +622,7 @@ function AccountTabs({ accounts, connected, active, onSelect, loaded }: {
   onSelect: (n: string) => void
   loaded: boolean
 }) {
-  if (!loaded) return <p className="text-[11px]" style={{ color:'rgba(255,255,255,0.3)' }}>Loading accounts…</p>
+  if (!loaded) return <p className="text-[11px] dt-text-muted">Loading accounts…</p>
   const connectedAccounts = accounts.filter(a => connected.includes(a.name))
   if (connectedAccounts.length === 0) return null
   return (

@@ -45,7 +45,7 @@ export default function FundsCard({ account, compact = false }: { account: strin
   const fmt = (n: number | null) => n === null ? '—' : `₹${Math.round(n).toLocaleString('en-IN')}`
 
   return (
-    <div className="rounded-xl p-4" style={{ background:'rgba(255,255,255,0.03)', border:'1px solid rgba(255,255,255,0.06)' }}>
+    <div className="dt-card rounded-xl p-4">
       <div className="flex items-center justify-between mb-3 flex-wrap gap-2">
         <p className="text-[11px] tracking-widest uppercase"
           style={{ color:'rgba(201,168,76,0.6)', fontFamily:'JetBrains Mono, monospace' }}>
@@ -53,7 +53,7 @@ export default function FundsCard({ account, compact = false }: { account: strin
         </p>
         <div className="flex items-center gap-2">
           {fetchedAt && (
-            <span className="text-[9px]" style={{ color:'rgba(255,255,255,0.3)', fontFamily:'JetBrains Mono, monospace' }}>
+            <span className="dt-text-muted text-[9px]" style={{ fontFamily:'JetBrains Mono, monospace' }}>
               fetched {new Date(fetchedAt).toLocaleTimeString('en-IN', { hour12: false, timeZone: 'Asia/Kolkata' })}
             </span>
           )}
@@ -80,8 +80,8 @@ export default function FundsCard({ account, compact = false }: { account: strin
 
 function FundCell({ label, value, accent, big }: { label: string; value: string; accent: string; big?: boolean }) {
   return (
-    <div className="rounded-lg p-3" style={{ background:'rgba(255,255,255,0.02)', border:'1px solid rgba(255,255,255,0.05)' }}>
-      <p className="text-[9px] tracking-widest uppercase mb-1" style={{ color:'rgba(255,255,255,0.3)', fontFamily:'JetBrains Mono, monospace' }}>{label}</p>
+    <div className="dt-card-inner rounded-lg p-3">
+      <p className="dt-text-muted text-[9px] tracking-widest uppercase mb-1" style={{ fontFamily:'JetBrains Mono, monospace' }}>{label}</p>
       <p style={{ color: accent, fontFamily:'JetBrains Mono, monospace', fontSize: big ? 22 : 16, fontWeight: 600 }}>{value}</p>
     </div>
   )

@@ -140,3 +140,62 @@ html.light .gold-text{background:linear-gradient(135deg,#6b4c0a 0%,#9a720e 35%,#
 .dt-text-primary   { color: var(--dt-text-primary); }
 .dt-text-secondary { color: var(--dt-text-secondary); }
 .dt-text-muted     { color: var(--dt-text-muted); }
+
+/* ─── Light mode inline-style overrides ─────────────────────────────────
+   CSS attribute selectors with !important are the ONLY way to override
+   React inline styles without touching every JSX file. Targets inline
+   style attributes that contain specific color strings.
+   ────────────────────────────────────────────────────────────────────── */
+
+/* 1. Dark card/surface backgrounds → light equivalents */
+html.light [style*="background:#100e0a"],
+html.light [style*="background: #100e0a"]  { background: var(--dt-bg-card)   !important; }
+html.light [style*="background:#080604"],
+html.light [style*="background: #080604"]  { background: var(--dt-bg)         !important; }
+html.light [style*="background:#1a1610"],
+html.light [style*="background: #1a1610"]  { background: var(--dt-bg-card-2)  !important; }
+
+/* 2. White rgba surfaces → subtle grey surface on light bg */
+html.light [style*="background:rgba(255,255,255,0.0"],
+html.light [style*="background: rgba(255,255,255,0.0"] { background: var(--dt-surface) !important; }
+
+/* 3. White rgba borders → dark borders */
+html.light [style*="border:1px solid rgba(255,255,255"],
+html.light [style*="border: 1px solid rgba(255,255,255"],
+html.light [style*="border-bottom:1px solid rgba(255,255,255"],
+html.light [style*="border-bottom: 1px solid rgba(255,255,255"],
+html.light [style*="border-top:1px solid rgba(255,255,255"],
+html.light [style*="border-top: 1px solid rgba(255,255,255"] { border-color: var(--dt-border) !important; }
+
+/* 4. White rgba text → dark text (catch-all for any opacity) */
+html.light [style*="color:rgba(255,255,255"],
+html.light [style*="color: rgba(255,255,255"] { color: var(--dt-text-primary) !important; }
+
+/* 5. Semantic text colors — darken for legibility on light backgrounds */
+/* Green */
+html.light [style*="color:#52b788"],
+html.light [style*="color: #52b788"],
+html.light [style*="color:rgba(82,183,136"],
+html.light [style*="color: rgba(82,183,136"]  { color: #0d7a4e !important; }
+/* Red */
+html.light [style*="color:#e05a5e"],
+html.light [style*="color: #e05a5e"],
+html.light [style*="color:rgba(224,90,94"],
+html.light [style*="color: rgba(224,90,94"]   { color: #b91c1c !important; }
+/* Gold */
+html.light [style*="color:#c9a84c"],
+html.light [style*="color: #c9a84c"],
+html.light [style*="color:rgba(201,168,76"],
+html.light [style*="color: rgba(201,168,76"]  { color: var(--dt-gold-display) !important; }
+/* Blue */
+html.light [style*="color:#60a5fa"],
+html.light [style*="color: #60a5fa"],
+html.light [style*="color:rgba(96,165,250"],
+html.light [style*="color: rgba(96,165,250"]  { color: #1d4ed8 !important; }
+/* Amber */
+html.light [style*="color:rgba(245,158,11"],
+html.light [style*="color: rgba(245,158,11"]  { color: #b45309 !important; }
+
+/* 6. Nav/overlay backgrounds that are rgba dark */
+html.light [style*="background:rgba(8,6,4"],
+html.light [style*="background: rgba(8,6,4"]  { background: var(--dt-bg-nav) !important; }

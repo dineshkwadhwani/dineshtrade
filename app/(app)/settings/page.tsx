@@ -110,7 +110,7 @@ export default function SettingsPage() {
     <div className={`space-y-6 pb-4 ${tab === 'backtest' ? 'max-w-7xl' : 'max-w-2xl'}`}>
       <div className="flex items-center justify-between gap-3">
         <div className="flex items-center gap-3">
-          <h1 className="text-2xl font-light" style={{ fontFamily:'Cormorant Garamond, serif', color:'rgba(255,255,255,0.9)' }}>
+          <h1 className="text-2xl font-light dt-text-primary" style={{ fontFamily:'Cormorant Garamond, serif' }}>
             <span className="gold-text">Settings</span>
           </h1>
           {environment && (
@@ -133,18 +133,14 @@ export default function SettingsPage() {
       </div>
 
       {banner && (
-        <div className="rounded-lg px-4 py-3 text-[12px]"
-          style={{
-            background: banner.ok ? 'rgba(82,183,136,0.08)' : 'rgba(224,90,94,0.08)',
-            border: `1px solid ${banner.ok ? 'rgba(82,183,136,0.3)' : 'rgba(224,90,94,0.3)'}`,
-            color: banner.ok ? '#52b788' : 'rgba(224,90,94,0.9)',
-          }}>
+        <div className={`rounded-lg px-4 py-3 text-[12px] ${banner.ok ? 'dt-banner-green' : 'dt-banner-error'}`}
+          style={{ color: banner.ok ? '#52b788' : 'rgba(224,90,94,0.9)' }}>
           {banner.text}
         </div>
       )}
 
       {/* ── TAB SWITCHER ── */}
-      <div className="flex gap-1 rounded-lg p-1 w-fit" style={{ background:'rgba(255,255,255,0.03)', border:'1px solid rgba(255,255,255,0.06)' }}>
+      <div className="flex gap-1 rounded-lg p-1 w-fit dt-card">
         {([
           { id: 'general',    label: 'Accounts & Trading' },
           { id: 'strategies', label: 'Strategies' },
@@ -177,7 +173,7 @@ export default function SettingsPage() {
       <div style={{ display: tab === 'general' ? 'block' : 'none' }}><>
 
       {/* ── TRADE MODE ── */}
-      <div className="rounded-xl p-5" style={{ background:'rgba(255,255,255,0.03)', border:'1px solid rgba(255,255,255,0.08)' }}>
+      <div className="rounded-xl p-5 dt-card">
         <h2 className="text-[11px] tracking-widest uppercase mb-4"
           style={{ color:'rgba(201,168,76,0.6)', fontFamily:'JetBrains Mono, monospace' }}>
           Trade Mode
@@ -201,7 +197,7 @@ export default function SettingsPage() {
             </button>
           ))}
         </div>
-        <p className="text-[11px] mt-3" style={{ color:'rgba(255,255,255,0.3)' }}>
+        <p className="text-[11px] mt-3 dt-text-muted">
           {mode === 'manual'
             ? 'Manual: recommendations shown with Execute button. You approve each trade.'
             : 'Auto: trades execute automatically every 5 min during market hours.'}
@@ -211,13 +207,12 @@ export default function SettingsPage() {
 
       {/* ── KITE CONNECT SETUP HINT ── */}
       {callbackUrl && (
-        <div className="rounded-lg p-4"
-          style={{ background:'rgba(201,168,76,0.04)', border:'1px solid rgba(201,168,76,0.12)' }}>
+        <div className="rounded-lg p-4 dt-card-gold">
           <p className="text-[10px] tracking-widest uppercase mb-2"
             style={{ color:'rgba(201,168,76,0.5)', fontFamily:'JetBrains Mono, monospace' }}>
             One-time setup
           </p>
-          <p className="text-[11px] mb-2" style={{ color:'rgba(255,255,255,0.5)' }}>
+          <p className="text-[11px] mb-2 dt-text-secondary">
             Set this as the <strong>Redirect URL</strong> in each Kite Connect app at developers.kite.trade:
           </p>
           <div className="flex items-center gap-2">
@@ -226,8 +221,8 @@ export default function SettingsPage() {
               {callbackUrl}
             </code>
             <button onClick={copyCallbackUrl}
-              className="px-3 py-2 rounded text-[10px] tracking-wider uppercase"
-              style={{ background:'rgba(201,168,76,0.1)', border:'1px solid rgba(201,168,76,0.25)', color:'#c9a84c' }}>
+              className="px-3 py-2 rounded text-[10px] tracking-wider uppercase dt-card-gold"
+              style={{ color:'#c9a84c' }}>
               Copy
             </button>
           </div>
@@ -235,13 +230,13 @@ export default function SettingsPage() {
       )}
 
       {/* ── ACCOUNTS ── */}
-      <div className="rounded-xl p-5" style={{ background:'rgba(255,255,255,0.03)', border:'1px solid rgba(255,255,255,0.08)' }}>
+      <div className="rounded-xl p-5 dt-card">
         <h2 className="text-[11px] tracking-widest uppercase mb-4"
           style={{ color:'rgba(201,168,76,0.6)', fontFamily:'JetBrains Mono, monospace' }}>
           Zerodha Accounts
         </h2>
 
-        {!loaded && <p className="text-[11px]" style={{ color:'rgba(255,255,255,0.3)' }}>Loading…</p>}
+        {!loaded && <p className="text-[11px] dt-text-muted">Loading…</p>}
 
         {loaded && accounts.length === 0 && (
           <p className="text-[11px]" style={{ color:'rgba(224,90,94,0.7)' }}>
@@ -265,7 +260,7 @@ export default function SettingsPage() {
                   </div>
                   <div className="flex-1 min-w-0">
                     <p className="text-sm font-medium text-white/85">{acc.displayName}</p>
-                    {acc.note && <p className="text-[10px]" style={{ color:'rgba(255,255,255,0.3)' }}>{acc.note}</p>}
+                    {acc.note && <p className="text-[10px] dt-text-muted">{acc.note}</p>}
                   </div>
                   <div className="flex items-center gap-1.5 px-2.5 py-1 rounded-full text-[10px] font-medium"
                     style={{
@@ -296,12 +291,8 @@ export default function SettingsPage() {
                     <button
                       onClick={() => disconnect(acc.name)}
                       disabled={busy[acc.name]}
-                      className="px-3 py-2.5 rounded-lg text-[11px] font-medium transition-all disabled:opacity-40"
-                      style={{
-                        background:'rgba(224,90,94,0.08)',
-                        border:'1px solid rgba(224,90,94,0.2)',
-                        color:'rgba(224,90,94,0.7)',
-                      }}>
+                      className="px-3 py-2.5 rounded-lg text-[11px] font-medium transition-all disabled:opacity-40 dt-banner-error"
+                      style={{ color:'rgba(224,90,94,0.7)' }}>
                       Disconnect
                     </button>
                   )}
@@ -311,18 +302,18 @@ export default function SettingsPage() {
           })}
         </div>
 
-        <p className="text-[10px] mt-3" style={{ color:'rgba(255,255,255,0.25)' }}>
+        <p className="text-[10px] mt-3 dt-text-muted">
           Tokens expire at 6 AM IST next day — re-login each morning. Token never touches the browser; stored server-side in your session.
         </p>
 
         {accounts.length > 1 && (
-          <div className="rounded-lg p-3 mt-3" style={{ background:'rgba(255,255,255,0.02)', border:'1px solid rgba(255,255,255,0.05)' }}>
-            <p className="text-[11px] mb-2" style={{ color:'rgba(255,255,255,0.5)' }}>
+          <div className="rounded-lg p-3 mt-3 dt-card">
+            <p className="text-[11px] mb-2 dt-text-secondary">
               Switching between accounts? Kite reuses your browser session — log out of the current Kite user first:
             </p>
             <a href="https://kite.zerodha.com/logout" target="_blank" rel="noopener noreferrer"
-              className="inline-block px-3 py-1.5 rounded-lg text-[11px] font-medium tracking-wider transition-all"
-              style={{ background:'rgba(201,168,76,0.08)', border:'1px solid rgba(201,168,76,0.25)', color:'#c9a84c' }}>
+              className="inline-block px-3 py-1.5 rounded-lg text-[11px] font-medium tracking-wider transition-all dt-card-gold"
+              style={{ color:'#c9a84c' }}>
               ↗ Logout of Zerodha (new tab)
             </a>
           </div>
@@ -330,7 +321,7 @@ export default function SettingsPage() {
       </div>
 
       {/* ── STRATEGY RULES (read-only) ── */}
-      <div className="rounded-xl p-5" style={{ background:'rgba(255,255,255,0.03)', border:'1px solid rgba(255,255,255,0.08)' }}>
+      <div className="rounded-xl p-5 dt-card">
         <h2 className="text-[11px] tracking-widest uppercase mb-4"
           style={{ color:'rgba(201,168,76,0.6)', fontFamily:'JetBrains Mono, monospace' }}>
           Strategy Rules (Fixed — Read Only)
@@ -351,9 +342,8 @@ export default function SettingsPage() {
             ['Circuit Breaker', 'GIFT Nifty −5%'],
             ['Order Type', 'CNC / Market'],
           ].map(([k,v]) => (
-            <div key={k} className="flex justify-between items-center py-2 px-3 rounded-lg"
-              style={{ background:'rgba(255,255,255,0.02)' }}>
-              <span className="text-[11px]" style={{ color:'rgba(255,255,255,0.35)' }}>{k}</span>
+            <div key={k} className="flex justify-between items-center py-2 px-3 rounded-lg dt-surface">
+              <span className="text-[11px] dt-text-muted">{k}</span>
               <span className="text-[11px] font-medium"
                 style={{ color:'rgba(201,168,76,0.7)', fontFamily:'JetBrains Mono, monospace' }}>{v}</span>
             </div>
@@ -366,7 +356,7 @@ export default function SettingsPage() {
 
       </></div>
 
-      <p className="text-[10px] text-center" style={{ color:'rgba(255,255,255,0.2)' }}>
+      <p className="text-[10px] text-center dt-text-muted">
         Settings persist until logout · Closing the browser does not log you out · Only Logout clears the session
       </p>
     </div>
@@ -723,17 +713,16 @@ function ResetSection({ connected }: { connected: string[] }) {
   const canConfirm = confirmText === 'RESET' && !busy
 
   return (
-    <div className="rounded-xl p-5 mt-4" style={{ background: 'rgba(224,90,94,0.04)', border: '1px solid rgba(224,90,94,0.2)' }}>
+    <div className="rounded-xl p-5 mt-4 dt-banner-error">
       <h2 className="text-[11px] tracking-widest uppercase mb-1" style={{ color: 'rgba(224,90,94,0.7)', ...mono }}>Danger Zone</h2>
-      <p className="text-[11px] mb-4" style={{ color: 'rgba(255,255,255,0.4)' }}>
+      <p className="text-[11px] mb-4 dt-text-muted">
         Wipes all journal history and position data for the selected account, then re-imports current Kite holdings as Accumulator positions. Opening capital is recalculated from live Kite data.
       </p>
 
       <div className="flex items-center gap-3 flex-wrap">
         {/* Account picker */}
         <select value={effectiveAccount} onChange={e => setAccount(e.target.value)}
-          className="px-3 py-1.5 rounded-md text-[11px] outline-none"
-          style={{ background: 'rgba(255,255,255,0.05)', border: '1px solid rgba(255,255,255,0.12)', color: 'rgba(255,255,255,0.7)', ...mono }}>
+          className="px-3 py-1.5 rounded-md text-[11px] outline-none dt-card dt-text-secondary" style={{ ...mono }}>
           {connected.map(a => <option key={a} value={a}>{a}</option>)}
         </select>
 
@@ -745,7 +734,7 @@ function ResetSection({ connected }: { connected: string[] }) {
       </div>
 
       {result && (
-        <div className="mt-3 p-3 rounded-md text-[11px]" style={{ background: 'rgba(82,183,136,0.08)', border: '1px solid rgba(82,183,136,0.25)', color: '#52b788', ...mono }}>
+        <div className="mt-3 p-3 rounded-md text-[11px] dt-banner-green" style={{ color: '#52b788', ...mono }}>
           Reset complete · {result.journalRecordsRemoved} journal records removed · {result.seeded.length} position{result.seeded.length !== 1 ? 's' : ''} re-seeded as Accumulator
           {result.seeded.length > 0 && (
             <div className="mt-1 flex flex-wrap gap-x-3 gap-y-0.5" style={{ color: 'rgba(82,183,136,0.7)' }}>
@@ -762,12 +751,12 @@ function ResetSection({ connected }: { connected: string[] }) {
       {/* Confirmation modal */}
       {showModal && (
         <div className="fixed inset-0 z-50 flex items-center justify-center" style={{ background: 'rgba(0,0,0,0.7)' }}>
-          <div className="rounded-xl p-6 w-[400px] space-y-4" style={{ background: '#111', border: '1px solid rgba(224,90,94,0.4)' }}>
+          <div className="rounded-xl p-6 w-[400px] space-y-4 dt-card-inner" style={{ border: '1px solid rgba(224,90,94,0.4)' }}>
             <h3 className="text-[13px] font-semibold" style={{ color: '#e05a5e', ...mono }}>Confirm Account Reset</h3>
-            <p className="text-[11px]" style={{ color: 'rgba(255,255,255,0.5)' }}>
-              This will permanently delete all journal history for <span style={{ color: 'rgba(255,255,255,0.8)' }}>{effectiveAccount}</span> and re-import current Kite positions as Accumulator entries. This cannot be undone.
+            <p className="text-[11px] dt-text-secondary">
+              This will permanently delete all journal history for <span className="dt-text-primary">{effectiveAccount}</span> and re-import current Kite positions as Accumulator entries. This cannot be undone.
             </p>
-            <p className="text-[11px]" style={{ color: 'rgba(255,255,255,0.4)' }}>
+            <p className="text-[11px] dt-text-muted">
               Type <span style={{ color: '#e05a5e' }}>RESET</span> to confirm:
             </p>
             <input
@@ -776,13 +765,13 @@ function ResetSection({ connected }: { connected: string[] }) {
               onChange={e => setConfirmText(e.target.value)}
               onKeyDown={e => { if (e.key === 'Enter' && canConfirm) doReset() }}
               placeholder="RESET"
-              className="w-full px-3 py-2 rounded-md text-[12px] outline-none"
-              style={{ background: 'rgba(255,255,255,0.05)', border: '1px solid rgba(255,255,255,0.15)', color: '#fff', ...mono }}
+              className="w-full px-3 py-2 rounded-md text-[12px] outline-none dt-card"
+              style={{ color: '#fff', ...mono }}
             />
             <div className="flex gap-2 justify-end">
               <button onClick={() => { setShowModal(false); setConfirmText('') }}
-                className="px-4 py-1.5 rounded-md text-[11px]"
-                style={{ background: 'rgba(255,255,255,0.05)', border: '1px solid rgba(255,255,255,0.1)', color: 'rgba(255,255,255,0.6)', ...mono }}>
+                className="px-4 py-1.5 rounded-md text-[11px] dt-card dt-text-secondary"
+                style={{ ...mono }}>
                 Cancel
               </button>
               <button onClick={doReset} disabled={!canConfirm}
@@ -835,11 +824,11 @@ function StrategiesTab({ autoModeOn }: { autoModeOn: boolean }) {
   }, [])
 
   if (error) return (
-    <div className="rounded-lg p-3" style={{ background:'rgba(224,90,94,0.06)', border:'1px solid rgba(224,90,94,0.25)' }}>
+    <div className="rounded-lg p-3 dt-banner-error">
       <p className="text-[12px]" style={{ color:'rgba(224,90,94,0.9)' }}>✗ {error}</p>
     </div>
   )
-  if (!source || !draft) return <p className="text-[11px]" style={{ color:'rgba(255,255,255,0.4)' }}>Loading…</p>
+  if (!source || !draft) return <p className="text-[11px] dt-text-muted">Loading…</p>
 
   const dirty = JSON.stringify({ capital: source.capital, strategies: source.strategies }) !== JSON.stringify(draft)
   const diffLines = dirty ? buildDiff(source, draft) : []
@@ -961,14 +950,14 @@ function StrategiesTab({ autoModeOn }: { autoModeOn: boolean }) {
         </div>
       )}
       {okMsg && (
-        <div className="rounded-lg p-3" style={{ background:'rgba(82,183,136,0.06)', border:'1px solid rgba(82,183,136,0.3)' }}>
+        <div className="rounded-lg p-3 dt-banner-green">
           <p className="text-[12px]" style={{ color:'#52b788' }}>✓ {okMsg}</p>
         </div>
       )}
 
       {/* CAPITAL BLOCK — editable */}
-      <div className="rounded-xl overflow-hidden" style={{ background:'rgba(201,168,76,0.04)', border:'1px solid rgba(201,168,76,0.2)' }}>
-        <div className="px-4 py-2.5" style={{ borderBottom:'1px solid rgba(201,168,76,0.12)' }}>
+      <div className="rounded-xl overflow-hidden dt-card-gold">
+        <div className="px-4 py-2.5 dt-border-b">
           <p className="text-[11px] tracking-widest uppercase" style={{ color:'#c9a84c', fontFamily:'JetBrains Mono, monospace' }}>
             Shared Capital · applies to all strategies
           </p>
@@ -988,7 +977,7 @@ function StrategiesTab({ autoModeOn }: { autoModeOn: boolean }) {
           <NumField label="Min Drop Between BUYs" value={draft.capital.minDropBetweenBuysPct} onChange={v => patchCapital({ minDropBetweenBuysPct: v })} desc={CAPITAL_DESCRIPTIONS.minDropBetweenBuysPct} suffix="%" disabled={locked} />
         </div>
         {funds && (
-          <div className="grid grid-cols-2 sm:grid-cols-4 gap-px" style={{ background:'rgba(255,255,255,0.04)', borderTop:'1px solid rgba(201,168,76,0.12)' }}>
+          <div className="grid grid-cols-2 sm:grid-cols-4 gap-px dt-surface" style={{ borderTop:'1px solid rgba(201,168,76,0.12)' }}>
             <Stat label="Live Available" value={`₹${Math.round(funds.available).toLocaleString('en-IN')}`} color="#c9a84c" />
             <Stat label="Max Deployable" value={`₹${Math.round(funds.maxDeployable).toLocaleString('en-IN')}`} color="rgba(255,255,255,0.7)" />
             <Stat label="Reserve" value={`₹${Math.round(funds.reserve).toLocaleString('en-IN')}`} color="rgba(255,255,255,0.5)" />
@@ -1025,7 +1014,7 @@ function StrategiesTab({ autoModeOn }: { autoModeOn: boolean }) {
             correct param shape, exits, and gate defaults. */}
         <div className="rounded-xl p-4 flex items-center justify-between gap-3 flex-wrap"
           style={{ background:'rgba(255,255,255,0.02)', border:'1px dashed rgba(255,255,255,0.1)' }}>
-          <p className="text-[11px]" style={{ color:'rgba(255,255,255,0.5)' }}>Add another strategy</p>
+          <p className="text-[11px] dt-text-secondary">Add another strategy</p>
           <div className="flex gap-2">
             <button onClick={() => createNewStrategy('dip')} disabled={locked}
               className="px-3 py-1.5 rounded-lg text-[11px] font-medium tracking-wider transition-all disabled:opacity-40"
@@ -1043,15 +1032,14 @@ function StrategiesTab({ autoModeOn }: { autoModeOn: boolean }) {
 
       {/* SAVE BAR */}
       {dirty && (
-        <div className="rounded-xl p-3 flex items-center justify-between sticky bottom-2"
-          style={{ background:'rgba(201,168,76,0.1)', border:'1px solid rgba(201,168,76,0.4)', backdropFilter: 'blur(8px)' }}>
+        <div className="rounded-xl p-3 flex items-center justify-between sticky bottom-2 dt-banner-gold"
+          style={{ backdropFilter: 'blur(8px)' }}>
           <p className="text-[12px]" style={{ color:'#c9a84c' }}>
             ● {diffLines.length} change{diffLines.length === 1 ? '' : 's'} pending
           </p>
           <div className="flex gap-2">
             <button onClick={() => setDraft({ capital: source.capital, strategies: source.strategies })}
-              className="px-3 py-1.5 rounded-md text-[11px]"
-              style={{ background:'rgba(255,255,255,0.04)', border:'1px solid rgba(255,255,255,0.1)', color:'rgba(255,255,255,0.6)' }}>
+              className="px-3 py-1.5 rounded-md text-[11px] dt-card dt-text-secondary">
               Discard
             </button>
             <button onClick={() => setConfirming(true)} disabled={locked}
@@ -1069,8 +1057,8 @@ function StrategiesTab({ autoModeOn }: { autoModeOn: boolean }) {
       {confirming && createPortal(
         <div className="fixed inset-0 z-50 flex items-center justify-center px-4 py-8"
           style={{ background:'rgba(0,0,0,0.7)', backdropFilter:'blur(4px)' }} onClick={() => setConfirming(false)}>
-          <div className="w-full max-w-xl rounded-xl overflow-hidden" onClick={e => e.stopPropagation()}
-            style={{ background:'#100e0a', border:'1px solid rgba(201,168,76,0.3)' }}>
+          <div className="w-full max-w-xl rounded-xl overflow-hidden dt-card-inner" onClick={e => e.stopPropagation()}
+            style={{ border:'1px solid rgba(201,168,76,0.3)' }}>
             <div className="px-5 py-3 flex items-center justify-between"
               style={{ borderBottom:'1px solid rgba(201,168,76,0.15)' }}>
               <p className="text-[12px] tracking-widest uppercase" style={{ color:'#c9a84c', fontFamily:'JetBrains Mono, monospace' }}>
@@ -1081,19 +1069,18 @@ function StrategiesTab({ autoModeOn }: { autoModeOn: boolean }) {
             <div className="p-5 max-h-[60vh] overflow-y-auto space-y-1.5">
               {diffLines.map((d, i) => (
                 <div key={i} className="text-[11px] flex gap-2" style={{ fontFamily:'JetBrains Mono, monospace' }}>
-                  <span style={{ color:'rgba(255,255,255,0.4)' }}>•</span>
-                  <span style={{ color:'rgba(255,255,255,0.85)' }}>{d.path}</span>
+                  <span className="dt-text-muted">•</span>
+                  <span className="dt-text-primary">{d.path}</span>
                   <span style={{ color:'rgba(224,90,94,0.7)', textDecoration:'line-through' }}>{d.from}</span>
-                  <span style={{ color:'rgba(255,255,255,0.4)' }}>→</span>
+                  <span className="dt-text-muted">→</span>
                   <span style={{ color:'#52b788' }}>{d.to}</span>
                 </div>
               ))}
             </div>
             {error && <p className="px-5 pb-2 text-[11px]" style={{ color:'rgba(224,90,94,0.9)' }}>✗ {error}</p>}
-            <div className="px-5 py-3 flex justify-end gap-2" style={{ borderTop:'1px solid rgba(255,255,255,0.06)' }}>
+            <div className="px-5 py-3 flex justify-end gap-2 dt-border-t">
               <button onClick={() => setConfirming(false)} disabled={saving}
-                className="px-3 py-1.5 rounded-md text-[11px]"
-                style={{ background:'rgba(255,255,255,0.04)', border:'1px solid rgba(255,255,255,0.1)', color:'rgba(255,255,255,0.6)' }}>
+                className="px-3 py-1.5 rounded-md text-[11px] dt-card dt-text-secondary">
                 Cancel
               </button>
               <button onClick={doSave} disabled={saving}
@@ -1108,7 +1095,7 @@ function StrategiesTab({ autoModeOn }: { autoModeOn: boolean }) {
       )}
 
       {error && !confirming && (
-        <div className="rounded-lg p-3" style={{ background:'rgba(224,90,94,0.06)', border:'1px solid rgba(224,90,94,0.25)' }}>
+        <div className="rounded-lg p-3 dt-banner-error">
           <p className="text-[12px]" style={{ color:'rgba(224,90,94,0.9)' }}>✗ {error}</p>
         </div>
       )}
@@ -1367,7 +1354,7 @@ function BacktestTab({ active }: { active: boolean }) {
 
   return (
     <div className="space-y-5">
-      <div className="flex gap-1 rounded-lg p-1 w-fit" style={{ background:'rgba(255,255,255,0.03)', border:'1px solid rgba(255,255,255,0.06)' }}>
+      <div className="flex gap-1 rounded-lg p-1 w-fit dt-card">
         {([
           { id: 'run', label: 'Backtest' },
           { id: 'history', label: 'Backtest History' },
@@ -1390,14 +1377,14 @@ function BacktestTab({ active }: { active: boolean }) {
 
       {workspaceTab === 'run' && (
         <>
-      <div className="rounded-xl p-5" style={{ background:'rgba(255,255,255,0.03)', border:'1px solid rgba(255,255,255,0.08)' }}>
+      <div className="rounded-xl p-5 dt-card">
         <div className="flex items-start justify-between gap-4 flex-wrap">
           <div>
             <h2 className="text-[11px] tracking-widest uppercase mb-2"
               style={{ color:'rgba(201,168,76,0.6)', fontFamily:'JetBrains Mono, monospace' }}>
               Strategy Backtest
             </h2>
-            <p className="text-[12px] max-w-xl" style={{ color:'rgba(255,255,255,0.45)' }}>
+            <p className="text-[12px] max-w-xl dt-text-muted">
               Pick a saved strategy, choose the lookback window, and replay it on historical candles. `Run All Active` simulates the real shared-capital environment where active strategies run together and compete for the same cash pool and position limits.
             </p>
           </div>
@@ -1427,8 +1414,8 @@ function BacktestTab({ active }: { active: boolean }) {
                 setError('')
                 setInfo('')
               }}
-              className="w-full px-3 py-2.5 rounded-lg text-[12px] outline-none"
-              style={{ background:'rgba(255,255,255,0.04)', border:'1px solid rgba(201,168,76,0.25)', color:'#c9a84c', fontFamily:'JetBrains Mono, monospace' }}>
+              className="w-full px-3 py-2.5 rounded-lg text-[12px] outline-none dt-surface"
+              style={{ border:'1px solid rgba(201,168,76,0.25)', color:'#c9a84c', fontFamily:'JetBrains Mono, monospace' }}>
               {strategies.map(strategy => (
                 <option key={strategy.id} value={strategy.id}>{strategy.name} · {strategy.type}</option>
               ))}
@@ -1440,8 +1427,8 @@ function BacktestTab({ active }: { active: boolean }) {
             </label>
             <input type="number" min={10} max={180} step={1} value={days}
               onChange={e => setDays(parseInt(e.target.value || '60', 10))}
-              className="w-full px-3 py-2.5 rounded-lg text-[12px] outline-none"
-              style={{ background:'rgba(255,255,255,0.04)', border:'1px solid rgba(201,168,76,0.25)', color:'#c9a84c', fontFamily:'JetBrains Mono, monospace' }} />
+              className="w-full px-3 py-2.5 rounded-lg text-[12px] outline-none dt-surface"
+              style={{ border:'1px solid rgba(201,168,76,0.25)', color:'#c9a84c', fontFamily:'JetBrains Mono, monospace' }} />
           </div>
           <div>
             <label className="block text-[10px] tracking-widest uppercase mb-1.5" style={{ color:'rgba(201,168,76,0.55)', fontFamily:'JetBrains Mono, monospace' }}>
@@ -1449,8 +1436,8 @@ function BacktestTab({ active }: { active: boolean }) {
             </label>
             <input type="number" min={1000} step={1000} value={capital}
               onChange={e => setCapital(parseInt(e.target.value || '50000', 10))}
-              className="w-full px-3 py-2.5 rounded-lg text-[12px] outline-none"
-              style={{ background:'rgba(255,255,255,0.04)', border:'1px solid rgba(201,168,76,0.25)', color:'#c9a84c', fontFamily:'JetBrains Mono, monospace' }} />
+              className="w-full px-3 py-2.5 rounded-lg text-[12px] outline-none dt-surface"
+              style={{ border:'1px solid rgba(201,168,76,0.25)', color:'#c9a84c', fontFamily:'JetBrains Mono, monospace' }} />
           </div>
         </div>
 
@@ -1463,13 +1450,13 @@ function BacktestTab({ active }: { active: boolean }) {
               </span>
             )}
             {selected?.active === false && (
-              <span className="text-[10px] tracking-widest uppercase px-2 py-1 rounded"
-                style={{ background:'rgba(255,255,255,0.04)', border:'1px solid rgba(255,255,255,0.12)', color:'rgba(255,255,255,0.45)', fontFamily:'JetBrains Mono, monospace' }}>
+              <span className="text-[10px] tracking-widest uppercase px-2 py-1 rounded dt-card dt-text-muted"
+                style={{ fontFamily:'JetBrains Mono, monospace' }}>
                 inactive strategy
               </span>
             )}
           </div>
-          <p className="text-[11px]" style={{ color:'rgba(255,255,255,0.32)' }}>
+          <p className="text-[11px] dt-text-muted">
             Backtest runs against the saved strategy configuration. `Run All Active` now uses one shared capital pool across active saved strategies.
           </p>
         </div>
@@ -1481,20 +1468,19 @@ function BacktestTab({ active }: { active: boolean }) {
                 Loaded Historical Snapshot · {loadedRunLabel || loadedRunId}
               </p>
               <button onClick={clearLoadedRun}
-                className="px-3 py-1.5 rounded-lg text-[11px] font-semibold tracking-wider"
-                style={{ background:'rgba(255,255,255,0.04)', border:'1px solid rgba(255,255,255,0.1)', color:'rgba(255,255,255,0.7)' }}>
+                className="px-3 py-1.5 rounded-lg text-[11px] font-semibold tracking-wider dt-card dt-text-primary">
                 Clear Loaded Snapshot
               </button>
             </div>
-            <p className="text-[11px] mb-3" style={{ color:'rgba(255,255,255,0.42)' }}>
+            <p className="text-[11px] mb-3 dt-text-muted">
               This editor is populated from the saved run. Adjust the snapshot JSON and rerun to compare variants without overwriting today&apos;s saved strategy config.
             </p>
             <textarea
               value={snapshotEditor}
               onChange={e => setSnapshotEditor(e.target.value)}
               rows={loadedRunType === 'all' ? 18 : 12}
-              className="w-full px-3 py-2.5 rounded-lg text-[11px] outline-none"
-              style={{ background:'rgba(255,255,255,0.03)', border:'1px solid rgba(96,165,250,0.22)', color:'rgba(255,255,255,0.82)', fontFamily:'JetBrains Mono, monospace' }}
+              className="w-full px-3 py-2.5 rounded-lg text-[11px] outline-none dt-surface dt-text-primary"
+              style={{ border:'1px solid rgba(96,165,250,0.22)', fontFamily:'JetBrains Mono, monospace' }}
             />
           </div>
         )}
@@ -1503,7 +1489,7 @@ function BacktestTab({ active }: { active: boolean }) {
       </>
       )}
 
-      {!loaded && <p className="text-[11px]" style={{ color:'rgba(255,255,255,0.4)' }}>Loading…</p>}
+      {!loaded && <p className="text-[11px] dt-text-muted">Loading…</p>}
 
       {workspaceTab === 'run' && selected?.type === 'momentum' && (
         <div className="rounded-lg p-3" style={{ background:'rgba(245,158,11,0.06)', border:'1px solid rgba(245,158,11,0.3)' }}>
@@ -1514,13 +1500,13 @@ function BacktestTab({ active }: { active: boolean }) {
       )}
 
       {info && (
-        <div className="rounded-lg p-3" style={{ background:'rgba(82,183,136,0.06)', border:'1px solid rgba(82,183,136,0.3)' }}>
+        <div className="rounded-lg p-3 dt-banner-green">
           <p className="text-[12px]" style={{ color:'#52b788' }}>✓ {info}</p>
         </div>
       )}
 
       {error && (
-        <div className="rounded-lg p-3" style={{ background:'rgba(224,90,94,0.06)', border:'1px solid rgba(224,90,94,0.25)' }}>
+        <div className="rounded-lg p-3 dt-banner-error">
           <p className="text-[12px]" style={{ color:'rgba(224,90,94,0.9)' }}>✗ {error}</p>
         </div>
       )}
@@ -1533,26 +1519,25 @@ function BacktestTab({ active }: { active: boolean }) {
             </p>
           </div>
           <div className="p-4">
-            <pre className="whitespace-pre-wrap text-[12px] leading-6" style={{ color:'rgba(255,255,255,0.82)', fontFamily:'Outfit, sans-serif' }}>{analysis}</pre>
+            <pre className="whitespace-pre-wrap text-[12px] leading-6 dt-text-primary" style={{ fontFamily:'Outfit, sans-serif' }}>{analysis}</pre>
           </div>
         </div>
       )}
 
       {workspaceTab === 'history' && (
-      <div className="rounded-xl overflow-hidden" style={{ background:'rgba(255,255,255,0.02)', border:'1px solid rgba(255,255,255,0.08)' }}>
-        <div className="px-4 py-2.5 flex items-center justify-between gap-3 flex-wrap" style={{ borderBottom:'1px solid rgba(255,255,255,0.06)' }}>
+      <div className="rounded-xl overflow-hidden dt-card">
+        <div className="px-4 py-2.5 flex items-center justify-between gap-3 flex-wrap dt-border-b">
           <div>
             <p className="text-[11px] tracking-widest uppercase" style={{ color:'rgba(201,168,76,0.6)', fontFamily:'JetBrains Mono, monospace' }}>
               Backtest History ({history.length})
             </p>
-            <p className="text-[10px] mt-1" style={{ color:'rgba(255,255,255,0.3)' }}>
+            <p className="text-[10px] mt-1 dt-text-muted">
               Every completed run is saved on the server and can be reloaded into the backtest config.
             </p>
           </div>
           <div className="flex gap-2 flex-wrap justify-end">
             <button onClick={loadHistory} disabled={historyLoading}
-              className="px-4 py-2.5 rounded-xl text-[12px] font-semibold tracking-wider transition-all disabled:opacity-40"
-              style={{ background:'rgba(255,255,255,0.05)', border:'1px solid rgba(255,255,255,0.12)', color:'rgba(255,255,255,0.78)' }}>
+              className="px-4 py-2.5 rounded-xl text-[12px] font-semibold tracking-wider transition-all disabled:opacity-40 dt-card dt-text-primary">
               {historyLoading ? 'Refreshing…' : 'Refresh'}
             </button>
             <button onClick={resetTests} disabled={historyLoading || history.length === 0}
@@ -1569,7 +1554,7 @@ function BacktestTab({ active }: { active: boolean }) {
         </div>
 
         <div className="px-4 pt-4">
-          <div className="flex gap-1 rounded-lg p-1 w-fit" style={{ background:'rgba(255,255,255,0.03)', border:'1px solid rgba(255,255,255,0.06)' }}>
+          <div className="flex gap-1 rounded-lg p-1 w-fit dt-card">
             {BACKTEST_HISTORY_VIEWS.map(view => {
               const activeView = historyView === view.id
               return (
@@ -1615,7 +1600,7 @@ function BacktestTab({ active }: { active: boolean }) {
 
         {historyError && (
           <div className="px-4 pt-4">
-            <div className="rounded-lg p-3" style={{ background:'rgba(224,90,94,0.06)', border:'1px solid rgba(224,90,94,0.25)' }}>
+            <div className="rounded-lg p-3 dt-banner-error">
               <p className="text-[12px]" style={{ color:'rgba(224,90,94,0.9)' }}>✗ {historyError}</p>
             </div>
           </div>
@@ -1632,42 +1617,42 @@ function BacktestTab({ active }: { active: boolean }) {
         )}
 
         {historyLoading && history.length === 0 ? (
-          <p className="px-4 py-4 text-[11px]" style={{ color:'rgba(255,255,255,0.4)' }}>Loading backtest history…</p>
+          <p className="px-4 py-4 text-[11px] dt-text-muted">Loading backtest history…</p>
         ) : (
           <div className="overflow-x-auto">
             <table className="w-full text-left min-w-[1120px]">
               <thead>
-                <tr style={{ background:'rgba(255,255,255,0.02)' }}>
-                  <th className="px-3 py-2 text-[10px] tracking-widest uppercase font-medium sticky left-0 z-20" style={{ minWidth:190, background:'#15120d', color:'rgba(255,255,255,0.35)', fontFamily:'JetBrains Mono, monospace' }}>
+                <tr className="dt-table-head">
+                  <th className="px-3 py-2 text-[10px] tracking-widest uppercase font-medium sticky left-0 z-20 dt-card-inner dt-text-muted" style={{ minWidth:190, fontFamily:'JetBrains Mono, monospace' }}>
                     <button onClick={() => toggleHistorySort('timestamp')} className="inline-flex items-center gap-1" style={{ color:'inherit' }}>
                       <span>Saved On</span>
                       {historySortKey === 'timestamp' && <span>{historySortDirection === 'asc' ? '↑' : '↓'}</span>}
                     </button>
                   </th>
-                  <th className="px-3 py-2 text-[10px] tracking-widest uppercase font-medium sticky left-[190px] z-20" style={{ minWidth:260, background:'#15120d', color:'rgba(255,255,255,0.35)', fontFamily:'JetBrains Mono, monospace' }}>
+                  <th className="px-3 py-2 text-[10px] tracking-widest uppercase font-medium sticky left-[190px] z-20 dt-card-inner dt-text-muted" style={{ minWidth:260, fontFamily:'JetBrains Mono, monospace' }}>
                     <button onClick={() => toggleHistorySort('strategyName')} className="inline-flex items-center gap-1" style={{ color:'inherit' }}>
                       <span>Strategy</span>
                       {historySortKey === 'strategyName' && <span>{historySortDirection === 'asc' ? '↑' : '↓'}</span>}
                     </button>
                   </th>
                   {historyColumns.map(column => (
-                    <th key={column.key} className="px-3 py-2 text-[10px] tracking-widest uppercase font-medium" style={{ minWidth:column.minWidth, color:'rgba(255,255,255,0.35)', fontFamily:'JetBrains Mono, monospace' }}>
+                    <th key={column.key} className="px-3 py-2 text-[10px] tracking-widest uppercase font-medium dt-text-muted" style={{ minWidth:column.minWidth, fontFamily:'JetBrains Mono, monospace' }}>
                       <button onClick={() => toggleHistorySort(column.key)} className="inline-flex items-center gap-1" style={{ color:'inherit' }}>
                         <span>{column.label}</span>
                         {historySortKey === column.key && <span>{historySortDirection === 'asc' ? '↑' : '↓'}</span>}
                       </button>
                     </th>
                   ))}
-                  <th className="px-3 py-2 text-[10px] tracking-widest uppercase font-medium sticky right-0 z-20 text-right" style={{ minWidth:110, background:'#15120d', color:'rgba(255,255,255,0.35)', fontFamily:'JetBrains Mono, monospace' }}>Action</th>
+                  <th className="px-3 py-2 text-[10px] tracking-widest uppercase font-medium sticky right-0 z-20 text-right dt-card-inner dt-text-muted" style={{ minWidth:110, fontFamily:'JetBrains Mono, monospace' }}>Action</th>
                 </tr>
               </thead>
               <tbody>
                 {sortedHistory.map(entry => (
-                  <tr key={entry.runId} style={{ borderTop:'1px solid rgba(255,255,255,0.05)' }}>
-                    <td className="px-3 py-3 text-[11px] sticky left-0 z-10 whitespace-nowrap align-middle" style={{ minWidth:190, background:'#100e0a', color:'rgba(255,255,255,0.7)', fontFamily:'JetBrains Mono, monospace' }}>{formatDateTime(entry.timestamp)}</td>
-                    <td className="px-3 py-3 sticky left-[190px] z-10 align-middle" style={{ minWidth:260, background:'#100e0a' }}>
+                  <tr key={entry.runId} className="dt-table-row">
+                    <td className="px-3 py-3 text-[11px] sticky left-0 z-10 whitespace-nowrap align-middle dt-card-inner dt-text-secondary" style={{ minWidth:190, fontFamily:'JetBrains Mono, monospace' }}>{formatDateTime(entry.timestamp)}</td>
+                    <td className="px-3 py-3 sticky left-[190px] z-10 align-middle dt-card-inner" style={{ minWidth:260 }}>
                       <div className="flex flex-col gap-1">
-                        <span className="text-[11px]" style={{ color:'rgba(255,255,255,0.82)' }}>{entry.strategyName}</span>
+                        <span className="text-[11px] dt-text-primary">{entry.strategyName}</span>
                         <span className="text-[10px] tracking-widest uppercase" style={{ color: entry.strategyType === 'all' ? '#60a5fa' : entry.strategyType === 'momentum' ? '#52b788' : '#c9a84c', fontFamily:'JetBrains Mono, monospace' }}>{entry.strategyType}</span>
                       </div>
                     </td>
@@ -1676,10 +1661,10 @@ function BacktestTab({ active }: { active: boolean }) {
                         {column.render(entry)}
                       </td>
                     ))}
-                    <td className="px-3 py-3 sticky right-0 z-10 text-right align-middle" style={{ minWidth:110, background:'#100e0a' }}>
+                    <td className="px-3 py-3 sticky right-0 z-10 text-right align-middle dt-card-inner" style={{ minWidth:110 }}>
                       <button onClick={() => openHistoryPreview(entry)}
-                        className="px-3 py-1.5 rounded-lg text-[11px] font-semibold tracking-wider"
-                        style={{ background:'rgba(201,168,76,0.12)', border:'1px solid rgba(201,168,76,0.3)', color:'#c9a84c' }}>
+                        className="px-3 py-1.5 rounded-lg text-[11px] font-semibold tracking-wider dt-card-gold"
+                        style={{ color:'#c9a84c' }}>
                         Load
                       </button>
                     </td>
@@ -1687,7 +1672,7 @@ function BacktestTab({ active }: { active: boolean }) {
                 ))}
                 {sortedHistory.length === 0 && (
                   <tr>
-                    <td colSpan={historyColumns.length + 3} className="px-4 py-8 text-center text-[11px]" style={{ color:'rgba(255,255,255,0.35)' }}>
+                    <td colSpan={historyColumns.length + 3} className="px-4 py-8 text-center text-[11px] dt-text-muted">
                       No saved backtests yet. Run a backtest and it will appear here automatically.
                     </td>
                   </tr>
@@ -1701,13 +1686,13 @@ function BacktestTab({ active }: { active: boolean }) {
 
       {workspaceTab === 'run' && result && (
         <div className="space-y-5">
-          <div className="rounded-xl overflow-hidden" style={{ background:'rgba(201,168,76,0.04)', border:'1px solid rgba(201,168,76,0.2)' }}>
+          <div className="rounded-xl overflow-hidden dt-card-gold">
             <div className="px-4 py-2.5" style={{ borderBottom:'1px solid rgba(201,168,76,0.12)' }}>
               <p className="text-[11px] tracking-widest uppercase" style={{ color:'#c9a84c', fontFamily:'JetBrains Mono, monospace' }}>
                 Summary · {result.summary.strategyName}
               </p>
             </div>
-            <div className="grid grid-cols-2 md:grid-cols-4 gap-px" style={{ background:'rgba(255,255,255,0.04)' }}>
+            <div className="grid grid-cols-2 md:grid-cols-4 gap-px dt-surface">
               <Stat label="Gross P&L (MTM)" value={formatSignedCurrency(result.summary.totalPnl)} color={result.summary.totalPnl >= 0 ? '#52b788' : '#e05a5e'} />
               <Stat label="Net P&L (MTM)" value={formatSignedCurrency(result.summary.netTotalPnl ?? result.summary.totalPnl)} color={(result.summary.netTotalPnl ?? result.summary.totalPnl) >= 0 ? '#52b788' : '#e05a5e'} />
               <Stat label="Gross Return (MTM)" value={formatSignedPct(result.summary.totalReturnPct)} color={result.summary.totalReturnPct >= 0 ? '#52b788' : '#e05a5e'} />
@@ -1754,8 +1739,8 @@ function BacktestTab({ active }: { active: boolean }) {
             </div>
             {result.summary.tradesOpen > 0 && (
               <div className="px-4 pb-4">
-                <div className="rounded-lg p-3" style={{ background:'rgba(255,255,255,0.02)', border:'1px solid rgba(255,255,255,0.06)' }}>
-                  <p className="text-[11px]" style={{ color:'rgba(255,255,255,0.45)' }}>
+                <div className="rounded-lg p-3 dt-card">
+                  <p className="text-[11px] dt-text-muted">
                     MTM includes open positions marked at the last candle in the replay window. Net values subtract estimated Zerodha-style equity charges; open rows use estimated exit charges at the mark price.
                   </p>
                 </div>
@@ -1764,28 +1749,28 @@ function BacktestTab({ active }: { active: boolean }) {
           </div>
 
           {result.summary.gateBreakdown.length > 0 && (
-            <div className="rounded-xl overflow-hidden" style={{ background:'rgba(255,255,255,0.02)', border:'1px solid rgba(255,255,255,0.08)' }}>
-              <div className="px-4 py-2.5 flex items-center justify-between gap-3" style={{ borderBottom:'1px solid rgba(255,255,255,0.06)' }}>
+            <div className="rounded-xl overflow-hidden dt-card">
+              <div className="px-4 py-2.5 flex items-center justify-between gap-3 dt-border-b">
                 <p className="text-[11px] tracking-widest uppercase" style={{ color:'rgba(201,168,76,0.6)', fontFamily:'JetBrains Mono, monospace' }}>
                   Gate Breakdown
                 </p>
-                <p className="text-[10px]" style={{ color:'rgba(255,255,255,0.3)' }}>
+                <p className="text-[10px] dt-text-muted">
                   Which rule blocked how many entry attempts during the replay.
                 </p>
               </div>
               <div className="overflow-x-auto">
                 <table className="w-full text-left min-w-[560px]">
                   <thead>
-                    <tr style={{ background:'rgba(255,255,255,0.02)' }}>
+                    <tr className="dt-table-head">
                       {['Gate', 'Blocked Attempts'].map(h => (
-                        <th key={h} className="px-3 py-2 text-[10px] tracking-widest uppercase font-medium" style={{ color:'rgba(255,255,255,0.35)', fontFamily:'JetBrains Mono, monospace' }}>{h}</th>
+                        <th key={h} className="px-3 py-2 text-[10px] tracking-widest uppercase font-medium dt-text-muted" style={{ fontFamily:'JetBrains Mono, monospace' }}>{h}</th>
                       ))}
                     </tr>
                   </thead>
                   <tbody>
                     {result.summary.gateBreakdown.map(item => (
-                      <tr key={item.gate} style={{ borderTop:'1px solid rgba(255,255,255,0.05)' }}>
-                        <td className="px-3 py-2.5 text-[11px]" style={{ color:'rgba(255,255,255,0.72)' }}>{item.label}</td>
+                      <tr key={item.gate} className="dt-table-row">
+                        <td className="px-3 py-2.5 text-[11px] dt-text-primary">{item.label}</td>
                         <td className="px-3 py-2.5 text-[11px]" style={{ color:'#c9a84c', fontFamily:'JetBrains Mono, monospace' }}>{item.count.toLocaleString('en-IN')}</td>
                       </tr>
                     ))}
@@ -1795,21 +1780,21 @@ function BacktestTab({ active }: { active: boolean }) {
             </div>
           )}
 
-          <div className="rounded-xl overflow-hidden" style={{ background:'rgba(255,255,255,0.02)', border:'1px solid rgba(255,255,255,0.08)' }}>
-            <div className="px-4 py-2.5 flex items-center justify-between gap-3" style={{ borderBottom:'1px solid rgba(255,255,255,0.06)' }}>
+          <div className="rounded-xl overflow-hidden dt-card">
+            <div className="px-4 py-2.5 flex items-center justify-between gap-3 dt-border-b">
               <p className="text-[11px] tracking-widest uppercase" style={{ color:'rgba(201,168,76,0.6)', fontFamily:'JetBrains Mono, monospace' }}>
                 Trades ({result.trades.length})
               </p>
-              <p className="text-[10px]" style={{ color:'rgba(255,255,255,0.3)' }}>
+              <p className="text-[10px] dt-text-muted">
                 Same-page result view for quick parameter comparisons.
               </p>
             </div>
             <div className="overflow-x-auto">
               <table className="w-full text-left min-w-[1620px]">
                 <thead>
-                  <tr style={{ background:'rgba(255,255,255,0.02)' }}>
+                  <tr className="dt-table-head">
                     {['Symbol', 'Strategy', 'Signal', 'Entry Price', 'T1 Date', 'T2 Date', 'Exit Price / Mark Price', 'Qty / Remaining', 'Gross Profit', 'Brokerage', 'Net Profit', 'Status', 'Hold', 'Reason'].map(h => (
-                      <th key={h} className="px-3 py-2 text-[10px] tracking-widest uppercase font-medium" style={{ color:'rgba(255,255,255,0.35)', fontFamily:'JetBrains Mono, monospace' }}>{h}</th>
+                      <th key={h} className="px-3 py-2 text-[10px] tracking-widest uppercase font-medium dt-text-muted" style={{ fontFamily:'JetBrains Mono, monospace' }}>{h}</th>
                     ))}
                   </tr>
                 </thead>
@@ -1821,10 +1806,10 @@ function BacktestTab({ active }: { active: boolean }) {
                     const grossPct = trade.entryValue > 0 ? (grossPnl / trade.entryValue) * 100 : 0
                     const realizedPct = trade.entryValue > 0 ? (pnl / trade.entryValue) * 100 : 0
                     return (
-                      <tr key={`${trade.symbol}-${trade.entryDate}-${index}`} style={{ borderTop:'1px solid rgba(255,255,255,0.05)' }}>
+                      <tr key={`${trade.symbol}-${trade.entryDate}-${index}`} className="dt-table-row">
                         <td className="px-3 py-2.5">
                           <div className="flex items-center gap-2">
-                            <span className="text-[12px] font-medium" style={{ color:'rgba(255,255,255,0.85)' }}>{trade.symbol}</span>
+                            <span className="text-[12px] font-medium dt-text-primary">{trade.symbol}</span>
                             <span className="text-[9px] tracking-widest uppercase px-1.5 py-0.5 rounded"
                               style={{ background: trade.confidence === 'high' ? 'rgba(82,183,136,0.12)' : 'rgba(201,168,76,0.12)', border:`1px solid ${trade.confidence === 'high' ? 'rgba(82,183,136,0.35)' : 'rgba(201,168,76,0.35)'}`, color: trade.confidence === 'high' ? '#52b788' : '#c9a84c', fontFamily:'JetBrains Mono, monospace' }}>
                               {trade.confidence}
@@ -1834,51 +1819,51 @@ function BacktestTab({ active }: { active: boolean }) {
                         <td className="px-3 py-2.5 text-[11px]" style={{ color:'#60a5fa', fontFamily:'JetBrains Mono, monospace' }}>
                           {trade.strategyName || '—'}
                         </td>
-                        <td className="px-3 py-2.5 text-[11px]" style={{ color:'rgba(255,255,255,0.55)', fontFamily:'JetBrains Mono, monospace' }}>{trade.signalDate}</td>
-                        <td className="px-3 py-2.5 text-[11px]" style={{ color:'rgba(255,255,255,0.75)' }}>
+                        <td className="px-3 py-2.5 text-[11px] dt-text-secondary" style={{ fontFamily:'JetBrains Mono, monospace' }}>{trade.signalDate}</td>
+                        <td className="px-3 py-2.5 text-[11px] dt-text-primary">
                           <div>{trade.entryDate}</div>
-                          <div style={{ color:'rgba(255,255,255,0.45)' }}>Entry Price</div>
+                          <div className="dt-text-muted">Entry Price</div>
                           <div style={{ color:'#c9a84c', fontFamily:'JetBrains Mono, monospace' }}>{formatCurrency(trade.entryPrice)}</div>
                         </td>
-                        <td className="px-3 py-2.5 text-[11px]" style={{ color:'rgba(255,255,255,0.6)', fontFamily:'JetBrains Mono, monospace' }}>
+                        <td className="px-3 py-2.5 text-[11px] dt-text-secondary" style={{ fontFamily:'JetBrains Mono, monospace' }}>
                           {trade.t1Date || '—'}
                         </td>
-                        <td className="px-3 py-2.5 text-[11px]" style={{ color:'rgba(255,255,255,0.6)', fontFamily:'JetBrains Mono, monospace' }}>
+                        <td className="px-3 py-2.5 text-[11px] dt-text-secondary" style={{ fontFamily:'JetBrains Mono, monospace' }}>
                           {trade.t2Date || '—'}
                         </td>
-                        <td className="px-3 py-2.5 text-[11px]" style={{ color:'rgba(255,255,255,0.75)' }}>
+                        <td className="px-3 py-2.5 text-[11px] dt-text-primary">
                           <div>{trade.exitDate || 'Open'}</div>
-                          <div style={{ color:'rgba(255,255,255,0.45)' }}>{trade.status === 'closed' ? 'Exit Price' : 'Mark Price'}</div>
+                          <div className="dt-text-muted">{trade.status === 'closed' ? 'Exit Price' : 'Mark Price'}</div>
                           <div style={{ color: trade.status === 'closed' ? '#52b788' : 'rgba(255,255,255,0.65)', fontFamily:'JetBrains Mono, monospace' }}>{formatCurrency(trade.status === 'closed' ? (trade.exitPrice || trade.markPrice) : trade.markPrice)}</div>
                         </td>
-                        <td className="px-3 py-2.5 text-[11px]" style={{ color:'rgba(255,255,255,0.75)', fontFamily:'JetBrains Mono, monospace' }}>
+                        <td className="px-3 py-2.5 text-[11px] dt-text-primary" style={{ fontFamily:'JetBrains Mono, monospace' }}>
                           <div>{trade.qty}</div>
-                          <div style={{ color:'rgba(255,255,255,0.45)' }}>remaining {trade.remainingQty}</div>
+                          <div className="dt-text-muted">remaining {trade.remainingQty}</div>
                         </td>
                         <td className="px-3 py-2.5 text-[11px]" style={{ color: grossPnl >= 0 ? '#52b788' : '#e05a5e', fontFamily:'JetBrains Mono, monospace' }}>
                           {trade.realizedPnl !== 0 ? (
                             <>
-                              <div style={{ color:'rgba(255,255,255,0.45)' }}>Gross</div>
+                              <div className="dt-text-muted">Gross</div>
                               <div>{formatSignedCurrency(grossPnl)}</div>
                               <div>{formatSignedPct(grossPct)}</div>
                             </>
                           ) : (
-                            <div style={{ color:'rgba(255,255,255,0.35)' }}>—</div>
+                            <div className="dt-text-muted">—</div>
                           )}
                         </td>
                         <td className="px-3 py-2.5 text-[11px]" style={{ color:'#c9a84c', fontFamily:'JetBrains Mono, monospace' }}>
                           <div>{formatCurrency(trade.charges || 0)}</div>
-                          <div style={{ color:'rgba(255,255,255,0.45)' }}>{displayStatus === 'closed' ? (trade.chargeModel || 'actual') : `est. ${trade.chargeModel || 'delivery'}`}</div>
+                          <div className="dt-text-muted">{displayStatus === 'closed' ? (trade.chargeModel || 'actual') : `est. ${trade.chargeModel || 'delivery'}`}</div>
                         </td>
                         <td className="px-3 py-2.5 text-[11px]" style={{ color: pnl >= 0 ? '#52b788' : '#e05a5e', fontFamily:'JetBrains Mono, monospace' }}>
                           {trade.realizedPnl !== 0 ? (
                             <>
-                              <div style={{ color:'rgba(255,255,255,0.45)' }}>Net</div>
+                              <div className="dt-text-muted">Net</div>
                               <div>{formatSignedCurrency(pnl)}</div>
                               <div>{formatSignedPct(realizedPct)}</div>
                             </>
                           ) : (
-                            <div style={{ color:'rgba(255,255,255,0.35)' }}>—</div>
+                            <div className="dt-text-muted">—</div>
                           )}
                         </td>
                         <td className="px-3 py-2.5">
@@ -1900,8 +1885,8 @@ function BacktestTab({ active }: { active: boolean }) {
                             {displayStatus}
                           </span>
                         </td>
-                        <td className="px-3 py-2.5 text-[11px]" style={{ color:'rgba(255,255,255,0.55)', fontFamily:'JetBrains Mono, monospace' }}>{trade.holdDays} d</td>
-                        <td className="px-3 py-2.5 text-[11px]" style={{ color:'rgba(255,255,255,0.45)' }}>
+                        <td className="px-3 py-2.5 text-[11px] dt-text-secondary" style={{ fontFamily:'JetBrains Mono, monospace' }}>{trade.holdDays} d</td>
+                        <td className="px-3 py-2.5 text-[11px] dt-text-muted">
                           {trade.setup || `${Math.abs(trade.deviationPct).toFixed(2)}% below EMA · ${trade.downDays} down days · buy #${trade.buyNumber}`}
                         </td>
                       </tr>
@@ -1912,8 +1897,8 @@ function BacktestTab({ active }: { active: boolean }) {
             </div>
           </div>
 
-          <div className="rounded-xl overflow-hidden" style={{ background:'rgba(255,255,255,0.02)', border:'1px solid rgba(255,255,255,0.08)' }}>
-            <div className="px-4 py-2.5" style={{ borderBottom:'1px solid rgba(255,255,255,0.06)' }}>
+          <div className="rounded-xl overflow-hidden dt-card">
+            <div className="px-4 py-2.5 dt-border-b">
               <p className="text-[11px] tracking-widest uppercase" style={{ color:'rgba(201,168,76,0.6)', fontFamily:'JetBrains Mono, monospace' }}>
                 Equity Curve ({result.equityCurve.length} days)
               </p>
@@ -1921,21 +1906,21 @@ function BacktestTab({ active }: { active: boolean }) {
             <div className="overflow-x-auto">
               <table className="w-full text-left min-w-[760px]">
                 <thead>
-                  <tr style={{ background:'rgba(255,255,255,0.02)' }}>
+                  <tr className="dt-table-head">
                     {['Date', 'Cash', 'Market Value', 'Equity', 'Drawdown', 'Open Trades'].map(h => (
-                      <th key={h} className="px-3 py-2 text-[10px] tracking-widest uppercase font-medium" style={{ color:'rgba(255,255,255,0.35)', fontFamily:'JetBrains Mono, monospace' }}>{h}</th>
+                      <th key={h} className="px-3 py-2 text-[10px] tracking-widest uppercase font-medium dt-text-muted" style={{ fontFamily:'JetBrains Mono, monospace' }}>{h}</th>
                     ))}
                   </tr>
                 </thead>
                 <tbody>
                   {result.equityCurve.map(point => (
-                    <tr key={point.date} style={{ borderTop:'1px solid rgba(255,255,255,0.05)' }}>
-                      <td className="px-3 py-2.5 text-[11px]" style={{ color:'rgba(255,255,255,0.75)', fontFamily:'JetBrains Mono, monospace' }}>{point.date}</td>
-                      <td className="px-3 py-2.5 text-[11px]" style={{ color:'rgba(255,255,255,0.7)', fontFamily:'JetBrains Mono, monospace' }}>{formatCurrency(point.cash)}</td>
-                      <td className="px-3 py-2.5 text-[11px]" style={{ color:'rgba(255,255,255,0.7)', fontFamily:'JetBrains Mono, monospace' }}>{formatCurrency(point.marketValue)}</td>
+                    <tr key={point.date} className="dt-table-row">
+                      <td className="px-3 py-2.5 text-[11px] dt-text-primary" style={{ fontFamily:'JetBrains Mono, monospace' }}>{point.date}</td>
+                      <td className="px-3 py-2.5 text-[11px] dt-text-secondary" style={{ fontFamily:'JetBrains Mono, monospace' }}>{formatCurrency(point.cash)}</td>
+                      <td className="px-3 py-2.5 text-[11px] dt-text-secondary" style={{ fontFamily:'JetBrains Mono, monospace' }}>{formatCurrency(point.marketValue)}</td>
                       <td className="px-3 py-2.5 text-[11px]" style={{ color:'#c9a84c', fontFamily:'JetBrains Mono, monospace' }}>{formatCurrency(point.equity)}</td>
                       <td className="px-3 py-2.5 text-[11px]" style={{ color: point.drawdownPct > 0 ? '#e05a5e' : 'rgba(255,255,255,0.45)', fontFamily:'JetBrains Mono, monospace' }}>{point.drawdownPct.toFixed(2)}%</td>
-                      <td className="px-3 py-2.5 text-[11px]" style={{ color:'rgba(255,255,255,0.7)', fontFamily:'JetBrains Mono, monospace' }}>{point.openTrades}</td>
+                      <td className="px-3 py-2.5 text-[11px] dt-text-secondary" style={{ fontFamily:'JetBrains Mono, monospace' }}>{point.openTrades}</td>
                     </tr>
                   ))}
                 </tbody>
@@ -1948,15 +1933,15 @@ function BacktestTab({ active }: { active: boolean }) {
       {previewEntry && createPortal(
         <div className="fixed inset-0 z-50 flex items-center justify-center px-4 py-8"
           style={{ background:'rgba(0,0,0,0.72)', backdropFilter:'blur(4px)' }} onClick={() => setPreviewEntry(null)}>
-          <div className="w-full max-w-5xl rounded-xl overflow-hidden" onClick={e => e.stopPropagation()}
-            style={{ background:'#100e0a', border:'1px solid rgba(201,168,76,0.25)' }}>
+          <div className="w-full max-w-5xl rounded-xl overflow-hidden dt-card-inner" onClick={e => e.stopPropagation()}
+            style={{ border:'1px solid rgba(201,168,76,0.25)' }}>
             <div className="px-5 py-3 flex items-center justify-between gap-3"
               style={{ borderBottom:'1px solid rgba(201,168,76,0.15)' }}>
               <div>
                 <p className="text-[12px] tracking-widest uppercase" style={{ color:'#c9a84c', fontFamily:'JetBrains Mono, monospace' }}>
                   Review Saved Backtest
                 </p>
-                <p className="text-[11px] mt-1" style={{ color:'rgba(255,255,255,0.55)' }}>
+                <p className="text-[11px] mt-1 dt-text-secondary">
                   {previewEntry.strategyName} · saved on {formatDateTime(previewEntry.timestamp)}
                 </p>
               </div>
@@ -1985,7 +1970,7 @@ function BacktestTab({ active }: { active: boolean }) {
                     <p className="text-[11px] tracking-widest uppercase mb-1" style={{ color:'#60a5fa', fontFamily:'JetBrains Mono, monospace' }}>
                       Run All Active Snapshot
                     </p>
-                    <p className="text-[12px]" style={{ color:'rgba(255,255,255,0.58)' }}>
+                    <p className="text-[12px] dt-text-secondary">
                       This saved run contains {previewEntry.strategySnapshots?.length || 0} strategy snapshots. Loading it will restore the saved multi-strategy setup into the Backtest tab for rerun.
                     </p>
                   </div>
@@ -1996,7 +1981,7 @@ function BacktestTab({ active }: { active: boolean }) {
               ) : previewEntry.strategySnapshot ? (
                 <StrategySnapshotPreviewCard snapshot={previewEntry.strategySnapshot} />
               ) : (
-                <div className="rounded-xl p-4" style={{ background:'rgba(255,255,255,0.02)', border:'1px solid rgba(255,255,255,0.08)' }}>
+                <div className="rounded-xl p-4 dt-card">
                   <p className="text-[11px] tracking-widest uppercase mb-3" style={{ color:'rgba(201,168,76,0.65)', fontFamily:'JetBrains Mono, monospace' }}>
                     Saved Parameters
                   </p>
@@ -2008,10 +1993,9 @@ function BacktestTab({ active }: { active: boolean }) {
               )}
             </div>
 
-            <div className="px-5 py-3 flex justify-end gap-2" style={{ borderTop:'1px solid rgba(255,255,255,0.06)' }}>
+            <div className="px-5 py-3 flex justify-end gap-2 dt-border-t">
               <button onClick={() => setPreviewEntry(null)}
-                className="px-3 py-1.5 rounded-md text-[11px]"
-                style={{ background:'rgba(255,255,255,0.04)', border:'1px solid rgba(255,255,255,0.1)', color:'rgba(255,255,255,0.6)' }}>
+                className="px-3 py-1.5 rounded-md text-[11px] dt-card dt-text-secondary">
                 Close
               </button>
               <button onClick={confirmHistoryLoad}
@@ -2072,13 +2056,13 @@ function stringify(v: any): string {
 // components below follow the same pattern.
 function FieldDesc({ children }: { children?: React.ReactNode }) {
   if (!children) return null
-  return <p className="text-[10px] mb-1 leading-snug" style={{ color:'rgba(255,255,255,0.4)' }}>{children}</p>
+  return <p className="text-[10px] mb-1 leading-snug dt-text-muted">{children}</p>
 }
 
 function FieldRow({ label, children }: { label: string; children: React.ReactNode }) {
   return (
     <div className="flex items-center justify-between gap-3">
-      <span className="text-[12px] flex-shrink-0" style={{ color:'rgba(255,255,255,0.7)' }}>{label}</span>
+      <span className="text-[12px] flex-shrink-0 dt-text-secondary">{label}</span>
       <div className="flex-shrink-0">{children}</div>
     </div>
   )
@@ -2099,12 +2083,12 @@ function PreviewRecordSection({ title, values, descriptions }: { title: string; 
   const entries = Object.entries(values || {})
 
   return (
-    <div className="rounded-lg p-4" style={{ background:'rgba(255,255,255,0.02)', border:'1px solid rgba(255,255,255,0.06)' }}>
+    <div className="rounded-lg p-4 dt-card">
       <p className="text-[10px] tracking-widest uppercase mb-3" style={{ color:'rgba(201,168,76,0.6)', fontFamily:'JetBrains Mono, monospace' }}>
         {title}
       </p>
       {entries.length === 0 ? (
-        <p className="text-[11px]" style={{ color:'rgba(255,255,255,0.35)' }}>No saved values</p>
+        <p className="text-[11px] dt-text-muted">No saved values</p>
       ) : (
         <div className="space-y-2">
           {entries.map(([key, value]) => (
@@ -2125,21 +2109,21 @@ function StrategySnapshotPreviewCard({ snapshot }: { snapshot: StrategyConfig })
   const paramDescriptions = snapshot.type === 'momentum' ? MOMENTUM_PARAM_DESCRIPTIONS : DIP_PARAM_DESCRIPTIONS
 
   return (
-    <div className="rounded-xl p-4" style={{ background:'rgba(255,255,255,0.02)', border:`1px solid ${snapshot.color}33` }}>
+    <div className="rounded-xl p-4 dt-surface" style={{ border:`1px solid ${snapshot.color}33` }}>
       <div className="flex items-start justify-between gap-3 flex-wrap mb-4">
         <div>
-          <p className="text-[15px]" style={{ color:'rgba(255,255,255,0.88)' }}>{snapshot.name}</p>
+          <p className="text-[15px] dt-text-primary">{snapshot.name}</p>
           <p className="text-[10px] tracking-widest uppercase mt-1" style={{ color:snapshot.color, fontFamily:'JetBrains Mono, monospace' }}>
             {snapshot.type} · {snapshot.id}
           </p>
         </div>
         <div className="flex gap-2 flex-wrap">
-          <span className="text-[10px] tracking-widest uppercase px-2 py-1 rounded"
-            style={{ background:'rgba(255,255,255,0.04)', border:'1px solid rgba(255,255,255,0.08)', color:'rgba(255,255,255,0.55)', fontFamily:'JetBrains Mono, monospace' }}>
+          <span className="text-[10px] tracking-widest uppercase px-2 py-1 rounded dt-card dt-text-secondary"
+            style={{ fontFamily:'JetBrains Mono, monospace' }}>
             {snapshot.active ? 'Active' : 'Inactive'}
           </span>
-          <span className="text-[10px] tracking-widest uppercase px-2 py-1 rounded"
-            style={{ background:'rgba(255,255,255,0.04)', border:'1px solid rgba(255,255,255,0.08)', color:'rgba(255,255,255,0.55)', fontFamily:'JetBrains Mono, monospace' }}>
+          <span className="text-[10px] tracking-widest uppercase px-2 py-1 rounded dt-card dt-text-secondary"
+            style={{ fontFamily:'JetBrains Mono, monospace' }}>
             {snapshot.watchlist.length} watchlist{snapshot.watchlist.length === 1 ? '' : 's'}
           </span>
         </div>
@@ -2165,8 +2149,8 @@ function StrategySnapshotPreviewCard({ snapshot }: { snapshot: StrategyConfig })
 
 function Stat({ label, value, color }: { label: string; value: string; color: string }) {
   return (
-    <div className="p-3" style={{ background:'#100e0a' }}>
-      <p className="text-[9px] tracking-widest uppercase mb-1" style={{ color:'rgba(255,255,255,0.3)', fontFamily:'JetBrains Mono, monospace' }}>{label}</p>
+    <div className="p-3 dt-card-inner">
+      <p className="text-[9px] tracking-widest uppercase mb-1 dt-text-muted" style={{ fontFamily:'JetBrains Mono, monospace' }}>{label}</p>
       <p style={{ color, fontFamily:'JetBrains Mono, monospace', fontSize: 15, fontWeight: 600 }}>{value}</p>
     </div>
   )
@@ -2174,8 +2158,8 @@ function Stat({ label, value, color }: { label: string; value: string; color: st
 
 function MiniMetric({ label, value, valueColor }: { label: string; value: string; valueColor?: string }) {
   return (
-    <div className="rounded-lg px-3 py-2.5" style={{ background:'rgba(255,255,255,0.02)', border:'1px solid rgba(255,255,255,0.05)' }}>
-      <p className="text-[9px] tracking-widest uppercase mb-1" style={{ color:'rgba(255,255,255,0.3)', fontFamily:'JetBrains Mono, monospace' }}>{label}</p>
+    <div className="rounded-lg px-3 py-2.5 dt-card">
+      <p className="text-[9px] tracking-widest uppercase mb-1 dt-text-muted" style={{ fontFamily:'JetBrains Mono, monospace' }}>{label}</p>
       <p className="text-[12px]" style={{ color: valueColor || 'rgba(255,255,255,0.82)', fontFamily:'JetBrains Mono, monospace' }}>{value}</p>
     </div>
   )
@@ -2248,16 +2232,15 @@ function summarizeConfigValue(value: unknown): string {
 function renderConfigSummary(config: Record<string, unknown>): React.ReactNode {
   const entries = Object.entries(config || {})
   if (entries.length === 0) {
-    return <span style={{ color:'rgba(255,255,255,0.35)' }}>—</span>
+    return <span className="dt-text-muted">—</span>
   }
 
   return (
     <div className="flex flex-wrap gap-1.5 max-w-full whitespace-normal">
       {entries.map(([key, value]) => (
-        <span key={key} className="inline-flex items-center gap-1 rounded-md px-2 py-1 leading-snug"
-          style={{ background:'rgba(255,255,255,0.03)', border:'1px solid rgba(255,255,255,0.06)' }}>
-          <span style={{ color:'rgba(255,255,255,0.38)' }}>{key}:</span>
-          <span style={{ color:'rgba(255,255,255,0.78)' }}>{summarizeConfigValue(value)}</span>
+        <span key={key} className="inline-flex items-center gap-1 rounded-md px-2 py-1 leading-snug dt-card">
+          <span className="dt-text-muted">{key}:</span>
+          <span className="dt-text-primary">{summarizeConfigValue(value)}</span>
         </span>
       ))}
     </div>
@@ -2514,12 +2497,12 @@ function StrategyCard({ s, expanded, onToggle, watchlistOptions, onPatch, onTogg
     onPatch({ params: { ...s.params, [k]: v } })
   }
   return (
-    <div className="rounded-xl overflow-hidden"
-      style={{ background:'rgba(255,255,255,0.02)', border:`1px solid ${s.active ? s.color + '55' : 'rgba(255,255,255,0.08)'}` }}>
-      <div className="w-full px-4 py-3 flex items-center justify-between gap-3" style={{ background:'rgba(255,255,255,0.01)' }}>
+    <div className="rounded-xl overflow-hidden dt-surface"
+      style={{ border:`1px solid ${s.active ? s.color + '55' : 'rgba(255,255,255,0.08)'}` }}>
+      <div className="w-full px-4 py-3 flex items-center justify-between gap-3 dt-surface">
         <button onClick={onToggle} className="flex items-center gap-3 min-w-0 flex-1 text-left">
           <span className="w-2 h-2 rounded-full flex-shrink-0" style={{ background: s.active ? s.color : 'rgba(255,255,255,0.2)' }}></span>
-          <span style={{ color:'rgba(255,255,255,0.9)', fontWeight: 600 }}>{s.name}</span>
+          <span className="dt-text-primary" style={{ fontWeight: 600 }}>{s.name}</span>
           <span className="text-[9px] tracking-widest uppercase px-1.5 py-0.5 rounded"
             style={{ background:`${s.color}15`, color: s.color, border:`1px solid ${s.color}40`, fontFamily:'JetBrains Mono, monospace' }}>
             {s.type}
@@ -2538,15 +2521,15 @@ function StrategyCard({ s, expanded, onToggle, watchlistOptions, onPatch, onTogg
             }}>
             {s.active ? '● Active' : '○ Inactive'}
           </button>
-          <button onClick={onToggle} className="text-[12px] px-2" style={{ color:'rgba(255,255,255,0.4)' }}>{expanded ? '−' : '+'}</button>
+          <button onClick={onToggle} className="text-[12px] px-2 dt-text-muted">{expanded ? '−' : '+'}</button>
         </div>
       </div>
 
       {expanded && (
-        <div className="p-4 space-y-4" style={{ borderTop:'1px solid rgba(255,255,255,0.06)' }}>
+        <div className="p-4 space-y-4 dt-border-t">
           {/* Core editable */}
           <div className="space-y-2.5">
-            <p className="text-[10px] tracking-widest uppercase" style={{ color:'rgba(255,255,255,0.4)', fontFamily:'JetBrains Mono, monospace' }}>Core</p>
+            <p className="text-[10px] tracking-widest uppercase dt-text-muted" style={{ fontFamily:'JetBrains Mono, monospace' }}>Core</p>
             <TextField label="Name"  value={s.name}  onChange={v => onPatch({ name: v })}  disabled={locked} />
             <TextField label="ID (immutable after save)" value={s.id}    onChange={v => onPatch({ id: v.toLowerCase().replace(/[^a-z0-9_]/g, '_') })} disabled={locked || canReset} desc={canReset ? 'ID locked once saved.' : 'Lowercase, underscores only.'} />
             {/* Type selector — changing replaces params + exits + GIFT gate
@@ -2593,7 +2576,7 @@ function StrategyCard({ s, expanded, onToggle, watchlistOptions, onPatch, onTogg
             <ColorField label="Color" value={s.color} onChange={v => onPatch({ color: v })} disabled={locked} />
             <NumField  label="Scan Interval (min)" value={s.scanIntervalMin} onChange={v => onPatch({ scanIntervalMin: Math.max(1, Math.round(v)) })} desc="Cron fires every N minutes during market hours." disabled={locked} />
             <div>
-              <p className="text-[10px] mb-1.5" style={{ color:'rgba(255,255,255,0.6)' }}>Watchlist (select one or more)</p>
+              <p className="text-[10px] mb-1.5 dt-text-secondary">Watchlist (select one or more)</p>
               <div className="flex gap-2 flex-wrap">
                 {watchlistOptions.map(opt => {
                   const on = s.watchlist.includes(opt.key)
@@ -2615,7 +2598,7 @@ function StrategyCard({ s, expanded, onToggle, watchlistOptions, onPatch, onTogg
 
           {/* Params editable */}
           <div className="space-y-2.5">
-            <p className="text-[10px] tracking-widest uppercase" style={{ color:'rgba(255,255,255,0.4)', fontFamily:'JetBrains Mono, monospace' }}>Params</p>
+            <p className="text-[10px] tracking-widest uppercase dt-text-muted" style={{ fontFamily:'JetBrains Mono, monospace' }}>Params</p>
             {(() => {
               const EOD_PARAM_KEYS = new Set(['exitSameDayTime', 'exitSameDayOnPositive', 'squareOffEOD'])
               return Object.entries(s.params).filter(([k]) => !EOD_PARAM_KEYS.has(k)).map(([k, v]) => {
@@ -2629,7 +2612,7 @@ function StrategyCard({ s, expanded, onToggle, watchlistOptions, onPatch, onTogg
           {/* End of Day Behaviour (momentum only) */}
           {s.type === 'momentum' && (
             <div className="space-y-2.5">
-              <p className="text-[10px] tracking-widest uppercase" style={{ color:'rgba(255,255,255,0.4)', fontFamily:'JetBrains Mono, monospace' }}>End of Day Behaviour</p>
+              <p className="text-[10px] tracking-widest uppercase dt-text-muted" style={{ fontFamily:'JetBrains Mono, monospace' }}>End of Day Behaviour</p>
               <TextField label="exitSameDayTime" value={String((s.params as any).exitSameDayTime ?? '15:10')} onChange={x => patchParam('exitSameDayTime', x)} desc={MOMENTUM_PARAM_DESCRIPTIONS.exitSameDayTime} disabled={locked} />
               <BoolField label="exitSameDayOnPositive" value={Boolean((s.params as any).exitSameDayOnPositive)} onChange={x => patchParam('exitSameDayOnPositive', x)} desc={MOMENTUM_PARAM_DESCRIPTIONS.exitSameDayOnPositive} disabled={locked} />
               <BoolField label="squareOffEOD" value={Boolean((s.params as any).squareOffEOD)} onChange={x => patchParam('squareOffEOD', x)} desc={MOMENTUM_PARAM_DESCRIPTIONS.squareOffEOD} disabled={locked} />
@@ -2638,7 +2621,7 @@ function StrategyCard({ s, expanded, onToggle, watchlistOptions, onPatch, onTogg
 
           {/* Exits editable */}
           <div className="space-y-2.5">
-            <p className="text-[10px] tracking-widest uppercase" style={{ color:'rgba(255,255,255,0.4)', fontFamily:'JetBrains Mono, monospace' }}>Exit Targets</p>
+            <p className="text-[10px] tracking-widest uppercase dt-text-muted" style={{ fontFamily:'JetBrains Mono, monospace' }}>Exit Targets</p>
             <NumField label="T1 % (first target)"  value={s.exits.t1Pct} onChange={v => onPatch({ exits: { ...s.exits, t1Pct: v } })} suffix="%" desc="First take-profit target as % gain from entry." disabled={locked} />
             <NumField label="T2 % (second target)" value={s.exits.t2Pct} onChange={v => onPatch({ exits: { ...s.exits, t2Pct: v } })} suffix="%" desc="Second take-profit target. For Strategy 1, T1 sells 50% and T2 sells the remaining." disabled={locked} />
           </div>
@@ -2647,10 +2630,10 @@ function StrategyCard({ s, expanded, onToggle, watchlistOptions, onPatch, onTogg
           <GiftNiftyGateEditor strategy={s} onPatch={onPatch} disabled={locked} />
 
           {/* Actions */}
-          <div className="flex gap-2 flex-wrap pt-2" style={{ borderTop:'1px solid rgba(255,255,255,0.05)' }}>
+          <div className="flex gap-2 flex-wrap pt-2 dt-border-t">
             <button onClick={onReset} disabled={locked || !canReset}
-              className="px-3 py-1.5 rounded-md text-[10px] tracking-wider transition-all disabled:opacity-30"
-              style={{ background:'rgba(255,255,255,0.04)', border:'1px solid rgba(255,255,255,0.1)', color:'rgba(255,255,255,0.6)', fontFamily:'JetBrains Mono, monospace' }}>
+              className="px-3 py-1.5 rounded-md text-[10px] tracking-wider transition-all disabled:opacity-30 dt-card dt-text-secondary"
+              style={{ fontFamily:'JetBrains Mono, monospace' }}>
               Reset to Saved
             </button>
             <button onClick={onDuplicate} disabled={locked}
@@ -2681,12 +2664,12 @@ function NumField({ label, value, onChange, desc, prefix, suffix, disabled }: {
       <FieldDesc>{desc}</FieldDesc>
       <FieldRow label={label}>
         <div className="flex items-center gap-1">
-          {prefix && <span className="text-[11px]" style={{ color:'rgba(255,255,255,0.4)' }}>{prefix}</span>}
+          {prefix && <span className="text-[11px] dt-text-muted">{prefix}</span>}
           <input type="number" step="any" value={value} disabled={disabled}
             onChange={e => onChange(parseFloat(e.target.value))}
-            className="w-24 px-2 py-1 rounded text-[12px] outline-none disabled:opacity-50"
-            style={{ background:'rgba(255,255,255,0.04)', border:'1px solid rgba(201,168,76,0.25)', color:'#c9a84c', fontFamily:'JetBrains Mono, monospace' }} />
-          {suffix && <span className="text-[11px]" style={{ color:'rgba(255,255,255,0.4)' }}>{suffix}</span>}
+            className="w-24 px-2 py-1 rounded text-[12px] outline-none disabled:opacity-50 dt-surface"
+            style={{ border:'1px solid rgba(201,168,76,0.25)', color:'#c9a84c', fontFamily:'JetBrains Mono, monospace' }} />
+          {suffix && <span className="text-[11px] dt-text-muted">{suffix}</span>}
         </div>
       </FieldRow>
     </div>
@@ -2702,8 +2685,8 @@ function TextField({ label, value, onChange, desc, disabled }: {
       <FieldRow label={label}>
         <input type="text" value={value} disabled={disabled}
           onChange={e => onChange(e.target.value)}
-          className="px-2 py-1 rounded text-[12px] outline-none disabled:opacity-50 w-40"
-          style={{ background:'rgba(255,255,255,0.04)', border:'1px solid rgba(201,168,76,0.25)', color:'#c9a84c', fontFamily:'JetBrains Mono, monospace' }} />
+          className="px-2 py-1 rounded text-[12px] outline-none disabled:opacity-50 w-40 dt-surface"
+          style={{ border:'1px solid rgba(201,168,76,0.25)', color:'#c9a84c', fontFamily:'JetBrains Mono, monospace' }} />
       </FieldRow>
     </div>
   )
@@ -2739,7 +2722,7 @@ function ColorField({ label, value, onChange, disabled }: {
           <input type="color" value={value} disabled={disabled} onChange={e => onChange(e.target.value)}
             className="w-8 h-7 rounded cursor-pointer disabled:opacity-50"
             style={{ background:'transparent', border:'1px solid rgba(255,255,255,0.1)', padding: 0 }} />
-          <span className="text-[11px]" style={{ color:'rgba(255,255,255,0.5)', fontFamily:'JetBrains Mono, monospace' }}>{value}</span>
+          <span className="text-[11px] dt-text-secondary" style={{ fontFamily:'JetBrains Mono, monospace' }}>{value}</span>
         </div>
       </FieldRow>
     </div>
@@ -2780,7 +2763,7 @@ function GiftNiftyGateEditor({ strategy, onPatch, disabled }: {
   return (
     <div className="space-y-2.5">
       <div className="flex items-center justify-between">
-        <p className="text-[10px] tracking-widest uppercase" style={{ color:'rgba(255,255,255,0.4)', fontFamily:'JetBrains Mono, monospace' }}>
+        <p className="text-[10px] tracking-widest uppercase dt-text-muted" style={{ fontFamily:'JetBrains Mono, monospace' }}>
           GIFT Nifty Gate (pre-market mode filter)
         </p>
         <button onClick={() => !disabled && patchGate({ enabled: !enabled })} disabled={disabled}
@@ -2805,13 +2788,13 @@ function GiftNiftyGateEditor({ strategy, onPatch, disabled }: {
             suffix="%" desc="Upper bound. e.g. −0.5 = only fires on gap-down days." disabled={disabled} />
           <div className="flex gap-2">
             <button onClick={() => patchGate({ minPct: null })} disabled={disabled || minPct === null}
-              className="px-2 py-1 rounded text-[10px] disabled:opacity-30"
-              style={{ background:'rgba(255,255,255,0.04)', border:'1px solid rgba(255,255,255,0.1)', color:'rgba(255,255,255,0.5)', fontFamily:'JetBrains Mono, monospace' }}>
+              className="px-2 py-1 rounded text-[10px] disabled:opacity-30 dt-card dt-text-secondary"
+              style={{ fontFamily:'JetBrains Mono, monospace' }}>
               Clear min
             </button>
             <button onClick={() => patchGate({ maxPct: null })} disabled={disabled || maxPct === null}
-              className="px-2 py-1 rounded text-[10px] disabled:opacity-30"
-              style={{ background:'rgba(255,255,255,0.04)', border:'1px solid rgba(255,255,255,0.1)', color:'rgba(255,255,255,0.5)', fontFamily:'JetBrains Mono, monospace' }}>
+              className="px-2 py-1 rounded text-[10px] disabled:opacity-30 dt-card dt-text-secondary"
+              style={{ fontFamily:'JetBrains Mono, monospace' }}>
               Clear max
             </button>
           </div>

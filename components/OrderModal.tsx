@@ -134,8 +134,8 @@ export default function OrderModal({
     <div className="fixed inset-0 z-50 flex items-center justify-center px-4 py-8"
       style={{ background: 'rgba(0,0,0,0.75)', backdropFilter: 'blur(4px)' }}
       onClick={onClose}>
-      <div className="w-full max-w-md rounded-2xl overflow-hidden animate-fade-up"
-        style={{ background: '#100e0a', border: '1px solid rgba(201,168,76,0.2)' }}
+      <div className="dt-card-inner w-full max-w-md rounded-2xl overflow-hidden animate-fade-up"
+        style={{ border: '1px solid rgba(201,168,76,0.2)' }}
         onClick={e => e.stopPropagation()}>
 
         {/* Header */}
@@ -143,7 +143,7 @@ export default function OrderModal({
           style={{ borderColor: 'rgba(201,168,76,0.12)' }}>
           <div>
             <h3 className="text-base font-semibold" style={{ color: accentColor }}>{side} · {symbol}</h3>
-            {symbolName && <p className="text-[11px] mt-0.5" style={{ color: 'rgba(255,255,255,0.4)' }}>{symbolName}</p>}
+            {symbolName && <p className="dt-text-muted text-[11px] mt-0.5">{symbolName}</p>}
           </div>
           <button onClick={onClose} className="text-white/40 hover:text-white/80 text-xl leading-none">✕</button>
         </div>
@@ -173,8 +173,7 @@ export default function OrderModal({
           {accounts.length > 1 && (
             <Field label="Account">
               <select value={account} onChange={e => setAccount(e.target.value)}
-                className="w-full px-3 py-2 rounded-lg text-[13px] outline-none"
-                style={{ background: 'rgba(255,255,255,0.04)', border: '1px solid rgba(255,255,255,0.08)', color: 'rgba(255,255,255,0.8)' }}>
+                className="dt-card dt-text-secondary w-full px-3 py-2 rounded-lg text-[13px] outline-none">
                 {accounts.map(a => <option key={a.name} value={a.name}>{a.displayName}</option>)}
               </select>
             </Field>
@@ -184,11 +183,8 @@ export default function OrderModal({
           <Field label="Quantity" rightLabel={ltp ? `≈ ₹${Math.round(tradeValue).toLocaleString('en-IN')}` : undefined}>
             <input type="number" min={1} value={qty}
               onChange={e => setQty(parseInt(e.target.value) || 0)}
-              className="w-full px-3 py-2 rounded-lg text-[14px] outline-none"
-              style={{
-                background: 'rgba(255,255,255,0.04)', border: '1px solid rgba(255,255,255,0.08)',
-                color: 'rgba(255,255,255,0.85)', fontFamily: 'JetBrains Mono, monospace',
-              }} />
+              className="dt-card dt-text-primary w-full px-3 py-2 rounded-lg text-[14px] outline-none"
+              style={{ fontFamily: 'JetBrains Mono, monospace' }} />
           </Field>
 
           {/* Product */}
@@ -237,11 +233,8 @@ export default function OrderModal({
               <input type="number" step="0.05" min={0} value={limitPrice}
                 onChange={e => setLimitPrice(parseFloat(e.target.value) || 0)}
                 placeholder="Limit price (₹)"
-                className="w-full px-3 py-2 rounded-lg text-[13px] outline-none"
-                style={{
-                  background: 'rgba(255,255,255,0.04)', border: '1px solid rgba(255,255,255,0.08)',
-                  color: 'rgba(255,255,255,0.85)', fontFamily: 'JetBrains Mono, monospace',
-                }} />
+                className="dt-card dt-text-primary w-full px-3 py-2 rounded-lg text-[13px] outline-none"
+                style={{ fontFamily: 'JetBrains Mono, monospace' }} />
             )}
           </Field>
         </div>
@@ -253,8 +246,7 @@ export default function OrderModal({
           )}
           <div className="flex gap-2">
             <button onClick={onClose} disabled={busy}
-              className="flex-1 py-3 rounded-lg text-[12px] font-medium tracking-wider"
-              style={{ background: 'rgba(255,255,255,0.04)', border: '1px solid rgba(255,255,255,0.06)', color: 'rgba(255,255,255,0.5)' }}>
+              className="dt-card dt-text-secondary flex-1 py-3 rounded-lg text-[12px] font-medium tracking-wider">
               Cancel
             </button>
             <button onClick={placeOrder} disabled={busy || !account || qty < 1}
@@ -265,7 +257,7 @@ export default function OrderModal({
               {busy ? 'Placing…' : `Place ${side}`}
             </button>
           </div>
-          <p className="text-[10px] text-center" style={{ color: 'rgba(255,255,255,0.25)' }}>
+          <p className="dt-text-muted text-[10px] text-center">
             Manual order · bypasses per-trade cap & day quota · funds + short-sell gates still apply
           </p>
         </div>
@@ -282,7 +274,7 @@ function Field({ label, rightLabel, children }: { label: string; rightLabel?: Re
         <p className="text-[10px] tracking-widest uppercase"
           style={{ color: 'rgba(201,168,76,0.5)', fontFamily: 'JetBrains Mono, monospace' }}>{label}</p>
         {rightLabel && (
-          <div className="text-[10px]" style={{ color: 'rgba(255,255,255,0.3)', fontFamily: 'JetBrains Mono, monospace' }}>
+          <div className="dt-text-muted text-[10px]" style={{ fontFamily: 'JetBrains Mono, monospace' }}>
             {rightLabel}
           </div>
         )}

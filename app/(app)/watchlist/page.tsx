@@ -172,17 +172,17 @@ export default function WatchlistPage() {
   return (
     <div className="space-y-5 pb-4">
       <div className="flex items-center justify-between flex-wrap gap-3">
-        <h1 className="text-2xl font-light" style={{ fontFamily:'Cormorant Garamond, serif', color:'rgba(255,255,255,0.9)' }}>
+        <h1 className="text-2xl font-light dt-text-primary" style={{ fontFamily:'Cormorant Garamond, serif' }}>
           Watch<span className="gold-text">list</span>
         </h1>
         <div className="flex items-center gap-3">
-          <p className="text-[10px]" style={{ color:'rgba(255,255,255,0.25)', fontFamily:'JetBrains Mono, monospace' }}>
+          <p className="text-[10px] dt-text-muted" style={{ fontFamily:'JetBrains Mono, monospace' }}>
             Edit lists from Manage Lists
           </p>
           {activeAccount && (
             <button onClick={() => loadQuotes(activeAccount)} disabled={quotesLoading}
-              className="px-3 py-1.5 rounded-lg text-[11px] font-medium transition-all"
-              style={{ background:'rgba(201,168,76,0.1)', border:'1px solid rgba(201,168,76,0.2)', color:'#c9a84c' }}>
+              className="px-3 py-1.5 rounded-lg text-[11px] font-medium transition-all dt-card-gold"
+              style={{ color:'#c9a84c' }}>
               {quotesLoading ? '↻ Loading…' : '↻ Refresh'}
             </button>
           )}
@@ -190,22 +190,22 @@ export default function WatchlistPage() {
       </div>
 
       {quotesError && (
-        <div className="rounded-xl p-3" style={{ background:'rgba(224,90,94,0.05)', border:'1px solid rgba(224,90,94,0.25)' }}>
+        <div className="rounded-xl p-3 dt-banner-error">
           <p className="text-[12px]" style={{ color:'rgba(224,90,94,0.9)', fontFamily:'JetBrains Mono, monospace' }}>
             ✗ Live prices: {quotesError}
           </p>
-          <p className="text-[10px] mt-1" style={{ color:'rgba(255,255,255,0.4)' }}>
+          <p className="text-[10px] mt-1 dt-text-secondary">
             Most common causes: Kite access token expired (re-Login from Settings), Kite Connect plan doesn't include /quote, or one of the symbols isn't recognised by Kite.
           </p>
         </div>
       )}
 
       {invalidSymbols.length > 0 && (
-        <div className="rounded-xl p-3" style={{ background:'rgba(245,158,11,0.05)', border:'1px solid rgba(245,158,11,0.25)' }}>
+        <div className="rounded-xl p-3 dt-banner-gold">
           <p className="text-[12px]" style={{ color:'rgba(245,158,11,0.95)', fontFamily:'JetBrains Mono, monospace' }}>
             ⚠ {invalidSymbols.length} entries in <span style={{ color:'#f59e0b' }}>watchlist.json</span> look like company names, not NSE tradingsymbols — Kite can't quote them.
           </p>
-          <p className="text-[10px] mt-1" style={{ color:'rgba(255,255,255,0.4)' }}>
+          <p className="text-[10px] mt-1 dt-text-secondary">
             Examples: {invalidSymbols.slice(0, 4).join(', ')}{invalidSymbols.length > 4 ? `, …+${invalidSymbols.length - 4} more` : ''}. Edit config/watchlist.json to use the actual NSE symbol (e.g. <code style={{ color:'#c9a84c' }}>NAZARA</code>, not <code style={{ color:'#c9a84c' }}>NAZARA TECHNOLOGIES LIMITED</code>).
           </p>
         </div>
@@ -214,8 +214,7 @@ export default function WatchlistPage() {
       {/* Account picker — visible only when 2+ accounts connected */}
       {connectedAccounts.length > 1 && (
         <div className="flex items-center gap-3 flex-wrap">
-          <p className="text-[10px] tracking-widest uppercase"
-            style={{ color:'rgba(201,168,76,0.5)', fontFamily:'JetBrains Mono, monospace' }}>
+          <p className="text-[10px] tracking-widest uppercase dt-text-muted" style={{ fontFamily:'JetBrains Mono, monospace' }}>
             Holdings highlight:
           </p>
           <div className="flex gap-2 flex-wrap">
@@ -246,10 +245,10 @@ export default function WatchlistPage() {
           const count = (lists[key] || []).length
           return (
             <button key={key} onClick={() => setActiveTab(key)}
-              className={`px-5 py-2 rounded-lg text-[12px] font-medium tracking-wider transition-all ${active ? 'text-[#080604]' : 'text-white/40 hover:text-white/60'}`}
+              className={`px-5 py-2 rounded-lg text-[12px] font-medium tracking-wider transition-all ${active ? 'text-[#080604]' : 'dt-card text-white/40 hover:text-white/60'}`}
               style={{
-                background: active ? 'linear-gradient(135deg, #8a6a1a, #c9a84c)' : 'rgba(255,255,255,0.04)',
-                border: active ? 'none' : '1px solid rgba(255,255,255,0.08)',
+                background: active ? 'linear-gradient(135deg, #8a6a1a, #c9a84c)' : undefined,
+                border: active ? 'none' : undefined,
               }}>
               {label} <span className="ml-1.5 opacity-60">({count})</span>
             </button>
@@ -260,11 +259,10 @@ export default function WatchlistPage() {
       {/* Search */}
       <input value={search} onChange={e => setSearch(e.target.value)}
         placeholder="Search stocks…"
-        className="w-full px-4 py-3 rounded-xl text-sm outline-none"
-        style={{ background:'rgba(255,255,255,0.04)', border:'1px solid rgba(255,255,255,0.08)', color:'rgba(255,255,255,0.8)' }} />
+        className="w-full px-4 py-3 rounded-xl text-sm outline-none dt-card dt-text-primary" />
 
       {/* Legend */}
-      <div className="flex gap-4 text-[10px] flex-wrap items-center" style={{ color:'rgba(255,255,255,0.3)' }}>
+      <div className="flex gap-4 text-[10px] flex-wrap items-center dt-text-muted">
         <span className="flex items-center gap-1.5">
           <span className="w-2 h-2 rounded-sm" style={{ background:`${activeColor}55` }}></span>
           Currently holding{activeAccount ? ` in ${activeAccount}` : ''}
@@ -283,12 +281,11 @@ export default function WatchlistPage() {
       </div>
 
       {/* Stock list */}
-      <div className="rounded-xl overflow-hidden" style={{ border:'1px solid rgba(255,255,255,0.06)' }}>
-        <div className="grid gap-2 px-4 py-2 text-[9px] tracking-widest uppercase items-center"
+      <div className="rounded-xl overflow-hidden dt-card">
+        <div className="grid gap-2 px-4 py-2 text-[9px] tracking-widest uppercase items-center dt-table-head"
           style={{
             gridTemplateColumns: '2fr 0.9fr 0.8fr 0.9fr',
-            background:'rgba(255,255,255,0.02)', color:'rgba(255,255,255,0.25)',
-            fontFamily:'JetBrains Mono, monospace', borderBottom:'1px solid rgba(255,255,255,0.06)',
+            fontFamily:'JetBrains Mono, monospace',
           }}>
           <span>Name</span>
           <span className="text-right">LTP</span>
@@ -311,7 +308,7 @@ export default function WatchlistPage() {
                 background: held ? `${activeColor}12` : 'transparent',
               }}>
               <div className="flex items-center gap-2 min-w-0">
-                <span className="text-[13px] truncate" style={{ color:'rgba(255,255,255,0.75)' }}>{s.name}</span>
+                <span className="text-[13px] truncate dt-text-secondary">{s.name}</span>
                 {held && (
                   <span className="text-[8px] px-1.5 py-0.5 rounded flex-shrink-0"
                     style={{ background:`${activeColor}25`, color: activeColor, border:`1px solid ${activeColor}50`, fontFamily:'JetBrains Mono, monospace' }}>
@@ -373,7 +370,7 @@ export default function WatchlistPage() {
           }
         }} />
 
-      <p className="text-[10px] text-center pb-2" style={{ color:'rgba(255,255,255,0.2)' }}>
+      <p className="text-[10px] text-center pb-2 dt-text-muted">
         {connectedAccounts.length === 0
           ? 'Connect at least one account in Settings to see live prices + HOLDING highlight'
           : `${heldSymbols.size} held in ${activeAccount} · ${Object.keys(quotes).length} live quotes from Kite`}

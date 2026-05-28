@@ -58,10 +58,10 @@ export default function LiveTicker() {
               style={{ borderLeft: i === 0 ? 'none' : '1px solid rgba(255,255,255,0.05)', paddingLeft: i === 0 ? 0 : 16 }}>
               <span style={{ color: 'rgba(201,168,76,0.65)', letterSpacing: '0.1em' }}>
                 {idx.label}
-                {isBriefing && <span style={{ color: 'rgba(255,255,255,0.25)', marginLeft: 4 }}>(pre-mkt)</span>}
+                {isBriefing && <span className="dt-text-muted" style={{ marginLeft: 4 }}>(pre-mkt)</span>}
               </span>
               {idx.ltp !== null && (
-                <span style={{ color: 'rgba(255,255,255,0.8)' }}>
+                <span className="dt-text-secondary">
                   {idx.ltp.toLocaleString('en-IN', { maximumFractionDigits: 2 })}
                 </span>
               )}

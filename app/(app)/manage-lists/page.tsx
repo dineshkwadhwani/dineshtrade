@@ -188,7 +188,7 @@ export default function ManageListsPage() {
 
   if (!wl) {
     return (
-      <div className="p-8 text-center" style={{ color:'rgba(255,255,255,0.4)' }}>
+      <div className="p-8 text-center dt-text-secondary">
         Loading watchlist…
       </div>
     )
@@ -198,10 +198,10 @@ export default function ManageListsPage() {
     <div className="space-y-5 pb-6">
       <div className="flex items-center justify-between flex-wrap gap-3">
         <div>
-          <h1 className="text-2xl font-light" style={{ fontFamily:'Cormorant Garamond, serif', color:'rgba(255,255,255,0.9)' }}>
+          <h1 className="text-2xl font-light dt-text-primary" style={{ fontFamily:'Cormorant Garamond, serif' }}>
             Manage <span className="gold-text">Lists</span>
           </h1>
-          <p className="text-[10px] mt-1" style={{ color:'rgba(255,255,255,0.35)', fontFamily:'JetBrains Mono, monospace' }}>
+          <p className="text-[10px] mt-1 dt-text-muted" style={{ fontFamily:'JetBrains Mono, monospace' }}>
             Strategies pick which lists they scan · saves take effect immediately
           </p>
         </div>
@@ -224,18 +224,18 @@ export default function ManageListsPage() {
       </div>
 
       {error && (
-        <div className="rounded-lg p-3" style={{ background:'rgba(224,90,94,0.06)', border:'1px solid rgba(224,90,94,0.25)' }}>
+        <div className="rounded-lg p-3 dt-banner-error">
           <p className="text-[12px]" style={{ color:'rgba(224,90,94,0.9)' }}>✗ {error}</p>
         </div>
       )}
       {okMsg && (
-        <div className="rounded-lg p-3" style={{ background:'rgba(82,183,136,0.06)', border:'1px solid rgba(82,183,136,0.25)' }}>
+        <div className="rounded-lg p-3 dt-banner-green">
           <p className="text-[12px]" style={{ color:'#52b788' }}>✓ {okMsg}</p>
         </div>
       )}
 
       {/* SEARCH BAR */}
-      <div className="rounded-xl p-4" style={{ background:'rgba(255,255,255,0.02)', border:'1px solid rgba(201,168,76,0.15)' }}>
+      <div className="rounded-xl p-4 dt-card-gold">
         <p className="text-[10px] tracking-widest uppercase mb-2"
           style={{ color:'rgba(201,168,76,0.6)', fontFamily:'JetBrains Mono, monospace' }}>
           Add new symbol
@@ -243,23 +243,22 @@ export default function ManageListsPage() {
         <div className="flex flex-col sm:flex-row gap-2">
           <input value={query} onChange={e => setQuery(e.target.value)}
             placeholder="Type symbol or company name (e.g. BAJFINANCE, Reliance, HDFC)…"
-            className="flex-1 px-3 py-2 rounded-lg text-[13px] outline-none"
-            style={{ background:'rgba(255,255,255,0.04)', border:'1px solid rgba(255,255,255,0.08)', color:'rgba(255,255,255,0.85)' }} />
+            className="flex-1 px-3 py-2 rounded-lg text-[13px] outline-none dt-card dt-text-primary" />
           <select value={addTarget} onChange={e => setAddTarget(e.target.value)}
-            className="px-3 py-2 rounded-lg text-[12px]"
-            style={{ background:'rgba(255,255,255,0.04)', border:'1px solid rgba(255,255,255,0.08)', color:'#c9a84c', fontFamily:'JetBrains Mono, monospace' }}>
+            className="px-3 py-2 rounded-lg text-[12px] dt-card"
+            style={{ color:'#c9a84c', fontFamily:'JetBrains Mono, monospace' }}>
             {orderedKeys.map(k => (
-              <option key={k} value={k} style={{ background:'#100e0a' }}>
+              <option key={k} value={k} className="dt-card-inner">
                 Add to {wl.meta[k]?.name || k}
               </option>
             ))}
           </select>
         </div>
         {searching && (
-          <p className="text-[10px] mt-2" style={{ color:'rgba(255,255,255,0.4)' }}>↻ Searching Kite…</p>
+          <p className="text-[10px] mt-2 dt-text-secondary">↻ Searching Kite…</p>
         )}
         {results.length > 0 && (
-          <div className="mt-3 rounded-lg overflow-hidden" style={{ border:'1px solid rgba(255,255,255,0.08)' }}>
+          <div className="mt-3 rounded-lg overflow-hidden dt-card">
             {results.map(r => {
               // Only refuse if the symbol is already in the *target* list. It's
               // fine to live in multiple lists at once — strategies de-dupe the
@@ -271,14 +270,13 @@ export default function ManageListsPage() {
                 .map(k => wl?.meta[k]?.name || k)
               return (
                 <div key={r.token}
-                  className="grid items-center px-3 py-2.5"
+                  className="grid items-center px-3 py-2.5 dt-table-row"
                   style={{
                     gridTemplateColumns: '1fr 2fr 0.8fr',
-                    borderBottom: '1px solid rgba(255,255,255,0.04)',
                     background: inTarget ? 'rgba(82,183,136,0.04)' : 'transparent',
                   }}>
-                  <span style={{ color:'rgba(255,255,255,0.85)', fontFamily:'JetBrains Mono, monospace', fontWeight: 600 }}>{r.symbol}</span>
-                  <span className="text-[12px] min-w-0" style={{ color:'rgba(255,255,255,0.5)' }}>
+                  <span className="dt-text-primary" style={{ fontFamily:'JetBrains Mono, monospace', fontWeight: 600 }}>{r.symbol}</span>
+                  <span className="text-[12px] min-w-0 dt-text-secondary">
                     <span className="truncate block">{r.name}</span>
                     {otherLists.length > 0 && (
                       <span className="text-[10px]" style={{ color:'rgba(96,165,250,0.7)' }}>
@@ -291,8 +289,8 @@ export default function ManageListsPage() {
                       <span className="text-[10px]" style={{ color:'#52b788' }}>✓ in {wl?.meta[addTarget]?.name || addTarget}</span>
                     ) : (
                       <button onClick={() => add(addTarget, r)}
-                        className="px-3 py-1 rounded text-[10px] font-semibold tracking-wider"
-                        style={{ background:'rgba(201,168,76,0.15)', border:'1px solid rgba(201,168,76,0.35)', color:'#c9a84c', fontFamily:'JetBrains Mono, monospace' }}>
+                        className="px-3 py-1 rounded text-[10px] font-semibold tracking-wider dt-card-gold"
+                        style={{ color:'#c9a84c', fontFamily:'JetBrains Mono, monospace' }}>
                         + Add
                       </button>
                     )}
@@ -316,7 +314,7 @@ export default function ManageListsPage() {
         <NewListCard onCreate={createList} />
       </div>
 
-      <p className="text-[10px] text-center" style={{ color:'rgba(255,255,255,0.25)', fontFamily:'JetBrains Mono, monospace' }}>
+      <p className="text-[10px] text-center dt-text-muted" style={{ fontFamily:'JetBrains Mono, monospace' }}>
         {wl.generated && `Generated ${wl.generated} · `}Lists are linked to strategies on the Settings page · List A and List B can be renamed but not deleted
       </p>
     </div>
@@ -353,9 +351,8 @@ function ListPanel({ listKey, meta, entries, onRemove, onRename, onDelete, heldS
   }
 
   return (
-    <div className="rounded-xl overflow-hidden" style={{ background:'rgba(255,255,255,0.02)', border:'1px solid rgba(255,255,255,0.08)' }}>
-      <div className="px-4 py-3 flex items-center justify-between gap-2"
-        style={{ borderBottom:'1px solid rgba(255,255,255,0.06)' }}>
+    <div className="rounded-xl overflow-hidden dt-card">
+      <div className="px-4 py-3 flex items-center justify-between gap-2 dt-border-b">
         <div className="min-w-0 flex-1">
           {editing ? (
             <input autoFocus value={draftName}
@@ -363,8 +360,8 @@ function ListPanel({ listKey, meta, entries, onRemove, onRename, onDelete, heldS
               onBlur={commitName}
               onKeyDown={e => { if (e.key === 'Enter') commitName(); if (e.key === 'Escape') { setEditing(false); setDraftName(meta?.name || listKey) } }}
               maxLength={40}
-              className="text-[11px] tracking-widest uppercase px-2 py-1 rounded outline-none w-full"
-              style={{ background:'rgba(255,255,255,0.06)', border:'1px solid rgba(201,168,76,0.4)', color:'#c9a84c', fontFamily:'JetBrains Mono, monospace' }} />
+              className="text-[11px] tracking-widest uppercase px-2 py-1 rounded outline-none w-full dt-card-gold"
+              style={{ color:'#c9a84c', fontFamily:'JetBrains Mono, monospace' }} />
           ) : (
             <button onClick={() => setEditing(true)}
               title="Click to rename"
@@ -373,23 +370,23 @@ function ListPanel({ listKey, meta, entries, onRemove, onRename, onDelete, heldS
               {meta?.name || listKey} <span style={{ opacity:0.5 }}>✎</span>
             </button>
           )}
-          <p className="text-[10px] mt-0.5" style={{ color:'rgba(255,255,255,0.35)' }}>{entries.length} symbols · key {listKey}</p>
+          <p className="text-[10px] mt-0.5 dt-text-muted">{entries.length} symbols · key {listKey}</p>
         </div>
         <input value={filter} onChange={e => setFilter(e.target.value)}
           placeholder="Filter…"
-          className="px-2 py-1 rounded text-[11px] outline-none shrink-0"
-          style={{ background:'rgba(255,255,255,0.04)', border:'1px solid rgba(255,255,255,0.08)', color:'rgba(255,255,255,0.7)', maxWidth: 100 }} />
+          className="px-2 py-1 rounded text-[11px] outline-none shrink-0 dt-card dt-text-secondary"
+          style={{ maxWidth: 100 }} />
         {canDelete && (
           <button onClick={() => onDelete(listKey)} title="Delete list"
-            className="text-[10px] px-2 py-1 rounded shrink-0"
-            style={{ background:'rgba(224,90,94,0.1)', border:'1px solid rgba(224,90,94,0.3)', color:'#e05a5e', fontFamily:'JetBrains Mono, monospace' }}>
+            className="text-[10px] px-2 py-1 rounded shrink-0 dt-banner-error"
+            style={{ color:'#e05a5e', fontFamily:'JetBrains Mono, monospace' }}>
             🗑
           </button>
         )}
       </div>
       <div style={{ maxHeight: '60vh', overflowY: 'auto' }}>
         {filtered.length === 0 && (
-          <p className="text-[11px] text-center py-6" style={{ color:'rgba(255,255,255,0.3)' }}>
+          <p className="text-[11px] text-center py-6 dt-text-muted">
             {entries.length === 0 ? 'empty' : 'no matches'}
           </p>
         )}
@@ -403,17 +400,17 @@ function ListPanel({ listKey, meta, entries, onRemove, onRename, onDelete, heldS
               borderBottom: i < filtered.length - 1 ? '1px solid rgba(255,255,255,0.04)' : 'none',
               background: held ? 'rgba(96,165,250,0.05)' : 'transparent',
             }}>
-            <span className="flex items-center gap-1.5" style={{ color:'rgba(255,255,255,0.8)', fontFamily:'JetBrains Mono, monospace', fontWeight: 600 }}>
+            <span className="flex items-center gap-1.5 dt-text-secondary" style={{ fontFamily:'JetBrains Mono, monospace', fontWeight: 600 }}>
               {held && (
                 <span title="Currently held in this account"
                   style={{ color:'#60a5fa', fontSize: '11px' }}>💼</span>
               )}
               {e.nse}
             </span>
-            <span className="text-[11px] truncate" style={{ color:'rgba(255,255,255,0.5)' }}>{e.name}</span>
+            <span className="text-[11px] truncate dt-text-secondary">{e.name}</span>
             <button onClick={() => onRemove(listKey, e.nse)}
-              className="text-[10px] px-2 py-1 rounded transition-all justify-self-end"
-              style={{ background:'rgba(224,90,94,0.1)', border:'1px solid rgba(224,90,94,0.3)', color:'#e05a5e', fontFamily:'JetBrains Mono, monospace' }}>
+              className="text-[10px] px-2 py-1 rounded transition-all justify-self-end dt-banner-error"
+              style={{ color:'#e05a5e', fontFamily:'JetBrains Mono, monospace' }}>
               ✕
             </button>
           </div>
@@ -427,8 +424,7 @@ function ListPanel({ listKey, meta, entries, onRemove, onRename, onDelete, heldS
 function NewListCard({ onCreate }: { onCreate: (name: string) => void }) {
   const [name, setName] = useState('')
   return (
-    <div className="rounded-xl p-4 flex flex-col items-center justify-center gap-3 min-h-[180px]"
-      style={{ background:'rgba(255,255,255,0.01)', border:'1px dashed rgba(201,168,76,0.3)' }}>
+    <div className="rounded-xl p-4 flex flex-col items-center justify-center gap-3 min-h-[180px] dt-card-gold">
       <p className="text-[11px] tracking-widest uppercase" style={{ color:'rgba(201,168,76,0.6)', fontFamily:'JetBrains Mono, monospace' }}>
         + new list
       </p>
@@ -436,15 +432,14 @@ function NewListCard({ onCreate }: { onCreate: (name: string) => void }) {
         placeholder="List name (e.g. Dip Candidates)"
         maxLength={40}
         onKeyDown={e => { if (e.key === 'Enter' && name.trim()) { onCreate(name); setName('') } }}
-        className="w-full px-3 py-2 rounded-lg text-[12px] outline-none text-center"
-        style={{ background:'rgba(255,255,255,0.04)', border:'1px solid rgba(255,255,255,0.08)', color:'rgba(255,255,255,0.85)' }} />
+        className="w-full px-3 py-2 rounded-lg text-[12px] outline-none text-center dt-card dt-text-primary" />
       <button onClick={() => { if (name.trim()) { onCreate(name); setName('') } }}
         disabled={!name.trim()}
-        className="px-4 py-1.5 rounded text-[11px] font-semibold tracking-wider transition-all disabled:opacity-30"
-        style={{ background:'rgba(201,168,76,0.15)', border:'1px solid rgba(201,168,76,0.35)', color:'#c9a84c', fontFamily:'JetBrains Mono, monospace' }}>
+        className="px-4 py-1.5 rounded text-[11px] font-semibold tracking-wider transition-all disabled:opacity-30 dt-card-gold"
+        style={{ color:'#c9a84c', fontFamily:'JetBrains Mono, monospace' }}>
         + Create
       </button>
-      <p className="text-[9px] text-center" style={{ color:'rgba(255,255,255,0.3)' }}>
+      <p className="text-[9px] text-center dt-text-muted">
         Empty list. Add symbols, then link it from a strategy in Settings.
       </p>
     </div>

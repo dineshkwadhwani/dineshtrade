@@ -19,10 +19,10 @@ function fmtPnl(v: number): string {
 
 function StatCard({ label, value, sub, color = '#c9a84c', up }: any) {
   return (
-    <div className="rounded-xl p-4" style={{ background:'rgba(255,255,255,0.03)', border:'1px solid rgba(255,255,255,0.06)' }}>
-      <p className="text-[10px] tracking-widest uppercase mb-2" style={{ color:'rgba(255,255,255,0.35)', fontFamily:'JetBrains Mono, monospace' }}>{label}</p>
+    <div className="dt-card rounded-xl p-4">
+      <p className="dt-text-muted text-[10px] tracking-widest uppercase mb-2" style={{ fontFamily:'JetBrains Mono, monospace' }}>{label}</p>
       <p className="text-xl font-semibold" style={{ color, fontFamily:'JetBrains Mono, monospace' }}>{value}</p>
-      {sub && <p className="text-[11px] mt-1" style={{ color:'rgba(255,255,255,0.3)' }}>{sub}</p>}
+      {sub && <p className="dt-text-muted text-[11px] mt-1">{sub}</p>}
     </div>
   )
 }
@@ -102,7 +102,7 @@ export default function DashboardPage() {
       {/* Header */}
       <div className="flex items-center justify-between">
         <div>
-          <h1 className="text-2xl font-light" style={{ fontFamily:'Cormorant Garamond, serif', color:'rgba(255,255,255,0.9)' }}>
+          <h1 className="dt-text-primary text-2xl font-light" style={{ fontFamily:'Cormorant Garamond, serif' }}>
             Morning <span className="gold-text">Briefing</span>
           </h1>
           {lastUpdated && (
@@ -112,8 +112,8 @@ export default function DashboardPage() {
           )}
         </div>
         <button onClick={() => fetchMarket({ force: true })} disabled={loading}
-          className="px-4 py-2 rounded-lg text-[11px] font-medium tracking-wider transition-all disabled:opacity-40"
-          style={{ background:'rgba(201,168,76,0.1)', border:'1px solid rgba(201,168,76,0.2)', color:'#c9a84c' }}>
+          className="dt-banner-gold px-4 py-2 rounded-lg text-[11px] font-medium tracking-wider transition-all disabled:opacity-40"
+          style={{ color:'#c9a84c' }}>
           {loading ? '↻ Loading…' : '↻ Refresh'}
         </button>
       </div>
@@ -136,8 +136,8 @@ export default function DashboardPage() {
             Morning Briefing
           </h2>
           {/* Headline */}
-          <div className="rounded-xl px-4 py-3" style={{ background:'rgba(201,168,76,0.06)', border:'1px solid rgba(201,168,76,0.12)' }}>
-            <p className="text-sm" style={{ color:'rgba(255,255,255,0.7)', fontFamily:'Cormorant Garamond, serif', fontSize:'16px', fontStyle:'italic' }}>
+          <div className="dt-card-gold rounded-xl px-4 py-3">
+            <p className="dt-text-secondary text-sm" style={{ fontFamily:'Cormorant Garamond, serif', fontSize:'16px', fontStyle:'italic' }}>
               {market.headline}
             </p>
           </div>
@@ -147,21 +147,20 @@ export default function DashboardPage() {
             <div className="rounded-xl p-4 col-span-2 sm:col-span-1"
               style={{ background: market.giftNifty.direction === 'up' ? 'rgba(82,183,136,0.06)' : 'rgba(224,90,94,0.06)',
                        border: `1px solid ${market.giftNifty.direction === 'up' ? 'rgba(82,183,136,0.2)' : 'rgba(224,90,94,0.2)'}` }}>
-              <p className="text-[10px] tracking-widest uppercase mb-2" style={{ color:'rgba(255,255,255,0.35)', fontFamily:'JetBrains Mono, monospace' }}>GIFT Nifty</p>
+              <p className="dt-text-muted text-[10px] tracking-widest uppercase mb-2" style={{ fontFamily:'JetBrains Mono, monospace' }}>GIFT Nifty</p>
               <p className="text-3xl font-light" style={{ fontFamily:'JetBrains Mono, monospace', color: market.giftNifty.direction === 'up' ? '#52b788' : '#e05a5e' }}>
                 {market.giftNifty.value}
               </p>
               <p className="text-sm mt-1" style={{ color: market.giftNifty.direction === 'up' ? '#52b788' : '#e05a5e', fontFamily:'JetBrains Mono, monospace' }}>
                 {market.giftNifty.direction === 'up' ? '▲' : '▼'} {market.giftNifty.change}
               </p>
-              <p className="text-[11px] mt-2" style={{ color:'rgba(255,255,255,0.5)' }}>{market.giftNifty.impliedOpen}</p>
+              <p className="dt-text-secondary text-[11px] mt-2">{market.giftNifty.impliedOpen}</p>
             </div>
 
-            <div className="rounded-xl p-4 col-span-2 sm:col-span-1"
-              style={{ background:'rgba(255,255,255,0.03)', border:'1px solid rgba(255,255,255,0.06)' }}>
-              <p className="text-[10px] tracking-widest uppercase mb-2" style={{ color:'rgba(255,255,255,0.35)', fontFamily:'JetBrains Mono, monospace' }}>India Outlook</p>
+            <div className="dt-card rounded-xl p-4 col-span-2 sm:col-span-1">
+              <p className="dt-text-muted text-[10px] tracking-widest uppercase mb-2" style={{ fontFamily:'JetBrains Mono, monospace' }}>India Outlook</p>
               <p className="text-lg font-medium mb-1" style={{ color:'#e8c97a', textTransform:'capitalize' }}>{market.indiaOutlook.bias}</p>
-              <p className="text-[11px] mb-2" style={{ color:'rgba(255,255,255,0.5)', fontFamily:'JetBrains Mono, monospace' }}>Range: {market.indiaOutlook.expectedRange}</p>
+              <p className="dt-text-secondary text-[11px] mb-2" style={{ fontFamily:'JetBrains Mono, monospace' }}>Range: {market.indiaOutlook.expectedRange}</p>
               <div className="flex gap-3 text-[10px]" style={{ fontFamily:'JetBrains Mono, monospace' }}>
                 <span style={{ color:'#52b788' }}>S: {market.indiaOutlook.support}</span>
                 <span style={{ color:'#e05a5e' }}>R: {market.indiaOutlook.resistance}</span>
@@ -174,22 +173,22 @@ export default function DashboardPage() {
             <h2 className="text-[11px] tracking-widest uppercase mb-3" style={{ color:'rgba(201,168,76,0.5)', fontFamily:'JetBrains Mono, monospace' }}>Global Indices</h2>
             <div className="grid grid-cols-3 gap-2 sm:grid-cols-4 lg:grid-cols-5">
               {market.globalIndices.map((idx, i) => (
-                <div key={i} className="rounded-lg p-3"
-                  style={{ background:'rgba(255,255,255,0.03)', border:`1px solid ${idx.direction === 'up' ? 'rgba(82,183,136,0.15)' : idx.direction === 'down' ? 'rgba(224,90,94,0.15)' : 'rgba(255,255,255,0.06)'}` }}>
-                  <p className="text-[9px] truncate mb-1" style={{ color:'rgba(255,255,255,0.35)', fontFamily:'JetBrains Mono, monospace' }}>{idx.name}</p>
+                <div key={i} className="dt-surface rounded-lg p-3"
+                  style={{ border:`1px solid ${idx.direction === 'up' ? 'rgba(82,183,136,0.15)' : idx.direction === 'down' ? 'rgba(224,90,94,0.15)' : 'rgba(255,255,255,0.06)'}` }}>
+                  <p className="dt-text-muted text-[9px] truncate mb-1" style={{ fontFamily:'JetBrains Mono, monospace' }}>{idx.name}</p>
                   <p className="text-[13px] font-medium" style={{ fontFamily:'JetBrains Mono, monospace', color: idx.direction === 'up' ? '#52b788' : idx.direction === 'down' ? '#e05a5e' : 'rgba(255,255,255,0.7)' }}>
                     {idx.direction === 'up' ? '▲' : idx.direction === 'down' ? '▼' : '─'} {idx.change}
                   </p>
-                  <p className="text-[10px] mt-0.5" style={{ color:'rgba(255,255,255,0.3)', fontFamily:'JetBrains Mono, monospace' }}>{idx.value}</p>
+                  <p className="dt-text-muted text-[10px] mt-0.5" style={{ fontFamily:'JetBrains Mono, monospace' }}>{idx.value}</p>
                 </div>
               ))}
             </div>
           </div>
 
           {/* Strategy */}
-          <div className="rounded-xl p-4" style={{ background:'rgba(201,168,76,0.04)', border:'1px solid rgba(201,168,76,0.1)' }}>
+          <div className="dt-card-gold rounded-xl p-4">
             <p className="text-[10px] tracking-widest uppercase mb-2" style={{ color:'rgba(201,168,76,0.4)', fontFamily:'JetBrains Mono, monospace' }}>Today's Strategy</p>
-            <p className="text-sm" style={{ color:'rgba(255,255,255,0.6)' }}>{market.indiaOutlook.strategy}</p>
+            <p className="dt-text-secondary text-sm">{market.indiaOutlook.strategy}</p>
           </div>
 
           {/* Top Recommendations */}
@@ -198,16 +197,16 @@ export default function DashboardPage() {
               <h2 className="text-[11px] tracking-widest uppercase mb-3" style={{ color:'rgba(201,168,76,0.5)', fontFamily:'JetBrains Mono, monospace' }}>Broker Picks Today</h2>
               <div className="space-y-2">
                 {market.topRecommendations.map((rec, i) => (
-                  <div key={i} className="rounded-lg px-4 py-3 flex items-center justify-between"
-                    style={{ background:'rgba(255,255,255,0.03)', border:'1px solid rgba(82,183,136,0.15)' }}>
+                  <div key={i} className="dt-surface rounded-lg px-4 py-3 flex items-center justify-between"
+                    style={{ border:'1px solid rgba(82,183,136,0.15)' }}>
                     <div>
                       <span className="text-sm font-semibold text-white" style={{ fontFamily:'JetBrains Mono, monospace' }}>{rec.symbol}</span>
-                      <span className="text-[11px] ml-2" style={{ color:'rgba(255,255,255,0.4)' }}>{rec.name}</span>
-                      <p className="text-[11px] mt-0.5" style={{ color:'rgba(255,255,255,0.3)' }}>{rec.reason}</p>
+                      <span className="dt-text-muted text-[11px] ml-2">{rec.name}</span>
+                      <p className="dt-text-muted text-[11px] mt-0.5">{rec.reason}</p>
                     </div>
                     <div className="text-right">
                       <span className="text-[10px] px-2 py-0.5 rounded" style={{ background:'rgba(82,183,136,0.15)', color:'#52b788' }}>{rec.action}</span>
-                      <p className="text-[9px] mt-1" style={{ color:'rgba(255,255,255,0.25)', fontFamily:'JetBrains Mono, monospace' }}>{rec.source}</p>
+                      <p className="dt-text-muted text-[9px] mt-1" style={{ fontFamily:'JetBrains Mono, monospace' }}>{rec.source}</p>
                     </div>
                   </div>
                 ))}
