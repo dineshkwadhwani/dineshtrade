@@ -206,6 +206,7 @@ export default function SettingsPage() {
             ? 'Manual: recommendations shown with Execute button. You approve each trade.'
             : 'Auto: trades execute automatically every 5 min during market hours.'}
         </p>
+        <RunMonitorButton />
       </div>
 
       {/* ── KITE CONNECT SETUP HINT ── */}
@@ -635,6 +636,44 @@ const DEFAULT_MOMENTUM_PARAMS = {
   volumeAvgDays: 10, scanStartHHMM: '09:30', scanEndHHMM: '14:30',
   deliveryHandoffDays: 15,
   exitSameDayTime: '15:10', exitSameDayOnPositive: false, squareOffEOD: false,
+}
+
+// ──────────────────────────────────────────────────────────────────────────────
+// RUN MONITOR NOW
+// Manually triggers the SELL monitor + position reseeding outside cron hours.
+// ──────────────────────────────────────────────────────────────────────────────
+
+function RunMonitorButton() {
+  const [busy, setBusy] = useState(false)
+  const [msg, setMsg] = useState('')
+  const mono: React.CSSProperties = { fontFamily: 'JetBrains Mono, monospace' }
+
+  async function run() {
+    setBusy(true)
+    setMsg('')
+    try {
+      const res = await fetch('/api/strategy/monitor', { method: 'POST' })
+      const data = await res.json()
+      if (!res.ok || data.error) { setMsg(data.error || `HTTP ${res.status}`); return }
+      const total = (data.results || []).reduce((n: number, r: any) => n + (r.positionsChecked || 0), 0)
+      setMsg(`Done — ${total} position(s) checked`)
+    } catch (e) {
+      setMsg(String(e))
+    } finally {
+      setBusy(false)
+    }
+  }
+
+  return (
+    <div className="mt-4 flex items-center gap-3 flex-wrap">
+      <button onClick={run} disabled={busy}
+        className="px-4 py-1.5 rounded-md text-[11px] transition-all disabled:opacity-40"
+        style={{ background: 'rgba(96,165,250,0.1)', border: '1px solid rgba(96,165,250,0.3)', color: '#60a5fa', ...mono }}>
+        {busy ? 'Running…' : 'Sync Positions Now'}
+      </button>
+      {msg && <span className="text-[11px]" style={{ color: msg.startsWith('Done') ? '#52b788' : '#e05a5e', ...mono }}>{msg}</span>}
+    </div>
+  )
 }
 
 // ──────────────────────────────────────────────────────────────────────────────
