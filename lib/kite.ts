@@ -225,3 +225,10 @@ export async function placeKiteOrder(
   if (input.orderType === 'LIMIT' && input.price !== undefined) body.price = String(input.price)
   return kiteRequest('/orders/regular', creds, 'POST', body)
 }
+
+export async function cancelKiteOrder(
+  creds: KiteCreds,
+  orderId: string,
+): Promise<KiteResponse<{ data?: { order_id?: string }; message?: string; error_type?: string }>> {
+  return kiteRequest(`/orders/regular/${orderId}`, creds, 'DELETE')
+}

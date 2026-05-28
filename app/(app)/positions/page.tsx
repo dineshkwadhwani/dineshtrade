@@ -136,7 +136,7 @@ export default function PositionsPage() {
             <div className="rounded-xl overflow-hidden" style={{ border:'1px solid rgba(255,255,255,0.06)' }}>
               {/* Header — desktop only; mobile uses inline labels per cell */}
               <div className="hidden sm:grid grid-cols-12 px-4 py-2.5 text-[9px] tracking-widest uppercase"
-                style={{ background:'rgba(255,255,255,0.02)', color:'rgba(255,255,255,0.25)', fontFamily:'JetBrains Mono, monospace', borderBottom:'1px solid rgba(255,255,255,0.06)' }}>
+                style={{ background:'var(--dt-surface)', color:'var(--dt-text-muted)', fontFamily:'JetBrains Mono, monospace', borderBottom:'1px solid var(--dt-border)' }}>
                 <span className="col-span-3">Symbol</span>
                 <span className="col-span-1 text-right">Qty</span>
                 <span className="col-span-2 text-right">Avg</span>

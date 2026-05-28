@@ -2,10 +2,36 @@
 @tailwind base;
 @tailwind components;
 @tailwind utilities;
+
 :root {
   --gold:#c9a84c;--gold-light:#e8c97a;--gold-dark:#8a6a1a;
   --obsidian:#080604;--up:#52b788;--dn:#e05a5e;
+
+  /* Design tokens — standard contrast */
+  --dt-text-primary:   rgba(255,255,255,0.90);
+  --dt-text-secondary: rgba(255,255,255,0.55);
+  --dt-text-muted:     rgba(255,255,255,0.38);
+  --dt-border:         rgba(255,255,255,0.08);
+  --dt-border-gold:    rgba(201,168,76,0.18);
+  --dt-surface:        rgba(255,255,255,0.03);
+  --dt-surface-2:      rgba(255,255,255,0.06);
 }
+
+/* High-contrast mode — toggled by .hc class on <html> */
+html.hc {
+  --dt-text-primary:   rgba(255,255,255,0.97);
+  --dt-text-secondary: rgba(255,255,255,0.78);
+  --dt-text-muted:     rgba(255,255,255,0.58);
+  --dt-border:         rgba(255,255,255,0.18);
+  --dt-border-gold:    rgba(201,168,76,0.38);
+  --dt-surface:        rgba(255,255,255,0.06);
+  --dt-surface-2:      rgba(255,255,255,0.11);
+}
+
+/* Utility classes driven by tokens */
+.dt-text-secondary { color: var(--dt-text-secondary); }
+.dt-text-muted     { color: var(--dt-text-muted); }
+
 *{box-sizing:border-box;}
 body{background:#080604;color:#fff;font-family:'Outfit',system-ui,sans-serif;-webkit-font-smoothing:antialiased;}
 .gold-text{background:linear-gradient(135deg,#a07820 0%,#c9a84c 30%,#e8d090 55%,#c9a84c 75%,#8a6010 100%);-webkit-background-clip:text;-webkit-text-fill-color:transparent;background-clip:text;}
@@ -19,8 +45,7 @@ body{background:#080604;color:#fff;font-family:'Outfit',system-ui,sans-serif;-we
 .animate-ticker{animation:ticker-scroll 40s linear infinite;}
 
 /* Readability bump: original design used 8–13px text everywhere — too small on
-   most screens. Remap the arbitrary Tailwind text sizes used across the app.
-   Same specificity as the generated utilities; we win because we come later. */
+   most screens. Remap the arbitrary Tailwind text sizes used across the app. */
 .text-\[8px\]  { font-size: 12px; }
 .text-\[9px\]  { font-size: 13px; }
 .text-\[10px\] { font-size: 14px; }

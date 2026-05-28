@@ -1,5 +1,5 @@
 'use client'
-import { useEffect, useState } from 'react'
+import { useEffect, useRef, useState } from 'react'
 
 interface CapitalSnapshot {
   account: string
@@ -19,10 +19,6 @@ interface CapitalSnapshot {
   fetchedAt: string
 }
 
-// Header bar for the Trading Engine page: Available · Deployed · Reserve ·
-// Remaining deployable. Fetches on mount + when the user clicks Refresh. The
-// 'Reserve' cell is the `100 − maxDeployPct`% buffer that Auto mode will
-// never deploy (default 20%).
 export default function CapitalBar({ account }: { account: string | null }) {
   const [snap, setSnap] = useState<CapitalSnapshot | null>(null)
   const [loading, setLoading] = useState(false)
@@ -49,19 +45,27 @@ export default function CapitalBar({ account }: { account: string | null }) {
   const fmtSigned = (n: number) => `${n >= 0 ? '+' : '-'}₹${Math.round(Math.abs(n)).toLocaleString('en-IN')}`
   const dep = snap ? (snap.maxDeployable > 0 ? (snap.deployed / snap.maxDeployable) * 100 : 0) : 0
 
+  // Tooltip content for Live Capital — shows the hidden reconciliation detail
+  const liveCapitalTooltip = snap && snap.reconciliationBase !== null
+    ? `Funded base ₹${Math.round(snap.reconciliationBase).toLocaleString('en-IN')} · Ledger adj ${snap.reconciliationResidual !== null ? fmtSigned(snap.reconciliationResidual) : '—'}`
+    : undefined
+
   return (
-    <div className="rounded-xl overflow-hidden" style={{ background:'rgba(201,168,76,0.04)', border:'1px solid rgba(201,168,76,0.18)' }}>
+    <div className="rounded-xl overflow-hidden" style={{ background:'rgba(201,168,76,0.04)', border:'1px solid var(--dt-border-gold)' }}>
+      {/* Header */}
       <div className="px-4 py-2.5 flex items-center justify-between"
         style={{ background:'rgba(201,168,76,0.06)', borderBottom:'1px solid rgba(201,168,76,0.12)' }}>
         <p className="text-[10px] tracking-widest uppercase" style={{ color:'#c9a84c', fontFamily:'JetBrains Mono, monospace' }}>
           Capital · {account}
-          {snap && <span className="ml-2" style={{ color:'rgba(255,255,255,0.4)' }}>
-            · {snap.maxDeployPct}% deployable cap · {(100 - snap.maxDeployPct)}% reserve
-          </span>}
+          {snap && (
+            <span className="ml-2" style={{ color:'var(--dt-text-muted)' }}>
+              · {snap.maxDeployPct}% deployable · {100 - snap.maxDeployPct}% reserve
+            </span>
+          )}
         </p>
-        <div className="flex items-center gap-2">
+        <div className="flex items-center gap-3">
           {snap?.fetchedAt && (
-            <span className="text-[9px]" style={{ color:'rgba(255,255,255,0.3)', fontFamily:'JetBrains Mono, monospace' }}>
+            <span className="text-[9px]" style={{ color:'var(--dt-text-muted)', fontFamily:'JetBrains Mono, monospace' }}>
               fetched {new Date(snap.fetchedAt).toLocaleTimeString('en-IN', { hour12: false, timeZone: 'Asia/Kolkata' })}
             </span>
           )}
@@ -72,33 +76,59 @@ export default function CapitalBar({ account }: { account: string | null }) {
           </button>
         </div>
       </div>
-      {error && (
-        <p className="text-[11px] px-4 py-2" style={{ color:'rgba(224,90,94,0.85)' }}>✗ {error}</p>
-      )}
-      <div className="grid grid-cols-2 sm:grid-cols-5 gap-px" style={{ background:'rgba(255,255,255,0.04)' }}>
+
+      {error && <p className="text-[11px] px-4 py-2" style={{ color:'rgba(224,90,94,0.85)' }}>✗ {error}</p>}
+
+      {/* Row 1 — Cash position */}
+      <div className="grid grid-cols-2 sm:grid-cols-4 gap-px" style={{ background:'var(--dt-border)' }}>
         <Cell label="Available" value={snap ? fmt(snap.available) : '—'} sub="from Kite" color="#c9a84c" />
-        <Cell label="Overall Deployed" value={snap ? fmt(snap.deployed) : '—'}
+        <Cell label="Deployed" value={snap ? fmt(snap.deployed) : '—'}
           sub={snap ? `${dep.toFixed(0)}% of cap` : ''}
           color={dep > 90 ? '#e05a5e' : dep > 75 ? '#f59e0b' : '#52b788'} />
-        <Cell label="Reserve" value={snap ? fmt(snap.reserve) : '—'} sub={snap ? `${(100 - snap.maxDeployPct)}% buffer` : ''} color="rgba(255,255,255,0.6)" />
-        <Cell label="Remaining deployable" value={snap ? fmt(snap.remaining) : '—'} sub="for new entries" color={snap && snap.remaining > 0 ? '#52b788' : 'rgba(255,255,255,0.4)'} />
-        <Cell label="Funded Base" value={snap && snap.reconciliationBase !== null ? fmt(snap.reconciliationBase) : '—'} sub="configured cash base" color="rgba(255,255,255,0.82)" />
-        <Cell label="Net Realized P&L" value={snap ? fmtSigned(snap.netRealizedPnl) : '—'} sub="journaled trades after charges" color={snap && snap.netRealizedPnl >= 0 ? '#52b788' : '#e05a5e'} />
-        <Cell label="Net Unrealized MTM" value={snap ? fmtSigned(snap.liveUnrealizedPnl) : '—'} sub="all open holdings + positions" color={snap && snap.liveUnrealizedPnl >= 0 ? '#52b788' : '#e05a5e'} />
-        <Cell label="Net MTM" value={snap ? fmtSigned(snap.livePnl) : '—'} sub="net realized + unrealized" color={snap && snap.livePnl >= 0 ? '#52b788' : '#e05a5e'} />
-        <Cell label="Ledger Adjustment" value={snap && snap.reconciliationResidual !== null ? fmtSigned(snap.reconciliationResidual) : '—'} sub="residual to broker live capital" color={snap && snap.reconciliationResidual !== null ? (snap.reconciliationResidual >= 0 ? '#52b788' : '#e05a5e') : 'rgba(255,255,255,0.4)'} />
-        <Cell label="Live Capital" value={snap ? fmt(snap.liveCapital) : '—'} sub="available + deployed" color="rgba(255,255,255,0.82)" />
+        <Cell label="Reserve" value={snap ? fmt(snap.reserve) : '—'} sub={snap ? `${100 - snap.maxDeployPct}% buffer` : ''} color="var(--dt-text-primary)" />
+        <Cell label="Remaining" value={snap ? fmt(snap.remaining) : '—'} sub="for new entries" color={snap && snap.remaining > 0 ? '#52b788' : 'var(--dt-text-muted)'} />
+      </div>
+
+      {/* Divider */}
+      <div style={{ height:1, background:'var(--dt-border)' }} />
+
+      {/* Row 2 — P&L */}
+      <div className="grid grid-cols-2 sm:grid-cols-4 gap-px" style={{ background:'var(--dt-border)' }}>
+        <Cell label="Realized P&L" value={snap ? fmtSigned(snap.netRealizedPnl) : '—'} sub="net of charges" color={snap && snap.netRealizedPnl >= 0 ? '#52b788' : '#e05a5e'} />
+        <Cell label="Unrealized MTM" value={snap ? fmtSigned(snap.liveUnrealizedPnl) : '—'} sub="open holdings" color={snap && snap.liveUnrealizedPnl >= 0 ? '#52b788' : '#e05a5e'} />
+        <Cell label="Net MTM" value={snap ? fmtSigned(snap.livePnl) : '—'} sub="realized + unrealized" color={snap && snap.livePnl >= 0 ? '#52b788' : '#e05a5e'} />
+        <Cell label="Live Capital" value={snap ? fmt(snap.liveCapital) : '—'} sub="available + deployed" color="var(--dt-text-primary)" tooltip={liveCapitalTooltip} />
       </div>
     </div>
   )
 }
 
-function Cell({ label, value, sub, color }: { label: string; value: string; sub?: string; color: string }) {
+function Cell({ label, value, sub, color, tooltip }: {
+  label: string; value: string; sub?: string; color: string; tooltip?: string
+}) {
+  const [show, setShow] = useState(false)
+  const ref = useRef<HTMLDivElement>(null)
+
   return (
-    <div className="p-3" style={{ background:'#100e0a' }}>
-      <p className="text-[9px] tracking-widest uppercase mb-1" style={{ color:'rgba(255,255,255,0.3)', fontFamily:'JetBrains Mono, monospace' }}>{label}</p>
+    <div ref={ref} className="p-3 relative" style={{ background:'#100e0a' }}
+      onMouseEnter={() => tooltip && setShow(true)}
+      onMouseLeave={() => setShow(false)}>
+      <p className="text-[9px] tracking-widest uppercase mb-1"
+        style={{ color:'var(--dt-text-muted)', fontFamily:'JetBrains Mono, monospace' }}>
+        {label}
+      </p>
       <p style={{ color, fontFamily:'JetBrains Mono, monospace', fontSize: 18, fontWeight: 600 }}>{value}</p>
-      {sub && <p className="text-[9px] mt-0.5" style={{ color:'rgba(255,255,255,0.35)', fontFamily:'JetBrains Mono, monospace' }}>{sub}</p>}
+      {sub && (
+        <p className="text-[9px] mt-0.5" style={{ color:'var(--dt-text-muted)', fontFamily:'JetBrains Mono, monospace' }}>
+          {sub}
+        </p>
+      )}
+      {tooltip && show && (
+        <div className="absolute bottom-full left-0 mb-1 z-20 px-2.5 py-1.5 rounded-md text-[10px] whitespace-nowrap pointer-events-none"
+          style={{ background:'#1a1610', border:'1px solid rgba(201,168,76,0.25)', color:'var(--dt-text-secondary)', fontFamily:'JetBrains Mono, monospace' }}>
+          {tooltip}
+        </div>
+      )}
     </div>
   )
 }

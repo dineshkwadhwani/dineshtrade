@@ -303,7 +303,7 @@ export default function HoldingsPage() {
             <div className="rounded-xl overflow-hidden" style={{ border:'1px solid rgba(255,255,255,0.06)' }}>
               {/* Desktop header */}
               <div className="hidden sm:grid grid-cols-12 px-4 py-2.5 text-[9px] tracking-widest uppercase"
-                style={{ background:'rgba(255,255,255,0.02)', color:'rgba(255,255,255,0.25)', fontFamily:'JetBrains Mono, monospace', borderBottom:'1px solid rgba(255,255,255,0.06)' }}>
+                style={{ background:'var(--dt-surface)', color:'var(--dt-text-muted)', fontFamily:'JetBrains Mono, monospace', borderBottom:'1px solid var(--dt-border)' }}>
                 <span className="col-span-3">Symbol</span>
                 <span className="col-span-1 text-right">Qty</span>
                 <span className="col-span-2 text-right">Avg</span>
@@ -346,7 +346,7 @@ export default function HoldingsPage() {
                     disabled={!market.open} title={!market.open ? 'Market closed' : undefined}
                     className="px-3 py-1.5 rounded text-[10px] font-semibold tracking-wider transition-all disabled:opacity-30 disabled:cursor-not-allowed"
                     style={{ background:'rgba(82,183,136,0.12)', border:'1px solid rgba(82,183,136,0.3)', color:'#52b788', fontFamily:'JetBrains Mono, monospace' }}>
-                    {isShortPosition ? 'Cover' : 'Buy'}
+                    {isShortPosition ? 'Cover' : 'B'}
                   </button>
                 )
                 const SellBtn = isShortPosition ? null : (
@@ -354,7 +354,7 @@ export default function HoldingsPage() {
                     disabled={!market.open} title={!market.open ? 'Market closed' : undefined}
                     className="px-3 py-1.5 rounded text-[10px] font-semibold tracking-wider transition-all disabled:opacity-30 disabled:cursor-not-allowed"
                     style={{ background:'rgba(224,90,94,0.12)', border:'1px solid rgba(224,90,94,0.3)', color:'#e05a5e', fontFamily:'JetBrains Mono, monospace' }}>
-                    Sell
+                    S
                   </button>
                 )
 

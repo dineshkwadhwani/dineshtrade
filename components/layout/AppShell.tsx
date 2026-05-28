@@ -56,6 +56,21 @@ export default function AppShell({ children }: { children: React.ReactNode }) {
   const [menuOpen, setMenuOpen] = useState(false)
   const menuRef = useRef<HTMLDivElement>(null)
   const currentView = searchParams.get('view')
+  const [hc, setHc] = useState(false)
+
+  // Persist and apply high-contrast preference
+  useEffect(() => {
+    const stored = localStorage.getItem('dt-hc') === '1'
+    setHc(stored)
+    document.documentElement.classList.toggle('hc', stored)
+  }, [])
+
+  function toggleHc() {
+    const next = !hc
+    setHc(next)
+    document.documentElement.classList.toggle('hc', next)
+    localStorage.setItem('dt-hc', next ? '1' : '0')
+  }
 
   // Close on outside click + Escape
   useEffect(() => {
@@ -130,6 +145,17 @@ export default function AppShell({ children }: { children: React.ReactNode }) {
                 <div className="px-3.5 py-2.5 border-b" style={{ borderColor:'rgba(201,168,76,0.1)' }}>
                   <p className="text-[11px] text-white/75">Dinesh Wadhwani</p>
                   <p className="text-[9px] tracking-[0.2em] uppercase" style={{ color:'rgba(201,168,76,0.48)', fontFamily:'JetBrains Mono, monospace' }}>Trader</p>
+                </div>
+
+                {/* High contrast toggle */}
+                <div className="px-3.5 py-2 flex items-center justify-between border-b" style={{ borderColor:'rgba(201,168,76,0.1)' }}>
+                  <span className="text-[11px]" style={{ color:'rgba(255,255,255,0.5)', fontFamily:'JetBrains Mono, monospace' }}>High contrast</span>
+                  <button onClick={toggleHc}
+                    className="relative w-10 h-5 rounded-full transition-all"
+                    style={{ background: hc ? 'rgba(201,168,76,0.4)' : 'rgba(255,255,255,0.1)', border: `1px solid ${hc ? 'rgba(201,168,76,0.6)' : 'rgba(255,255,255,0.2)'}` }}>
+                    <span className="absolute top-0.5 w-4 h-4 rounded-full transition-all"
+                      style={{ background: hc ? '#c9a84c' : 'rgba(255,255,255,0.4)', left: hc ? '1.25rem' : '0.125rem' }} />
+                  </button>
                 </div>
 
                 {/* Nav links */}

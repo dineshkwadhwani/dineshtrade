@@ -304,6 +304,13 @@ export default function EnginePage() {
         </div>
       )}
 
+      {/* Pending orders — cancel button per row */}
+      <PendingOrdersSection
+        orders={todayOrders}
+        account={selected[0] || connected[0] || null}
+        onCancelled={loadTodayOrders}
+      />
+
       {/* Two strategy sections — always visible after a scan (or when there are
           today's orders even without a fresh scan). Each shows new recs +
           today's executed orders for that strategy. */}
@@ -346,6 +353,99 @@ export default function EnginePage() {
 // for the active account and shows the actual today's BUYs / SELLs +
 // remaining-vs-cap. Refreshes on every successful execute.
 
+// ──────────────────── PENDING ORDERS ────────────────────
+
+function PendingOrdersSection({ orders, account, onCancelled }: {
+  orders: KiteOrder[]
+  account: string | null
+  onCancelled: () => void
+}) {
+  const pending = orders.filter(o =>
+    o.status === 'OPEN' || o.status === 'TRIGGER PENDING' || o.status === 'AMO REQ RECEIVED'
+  )
+  if (pending.length === 0) return null
+  const mono: React.CSSProperties = { fontFamily: 'JetBrains Mono, monospace' }
+  return (
+    <div className="rounded-xl overflow-hidden" style={{ border: '1px solid rgba(201,168,76,0.25)' }}>
+      <div className="px-4 py-2 text-[9px] tracking-widest uppercase"
+        style={{ background: 'rgba(201,168,76,0.06)', color: 'rgba(201,168,76,0.7)', borderBottom: '1px solid rgba(201,168,76,0.15)', ...mono }}>
+        Pending Orders · {pending.length}
+      </div>
+      {pending.map((o, i) => (
+        <PendingOrderRow key={o.order_id} order={o} account={account} onCancelled={onCancelled} isLast={i === pending.length - 1} />
+      ))}
+    </div>
+  )
+}
+
+function PendingOrderRow({ order, account, onCancelled, isLast }: {
+  order: KiteOrder
+  account: string | null
+  onCancelled: () => void
+  isLast: boolean
+}) {
+  const [cancelling, setCancelling] = useState(false)
+  const [error, setError] = useState('')
+  const mono: React.CSSProperties = { fontFamily: 'JetBrains Mono, monospace' }
+
+  async function cancel() {
+    if (!account) return
+    setCancelling(true)
+    setError('')
+    try {
+      const res = await fetch('/api/orders/cancel', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ account, orderId: order.order_id }),
+      })
+      const data = await res.json()
+      if (!res.ok || data.error) { setError(data.error || 'Cancel failed'); return }
+      onCancelled()
+    } catch (e) {
+      setError(String(e))
+    } finally {
+      setCancelling(false)
+    }
+  }
+
+  return (
+    <div style={{ borderBottom: isLast ? 'none' : '1px solid rgba(255,255,255,0.04)' }}>
+      <div className="grid items-center px-4 py-2.5"
+        style={{ gridTemplateColumns: '0.6fr 1.2fr 0.7fr 0.6fr 1fr 0.7fr auto' }}>
+        <span style={{ color: 'rgba(255,255,255,0.35)', fontSize: 10, ...mono }}>
+          {fmtOrderTime(order.order_timestamp)}
+        </span>
+        <span style={{ color: 'rgba(255,255,255,0.85)', fontWeight: 600, fontSize: 12, ...mono }}>
+          {order.tradingsymbol}
+        </span>
+        <span style={{ color: order.transaction_type === 'BUY' ? '#52b788' : '#e05a5e', fontWeight: 600, fontSize: 12 }}>
+          {order.transaction_type === 'BUY' ? '▲ BUY' : '▼ SELL'}
+        </span>
+        <span className="text-right" style={{ color: 'rgba(255,255,255,0.6)', fontSize: 12, ...mono }}>
+          × {order.quantity}
+        </span>
+        <span className="text-right" style={{ color: 'rgba(201,168,76,0.8)', fontSize: 10, ...mono }}>
+          {order.status}
+        </span>
+        <span className="text-right" style={{ color: 'rgba(96,165,250,0.6)', fontSize: 10, ...mono }}>
+          {order.tag || '—'}
+        </span>
+        <div className="flex justify-end pl-3">
+          <button onClick={cancel} disabled={cancelling || !account}
+            title="Cancel order"
+            className="w-6 h-6 rounded-full flex items-center justify-center transition-all disabled:opacity-40 hover:bg-red-900/40"
+            style={{ background: 'rgba(224,90,94,0.12)', border: '1px solid rgba(224,90,94,0.4)', color: '#e05a5e', fontSize: 14, lineHeight: 1, ...mono }}>
+            {cancelling ? '…' : '×'}
+          </button>
+        </div>
+      </div>
+      {error && <p className="px-4 pb-2 text-[10px]" style={{ color: '#e05a5e', ...mono }}>{error}</p>}
+    </div>
+  )
+}
+
+// ──────────────────── TODAY'S ACTIVITY ────────────────────
+
 function TodayActivity({ orders, account, buyCap, sellCap }: { orders: KiteOrder[]; account: string | null; buyCap: number; sellCap: number }) {
   // Filter to today's COMPLETE orders only. Kite returns ALL orders since
   // session start (we're already today-scoped via /orders endpoint).
@@ -381,9 +481,9 @@ function TodayActivity({ orders, account, buyCap, sellCap }: { orders: KiteOrder
 function ActivityCell({ label, value, sub, color }: { label: string; value: string; sub?: string; color: string }) {
   return (
     <div className="rounded-lg p-3" style={{ background:'rgba(255,255,255,0.02)', border:'1px solid rgba(255,255,255,0.05)' }}>
-      <p className="text-[9px] tracking-widest uppercase mb-1" style={{ color:'rgba(255,255,255,0.3)', fontFamily:'JetBrains Mono, monospace' }}>{label}</p>
+      <p className="text-[9px] tracking-widest uppercase mb-1" style={{ color:'var(--dt-text-muted)', fontFamily:'JetBrains Mono, monospace' }}>{label}</p>
       <p className="text-lg font-semibold" style={{ color, fontFamily:'JetBrains Mono, monospace' }}>{value}</p>
-      {sub && <p className="text-[10px] mt-0.5" style={{ color:'rgba(255,255,255,0.35)', fontFamily:'JetBrains Mono, monospace' }}>{sub}</p>}
+      {sub && <p className="text-[10px] mt-0.5" style={{ color:'var(--dt-text-muted)', fontFamily:'JetBrains Mono, monospace' }}>{sub}</p>}
     </div>
   )
 }
@@ -916,14 +1016,14 @@ function TileCard({ tile, fullScore, tradeMode, marketOpen, onBuy, onSell }: {
           title={!marketOpen ? 'Market closed' : undefined}
           className="flex-1 py-2 rounded-md text-[11px] font-semibold tracking-wider transition-all disabled:opacity-30 disabled:cursor-not-allowed"
           style={{ background: buyBg, border: `1px solid ${buyBd}`, color: buyColor }}>
-          ▲ BUY
+          ▲ B
         </button>
         {tile.holding && (
           <button onClick={onSell} disabled={!marketOpen}
             title={!marketOpen ? 'Market closed' : undefined}
             className="flex-1 py-2 rounded-md text-[11px] font-semibold tracking-wider transition-all disabled:opacity-30 disabled:cursor-not-allowed"
             style={{ background:'rgba(224,90,94,0.12)', border:'1px solid rgba(224,90,94,0.35)', color:'#e05a5e' }}>
-            ▼ SELL
+            ▼ S
           </button>
         )}
       </div>
