@@ -27,21 +27,21 @@
 
 /* ─── Light mode ─────────────────────────────────────────────────────── */
 html.light {
-  --dt-bg:            #f0ede8;
+  --dt-bg:            #f5f4f2;
   --dt-bg-card:       #ffffff;
-  --dt-bg-card-2:     #f8f5f0;
-  --dt-bg-nav:        rgba(240,237,232,0.97);
-  --dt-text-primary:  rgba(0,0,0,0.88);
-  --dt-text-secondary:rgba(0,0,0,0.62);
-  --dt-text-muted:    rgba(0,0,0,0.42);
-  --dt-border:        rgba(0,0,0,0.11);
-  --dt-border-gold:   rgba(140,104,20,0.30);
-  --dt-surface:       rgba(0,0,0,0.04);
-  --dt-surface-2:     rgba(0,0,0,0.07);
-  --dt-gold-display:  #8a6010;
-  --dt-nav-border:    rgba(140,104,20,0.20);
-  --dt-scrollbar-bg:  #e8e4de;
-  --dt-scrollbar-thumb: rgba(140,104,20,0.35);
+  --dt-bg-card-2:     #eeece9;
+  --dt-bg-nav:        rgba(245,244,242,0.97);
+  --dt-text-primary:  #111110;
+  --dt-text-secondary:#3a3935;
+  --dt-text-muted:    #6b6864;
+  --dt-border:        rgba(0,0,0,0.13);
+  --dt-border-gold:   rgba(120,88,12,0.35);
+  --dt-surface:       rgba(0,0,0,0.05);
+  --dt-surface-2:     rgba(0,0,0,0.09);
+  --dt-gold-display:  #6b4c08;
+  --dt-nav-border:    rgba(120,88,12,0.22);
+  --dt-scrollbar-bg:  #e0ddd9;
+  --dt-scrollbar-thumb: rgba(120,88,12,0.40);
 }
 
 /* ─── Global base ────────────────────────────────────────────────────── */
@@ -84,6 +84,11 @@ html.light .gold-text{background:linear-gradient(135deg,#6b4c0a 0%,#9a720e 35%,#
 .dt-card-gold {
   background: rgba(201,168,76,0.04);
   border: 1px solid var(--dt-border-gold);
+}
+/* In light mode, dt-card-gold needs a more visible treatment */
+html.light .dt-card-gold {
+  background: rgba(107,76,8,0.06);
+  border: 1px solid rgba(107,76,8,0.30);
 }
 .dt-card-inner {               /* nested card / cell */
   background: var(--dt-bg-card-2);
@@ -141,61 +146,92 @@ html.light .gold-text{background:linear-gradient(135deg,#6b4c0a 0%,#9a720e 35%,#
 .dt-text-secondary { color: var(--dt-text-secondary); }
 .dt-text-muted     { color: var(--dt-text-muted); }
 
-/* ─── Light mode inline-style overrides ─────────────────────────────────
-   CSS attribute selectors with !important are the ONLY way to override
-   React inline styles without touching every JSX file. Targets inline
-   style attributes that contain specific color strings.
+/* ─── Light mode overrides ───────────────────────────────────────────────
+   STRATEGY: One blanket rule forces ALL main-content text dark.
+   Higher-specificity rules then restore semantic colors (green/red/gold).
+   Background overrides handle dark card/surface colors.
+   !important is required to beat React inline styles.
    ────────────────────────────────────────────────────────────────────── */
 
-/* 1. Dark card/surface backgrounds → light equivalents */
+/* ══ BLANKET: every element inside <main> gets dark text ══════════════
+   Specificity: html(.light) main(*) = (0,1,1,0)
+   Semantic restores below have (0,2,0,0)+(attr) → always win over this. */
+html.light main,
+html.light main * { color: var(--dt-text-primary) !important; }
+
+/* Restore body-level base (nav, ticker, etc. outside main) */
+html.light body { color: var(--dt-text-primary); }
+
+/* ══ SEMANTIC COLOR RESTORES (higher specificity wins) ════════════════ */
+/* Green P&L / BUY */
+html.light [style*="rgb(82, 183, 136"],
+html.light [style*="rgba(82,183,136"],
+html.light [style*="rgba(82, 183, 136"],
+html.light [style*="#52b788"]                        { color: #0a6e3f !important; }
+
+/* Red loss / SELL */
+html.light [style*="rgb(224, 90, 94"],
+html.light [style*="rgba(224,90,94"],
+html.light [style*="rgba(224, 90, 94"],
+html.light [style*="#e05a5e"]                        { color: #a91818 !important; }
+
+/* Gold accent */
+html.light [style*="rgb(201, 168, 76"],
+html.light [style*="rgba(201,168,76"],
+html.light [style*="rgba(201, 168, 76"],
+html.light [style*="#c9a84c"],
+html.light [style*="#e8c97a"]                        { color: var(--dt-gold-display) !important; }
+
+/* Blue info */
+html.light [style*="rgb(96, 165, 250"],
+html.light [style*="rgba(96,165,250"],
+html.light [style*="rgba(96, 165, 250"],
+html.light [style*="#60a5fa"]                        { color: #1d40ae !important; }
+
+/* Amber warning */
+html.light [style*="rgba(245,158,11"],
+html.light [style*="rgba(245, 158, 11"]              { color: #92400e !important; }
+
+/* ══ BACKGROUND OVERRIDES ═════════════════════════════════════════════ */
+/* Dark card backgrounds → white */
 html.light [style*="background:#100e0a"],
-html.light [style*="background: #100e0a"]  { background: var(--dt-bg-card)   !important; }
+html.light [style*="background: #100e0a"],
+html.light [style*="background: rgb(16, 14, 10)"]   { background: var(--dt-bg-card)  !important; }
+
 html.light [style*="background:#080604"],
-html.light [style*="background: #080604"]  { background: var(--dt-bg)         !important; }
+html.light [style*="background: #080604"],
+html.light [style*="background: rgb(8, 6, 4)"]      { background: var(--dt-bg)        !important; }
+
 html.light [style*="background:#1a1610"],
-html.light [style*="background: #1a1610"]  { background: var(--dt-bg-card-2)  !important; }
+html.light [style*="background: #1a1610"],
+html.light [style*="background:#15120d"],
+html.light [style*="background: #15120d"],
+html.light [style*="background: rgb(26, 22, 16)"],
+html.light [style*="background: rgb(21, 18, 13)"]   { background: var(--dt-bg-card-2) !important; }
 
-/* 2. White rgba surfaces → subtle grey surface on light bg */
+/* White rgba surfaces → subtle grey surface */
 html.light [style*="background:rgba(255,255,255,0.0"],
-html.light [style*="background: rgba(255,255,255,0.0"] { background: var(--dt-surface) !important; }
+html.light [style*="background: rgba(255,255,255,0.0"],
+html.light [style*="background: rgba(255, 255, 255, 0.0"],
+html.light [style*="background:rgba(255,255,255,0.1"],
+html.light [style*="background: rgba(255, 255, 255, 0.1"]  { background: var(--dt-surface) !important; }
 
-/* 3. White rgba borders → dark borders */
+/* Dark rgba nav/overlay backgrounds */
+html.light [style*="background:rgba(8,6,4"],
+html.light [style*="background: rgba(8, 6, 4"]      { background: var(--dt-bg-nav) !important; }
+
+/* ══ BORDER OVERRIDES ════════════════════════════════════════════════ */
 html.light [style*="border:1px solid rgba(255,255,255"],
 html.light [style*="border: 1px solid rgba(255,255,255"],
+html.light [style*="border: 1px solid rgba(255, 255, 255"],
 html.light [style*="border-bottom:1px solid rgba(255,255,255"],
-html.light [style*="border-bottom: 1px solid rgba(255,255,255"],
+html.light [style*="border-bottom: 1px solid rgba(255, 255, 255"],
 html.light [style*="border-top:1px solid rgba(255,255,255"],
-html.light [style*="border-top: 1px solid rgba(255,255,255"] { border-color: var(--dt-border) !important; }
+html.light [style*="border-top: 1px solid rgba(255, 255, 255"]  { border-color: var(--dt-border) !important; }
 
-/* 4. White rgba text → dark text (catch-all for any opacity) */
-html.light [style*="color:rgba(255,255,255"],
-html.light [style*="color: rgba(255,255,255"] { color: var(--dt-text-primary) !important; }
+/* Transparent borders on inactive buttons → subtle visible border */
+html.light main button[style*="transparent"] { border-color: var(--dt-border) !important; }
 
-/* 5. Semantic text colors — darken for legibility on light backgrounds */
-/* Green */
-html.light [style*="color:#52b788"],
-html.light [style*="color: #52b788"],
-html.light [style*="color:rgba(82,183,136"],
-html.light [style*="color: rgba(82,183,136"]  { color: #0d7a4e !important; }
-/* Red */
-html.light [style*="color:#e05a5e"],
-html.light [style*="color: #e05a5e"],
-html.light [style*="color:rgba(224,90,94"],
-html.light [style*="color: rgba(224,90,94"]   { color: #b91c1c !important; }
-/* Gold */
-html.light [style*="color:#c9a84c"],
-html.light [style*="color: #c9a84c"],
-html.light [style*="color:rgba(201,168,76"],
-html.light [style*="color: rgba(201,168,76"]  { color: var(--dt-gold-display) !important; }
-/* Blue */
-html.light [style*="color:#60a5fa"],
-html.light [style*="color: #60a5fa"],
-html.light [style*="color:rgba(96,165,250"],
-html.light [style*="color: rgba(96,165,250"]  { color: #1d4ed8 !important; }
-/* Amber */
-html.light [style*="color:rgba(245,158,11"],
-html.light [style*="color: rgba(245,158,11"]  { color: #b45309 !important; }
-
-/* 6. Nav/overlay backgrounds that are rgba dark */
-html.light [style*="background:rgba(8,6,4"],
-html.light [style*="background: rgba(8,6,4"]  { background: var(--dt-bg-nav) !important; }
+/* ══ LIVE TICKER — keep its dark strip intact ════════════════════════ */
+html.light .ticker-strip,
+html.light .ticker-strip * { color: inherit !important; }
