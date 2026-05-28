@@ -272,6 +272,21 @@ export async function migrateStrategyId(fromId: string, toId: string): Promise<n
   return count
 }
 
+// Removes all positions belonging to the given account. Used by the reset flow.
+export async function wipeAccountPositions(account: string): Promise<number> {
+  const positions = await readAll()
+  const acct = account.toUpperCase()
+  let removed = 0
+  for (const k of Object.keys(positions)) {
+    if (positions[k].account.toUpperCase() === acct) {
+      delete positions[k]
+      removed++
+    }
+  }
+  if (removed > 0) await writeAll(positions)
+  return removed
+}
+
 // Calendar-day age of a position from its firstBuyAt. Used by the handoff
 // check for momentum strategies.
 export function ageInCalendarDays(firstBuyAt: string): number {

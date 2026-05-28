@@ -94,6 +94,8 @@ export interface BacktestSummary {
   losses: number
   winRate: number | null
   avgHoldDays: number | null
+  avgUtilizationPct?: number | null
+  chargesAsPctOfGross?: number | null
   skippedNoToken: number
   skippedNoHistorical: number
   skippedCapitalLimited: number

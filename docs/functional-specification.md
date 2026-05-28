@@ -375,7 +375,12 @@ Fires on the last trading day of the month (after the daily report). Shows: tota
   - secondary metric tiles for trade outcomes
   - detailed trade table
 - No equity-curve or drawdown table is shown on Trade Report. Those are backtest-style analytics, not broker-truth trade-history fields.
-- Profit presentation distinguishes between raw and estimated values: the trade table shows **Gross Realized**, **Charges (Est.)**, and **Net Realized (Est.)**, while the summary breaks out gross realized, gross open MTM, gross total MTM, and their estimated net-after-charges counterparts.
+- Profit presentation distinguishes between raw and estimated values: the trade table shows **Gross Realized**, **Charges (Est.)**, and **Net Realized (Est.)**. The summary is intentionally compact and shows only:
+  - **Gross P/L** = total gross realized P&L plus % of total capital
+  - **Net P/L** = gross realized P&L minus estimated charges plus % of total capital
+  - **Charges** = estimated charges plus charge % as a share of gross realized profit when meaningful
+  - **Unrealized P/L** = open MTM plus % of total capital
+  - **Total Closed Trades**, **Total Open Trades**, **Average Hold**, **Average Utilization**
 - Data source is the append-only journaled order ledger, so both **manual** and **auto** trades are included.
 - Rows are position-based, not sell-event-based. A row stays open after tranche 1 and shows `partial` until the remaining quantity exits.
 - Carry-in rule: if a position was opened before the From date but exits partially or fully inside the window, it still appears and stays linked to the original BUY so the report does not produce orphaned SELLs.

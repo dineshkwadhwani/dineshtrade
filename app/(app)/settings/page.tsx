@@ -360,6 +360,9 @@ export default function SettingsPage() {
         </div>
       </div>
 
+      {/* ── DANGER ZONE: ACCOUNT RESET ── */}
+      <ResetSection connected={connected} />
+
       </></div>
 
       <p className="text-[10px] text-center" style={{ color:'rgba(255,255,255,0.2)' }}>
@@ -632,6 +635,129 @@ const DEFAULT_MOMENTUM_PARAMS = {
   volumeAvgDays: 10, scanStartHHMM: '09:30', scanEndHHMM: '14:30',
   deliveryHandoffDays: 15,
   exitSameDayTime: '15:10', exitSameDayOnPositive: false, squareOffEOD: false,
+}
+
+// ──────────────────────────────────────────────────────────────────────────────
+// RESET SECTION
+// Wipes all journal + position data for a single account and re-seeds from Kite.
+// ──────────────────────────────────────────────────────────────────────────────
+
+interface SeededPosition { symbol: string; qty: number; avgPrice: number }
+
+function ResetSection({ connected }: { connected: string[] }) {
+  const [account, setAccount] = useState(connected[0] || '')
+  const [showModal, setShowModal] = useState(false)
+  const [confirmText, setConfirmText] = useState('')
+  const [busy, setBusy] = useState(false)
+  const [result, setResult] = useState<{ seeded: SeededPosition[]; journalRecordsRemoved: number } | null>(null)
+  const [error, setError] = useState('')
+
+  // Keep selected account in sync if connected list changes
+  const effectiveAccount = connected.includes(account) ? account : (connected[0] || '')
+
+  async function doReset() {
+    if (confirmText !== 'RESET') return
+    setBusy(true)
+    setError('')
+    setResult(null)
+    try {
+      const res = await fetch('/api/settings/reset', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ account: effectiveAccount, confirm: 'RESET' }),
+      })
+      const data = await res.json()
+      if (!res.ok || data.error) { setError(data.error || `HTTP ${res.status}`); return }
+      setResult(data)
+      setShowModal(false)
+      setConfirmText('')
+    } catch (e) {
+      setError(String(e))
+    } finally {
+      setBusy(false)
+    }
+  }
+
+  if (connected.length === 0) return null
+
+  const mono: React.CSSProperties = { fontFamily: 'JetBrains Mono, monospace' }
+  const canConfirm = confirmText === 'RESET' && !busy
+
+  return (
+    <div className="rounded-xl p-5 mt-4" style={{ background: 'rgba(224,90,94,0.04)', border: '1px solid rgba(224,90,94,0.2)' }}>
+      <h2 className="text-[11px] tracking-widest uppercase mb-1" style={{ color: 'rgba(224,90,94,0.7)', ...mono }}>Danger Zone</h2>
+      <p className="text-[11px] mb-4" style={{ color: 'rgba(255,255,255,0.4)' }}>
+        Wipes all journal history and position data for the selected account, then re-imports current Kite holdings as Accumulator positions. Opening capital is recalculated from live Kite data.
+      </p>
+
+      <div className="flex items-center gap-3 flex-wrap">
+        {/* Account picker */}
+        <select value={effectiveAccount} onChange={e => setAccount(e.target.value)}
+          className="px-3 py-1.5 rounded-md text-[11px] outline-none"
+          style={{ background: 'rgba(255,255,255,0.05)', border: '1px solid rgba(255,255,255,0.12)', color: 'rgba(255,255,255,0.7)', ...mono }}>
+          {connected.map(a => <option key={a} value={a}>{a}</option>)}
+        </select>
+
+        <button onClick={() => { setShowModal(true); setConfirmText(''); setError('') }}
+          className="px-4 py-1.5 rounded-md text-[11px] transition-all"
+          style={{ background: 'rgba(224,90,94,0.12)', border: '1px solid rgba(224,90,94,0.4)', color: '#e05a5e', ...mono }}>
+          Reset Account Data
+        </button>
+      </div>
+
+      {result && (
+        <div className="mt-3 p-3 rounded-md text-[11px]" style={{ background: 'rgba(82,183,136,0.08)', border: '1px solid rgba(82,183,136,0.25)', color: '#52b788', ...mono }}>
+          Reset complete · {result.journalRecordsRemoved} journal records removed · {result.seeded.length} position{result.seeded.length !== 1 ? 's' : ''} re-seeded as Accumulator
+          {result.seeded.length > 0 && (
+            <div className="mt-1 flex flex-wrap gap-x-3 gap-y-0.5" style={{ color: 'rgba(82,183,136,0.7)' }}>
+              {result.seeded.map(s => <span key={s.symbol}>{s.symbol} ×{s.qty} @ ₹{s.avgPrice.toFixed(2)}</span>)}
+            </div>
+          )}
+        </div>
+      )}
+
+      {error && (
+        <p className="mt-2 text-[11px]" style={{ color: '#e05a5e', ...mono }}>{error}</p>
+      )}
+
+      {/* Confirmation modal */}
+      {showModal && (
+        <div className="fixed inset-0 z-50 flex items-center justify-center" style={{ background: 'rgba(0,0,0,0.7)' }}>
+          <div className="rounded-xl p-6 w-[400px] space-y-4" style={{ background: '#111', border: '1px solid rgba(224,90,94,0.4)' }}>
+            <h3 className="text-[13px] font-semibold" style={{ color: '#e05a5e', ...mono }}>Confirm Account Reset</h3>
+            <p className="text-[11px]" style={{ color: 'rgba(255,255,255,0.5)' }}>
+              This will permanently delete all journal history for <span style={{ color: 'rgba(255,255,255,0.8)' }}>{effectiveAccount}</span> and re-import current Kite positions as Accumulator entries. This cannot be undone.
+            </p>
+            <p className="text-[11px]" style={{ color: 'rgba(255,255,255,0.4)' }}>
+              Type <span style={{ color: '#e05a5e' }}>RESET</span> to confirm:
+            </p>
+            <input
+              autoFocus
+              value={confirmText}
+              onChange={e => setConfirmText(e.target.value)}
+              onKeyDown={e => { if (e.key === 'Enter' && canConfirm) doReset() }}
+              placeholder="RESET"
+              className="w-full px-3 py-2 rounded-md text-[12px] outline-none"
+              style={{ background: 'rgba(255,255,255,0.05)', border: '1px solid rgba(255,255,255,0.15)', color: '#fff', ...mono }}
+            />
+            <div className="flex gap-2 justify-end">
+              <button onClick={() => { setShowModal(false); setConfirmText('') }}
+                className="px-4 py-1.5 rounded-md text-[11px]"
+                style={{ background: 'rgba(255,255,255,0.05)', border: '1px solid rgba(255,255,255,0.1)', color: 'rgba(255,255,255,0.6)', ...mono }}>
+                Cancel
+              </button>
+              <button onClick={doReset} disabled={!canConfirm}
+                className="px-4 py-1.5 rounded-md text-[11px] transition-all disabled:opacity-40"
+                style={{ background: canConfirm ? 'rgba(224,90,94,0.2)' : 'rgba(224,90,94,0.06)', border: '1px solid rgba(224,90,94,0.5)', color: '#e05a5e', ...mono }}>
+                {busy ? 'Resetting…' : 'Reset Account'}
+              </button>
+            </div>
+            {error && <p className="text-[11px]" style={{ color: '#e05a5e', ...mono }}>{error}</p>}
+          </div>
+        </div>
+      )}
+    </div>
+  )
 }
 
 function StrategiesTab({ autoModeOn }: { autoModeOn: boolean }) {

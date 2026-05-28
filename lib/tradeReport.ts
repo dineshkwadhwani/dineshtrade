@@ -363,6 +363,14 @@ export async function buildLiveTradeReport(options: LiveTradeReportOptions): Pro
   const avgHold = closedTrades.length > 0
     ? closedTrades.reduce((sum, trade) => sum + trade.holdDays, 0) / closedTrades.length
     : null
+  const avgUtilizationPct = startingCapital > 0 && equityCurve.length > 0
+    ? Number(((equityCurve.reduce((sum, point) => sum + point.marketValue, 0) / equityCurve.length / startingCapital) * 100).toFixed(2))
+    : null
+  const chargesAsPctOfGross = realizedPnl > 0
+    ? Number((((chargeSummary.netRealizedPnl !== undefined
+      ? realizedPnl - chargeSummary.netRealizedPnl
+      : (chargeSummary.incurredCharges ?? chargeSummary.totalCharges ?? 0)) / realizedPnl) * 100).toFixed(2))
+    : null
   const dipDays = new Set(includedTrades.filter(trade => trade.strategyId === 'accumulator').map(trade => trade.entryDate)).size
   const momentumDays = new Set(includedTrades.filter(trade => trade.strategyId === 'catalyst').map(trade => trade.entryDate)).size
 
@@ -399,6 +407,8 @@ export async function buildLiveTradeReport(options: LiveTradeReportOptions): Pro
       losses,
       winRate: closedTrades.length > 0 ? Number(((wins / closedTrades.length) * 100).toFixed(2)) : null,
       avgHoldDays: avgHold === null ? null : Number(avgHold.toFixed(1)),
+      avgUtilizationPct,
+      chargesAsPctOfGross,
       skippedNoToken: 0,
       skippedNoHistorical: 0,
       skippedCapitalLimited: 0,

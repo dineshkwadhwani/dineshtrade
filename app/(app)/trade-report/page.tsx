@@ -213,40 +213,30 @@ export default function TradeReportPage() {
               </p>
             </div>
             <div className="grid grid-cols-2 md:grid-cols-4 gap-px" style={{ background:'rgba(255,255,255,0.04)' }}>
-              <Stat label="Gross Realized P&L" value={formatSignedCurrency(result.summary.realizedPnl)} color={result.summary.realizedPnl >= 0 ? '#52b788' : '#e05a5e'} />
-              <Stat label="Net Realized P&L (Est.)" value={formatSignedCurrency(result.summary.netRealizedPnl ?? result.summary.realizedPnl)} color={(result.summary.netRealizedPnl ?? result.summary.realizedPnl) >= 0 ? '#52b788' : '#e05a5e'} />
-              <Stat label="Gross Open MTM" value={formatSignedCurrency(result.summary.unrealizedPnl)} color={result.summary.unrealizedPnl >= 0 ? '#52b788' : '#e05a5e'} />
-              <Stat label="Net Open MTM (Est.)" value={formatSignedCurrency(result.summary.netUnrealizedPnl ?? result.summary.unrealizedPnl)} color={(result.summary.netUnrealizedPnl ?? result.summary.unrealizedPnl) >= 0 ? '#52b788' : '#e05a5e'} />
-              <Stat label="Gross Total P&L (MTM)" value={formatSignedCurrency(result.summary.totalPnl)} color={result.summary.totalPnl >= 0 ? '#52b788' : '#e05a5e'} />
-              <Stat label="Net Total P&L (Est.)" value={formatSignedCurrency(result.summary.netTotalPnl ?? result.summary.totalPnl)} color={(result.summary.netTotalPnl ?? result.summary.totalPnl) >= 0 ? '#52b788' : '#e05a5e'} />
-              <Stat label="Win Rate" value={result.summary.winRate === null ? '—' : `${result.summary.winRate.toFixed(2)}%`} color="#c9a84c" />
-              <Stat label="Trades Closed" value={String(result.summary.tradesClosed)} color="rgba(255,255,255,0.7)" />
-              <Stat label="Trades Open" value={String(result.summary.tradesOpen)} color="rgba(255,255,255,0.7)" />
-            </div>
-            <div className="grid grid-cols-2 md:grid-cols-4 gap-3 p-4">
-              <MiniMetric label="Wins / Losses" value={`${result.summary.wins} / ${result.summary.losses}`} />
-              <MiniMetric label="Avg Hold" value={result.summary.avgHoldDays === null ? '—' : `${result.summary.avgHoldDays.toFixed(1)} d`} />
-              <MiniMetric
-                label="Gross Realized P&L"
-                value={formatSignedCurrency(result.summary.realizedPnl)}
-                valueColor={result.summary.realizedPnl >= 0 ? '#52b788' : '#e05a5e'}
+              <Stat
+                label="Gross P/L"
+                value={`${formatSignedCurrency(result.summary.realizedPnl)} · ${formatSignedPct(result.summary.startingCapital > 0 ? (result.summary.realizedPnl / result.summary.startingCapital) * 100 : 0)}`}
+                color={result.summary.realizedPnl >= 0 ? '#52b788' : '#e05a5e'}
               />
-              <MiniMetric
-                label="Net Realized P&L (Est.)"
-                value={formatSignedCurrency(result.summary.netRealizedPnl ?? result.summary.realizedPnl)}
-                valueColor={(result.summary.netRealizedPnl ?? result.summary.realizedPnl) >= 0 ? '#52b788' : '#e05a5e'}
+              <Stat
+                label="Net Realized P/L"
+                value={`${formatSignedCurrency(result.summary.netRealizedPnl ?? result.summary.realizedPnl)} · ${formatSignedPct(result.summary.startingCapital > 0 ? ((result.summary.netRealizedPnl ?? result.summary.realizedPnl) / result.summary.startingCapital) * 100 : 0)}`}
+                color={(result.summary.netRealizedPnl ?? result.summary.realizedPnl) >= 0 ? '#52b788' : '#e05a5e'}
               />
-              <MiniMetric
-                label="Gross Open MTM"
-                value={formatSignedCurrency(result.summary.unrealizedPnl)}
-                valueColor={result.summary.unrealizedPnl >= 0 ? '#52b788' : '#e05a5e'}
+              <Stat
+                label="Charges"
+                value={`${formatCurrency(result.summary.totalCharges || 0)}${result.summary.chargesAsPctOfGross !== null && result.summary.chargesAsPctOfGross !== undefined ? ` · ${result.summary.chargesAsPctOfGross.toFixed(2)}%` : ''}`}
+                color="#c9a84c"
               />
-              <MiniMetric
-                label="Net Open MTM (Est.)"
-                value={formatSignedCurrency(result.summary.netUnrealizedPnl ?? result.summary.unrealizedPnl)}
-                valueColor={(result.summary.netUnrealizedPnl ?? result.summary.unrealizedPnl) >= 0 ? '#52b788' : '#e05a5e'}
+              <Stat
+                label="Unrealized P/L"
+                value={`${formatSignedCurrency(result.summary.unrealizedPnl)} · ${formatSignedPct(result.summary.startingCapital > 0 ? (result.summary.unrealizedPnl / result.summary.startingCapital) * 100 : 0)}`}
+                color={result.summary.unrealizedPnl >= 0 ? '#52b788' : '#e05a5e'}
               />
-              <MiniMetric label="Estimated Charges" value={formatCurrency(result.summary.totalCharges || 0)} valueColor="#c9a84c" />
+              <Stat label="Total Closed Trades" value={String(result.summary.tradesClosed)} color="rgba(255,255,255,0.82)" />
+              <Stat label="Total Open Trades" value={String(result.summary.tradesOpen)} color="rgba(255,255,255,0.82)" />
+              <Stat label="Average Hold" value={result.summary.avgHoldDays === null ? '—' : `${result.summary.avgHoldDays.toFixed(1)} d`} color="rgba(255,255,255,0.82)" />
+              <Stat label="Average Utilization" value={result.summary.avgUtilizationPct === null || result.summary.avgUtilizationPct === undefined ? '—' : `${result.summary.avgUtilizationPct.toFixed(2)}%`} color="rgba(255,255,255,0.82)" />
             </div>
             {result.summary.tradesOpen > 0 && (
               <div className="px-4 pb-4">
@@ -395,15 +385,6 @@ function Stat({ label, value, color }: { label: string; value: string; color: st
   )
 }
 
-function MiniMetric({ label, value, valueColor }: { label: string; value: string; valueColor?: string }) {
-  return (
-    <div className="rounded-lg px-3 py-2.5" style={{ background:'rgba(255,255,255,0.02)', border:'1px solid rgba(255,255,255,0.05)' }}>
-      <p className="text-[9px] tracking-widest uppercase mb-1" style={{ color:'rgba(255,255,255,0.3)', fontFamily:'JetBrains Mono, monospace' }}>{label}</p>
-      <p className="text-[12px]" style={{ color: valueColor || 'rgba(255,255,255,0.82)', fontFamily:'JetBrains Mono, monospace' }}>{value}</p>
-    </div>
-  )
-}
-
 function formatCurrency(value: number): string {
   return `₹${Math.round(value).toLocaleString('en-IN')}`
 }
@@ -411,4 +392,9 @@ function formatCurrency(value: number): string {
 function formatSignedCurrency(value: number): string {
   const sign = value > 0 ? '+' : value < 0 ? '-' : ''
   return `${sign}${formatCurrency(Math.abs(value))}`
+}
+
+function formatSignedPct(value: number): string {
+  const sign = value > 0 ? '+' : value < 0 ? '-' : ''
+  return `${sign}${Math.abs(value).toFixed(2)}%`
 }

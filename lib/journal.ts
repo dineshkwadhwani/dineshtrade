@@ -233,6 +233,55 @@ export async function journalOrder(opts: {
   })
 }
 
+// Hard-wipes all journal entries that belong to the given account.
+// Reads every monthly JSONL file, removes matching lines, rewrites.
+// Deletes the file entirely if it becomes empty after filtering.
+// Returns counts so the caller can confirm what was removed.
+export async function wipeAccountJournal(account: string): Promise<{ filesModified: number; recordsRemoved: number }> {
+  if (!useFile) {
+    // in-memory: filter memStore in place
+    const before = memStore.length
+    const keep = memStore.filter(r => (r as any).account?.toUpperCase() !== account.toUpperCase())
+    memStore.length = 0
+    memStore.push(...keep)
+    return { filesModified: 1, recordsRemoved: before - memStore.length }
+  }
+  let filesModified = 0
+  let recordsRemoved = 0
+  try {
+    const files = await fs.readdir(JOURNAL_DIR)
+    const jrFiles = files.filter(f => /^journal-\d{4}-\d{2}\.jsonl$/.test(f))
+    for (const fname of jrFiles) {
+      const fpath = path.join(JOURNAL_DIR, fname)
+      let raw: string
+      try { raw = await fs.readFile(fpath, 'utf8') } catch { continue }
+      const lines = raw.split('\n').filter(Boolean)
+      const kept: string[] = []
+      let removed = 0
+      for (const line of lines) {
+        try {
+          const rec = JSON.parse(line)
+          if (rec?.account?.toUpperCase() === account.toUpperCase()) { removed++; continue }
+        } catch { /* malformed line — keep it */ }
+        kept.push(line)
+      }
+      if (removed === 0) continue
+      recordsRemoved += removed
+      filesModified++
+      if (kept.length === 0) {
+        await fs.unlink(fpath)
+      } else {
+        const tmp = fpath + '.tmp'
+        await fs.writeFile(tmp, kept.join('\n') + '\n', { encoding: 'utf8', mode: 0o600 })
+        await fs.rename(tmp, fpath)
+      }
+    }
+  } catch (err) {
+    console.error('[journal] wipeAccountJournal error:', err)
+  }
+  return { filesModified, recordsRemoved }
+}
+
 export function classifyVerdict(opts: {
   strategy: StrategyTag
   entryPrice: number

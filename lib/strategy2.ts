@@ -22,12 +22,13 @@ import { runPreflight, markPlaced } from './preflight'
 import { sendEmail } from './email'
 import { getAccountList } from './accounts'
 import { ensureStrategy1Tracking } from './strategy1'
-import { appendJournal, journalOrder, istDateString, istHHMM, classifyVerdict } from './journal'
-import { getStrategyById } from './strategyConfig'
+import { appendJournal, journalOrder, istDateString, istHHMM, classifyVerdict, readJournalRange } from './journal'
+import { getStrategyById, getStrategies } from './strategyConfig'
 import {
   listStrategy2Positions, removeStrategy2Position, markTranche1Sold,
   recordStrategy2Buy, ageInCalendarDays,
 } from './strategy2Positions'
+import { recordBuy as recordPositionBuy } from './positions'
 import { getInstrumentTokens } from './instruments'
 
 export const STRATEGY_2_BUY_TAG = 'dt-s2'
@@ -99,16 +100,31 @@ export async function monitorAccount(account: string): Promise<MonitorResult> {
   // position uses ITS OWN strategy's exits + handoff window. Default fallbacks
   // (1.5 / 2.0 / 15d) preserve catalyst-equivalent behavior for legacy rows.
 
-  // Seed the store from today's Kite dt-s2 BUYs in case any exist that haven't
-  // been recorded yet (e.g. on the migration deploy, or if recordStrategy2Buy
-  // ever failed). Idempotent: existing entries aren't overwritten.
-  const orders = await getOrders(creds)
+  // Build liveQtyBySymbol FIRST (holdings + positions) so all seeding steps
+  // can check whether a symbol is still actually held in Kite before reseeding.
+  // Holdings are essential — CNC positions carried forward from prior days move
+  // out of /portfolio/positions and into /portfolio/holdings overnight.
+  const [[{ day, net }, holdings], orders] = await Promise.all([
+    Promise.all([getPositions(creds), getHoldings(creds)]),
+    getOrders(creds),
+  ])
+  const liveQtyBySymbol = new Map<string, number>()
+  for (const p of [...day, ...net]) {
+    const sym = p.tradingsymbol.toUpperCase()
+    liveQtyBySymbol.set(sym, (liveQtyBySymbol.get(sym) || 0) + (p.quantity || 0))
+  }
+  for (const h of holdings) {
+    const sym = h.tradingsymbol.toUpperCase()
+    liveQtyBySymbol.set(sym, (liveQtyBySymbol.get(sym) || 0) + (h.quantity || 0))
+  }
+
+  // Seed 1: today's Kite dt-s2 BUYs (legacy tag — keeps backward compatibility).
   const todaysS2Buys = orders.filter(o => o.tag === STRATEGY_2_BUY_TAG && o.transaction_type === 'BUY' && o.status === 'COMPLETE')
   const allKnown = await listStrategy2Positions()
   const knownKeys = new Set(allKnown.filter(p => p.account.toUpperCase() === account.toUpperCase()).map(p => p.symbol.toUpperCase()))
   for (const o of todaysS2Buys) {
     const sym = o.tradingsymbol.toUpperCase()
-    if (!knownKeys.has(sym)) {
+    if (!knownKeys.has(sym) && (liveQtyBySymbol.get(sym) ?? 0) > 0) {
       const px = Number(o.average_price) || 0
       const qty = Number(o.filled_quantity || o.quantity) || 0
       if (px > 0 && qty > 0) {
@@ -118,24 +134,41 @@ export async function monitorAccount(account: string): Promise<MonitorResult> {
     }
   }
 
-  // Per-account positions from the store
+  // Seed 2: journal BUYs — the journal is the permanent record of every auto-BUY
+  // with its strategy tag. This catches positions bought on prior days that fell
+  // out of the store (e.g. OOS after an overnight Kite positions→holdings move).
+  // Uses the earliest BUY record per symbol as the firstBuyPrice anchor, and the
+  // live Kite qty (actual shares still held) as remainingQty.
+  {
+    const momentumIds = new Set(getStrategies().filter(s => s.type === 'momentum').map(s => s.id))
+    const lookbackYmd = new Date(Date.now() - 30 * 24 * 3600 * 1000).toISOString().slice(0, 10)
+    const jRecords = await readJournalRange(lookbackYmd, istDateString()).catch(() => [])
+    // Earliest auto-BUY per symbol for this account on a momentum strategy
+    const anchorBySymbol = new Map<string, { strategyId: string; price: number; ts: string }>()
+    for (const r of jRecords) {
+      if (r.type !== 'order' || r.side !== 'BUY' || r.source !== 'auto') continue
+      if (r.account.toUpperCase() !== account.toUpperCase()) continue
+      if (!r.strategyId || !momentumIds.has(r.strategyId)) continue
+      const sym = r.symbol.toUpperCase()
+      const prev = anchorBySymbol.get(sym)
+      if (!prev || r.ts < prev.ts) anchorBySymbol.set(sym, { strategyId: r.strategyId, price: r.price, ts: r.ts })
+    }
+    // Re-read after Seed 1 to avoid double-seeding
+    const afterSeed1 = await listStrategy2Positions()
+    const knownAfter = new Set(afterSeed1.filter(p => p.account.toUpperCase() === account.toUpperCase()).map(p => p.symbol.toUpperCase()))
+    for (const [sym, anchor] of Array.from(anchorBySymbol)) {
+      if (knownAfter.has(sym)) continue
+      const liveQty = liveQtyBySymbol.get(sym) ?? 0
+      if (liveQty <= 0) continue
+      await recordPositionBuy(anchor.strategyId, account, sym, liveQty, anchor.price)
+      console.log(`[strategy2 monitor] reseeded ${account}:${sym} × ${liveQty} @ ₹${anchor.price} from journal (${anchor.strategyId})`)
+    }
+  }
+
+  // Per-account positions from the store (after all seeding)
   const positions = (await listStrategy2Positions()).filter(p => p.account.toUpperCase() === account.toUpperCase())
   if (positions.length === 0) {
     return { account, ranAt, positionsChecked: 0, entries: [] }
-  }
-
-  // Live Kite positions + holdings → know what's actually held.
-  // Holdings must be included so CNC positions carried forward from prior days
-  // are not wrongly treated as zero-qty (which would drop them from the store).
-  const [{ day, net }, holdings] = await Promise.all([getPositions(creds), getHoldings(creds)])
-  const liveQtyBySymbol = new Map<string, number>()
-  for (const p of [...day, ...net]) {
-    const sym = p.tradingsymbol.toUpperCase()
-    liveQtyBySymbol.set(sym, (liveQtyBySymbol.get(sym) || 0) + (p.quantity || 0))
-  }
-  for (const h of holdings) {
-    const sym = h.tradingsymbol.toUpperCase()
-    liveQtyBySymbol.set(sym, (liveQtyBySymbol.get(sym) || 0) + (h.quantity || 0))
   }
 
   const symbols = positions.map(p => p.symbol)

@@ -298,6 +298,22 @@ async function replaceState(next: SessionState): Promise<SessionState> {
   return next
 }
 
+// Clears idempotency ledger + buy history for a single account.
+// Used by the reset flow so the cron engine treats the account as fresh.
+export async function resetAccountCronState(account: string): Promise<void> {
+  const current = await getState()
+  const prefix = account.toUpperCase() + ':'
+  const nextLedger: typeof current.idempotencyLedger = {}
+  for (const [k, v] of Object.entries(current.idempotencyLedger)) {
+    if (!k.startsWith(prefix)) nextLedger[k] = v
+  }
+  const nextHistory: typeof current.buyHistory = {}
+  for (const [k, v] of Object.entries(current.buyHistory)) {
+    if (!k.startsWith(prefix)) nextHistory[k] = v
+  }
+  await replaceState({ ...current, idempotencyLedger: nextLedger, buyHistory: nextHistory })
+}
+
 export async function clearAccountToken(accountName: string): Promise<SessionState> {
   const current = await getState()
   if (!(accountName in current.kiteTokens)) return current

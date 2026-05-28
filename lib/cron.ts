@@ -25,9 +25,9 @@ import { monitorAllConnected, STRATEGY_2_BUY_TAG } from './strategy2'
 import {
   monitorAllAccountsStrategy1, recordStrategy1Buy, STRATEGY_1_BUY_TAG,
 } from './strategy1'
-import { resolveAccountCreds, placeKiteOrder, getQuotes } from './kite'
+import { resolveAccountCreds, placeKiteOrder, getQuotes, getPositions, getHoldings, getOrders } from './kite'
 import { runPreflight, markPlaced } from './preflight'
-import { appendJournal, istDateString } from './journal'
+import { appendJournal, istDateString, readJournalRange, journalOrder } from './journal'
 import { buildDailyReport, buildMonthlyReport, isLastWeekdayOfMonth } from './retrospective'
 import { listPositions, removePosition } from './positions'
 
@@ -295,6 +295,114 @@ async function runEODSquareOff(): Promise<void> {
   }
 }
 
+// ──────── MANUAL SELL RECONCILIATION ────────
+//
+// Detects positions closed manually in Kite (without going through the auto
+// engine) and journals a SELL entry so the trade report marks them as closed.
+//
+// Two cases handled:
+//   1. Sold today — find the matching completed SELL order in today's Kite
+//      order book and journal it at the actual fill price.
+//   2. Sold a prior day — Kite qty is 0 but no order found today. Journal a
+//      synthetic SELL at the current LTP (fetched at reconcile time) so the
+//      trade shows as closed rather than perpetually open. If LTP unavailable,
+//      falls back to the original entry price (breakeven close).
+//
+// Runs inside the 5-min tick (catches same-day closes in near-real-time) and
+// again at 15:35 EOD for a final sweep with closing prices.
+
+async function reconcileManualSells(): Promise<void> {
+  const state = await getState()
+  const connectedAccounts = Object.keys(state.kiteTokens)
+  if (connectedAccounts.length === 0) return
+
+  const today = istDateString()
+
+  for (const account of connectedAccounts) {
+    const creds = await resolveAccountCreds(account)
+    if (!creds.ok) continue
+
+    const openPositions = await listPositions({ account })
+    if (openPositions.length === 0) continue
+
+    // Fetch live qty, today's Kite SELL orders, and quotes for zero-qty symbols in parallel
+    const [{ day, net }, holdings, kiteOrders] = await Promise.all([
+      getPositions(creds).catch(() => ({ day: [], net: [] })),
+      getHoldings(creds).catch(() => [] as Awaited<ReturnType<typeof getHoldings>>),
+      getOrders(creds).catch(() => [] as Awaited<ReturnType<typeof getOrders>>),
+    ])
+
+    const liveQty = new Map<string, number>()
+    for (const p of [...day, ...net]) {
+      const sym = p.tradingsymbol.toUpperCase()
+      liveQty.set(sym, (liveQty.get(sym) || 0) + (p.quantity || 0))
+    }
+    for (const h of holdings) {
+      const sym = h.tradingsymbol.toUpperCase()
+      const heldQty = (h.quantity || 0) + ((h as any).t1_quantity || 0)
+      liveQty.set(sym, (liveQty.get(sym) || 0) + heldQty)
+    }
+
+    // Build map of today's completed SELL orders by symbol
+    const todaySellBySymbol = new Map<string, typeof kiteOrders[0]>()
+    for (const o of kiteOrders) {
+      if (o.transaction_type === 'SELL' && o.status === 'COMPLETE') {
+        todaySellBySymbol.set(o.tradingsymbol.toUpperCase(), o)
+      }
+    }
+
+    // Find already-journaled SELL order IDs for today (avoid duplicate entries)
+    const todayJournal = await readJournalRange(today, today).catch(() => [] as Awaited<ReturnType<typeof readJournalRange>>)
+    const journaledOrderIds = new Set(
+      todayJournal
+        .filter(r => r.type === 'order' && (r as any).side === 'SELL' && (r as any).orderId)
+        .map(r => (r as any).orderId as string)
+    )
+
+    // Identify closed-externally positions and fetch quotes for prior-day closes
+    const zeroQtyPositions = openPositions.filter(p => (liveQty.get(p.symbol.toUpperCase()) ?? 0) <= 0)
+    if (zeroQtyPositions.length === 0) continue
+
+    const priorDaySymbols = zeroQtyPositions
+      .filter(p => !todaySellBySymbol.has(p.symbol.toUpperCase()))
+      .map(p => p.symbol.toUpperCase())
+    const quotes = priorDaySymbols.length > 0
+      ? await getQuotes(creds, priorDaySymbols).catch(() => ({} as Record<string, any>))
+      : {}
+
+    for (const pos of zeroQtyPositions) {
+      const sym = pos.symbol.toUpperCase()
+      const kiteOrder = todaySellBySymbol.get(sym)
+
+      if (kiteOrder && !journaledOrderIds.has(kiteOrder.order_id)) {
+        // Case 1: sold today manually — journal the actual fill
+        const fillPrice = Number(kiteOrder.average_price) || pos.firstBuyPrice
+        const fillQty = Number(kiteOrder.filled_quantity || kiteOrder.quantity) || pos.remainingQty
+        await journalOrder({
+          account, symbol: pos.symbol, side: 'SELL',
+          qty: fillQty, price: fillPrice,
+          tag: 'dt-manual', orderId: kiteOrder.order_id,
+        }).catch(err => console.error(`[reconcile] journalOrder failed ${account} ${sym}:`, err))
+        console.log(`[reconcile] ${account} ${sym}: journaled manual SELL @ ₹${fillPrice} (order ${kiteOrder.order_id})`)
+      } else if (!kiteOrder) {
+        // Case 2: sold a prior day — use LTP if available, else entry price
+        const ltp = quotes[`NSE:${sym}`]?.last_price
+        const closePrice = typeof ltp === 'number' && ltp > 0 ? ltp : pos.firstBuyPrice
+        await journalOrder({
+          account, symbol: pos.symbol, side: 'SELL',
+          qty: pos.remainingQty, price: closePrice,
+          tag: 'dt-manual',
+        }).catch(err => console.error(`[reconcile] journalOrder failed ${account} ${sym}:`, err))
+        console.log(`[reconcile] ${account} ${sym}: synthetic SELL @ ₹${closePrice} (prior-day manual close; LTP ${ltp ?? 'unavailable'})`)
+      }
+
+      // Remove from positions store regardless — Kite shows nothing held
+      await removePosition(account, pos.symbol)
+        .catch(err => console.error(`[reconcile] removePosition failed ${account} ${sym}:`, err))
+    }
+  }
+}
+
 // ──────── TICK ────────
 
 async function tick(): Promise<void> {
@@ -348,7 +456,11 @@ async function tick(): Promise<void> {
   // 1c. EOD square-off for momentum strategies
   try { await runEODSquareOff() } catch (err) { console.error('[cron tick] EOD square-off failed:', err) }
 
-  // 1d. REACTIVE DIP scan
+  // 1d. Manual sell reconciliation — journals any Kite SELL orders not placed
+  // through the auto engine so the trade report marks those positions as closed.
+  try { await reconcileManualSells() } catch (err) { console.error('[cron tick] reconcile manual sells failed:', err) }
+
+  // 1e. REACTIVE DIP scan
   // Fires every 30 min between 09:15 and 14:00 IST (independent of market mode
   // and of the dip-mode once-per-day BUY scan). Looks for List A stocks that
   // dropped ≥3% intraday, re-evaluates Strategy 1 with today counted as a down
@@ -471,6 +583,12 @@ async function dailyRetrospective(): Promise<void> {
     console.log('[cron retro] not a market day — skipping')
     return
   }
+
+  // Final EOD sweep — closes any positions sold manually during the day.
+  // Runs here (15:35) so closing LTPs are available as the fallback price for
+  // prior-day sells where no today's order is found.
+  try { await reconcileManualSells() } catch (err) { console.error('[cron retro] reconcile manual sells failed:', err) }
+
   if (!isEmailConfigured()) {
     console.warn('[cron retro] SMTP not configured — skipping')
     return
