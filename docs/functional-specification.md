@@ -370,16 +370,16 @@ Fires on the last trading day of the month (after the daily report). Shows: tota
 - Separate top-level menu item: **Trade Report**, placed before **Settings** in the main navigation.
 - Inputs: **From Date** picker, **To Date** picker, and **Run Report**.
 - Filters: optional **Account** and **Strategy** selectors. Strategy filter includes **Manual** in addition to saved strategies.
-- Output format intentionally mirrors the backtest report:
-  - summary hero tiles
-  - secondary metric tiles
+- Output format is intentionally narrower than the backtest report:
+  - summary hero tiles based on actual journaled executions and open marks
+  - secondary metric tiles for trade outcomes
   - detailed trade table
-  - equity-curve table
-- Profit presentation mirrors the backtest report as well: the trade table shows **Gross Profit**, **Brokerage**, and **Net Profit**, while the summary includes both gross MTM and net-after-charges MTM / return tiles.
+- No equity-curve or drawdown table is shown on Trade Report. Those are backtest-style analytics, not broker-truth trade-history fields.
+- Profit presentation distinguishes between raw and estimated values: the trade table shows **Gross Realized**, **Charges (Est.)**, and **Net Realized (Est.)**, while the summary breaks out gross realized, gross open MTM, gross total MTM, and their estimated net-after-charges counterparts.
 - Data source is the append-only journaled order ledger, so both **manual** and **auto** trades are included.
 - Rows are position-based, not sell-event-based. A row stays open after tranche 1 and shows `partial` until the remaining quantity exits.
 - Carry-in rule: if a position was opened before the From date but exits partially or fully inside the window, it still appears and stays linked to the original BUY so the report does not produce orphaned SELLs.
-- Open rows are marked at the selected **To Date**, allowing realized and unrealized MTM to be shown in the same shape as the backtest screen.
+- Open rows are marked at the selected **To Date**, allowing realized and unrealized MTM to be shown together on one page without pretending the page is a historical equity backtest.
 
 ### F7.8 — Backtest History
 

@@ -93,7 +93,7 @@ export default function TradeReportPage() {
               Real Trade History
             </h2>
             <p className="text-[12px] max-w-3xl" style={{ color:'rgba(255,255,255,0.45)' }}>
-              Pick a date range and replay the actual journaled BUY and SELL legs into the same trade-report format as the backtest screen. Summary capital and return values use the live total capital base for the selected account scope, while open trades are marked at the selected To date.
+              Pick a date range and inspect the actual journaled BUY and SELL executions for that window. Open rows are marked to the selected To date. Synthetic backtest-style equity curve and drawdown analytics are intentionally excluded here so this page stays grounded in broker-truth trade activity.
             </p>
           </div>
           <button onClick={() => runReport()} disabled={loading || !fromDate || !toDate}
@@ -185,7 +185,7 @@ export default function TradeReportPage() {
 
         <div className="flex items-center justify-between gap-3 flex-wrap mt-4">
           <p className="text-[11px]" style={{ color:'rgba(255,255,255,0.32)' }}>
-            Manual and auto trades are both included when their journaled activity falls inside the selected range. Carry-in positions from before the From date stay linked correctly when they partially or fully exit inside the window.
+            Manual and auto trades are both included when their journaled activity falls inside the selected range. Carry-in positions from before the From date stay linked correctly when they partially or fully exit inside the window. Net and charges fields below remain estimated because Zerodha's historical per-leg charge breakdown is not persisted in the journal.
           </p>
         </div>
       </div>
@@ -213,49 +213,46 @@ export default function TradeReportPage() {
               </p>
             </div>
             <div className="grid grid-cols-2 md:grid-cols-4 gap-px" style={{ background:'rgba(255,255,255,0.04)' }}>
-              <Stat label="Total P&L (MTM)" value={formatSignedCurrency(result.summary.totalPnl)} color={result.summary.totalPnl >= 0 ? '#52b788' : '#e05a5e'} />
-              <Stat label="Net P&L (MTM)" value={formatSignedCurrency(result.summary.netTotalPnl ?? result.summary.totalPnl)} color={(result.summary.netTotalPnl ?? result.summary.totalPnl) >= 0 ? '#52b788' : '#e05a5e'} />
-              <Stat label="Return (MTM)" value={formatSignedPct(result.summary.totalReturnPct)} color={result.summary.totalReturnPct >= 0 ? '#52b788' : '#e05a5e'} />
-              <Stat label="Net Return (MTM)" value={formatSignedPct(result.summary.netTotalReturnPct ?? result.summary.totalReturnPct)} color={(result.summary.netTotalReturnPct ?? result.summary.totalReturnPct) >= 0 ? '#52b788' : '#e05a5e'} />
+              <Stat label="Gross Realized P&L" value={formatSignedCurrency(result.summary.realizedPnl)} color={result.summary.realizedPnl >= 0 ? '#52b788' : '#e05a5e'} />
+              <Stat label="Net Realized P&L (Est.)" value={formatSignedCurrency(result.summary.netRealizedPnl ?? result.summary.realizedPnl)} color={(result.summary.netRealizedPnl ?? result.summary.realizedPnl) >= 0 ? '#52b788' : '#e05a5e'} />
+              <Stat label="Gross Open MTM" value={formatSignedCurrency(result.summary.unrealizedPnl)} color={result.summary.unrealizedPnl >= 0 ? '#52b788' : '#e05a5e'} />
+              <Stat label="Net Open MTM (Est.)" value={formatSignedCurrency(result.summary.netUnrealizedPnl ?? result.summary.unrealizedPnl)} color={(result.summary.netUnrealizedPnl ?? result.summary.unrealizedPnl) >= 0 ? '#52b788' : '#e05a5e'} />
+              <Stat label="Gross Total P&L (MTM)" value={formatSignedCurrency(result.summary.totalPnl)} color={result.summary.totalPnl >= 0 ? '#52b788' : '#e05a5e'} />
+              <Stat label="Net Total P&L (Est.)" value={formatSignedCurrency(result.summary.netTotalPnl ?? result.summary.totalPnl)} color={(result.summary.netTotalPnl ?? result.summary.totalPnl) >= 0 ? '#52b788' : '#e05a5e'} />
               <Stat label="Win Rate" value={result.summary.winRate === null ? '—' : `${result.summary.winRate.toFixed(2)}%`} color="#c9a84c" />
-              <Stat label="Max Drawdown" value={`${result.summary.maxDrawdownPct.toFixed(2)}%`} color="rgba(224,90,94,0.85)" />
-              <Stat label="Starting Capital" value={formatCurrency(result.summary.startingCapital)} color="rgba(255,255,255,0.7)" />
-              <Stat label="Ending Equity" value={formatCurrency(result.summary.endingCapital)} color="rgba(255,255,255,0.9)" />
               <Stat label="Trades Closed" value={String(result.summary.tradesClosed)} color="rgba(255,255,255,0.7)" />
               <Stat label="Trades Open" value={String(result.summary.tradesOpen)} color="rgba(255,255,255,0.7)" />
             </div>
             <div className="grid grid-cols-2 md:grid-cols-4 gap-3 p-4">
-              <MiniMetric label="Trading Days" value={String(result.summary.tradingDays)} />
-              <MiniMetric label="Dip Days" value={String(result.summary.dipDays)} />
-              <MiniMetric label="Momentum Days" value={String(result.summary.momentumDays)} />
               <MiniMetric label="Wins / Losses" value={`${result.summary.wins} / ${result.summary.losses}`} />
               <MiniMetric label="Avg Hold" value={result.summary.avgHoldDays === null ? '—' : `${result.summary.avgHoldDays.toFixed(1)} d`} />
               <MiniMetric
-                label="Realized P&L"
-                value={`${formatSignedCurrency(result.summary.realizedPnl)} · ${formatSignedPct(result.summary.startingCapital > 0 ? (result.summary.realizedPnl / result.summary.startingCapital) * 100 : 0)}`}
+                label="Gross Realized P&L"
+                value={formatSignedCurrency(result.summary.realizedPnl)}
                 valueColor={result.summary.realizedPnl >= 0 ? '#52b788' : '#e05a5e'}
               />
               <MiniMetric
-                label="Net Realized P&L"
-                value={`${formatSignedCurrency(result.summary.netRealizedPnl ?? result.summary.realizedPnl)} · ${formatSignedPct(result.summary.startingCapital > 0 ? ((result.summary.netRealizedPnl ?? result.summary.realizedPnl) / result.summary.startingCapital) * 100 : 0)}`}
+                label="Net Realized P&L (Est.)"
+                value={formatSignedCurrency(result.summary.netRealizedPnl ?? result.summary.realizedPnl)}
                 valueColor={(result.summary.netRealizedPnl ?? result.summary.realizedPnl) >= 0 ? '#52b788' : '#e05a5e'}
               />
               <MiniMetric
-                label="Unrealized MTM"
-                value={`${formatSignedCurrency(result.summary.unrealizedPnl)} · ${formatSignedPct(result.summary.startingCapital > 0 ? (result.summary.unrealizedPnl / result.summary.startingCapital) * 100 : 0)}`}
+                label="Gross Open MTM"
+                value={formatSignedCurrency(result.summary.unrealizedPnl)}
                 valueColor={result.summary.unrealizedPnl >= 0 ? '#52b788' : '#e05a5e'}
               />
+              <MiniMetric
+                label="Net Open MTM (Est.)"
+                value={formatSignedCurrency(result.summary.netUnrealizedPnl ?? result.summary.unrealizedPnl)}
+                valueColor={(result.summary.netUnrealizedPnl ?? result.summary.unrealizedPnl) >= 0 ? '#52b788' : '#e05a5e'}
+              />
               <MiniMetric label="Estimated Charges" value={formatCurrency(result.summary.totalCharges || 0)} valueColor="#c9a84c" />
-              <MiniMetric label="Skipped No Token" value={String(result.summary.skippedNoToken)} />
-              <MiniMetric label="Skipped No Historical" value={String(result.summary.skippedNoHistorical)} />
-              <MiniMetric label="Skipped Capital" value={String(result.summary.skippedCapitalLimited)} />
-              <MiniMetric label="Skipped Position" value={String(result.summary.skippedPositionLimited)} />
             </div>
             {result.summary.tradesOpen > 0 && (
               <div className="px-4 pb-4">
                 <div className="rounded-lg p-3" style={{ background:'rgba(255,255,255,0.02)', border:'1px solid rgba(255,255,255,0.06)' }}>
                   <p className="text-[11px]" style={{ color:'rgba(255,255,255,0.45)' }}>
-                    MTM includes positions still open at the selected To date. Those rows use the end-of-range mark price, while realized sells remain broken out separately above.
+                    MTM includes positions still open at the selected To date. Those rows use the end-of-range mark price, while realized sells remain broken out separately above. Net numbers stay estimate-based because the journal does not store Zerodha's historical charge ledger per leg.
                   </p>
                 </div>
               </div>
@@ -268,14 +265,14 @@ export default function TradeReportPage() {
                 Trades ({result.trades.length})
               </p>
               <p className="text-[10px]" style={{ color:'rgba(255,255,255,0.3)' }}>
-                Real journal activity in the same row format as the backtest view.
+                Real journaled executions; open rows are marked to the selected To date.
               </p>
             </div>
             <div className="overflow-x-auto">
               <table className="w-full text-left min-w-[1380px]">
                 <thead>
                   <tr style={{ background:'rgba(255,255,255,0.02)' }}>
-                    {['Symbol', 'Strategy', 'Signal', 'Entry Price', 'T1 Date', 'T2 Date', 'Exit Price / Mark Price', 'Qty / Remaining', 'Status', 'Gross Profit', 'Brokerage', 'Net Profit', 'Hold', 'Reason'].map(h => (
+                    {['Symbol', 'Strategy', 'Signal', 'Entry Price', 'T1 Date', 'T2 Date', 'Exit Price / Mark Price', 'Qty / Remaining', 'Status', 'Gross Realized', 'Charges (Est.)', 'Net Realized (Est.)', 'Hold', 'Reason'].map(h => (
                       <th key={h} className="px-3 py-2 text-[10px] tracking-widest uppercase font-medium" style={{ color:'rgba(255,255,255,0.35)', fontFamily:'JetBrains Mono, monospace' }}>{h}</th>
                     ))}
                   </tr>
@@ -347,7 +344,6 @@ export default function TradeReportPage() {
                             <>
                               <div style={{ color:'rgba(255,255,255,0.45)' }}>Profit</div>
                               <div>{formatSignedCurrency(grossPnl)}</div>
-                              <div>{formatSignedPct(realizedPct)}</div>
                             </>
                           ) : (
                             <div style={{ color:'rgba(255,255,255,0.35)' }}>—</div>
@@ -367,7 +363,6 @@ export default function TradeReportPage() {
                           {trade.realizedPnl !== 0 ? (
                             <>
                               <div>{formatSignedCurrency(netPnl)}</div>
-                              <div>{formatSignedPct(netRealizedPct)}</div>
                             </>
                           ) : (
                             <div style={{ color:'rgba(255,255,255,0.35)' }}>—</div>
@@ -385,36 +380,6 @@ export default function TradeReportPage() {
             </div>
           </div>
 
-          <div className="rounded-xl overflow-hidden" style={{ background:'rgba(255,255,255,0.02)', border:'1px solid rgba(255,255,255,0.08)' }}>
-            <div className="px-4 py-2.5" style={{ borderBottom:'1px solid rgba(255,255,255,0.06)' }}>
-              <p className="text-[11px] tracking-widest uppercase" style={{ color:'rgba(201,168,76,0.6)', fontFamily:'JetBrains Mono, monospace' }}>
-                Equity Curve ({result.equityCurve.length} days)
-              </p>
-            </div>
-            <div className="overflow-x-auto">
-              <table className="w-full text-left min-w-[760px]">
-                <thead>
-                  <tr style={{ background:'rgba(255,255,255,0.02)' }}>
-                    {['Date', 'Cash', 'Market Value', 'Equity', 'Drawdown', 'Open Trades'].map(h => (
-                      <th key={h} className="px-3 py-2 text-[10px] tracking-widest uppercase font-medium" style={{ color:'rgba(255,255,255,0.35)', fontFamily:'JetBrains Mono, monospace' }}>{h}</th>
-                    ))}
-                  </tr>
-                </thead>
-                <tbody>
-                  {result.equityCurve.map(point => (
-                    <tr key={point.date} style={{ borderTop:'1px solid rgba(255,255,255,0.05)' }}>
-                      <td className="px-3 py-2.5 text-[11px]" style={{ color:'rgba(255,255,255,0.75)', fontFamily:'JetBrains Mono, monospace' }}>{point.date}</td>
-                      <td className="px-3 py-2.5 text-[11px]" style={{ color:'rgba(255,255,255,0.7)', fontFamily:'JetBrains Mono, monospace' }}>{formatCurrency(point.cash)}</td>
-                      <td className="px-3 py-2.5 text-[11px]" style={{ color:'rgba(255,255,255,0.7)', fontFamily:'JetBrains Mono, monospace' }}>{formatCurrency(point.marketValue)}</td>
-                      <td className="px-3 py-2.5 text-[11px]" style={{ color:'#c9a84c', fontFamily:'JetBrains Mono, monospace' }}>{formatCurrency(point.equity)}</td>
-                      <td className="px-3 py-2.5 text-[11px]" style={{ color: point.drawdownPct > 0 ? '#e05a5e' : 'rgba(255,255,255,0.45)', fontFamily:'JetBrains Mono, monospace' }}>{point.drawdownPct.toFixed(2)}%</td>
-                      <td className="px-3 py-2.5 text-[11px]" style={{ color:'rgba(255,255,255,0.7)', fontFamily:'JetBrains Mono, monospace' }}>{point.openTrades}</td>
-                    </tr>
-                  ))}
-                </tbody>
-              </table>
-            </div>
-          </div>
         </div>
       )}
     </div>
@@ -446,9 +411,4 @@ function formatCurrency(value: number): string {
 function formatSignedCurrency(value: number): string {
   const sign = value > 0 ? '+' : value < 0 ? '-' : ''
   return `${sign}${formatCurrency(Math.abs(value))}`
-}
-
-function formatSignedPct(value: number): string {
-  const sign = value > 0 ? '+' : value < 0 ? '-' : ''
-  return `${sign}${Math.abs(value).toFixed(2)}%`
 }

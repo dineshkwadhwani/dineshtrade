@@ -367,10 +367,10 @@ Centralised wrappers — every caller goes through these. Never make raw HTTP ca
   - reconstructs BUY rows plus tranche / final SELL activity per symbol and account
   - carries pre-range open positions forward so exits inside the selected window stay linked correctly
   - filters the final report to rows with actual activity inside the selected range
-  - uses daily historical candles to mark open positions and build a daily equity curve
-  - summary capital / return fields use the live total capital base for the selected account scope (`available + deployed`), not just the selected trades' entry notional
+  - uses daily historical candles only to mark still-open positions at the selected `toDate`
+  - estimated net fields come from the shared Zerodha-style charge model; historical actual per-leg broker charges are not stored in the journal
 - HTTP surface: `POST /api/trade-report` (authenticated)
-- Current frontend surface: top-level `/trade-report` page with From / To date pickers and the same summary / trades / equity layout as Settings → Backtest.
+- Current frontend surface: top-level `/trade-report` page with From / To date pickers, broker-truth executed trade rows, open-position marks at the selected `toDate`, and estimated net/charge overlays. The UI intentionally omits synthetic equity-curve and drawdown sections so Trade Report does not present backtest-style capital-path analytics as broker truth.
 
 ### 5.6 `lib/positions.ts` *(new 21 May 2026)*
 
