@@ -211,17 +211,17 @@ export default function HoldingsPage() {
   return (
     <div className="space-y-5 pb-4">
       <div className="flex items-center justify-between flex-wrap gap-3">
-        <h1 className="text-2xl font-light" style={{ fontFamily:'Cormorant Garamond, serif', color:'rgba(255,255,255,0.9)' }}>
+        <h1 className="text-2xl font-light dt-text-primary" style={{ fontFamily:'Cormorant Garamond, serif' }}>
           Current <span className="gold-text">Holdings</span>
         </h1>
         {activeTab && (
           <div className="flex items-end gap-3 flex-wrap justify-end">
             {lastRefreshedAt && (
               <div className="text-right">
-                <p className="text-[9px] tracking-widest uppercase" style={{ color:'rgba(255,255,255,0.28)', fontFamily:'JetBrains Mono, monospace' }}>
+                <p className="text-[9px] tracking-widest uppercase dt-text-muted" style={{ fontFamily:'JetBrains Mono, monospace' }}>
                   Last Refreshed
                 </p>
-                <p className="text-[11px]" style={{ color:'rgba(255,255,255,0.58)', fontFamily:'JetBrains Mono, monospace' }}>
+                <p className="text-[11px] dt-text-secondary" style={{ fontFamily:'JetBrains Mono, monospace' }}>
                   {formatTimestamp(lastRefreshedAt)}
                 </p>
               </div>
@@ -268,7 +268,7 @@ export default function HoldingsPage() {
           </div>
 
           {error && (
-            <div className="rounded-xl p-4" style={{ background:'rgba(224,90,94,0.05)', border:'1px solid rgba(224,90,94,0.2)' }}>
+            <div className="rounded-xl p-4 dt-banner-error">
               <p className="text-sm" style={{ color:'rgba(224,90,94,0.85)' }}>✗ {error}</p>
             </div>
           )}
@@ -288,8 +288,8 @@ export default function HoldingsPage() {
                 { label:'Overall P&L', val: fmtPnl(totals.pnl),    sub: fmtSignedPct(overallPct), color: totals.pnl >= 0 ? '#52b788' : '#e05a5e' },
                 { label:"Today's P&L", val: fmtPnl(totals.dayPnl), sub: fmtSignedPct(dayPct),     color: totals.dayPnl >= 0 ? '#52b788' : '#e05a5e' },
               ].map(s => (
-                <div key={s.label} className="rounded-xl p-4" style={{ background:'rgba(255,255,255,0.03)', border:'1px solid rgba(255,255,255,0.06)' }}>
-                  <p className="text-[9px] tracking-widest uppercase mb-2" style={{ color:'rgba(255,255,255,0.3)', fontFamily:'JetBrains Mono, monospace' }}>{s.label}</p>
+                <div key={s.label} className="rounded-xl p-4 dt-card">
+                  <p className="text-[9px] tracking-widest uppercase mb-2 dt-text-muted" style={{ fontFamily:'JetBrains Mono, monospace' }}>{s.label}</p>
                   <p className="text-lg font-semibold" style={{ color:s.color, fontFamily:'JetBrains Mono, monospace' }}>{s.val}</p>
                   {s.sub && <p className="text-[11px] mt-1" style={{ color: (s as any).subColor ?? s.color, opacity: 0.7, fontFamily:'JetBrains Mono, monospace' }}>{s.sub}</p>}
                 </div>
@@ -300,10 +300,10 @@ export default function HoldingsPage() {
 
           {/* Holdings list — mobile: two-column card; desktop: table (matches Today's Positions) */}
           {holdings.length > 0 && (
-            <div className="rounded-xl overflow-hidden" style={{ border:'1px solid rgba(255,255,255,0.06)' }}>
+            <div className="rounded-xl overflow-hidden dt-border-b">
               {/* Desktop header */}
-              <div className="hidden sm:grid grid-cols-12 px-4 py-2.5 text-[9px] tracking-widest uppercase"
-                style={{ background:'var(--dt-surface)', color:'var(--dt-text-muted)', fontFamily:'JetBrains Mono, monospace', borderBottom:'1px solid var(--dt-border)' }}>
+              <div className="hidden sm:grid grid-cols-12 px-4 py-2.5 text-[9px] tracking-widest uppercase dt-table-head"
+                style={{ fontFamily:'JetBrains Mono, monospace' }}>
                 <span className="col-span-3">Symbol</span>
                 <span className="col-span-1 text-right">Qty</span>
                 <span className="col-span-2 text-right">Avg</span>
@@ -359,15 +359,14 @@ export default function HoldingsPage() {
                 )
 
                 return (
-                  <div key={`${h.tradingsymbol}-${i}`} className="px-4 py-3 transition-all hover:bg-white/5 text-[12px]"
-                    style={{ borderBottom: i < holdings.length - 1 ? '1px solid rgba(255,255,255,0.04)' : 'none' }}>
+                  <div key={`${h.tradingsymbol}-${i}`} className={`px-4 py-3 transition-all hover:bg-white/5 text-[12px]${i < holdings.length - 1 ? ' dt-table-row' : ''}`}>
 
                     {/* ── Mobile: two-column card (hidden on sm+) ── */}
                     <div className="sm:hidden flex items-start justify-between gap-3">
                       {/* Left: symbol + badge, avg, qty */}
                       <div className="min-w-0 flex flex-col gap-1" style={{ fontFamily:'JetBrains Mono, monospace' }}>
                         <div className="flex items-center gap-1.5 flex-wrap">
-                          <span className="text-[16px] font-semibold" style={{ color:'rgba(255,255,255,0.9)' }}>{h.tradingsymbol}</span>
+                          <span className="text-[16px] font-semibold dt-text-primary">{h.tradingsymbol}</span>
                           {isT0Position && (
                             <span className="text-[8px] px-1.5 py-0.5 rounded tracking-wider"
                               style={{ background:'rgba(56,189,248,0.12)', color:'rgba(56,189,248,0.82)', border:'1px solid rgba(56,189,248,0.28)' }}>{isShortPosition ? 'T0 SHORT' : 'T0'}</span>
@@ -378,10 +377,10 @@ export default function HoldingsPage() {
                           )}
                           {Badge}
                         </div>
-                        <div className="text-[11px]" style={{ color:'rgba(255,255,255,0.4)' }}>
+                        <div className="text-[11px] dt-text-muted">
                           Avg <span style={{ color:'rgba(255,255,255,0.75)' }}>₹{h.average_price.toFixed(2)}</span>
                         </div>
-                        <div className="text-[11px]" style={{ color:'rgba(255,255,255,0.4)' }}>
+                        <div className="text-[11px] dt-text-muted">
                           Qty <span style={{ color:'rgba(255,255,255,0.75)' }}>{qty}</span>
                         </div>
                       </div>
@@ -394,8 +393,8 @@ export default function HoldingsPage() {
                             {pnlPct >= 0 ? '+' : ''}{pnlPct.toFixed(2)}%
                           </div>
                         </div>
-                        <div className="text-[11px] whitespace-nowrap" style={{ color:'rgba(255,255,255,0.4)' }}>
-                          LTP <span style={{ color:'rgba(255,255,255,0.85)' }}>₹{h.last_price.toFixed(2)}</span>
+                        <div className="text-[11px] whitespace-nowrap dt-text-muted">
+                          LTP <span className="dt-text-primary">₹{h.last_price.toFixed(2)}</span>
                           <span className="ml-1.5" style={{ color: dayColor }}>{Math.abs(h.day_change_percentage).toFixed(2)}%</span>
                         </div>
                         <div className="flex gap-1.5 pt-0.5">{BuyBtn}{SellBtn}</div>
@@ -419,7 +418,7 @@ export default function HoldingsPage() {
                       <span className="col-span-1 text-right text-white/70" style={{ fontFamily:'JetBrains Mono, monospace' }}>{qty}</span>
                       <span className="col-span-2 text-right text-white/60" style={{ fontFamily:'JetBrains Mono, monospace' }}>₹{h.average_price.toFixed(2)}</span>
                       <div className="col-span-2 text-right" style={{ fontFamily:'JetBrains Mono, monospace' }}>
-                        <div style={{ color:'rgba(255,255,255,0.85)' }}>₹{h.last_price.toFixed(2)}</div>
+                        <div className="dt-text-primary">₹{h.last_price.toFixed(2)}</div>
                         <div className="text-[9px] mt-0.5" style={{ color: dayColor }}>{h.day_change_percentage >= 0 ? '▲' : '▼'} {Math.abs(h.day_change_percentage).toFixed(2)}%</div>
                       </div>
                       <div className="col-span-2 text-right" style={{ fontFamily:'JetBrains Mono, monospace' }}>
@@ -437,7 +436,7 @@ export default function HoldingsPage() {
           {!loading && !error && holdings.length === 0 && availableCash !== null && (
             <div className="text-center py-12">
               <p className="text-4xl mb-3 opacity-20">◎</p>
-              <p className="text-base" style={{ fontFamily:'Cormorant Garamond, serif', color:'rgba(255,255,255,0.35)', fontSize:'18px' }}>No holdings in this account</p>
+              <p className="text-base dt-text-muted" style={{ fontFamily:'Cormorant Garamond, serif', fontSize:'18px' }}>No holdings in this account</p>
             </div>
           )}
         </>
@@ -491,7 +490,7 @@ function AccountTabs({ accounts, connected, active, onSelect, loaded }: {
   onSelect: (n: string) => void
   loaded: boolean
 }) {
-  if (!loaded) return <p className="text-[11px]" style={{ color:'rgba(255,255,255,0.3)' }}>Loading accounts…</p>
+  if (!loaded) return <p className="text-[11px] dt-text-muted">Loading accounts…</p>
   const connectedAccounts = accounts.filter(a => connected.includes(a.name))
   if (connectedAccounts.length === 0) return null
   return (
@@ -520,11 +519,10 @@ function AccountTabs({ accounts, connected, active, onSelect, loaded }: {
 
 function NoneConnectedHint() {
   return (
-    <div className="rounded-xl p-6 text-center"
-      style={{ background:'rgba(201,168,76,0.05)', border:'1px solid rgba(201,168,76,0.15)' }}>
+    <div className="rounded-xl p-6 text-center dt-banner-gold">
       <p className="text-4xl mb-3 opacity-20">⚙</p>
       <p className="text-sm mb-1" style={{ color:'rgba(201,168,76,0.7)' }}>No accounts connected</p>
-      <p className="text-[12px]" style={{ color:'rgba(255,255,255,0.4)' }}>Go to Settings, paste today's Kite access token, and Connect.</p>
+      <p className="text-[12px] dt-text-muted">Go to Settings, paste today's Kite access token, and Connect.</p>
     </div>
   )
 }

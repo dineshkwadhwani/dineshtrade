@@ -170,7 +170,7 @@ export default function EnginePage() {
     <div className="space-y-5 pb-4">
       {/* Header */}
       <div className="flex items-center justify-between flex-wrap gap-3">
-        <h1 className="text-2xl font-light" style={{ fontFamily:'Cormorant Garamond, serif', color:'rgba(255,255,255,0.9)' }}>
+        <h1 className="dt-text-primary text-2xl font-light" style={{ fontFamily:'Cormorant Garamond, serif' }}>
           Trading <span className="gold-text">Engine</span>
         </h1>
         <div className="flex items-center gap-3">
@@ -192,18 +192,18 @@ export default function EnginePage() {
       </div>
 
       {/* Account selector */}
-      <div className="rounded-xl p-4" style={{ background:'rgba(255,255,255,0.03)', border:'1px solid rgba(255,255,255,0.06)' }}>
+      <div className="dt-card rounded-xl p-4">
         <div className="flex items-center justify-between mb-3">
           <p className="text-[11px] tracking-widest uppercase"
             style={{ color:'rgba(201,168,76,0.6)', fontFamily:'JetBrains Mono, monospace' }}>
             Execute on
           </p>
-          <p className="text-[10px]" style={{ color:'rgba(255,255,255,0.3)' }}>
+          <p className="dt-text-muted text-[10px]">
             {selected.length} of {accounts.filter(a => connected.includes(a.name)).length} connected
           </p>
         </div>
 
-        {!loaded && <p className="text-[11px]" style={{ color:'rgba(255,255,255,0.3)' }}>Loading…</p>}
+        {!loaded && <p className="dt-text-muted text-[11px]">Loading…</p>}
 
         {loaded && accounts.length === 0 && (
           <p className="text-[11px]" style={{ color:'rgba(224,90,94,0.7)' }}>No accounts configured.</p>
@@ -243,8 +243,7 @@ export default function EnginePage() {
 
       {/* Auto-mode banner */}
       {tradeMode === 'auto' && (
-        <div className="rounded-xl px-4 py-3"
-          style={{ background:'rgba(82,183,136,0.06)', border:'1px solid rgba(82,183,136,0.2)' }}>
+        <div className="dt-banner-green rounded-xl px-4 py-3">
           <p className="text-[12px]" style={{ color:'#52b788' }}>
             ⚡ Auto mode is on. The cron scans and executes every 5 minutes during market hours.
             You can still use Refresh + Execute below for ad-hoc runs.
@@ -288,8 +287,8 @@ export default function EnginePage() {
       {!scan && !loading && (
         <div className="flex flex-col items-center justify-center py-20 text-center">
           <div className="text-5xl mb-4 opacity-30">⚡</div>
-          <p className="text-base mb-2" style={{ fontFamily:'Cormorant Garamond, serif', color:'rgba(255,255,255,0.5)', fontSize:'20px' }}>Ready to scan</p>
-          <p className="text-[12px]" style={{ color:'rgba(255,255,255,0.25)' }}>
+          <p className="dt-text-secondary text-base mb-2" style={{ fontFamily:'Cormorant Garamond, serif', fontSize:'20px' }}>Ready to scan</p>
+          <p className="dt-text-muted text-[12px]">
             {selected.length === 0 ? 'Select at least one account above, then press Refresh & Scan' : 'Press Refresh & Scan to run the strategy engine'}
           </p>
         </div>
@@ -412,16 +411,16 @@ function PendingOrderRow({ order, account, onCancelled, isLast }: {
     <div style={{ borderBottom: isLast ? 'none' : '1px solid rgba(255,255,255,0.04)' }}>
       <div className="grid items-center px-4 py-2.5"
         style={{ gridTemplateColumns: '0.6fr 1.2fr 0.7fr 0.6fr 1fr 0.7fr auto' }}>
-        <span style={{ color: 'rgba(255,255,255,0.35)', fontSize: 10, ...mono }}>
+        <span className="dt-text-muted" style={{ fontSize: 10, ...mono }}>
           {fmtOrderTime(order.order_timestamp)}
         </span>
-        <span style={{ color: 'rgba(255,255,255,0.85)', fontWeight: 600, fontSize: 12, ...mono }}>
+        <span className="dt-text-primary" style={{ fontWeight: 600, fontSize: 12, ...mono }}>
           {order.tradingsymbol}
         </span>
         <span style={{ color: order.transaction_type === 'BUY' ? '#52b788' : '#e05a5e', fontWeight: 600, fontSize: 12 }}>
           {order.transaction_type === 'BUY' ? '▲ BUY' : '▼ SELL'}
         </span>
-        <span className="text-right" style={{ color: 'rgba(255,255,255,0.6)', fontSize: 12, ...mono }}>
+        <span className="dt-text-secondary text-right" style={{ fontSize: 12, ...mono }}>
           × {order.quantity}
         </span>
         <span className="text-right" style={{ color: 'rgba(201,168,76,0.8)', fontSize: 10, ...mono }}>
@@ -458,13 +457,13 @@ function TodayActivity({ orders, account, buyCap, sellCap }: { orders: KiteOrder
   const sellsLeft = Math.max(0, sellCap - sells.length)
 
   return (
-    <div className="rounded-xl p-4" style={{ background:'rgba(255,255,255,0.03)', border:'1px solid rgba(255,255,255,0.06)' }}>
+    <div className="dt-card rounded-xl p-4">
       <div className="flex items-center justify-between mb-3 flex-wrap gap-2">
         <p className="text-[11px] tracking-widest uppercase"
           style={{ color:'rgba(201,168,76,0.6)', fontFamily:'JetBrains Mono, monospace' }}>
           Today's activity{account ? ` · ${account}` : ''}
         </p>
-        <p className="text-[9px]" style={{ color:'rgba(255,255,255,0.3)', fontFamily:'JetBrains Mono, monospace' }}>
+        <p className="dt-text-muted text-[9px]" style={{ fontFamily:'JetBrains Mono, monospace' }}>
           Auto quota: {buyCap} BUYs / {sellCap} SELLs per day
         </p>
       </div>
@@ -480,7 +479,7 @@ function TodayActivity({ orders, account, buyCap, sellCap }: { orders: KiteOrder
 
 function ActivityCell({ label, value, sub, color }: { label: string; value: string; sub?: string; color: string }) {
   return (
-    <div className="rounded-lg p-3" style={{ background:'rgba(255,255,255,0.02)', border:'1px solid rgba(255,255,255,0.05)' }}>
+    <div className="dt-card rounded-lg p-3">
       <p className="text-[9px] tracking-widest uppercase mb-1" style={{ color:'var(--dt-text-muted)', fontFamily:'JetBrains Mono, monospace' }}>{label}</p>
       <p className="text-lg font-semibold" style={{ color, fontFamily:'JetBrains Mono, monospace' }}>{value}</p>
       {sub && <p className="text-[10px] mt-0.5" style={{ color:'var(--dt-text-muted)', fontFamily:'JetBrains Mono, monospace' }}>{sub}</p>}
@@ -519,16 +518,16 @@ function StrategySection({ title, accent, recs, ordersToday, tradeMode, onExecut
         <h2 className="text-[13px] font-semibold tracking-wider uppercase" style={{ color: accent, fontFamily:'JetBrains Mono, monospace' }}>
           {title}
         </h2>
-        <span className="text-[10px]" style={{ color:'rgba(255,255,255,0.35)', fontFamily:'JetBrains Mono, monospace' }}>
+        <span className="dt-text-muted text-[10px]" style={{ fontFamily:'JetBrains Mono, monospace' }}>
           {recs.length} new rec{recs.length === 1 ? '' : 's'} · {completed.length} executed today
         </span>
       </div>
 
       {/* Today's executed orders for this strategy */}
       {completed.length > 0 && (
-        <div className="rounded-xl overflow-hidden" style={{ border:'1px solid rgba(255,255,255,0.06)' }}>
-          <div className="px-4 py-2 text-[9px] tracking-widest uppercase"
-            style={{ background:'rgba(255,255,255,0.02)', color:'rgba(255,255,255,0.3)', fontFamily:'JetBrains Mono, monospace', borderBottom:'1px solid rgba(255,255,255,0.06)' }}>
+        <div className="dt-card rounded-xl overflow-hidden">
+          <div className="dt-table-head px-4 py-2 text-[9px] tracking-widest uppercase"
+            style={{ fontFamily:'JetBrains Mono, monospace' }}>
             Executed today ({completed.length})
           </div>
           {completed.map((o, i) => (
@@ -538,15 +537,15 @@ function StrategySection({ title, accent, recs, ordersToday, tradeMode, onExecut
                 gridTemplateColumns: '0.7fr 1.3fr 0.8fr 0.7fr 0.9fr 0.8fr',
                 borderBottom: i < completed.length - 1 ? '1px solid rgba(255,255,255,0.04)' : 'none',
               }}>
-              <span style={{ color:'rgba(255,255,255,0.35)', fontFamily:'JetBrains Mono, monospace', fontSize: 10 }}>
+              <span className="dt-text-muted" style={{ fontFamily:'JetBrains Mono, monospace', fontSize: 10 }}>
                 {fmtOrderTime(o.order_timestamp)}
               </span>
-              <span style={{ color:'rgba(255,255,255,0.85)', fontFamily:'JetBrains Mono, monospace', fontWeight: 600 }}>{o.tradingsymbol}</span>
+              <span className="dt-text-primary" style={{ fontFamily:'JetBrains Mono, monospace', fontWeight: 600 }}>{o.tradingsymbol}</span>
               <span style={{ color: o.transaction_type === 'BUY' ? '#52b788' : '#e05a5e', fontWeight: 600 }}>
                 {o.transaction_type === 'BUY' ? '▲ BUY' : '▼ SELL'}
               </span>
-              <span className="text-right" style={{ color:'rgba(255,255,255,0.6)', fontFamily:'JetBrains Mono, monospace' }}>× {o.filled_quantity ?? o.quantity}</span>
-              <span className="text-right" style={{ color:'rgba(255,255,255,0.6)', fontFamily:'JetBrains Mono, monospace' }}>@ ₹{o.average_price.toFixed(2)}</span>
+              <span className="dt-text-secondary text-right" style={{ fontFamily:'JetBrains Mono, monospace' }}>× {o.filled_quantity ?? o.quantity}</span>
+              <span className="dt-text-secondary text-right" style={{ fontFamily:'JetBrains Mono, monospace' }}>@ ₹{o.average_price.toFixed(2)}</span>
               <span className="text-right" style={{ color:'rgba(96,165,250,0.6)', fontFamily:'JetBrains Mono, monospace', fontSize: 10 }}>{o.tag || '—'}</span>
             </div>
           ))}
@@ -560,7 +559,7 @@ function StrategySection({ title, accent, recs, ordersToday, tradeMode, onExecut
 
       {/* Post-scan empty state — compact, no box */}
       {scanRan && recs.length === 0 && completed.length === 0 && (
-        <p className="text-[11px] px-1" style={{ color:'rgba(255,255,255,0.25)', fontFamily:'JetBrains Mono, monospace' }}>
+        <p className="dt-text-muted text-[11px] px-1" style={{ fontFamily:'JetBrains Mono, monospace' }}>
           No recommendations or orders today
         </p>
       )}
@@ -599,7 +598,7 @@ function RecCard({ rec, tradeMode, onExecute, accountCount }: {
         border: `1px solid ${rec.confidence === 'high' ? 'rgba(201,168,76,0.3)' : 'rgba(255,255,255,0.08)'}`,
         background: rec.confidence === 'high' ? 'rgba(201,168,76,0.04)' : 'rgba(255,255,255,0.02)',
       }}>
-      <div className="flex items-center justify-between px-4 py-3 border-b" style={{ borderColor:'rgba(255,255,255,0.06)' }}>
+      <div className="dt-border-b flex items-center justify-between px-4 py-3">
         <div>
           <div className="flex items-center gap-2">
             <span className="font-bold text-base text-white" style={{ fontFamily:'JetBrains Mono, monospace' }}>{rec.symbol}</span>
@@ -608,7 +607,7 @@ function RecCard({ rec, tradeMode, onExecute, accountCount }: {
               {rec.strategy === 'catalyst' ? '⚡ Catalyst' : '📊 EMA Dip'}
             </span>
           </div>
-          <p className="text-[11px] mt-0.5" style={{ color:'rgba(255,255,255,0.4)' }}>{rec.name} · {rec.source}</p>
+          <p className="dt-text-muted text-[11px] mt-0.5">{rec.name} · {rec.source}</p>
         </div>
         <div className="text-right">
           {(() => {
@@ -624,22 +623,22 @@ function RecCard({ rec, tradeMode, onExecute, accountCount }: {
                     {arrow} {Math.abs(chg).toFixed(2)}% today
                   </p>
                 )}
-                <p className="text-[10px]" style={{ color:'rgba(255,255,255,0.3)' }}>Qty: {rec.suggestedQty}</p>
+                <p className="dt-text-muted text-[10px]">Qty: {rec.suggestedQty}</p>
               </>
             )
           })()}
         </div>
       </div>
       <div className="px-4 py-3">
-        <p className="text-[11px] mb-3" style={{ color:'rgba(255,255,255,0.5)' }}>{rec.reason}</p>
+        <p className="dt-text-secondary text-[11px] mb-3">{rec.reason}</p>
         <div className="grid grid-cols-3 gap-2 mb-3">
           {[
             { label:'T1', val:`₹${rec.target1}`, pct:`+${pnlPct1}%`, color:'#52b788' },
             { label:'T2', val:`₹${rec.target2}`, pct:`+${pnlPct2}%`, color:'#2d6a4f' },
             { label:'Capital', val:`₹${(rec.price * rec.suggestedQty).toFixed(0)}`, pct:'', color:'rgba(255,255,255,0.5)' },
           ].map(item => (
-            <div key={item.label} className="rounded-lg p-2 text-center" style={{ background:'rgba(255,255,255,0.03)' }}>
-              <p className="text-[9px] mb-1" style={{ color:'rgba(255,255,255,0.3)', fontFamily:'JetBrains Mono, monospace' }}>{item.label}</p>
+            <div key={item.label} className="dt-surface rounded-lg p-2 text-center">
+              <p className="dt-text-muted text-[9px] mb-1" style={{ fontFamily:'JetBrains Mono, monospace' }}>{item.label}</p>
               <p className="text-[11px] font-medium" style={{ color:item.color, fontFamily:'JetBrains Mono, monospace' }}>{item.val}</p>
               {item.pct && <p className="text-[9px]" style={{ color:item.color }}>{item.pct}</p>}
             </div>
@@ -787,8 +786,7 @@ function EngineTilesSection({ firstAccount, accounts, connected, tradeMode }: {
 
   if (!firstAccount) {
     return (
-      <div className="rounded-xl p-5 text-center"
-        style={{ background:'rgba(201,168,76,0.04)', border:'1px solid rgba(201,168,76,0.15)' }}>
+      <div className="dt-banner-gold rounded-xl p-5 text-center">
         <p className="text-[12px]" style={{ color:'rgba(201,168,76,0.7)' }}>Connect a Kite account in Settings to see the full-scan tiles.</p>
       </div>
     )
@@ -815,16 +813,16 @@ function EngineTilesSection({ firstAccount, accounts, connected, tradeMode }: {
     <div className="space-y-4 pt-2">
       <div className="flex items-center justify-between flex-wrap gap-3">
         <div>
-          <h2 className="text-xl font-light" style={{ fontFamily:'Cormorant Garamond, serif', color:'rgba(255,255,255,0.85)' }}>
+          <h2 className="dt-text-primary text-xl font-light" style={{ fontFamily:'Cormorant Garamond, serif' }}>
             Full <span className="gold-text">Scan</span>
           </h2>
-          <p className="text-[10px] mt-0.5" style={{ color:'rgba(255,255,255,0.35)', fontFamily:'JetBrains Mono, monospace' }}>
+          <p className="dt-text-muted text-[10px] mt-0.5" style={{ fontFamily:'JetBrains Mono, monospace' }}>
             Every {listAName} stock · per-rule pass/fail · auto-refreshes every 5 min
             {data?.fetchedAt && ` · fetched ${new Date(data.fetchedAt).toLocaleTimeString('en-IN', { hour12: false, timeZone: 'Asia/Kolkata' })}`}
           </p>
         </div>
         <div className="flex items-center gap-2">
-          <div className="flex gap-1 rounded-lg p-1 flex-wrap" style={{ background:'rgba(255,255,255,0.03)', border:'1px solid rgba(255,255,255,0.06)' }}>
+          <div className="dt-card flex gap-1 rounded-lg p-1 flex-wrap">
             {tabStrategies.map(t => {
               const active = tab === t.id
               const isDefault = data?.recommendedTab === t.id
@@ -853,14 +851,14 @@ function EngineTilesSection({ firstAccount, accounts, connected, tradeMode }: {
       </div>
 
       {error && (
-        <div className="rounded-lg p-3" style={{ background:'rgba(224,90,94,0.05)', border:'1px solid rgba(224,90,94,0.2)' }}>
+        <div className="dt-banner-error rounded-lg p-3">
           <p className="text-[12px]" style={{ color:'rgba(224,90,94,0.85)' }}>✗ {error}</p>
         </div>
       )}
 
       {tiles.length === 0 && !loading && !error && (
         <div className="text-center py-10">
-          <p className="text-[12px]" style={{ color:'rgba(255,255,255,0.35)' }}>
+          <p className="dt-text-muted text-[12px]">
             {data?.message || 'No tiles available — connect Kite and reload.'}
           </p>
         </div>
@@ -947,11 +945,10 @@ function TileCard({ tile, fullScore, tradeMode, marketOpen, onBuy, onSell }: {
     <div className="rounded-xl overflow-hidden"
       style={{ background: cardBg, border: `${borderWidth}px solid ${border}`, boxShadow: cardShadow }}>
       {/* Header — symbol, LTP, today's % */}
-      <div className="px-4 py-3 flex items-start justify-between"
-        style={{ borderBottom: `1px solid rgba(255,255,255,0.05)` }}>
+      <div className="dt-border-b px-4 py-3 flex items-start justify-between">
         <div className="min-w-0">
           <div className="flex items-center gap-2 flex-wrap">
-            <span className="text-base font-bold truncate" style={{ color:'rgba(255,255,255,0.9)', fontFamily:'JetBrains Mono, monospace' }}>{tile.symbol}</span>
+            <span className="dt-text-primary text-base font-bold truncate" style={{ fontFamily:'JetBrains Mono, monospace' }}>{tile.symbol}</span>
             {autoFires && (
               <span className="text-[8px] tracking-widest uppercase px-1.5 py-0.5 rounded font-semibold"
                 style={{ background:'rgba(82,183,136,0.15)', color:'#52b788', border:'1px solid rgba(82,183,136,0.4)', fontFamily:'JetBrains Mono, monospace' }}>
@@ -959,7 +956,7 @@ function TileCard({ tile, fullScore, tradeMode, marketOpen, onBuy, onSell }: {
               </span>
             )}
           </div>
-          <p className="text-[10px] mt-0.5 truncate" style={{ color:'rgba(255,255,255,0.4)' }}>{tile.name}</p>
+          <p className="dt-text-muted text-[10px] mt-0.5 truncate">{tile.name}</p>
         </div>
         <div className="text-right ml-2 flex-shrink-0">
           <p className="text-base" style={{ color: dayChgColor, fontFamily:'JetBrains Mono, monospace', fontWeight: 600 }}>
@@ -980,16 +977,15 @@ function TileCard({ tile, fullScore, tradeMode, marketOpen, onBuy, onSell }: {
             </span>
             <div className="flex-1 min-w-0">
               <span style={{ color: r.skipped ? 'rgba(255,255,255,0.35)' : 'rgba(255,255,255,0.7)' }}>{r.label}</span>
-              <span className="ml-1" style={{ color:'rgba(255,255,255,0.4)' }}>— {r.actual}</span>
+              <span className="dt-text-muted ml-1">— {r.actual}</span>
             </div>
           </div>
         ))}
       </div>
 
       {/* Score */}
-      <div className="px-4 py-2 flex items-center justify-between"
-        style={{ background:'rgba(255,255,255,0.02)', borderTop:'1px solid rgba(255,255,255,0.05)' }}>
-        <span className="text-[10px] tracking-widest uppercase" style={{ color:'rgba(255,255,255,0.4)', fontFamily:'JetBrains Mono, monospace' }}>
+      <div className="dt-surface dt-border-t px-4 py-2 flex items-center justify-between">
+        <span className="dt-text-muted text-[10px] tracking-widest uppercase" style={{ fontFamily:'JetBrains Mono, monospace' }}>
           Score
         </span>
         <span className="text-[12px]"
@@ -1011,7 +1007,7 @@ function TileCard({ tile, fullScore, tradeMode, marketOpen, onBuy, onSell }: {
       )}
 
       {/* Actions */}
-      <div className="px-4 py-3 flex gap-2" style={{ borderTop:'1px solid rgba(255,255,255,0.05)' }}>
+      <div className="dt-border-t px-4 py-3 flex gap-2">
         <button onClick={onBuy} disabled={!marketOpen}
           title={!marketOpen ? 'Market closed' : undefined}
           className="flex-1 py-2 rounded-md text-[11px] font-semibold tracking-wider transition-all disabled:opacity-30 disabled:cursor-not-allowed"

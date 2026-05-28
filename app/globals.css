@@ -3,39 +3,61 @@
 @tailwind components;
 @tailwind utilities;
 
+/* ─── Design tokens — DEFAULT = dark, high contrast ─────────────────── */
 :root {
   --gold:#c9a84c;--gold-light:#e8c97a;--gold-dark:#8a6a1a;
   --obsidian:#080604;--up:#52b788;--dn:#e05a5e;
 
-  /* Design tokens — standard contrast */
-  --dt-text-primary:   rgba(255,255,255,0.90);
-  --dt-text-secondary: rgba(255,255,255,0.55);
-  --dt-text-muted:     rgba(255,255,255,0.38);
-  --dt-border:         rgba(255,255,255,0.08);
-  --dt-border-gold:    rgba(201,168,76,0.18);
-  --dt-surface:        rgba(255,255,255,0.03);
-  --dt-surface-2:      rgba(255,255,255,0.06);
+  --dt-bg:            #080604;
+  --dt-bg-card:       #100e0a;
+  --dt-bg-card-2:     #1a1610;
+  --dt-bg-nav:        rgba(8,6,4,0.95);
+  --dt-text-primary:  rgba(255,255,255,0.95);
+  --dt-text-secondary:rgba(255,255,255,0.75);
+  --dt-text-muted:    rgba(255,255,255,0.52);
+  --dt-border:        rgba(255,255,255,0.12);
+  --dt-border-gold:   rgba(201,168,76,0.32);
+  --dt-surface:       rgba(255,255,255,0.05);
+  --dt-surface-2:     rgba(255,255,255,0.09);
+  --dt-gold-display:  #c9a84c;
+  --dt-nav-border:    rgba(201,168,76,0.18);
+  --dt-scrollbar-bg:  #100e0a;
+  --dt-scrollbar-thumb: rgba(201,168,76,0.3);
 }
 
-/* High-contrast mode — toggled by .hc class on <html> */
-html.hc {
-  --dt-text-primary:   rgba(255,255,255,0.97);
-  --dt-text-secondary: rgba(255,255,255,0.78);
-  --dt-text-muted:     rgba(255,255,255,0.58);
-  --dt-border:         rgba(255,255,255,0.18);
-  --dt-border-gold:    rgba(201,168,76,0.38);
-  --dt-surface:        rgba(255,255,255,0.06);
-  --dt-surface-2:      rgba(255,255,255,0.11);
+/* ─── Light mode ─────────────────────────────────────────────────────── */
+html.light {
+  --dt-bg:            #f0ede8;
+  --dt-bg-card:       #ffffff;
+  --dt-bg-card-2:     #f8f5f0;
+  --dt-bg-nav:        rgba(240,237,232,0.97);
+  --dt-text-primary:  rgba(0,0,0,0.88);
+  --dt-text-secondary:rgba(0,0,0,0.62);
+  --dt-text-muted:    rgba(0,0,0,0.42);
+  --dt-border:        rgba(0,0,0,0.11);
+  --dt-border-gold:   rgba(140,104,20,0.30);
+  --dt-surface:       rgba(0,0,0,0.04);
+  --dt-surface-2:     rgba(0,0,0,0.07);
+  --dt-gold-display:  #8a6010;
+  --dt-nav-border:    rgba(140,104,20,0.20);
+  --dt-scrollbar-bg:  #e8e4de;
+  --dt-scrollbar-thumb: rgba(140,104,20,0.35);
 }
 
-/* Utility classes driven by tokens */
-.dt-text-secondary { color: var(--dt-text-secondary); }
-.dt-text-muted     { color: var(--dt-text-muted); }
-
+/* ─── Global base ────────────────────────────────────────────────────── */
 *{box-sizing:border-box;}
-body{background:#080604;color:#fff;font-family:'Outfit',system-ui,sans-serif;-webkit-font-smoothing:antialiased;}
+body {
+  background: var(--dt-bg);
+  color: var(--dt-text-primary);
+  font-family:'Outfit',system-ui,sans-serif;
+  -webkit-font-smoothing:antialiased;
+  transition: background 0.2s ease, color 0.2s ease;
+}
 .gold-text{background:linear-gradient(135deg,#a07820 0%,#c9a84c 30%,#e8d090 55%,#c9a84c 75%,#8a6010 100%);-webkit-background-clip:text;-webkit-text-fill-color:transparent;background-clip:text;}
-::-webkit-scrollbar{width:4px;}::-webkit-scrollbar-track{background:#100e0a;}::-webkit-scrollbar-thumb{background:rgba(201,168,76,0.3);border-radius:2px;}
+html.light .gold-text{background:linear-gradient(135deg,#6b4c0a 0%,#9a720e 35%,#c9a84c 55%,#9a720e 75%,#6b4c0a 100%);-webkit-background-clip:text;-webkit-text-fill-color:transparent;background-clip:text;}
+::-webkit-scrollbar{width:4px;}
+::-webkit-scrollbar-track{background:var(--dt-scrollbar-bg);}
+::-webkit-scrollbar-thumb{background:var(--dt-scrollbar-thumb);border-radius:2px;}
 .ticker-strip{scrollbar-width:none;-ms-overflow-style:none;}.ticker-strip::-webkit-scrollbar{display:none;}
 @keyframes fade-up{from{opacity:0;transform:translateY(8px);}to{opacity:1;transform:translateY(0);}}
 @keyframes pulse-dot{0%,100%{opacity:1;}50%{opacity:.3;}}
@@ -44,11 +66,77 @@ body{background:#080604;color:#fff;font-family:'Outfit',system-ui,sans-serif;-we
 .animate-pulse-dot{animation:pulse-dot 1.4s ease-in-out infinite;}
 .animate-ticker{animation:ticker-scroll 40s linear infinite;}
 
-/* Readability bump: original design used 8–13px text everywhere — too small on
-   most screens. Remap the arbitrary Tailwind text sizes used across the app. */
+/* ─── Readability bump ───────────────────────────────────────────────── */
 .text-\[8px\]  { font-size: 12px; }
 .text-\[9px\]  { font-size: 13px; }
 .text-\[10px\] { font-size: 14px; }
 .text-\[11px\] { font-size: 15px; }
 .text-\[12px\] { font-size: 15px; }
 .text-\[13px\] { font-size: 16px; }
+
+/* ─── Semantic component classes ─────────────────────────────────────── */
+
+/* Cards / containers */
+.dt-card {
+  background: var(--dt-bg-card);
+  border: 1px solid var(--dt-border);
+}
+.dt-card-gold {
+  background: rgba(201,168,76,0.04);
+  border: 1px solid var(--dt-border-gold);
+}
+.dt-card-inner {               /* nested card / cell */
+  background: var(--dt-bg-card-2);
+}
+
+/* Tables */
+.dt-table-head {
+  background: var(--dt-surface);
+  color: var(--dt-text-muted);
+  border-bottom: 1px solid var(--dt-border);
+  font-family: 'JetBrains Mono', monospace;
+}
+.dt-table-row {
+  border-bottom: 1px solid var(--dt-border);
+  transition: background 0.12s;
+}
+.dt-table-row:hover  { background: var(--dt-surface); }
+.dt-table-row:last-child { border-bottom: none; }
+
+/* Section header strip (inside a card, above the rows) */
+.dt-section-head {
+  background: var(--dt-surface);
+  border-bottom: 1px solid var(--dt-border);
+  font-family: 'JetBrains Mono', monospace;
+}
+
+/* Surfaces */
+.dt-surface  { background: var(--dt-surface); }
+.dt-surface-2{ background: var(--dt-surface-2); }
+
+/* Borders */
+.dt-border-t { border-top:    1px solid var(--dt-border); }
+.dt-border-b { border-bottom: 1px solid var(--dt-border); }
+
+/* Status banners */
+.dt-banner-error {
+  background: rgba(224,90,94,0.07);
+  border: 1px solid rgba(224,90,94,0.22);
+}
+.dt-banner-gold {
+  background: rgba(201,168,76,0.05);
+  border: 1px solid var(--dt-border-gold);
+}
+.dt-banner-green {
+  background: rgba(82,183,136,0.07);
+  border: 1px solid rgba(82,183,136,0.22);
+}
+.dt-banner-blue {
+  background: rgba(96,165,250,0.06);
+  border: 1px solid rgba(96,165,250,0.18);
+}
+
+/* ─── Text token utilities ───────────────────────────────────────────── */
+.dt-text-primary   { color: var(--dt-text-primary); }
+.dt-text-secondary { color: var(--dt-text-secondary); }
+.dt-text-muted     { color: var(--dt-text-muted); }

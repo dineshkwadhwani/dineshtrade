@@ -85,7 +85,7 @@ export default function PositionsPage() {
               </span>
             )}
             {fetchedAt && (
-              <span className="text-[10px]" style={{ color:'rgba(255,255,255,0.4)', fontFamily:'JetBrains Mono, monospace' }}>
+              <span className="text-[10px] dt-text-muted" style={{ fontFamily:'JetBrains Mono, monospace' }}>
                 fetched {new Date(fetchedAt).toLocaleTimeString('en-IN', { hour12: false, timeZone: 'Asia/Kolkata' })}
               </span>
             )}
@@ -101,11 +101,10 @@ export default function PositionsPage() {
       <AccountTabs accounts={accounts} connected={connected} active={activeTab} onSelect={setActiveTab} loaded={loaded} />
 
       {loaded && connected.length === 0 && (
-        <div className="rounded-xl p-6 text-center"
-          style={{ background:'rgba(201,168,76,0.05)', border:'1px solid rgba(201,168,76,0.15)' }}>
+        <div className="rounded-xl p-6 text-center dt-banner-gold">
           <p className="text-4xl mb-3 opacity-20">⚙</p>
           <p className="text-sm mb-1" style={{ color:'rgba(201,168,76,0.7)' }}>No accounts connected</p>
-          <p className="text-[12px]" style={{ color:'rgba(255,255,255,0.4)' }}>Go to Settings, paste today's Kite access token, and Connect.</p>
+          <p className="text-[12px] dt-text-muted">Go to Settings, paste today's Kite access token, and Connect.</p>
         </div>
       )}
 
@@ -118,8 +117,8 @@ export default function PositionsPage() {
               { label:'Unrealized',             val: signedRupees(totalUnrealized), sub: signedPct(totalUnrealizedPct), color: totalUnrealized >= 0 ? '#52b788' : '#e05a5e' },
               { label:'Day P&L (incl. closed)', val: signedRupees(totalPnl),        sub: signedPct(totalPnlPct),        color: totalPnl >= 0 ? '#52b788' : '#e05a5e' },
             ].map(s => (
-              <div key={s.label} className="rounded-xl p-4" style={{ background:'rgba(255,255,255,0.03)', border:'1px solid rgba(255,255,255,0.06)' }}>
-                <p className="text-[9px] tracking-widest uppercase mb-2" style={{ color:'rgba(255,255,255,0.3)', fontFamily:'JetBrains Mono, monospace' }}>{s.label}</p>
+              <div key={s.label} className="rounded-xl p-4 dt-card">
+                <p className="text-[9px] tracking-widest uppercase mb-2 dt-text-muted" style={{ fontFamily:'JetBrains Mono, monospace' }}>{s.label}</p>
                 <p className="text-xl font-semibold" style={{ color:s.color, fontFamily:'JetBrains Mono, monospace' }}>{s.val}</p>
                 {s.sub && <p className="text-[11px] mt-1" style={{ color:s.color, opacity:0.7, fontFamily:'JetBrains Mono, monospace' }}>{s.sub}</p>}
               </div>
@@ -127,7 +126,7 @@ export default function PositionsPage() {
           </div>
 
           {error && (
-            <div className="rounded-xl p-4" style={{ background:'rgba(224,90,94,0.05)', border:'1px solid rgba(224,90,94,0.2)' }}>
+            <div className="rounded-xl p-4 dt-banner-error">
               <p className="text-sm" style={{ color:'rgba(224,90,94,0.85)' }}>✗ {error}</p>
             </div>
           )}
@@ -135,8 +134,8 @@ export default function PositionsPage() {
           {positions.length > 0 && (
             <div className="rounded-xl overflow-hidden" style={{ border:'1px solid rgba(255,255,255,0.06)' }}>
               {/* Header — desktop only; mobile uses inline labels per cell */}
-              <div className="hidden sm:grid grid-cols-12 px-4 py-2.5 text-[9px] tracking-widest uppercase"
-                style={{ background:'var(--dt-surface)', color:'var(--dt-text-muted)', fontFamily:'JetBrains Mono, monospace', borderBottom:'1px solid var(--dt-border)' }}>
+              <div className="hidden sm:grid grid-cols-12 px-4 py-2.5 text-[9px] tracking-widest uppercase dt-table-head"
+                style={{ fontFamily:'JetBrains Mono, monospace' }}>
                 <span className="col-span-3">Symbol</span>
                 <span className="col-span-1 text-right">Qty</span>
                 <span className="col-span-2 text-right">Avg</span>
@@ -154,7 +153,7 @@ export default function PositionsPage() {
           {!loading && !error && positions.length === 0 && (
             <div className="text-center py-16">
               <p className="text-4xl mb-3 opacity-20">∅</p>
-              <p className="text-base" style={{ fontFamily:'Cormorant Garamond, serif', color:'rgba(255,255,255,0.35)', fontSize:'18px' }}>No positions today</p>
+              <p className="text-base dt-text-muted" style={{ fontFamily:'Cormorant Garamond, serif', fontSize:'18px' }}>No positions today</p>
             </div>
           )}
         </>
@@ -219,7 +218,7 @@ function PositionRow({ p, last, marketOpen, onSquareOff }: {
         {/* Left — symbol + tags, avg, qty */}
         <div className="min-w-0 flex flex-col gap-1" style={{ fontFamily:'JetBrains Mono, monospace' }}>
           <div className="flex items-center gap-1.5 flex-wrap">
-            <span className="text-[16px] font-semibold truncate" style={{ color:'rgba(255,255,255,0.9)' }}>{p.symbol}</span>
+            <span className="text-[16px] font-semibold truncate dt-text-primary">{p.symbol}</span>
             <TagPill tag={p.tag} />
             {!isOpen && (
               <span className="text-[8px] tracking-widest uppercase px-1.5 py-0.5 rounded"
@@ -228,10 +227,10 @@ function PositionRow({ p, last, marketOpen, onSquareOff }: {
             <span className="text-[8px] tracking-widest uppercase px-1.5 py-0.5 rounded"
               style={{ background:'rgba(255,255,255,0.04)', color:'rgba(255,255,255,0.4)' }}>{p.product}</span>
           </div>
-          <div className="text-[11px]" style={{ color:'rgba(255,255,255,0.4)' }}>
+          <div className="text-[11px] dt-text-muted">
             Avg <span style={{ color:'rgba(255,255,255,0.75)' }}>{p.avgPrice > 0 ? `₹${p.avgPrice.toFixed(2)}` : '—'}</span>
           </div>
-          <div className="text-[11px]" style={{ color:'rgba(255,255,255,0.4)' }}>
+          <div className="text-[11px] dt-text-muted">
             Qty <span style={{ color:'rgba(255,255,255,0.75)' }}>{p.qty}</span>
           </div>
         </div>
@@ -248,7 +247,7 @@ function PositionRow({ p, last, marketOpen, onSquareOff }: {
               </div>
             )}
           </div>
-          <div className="text-[11px] whitespace-nowrap" style={{ color:'rgba(255,255,255,0.4)' }}>
+          <div className="text-[11px] whitespace-nowrap dt-text-muted">
             LTP <span style={{ color: dColor }}>{p.ltp > 0 ? `₹${p.ltp.toFixed(2)}` : '—'}</span>
             {dc !== undefined && <span className="ml-1.5" style={{ color: dColor }}>{Math.abs(dc).toFixed(2)}%</span>}
           </div>
@@ -335,7 +334,7 @@ function AccountTabs({ accounts, connected, active, onSelect, loaded }: {
   onSelect: (n: string) => void
   loaded: boolean
 }) {
-  if (!loaded) return <p className="text-[11px]" style={{ color:'rgba(255,255,255,0.3)' }}>Loading accounts…</p>
+  if (!loaded) return <p className="text-[11px] dt-text-muted">Loading accounts…</p>
   const connectedAccounts = accounts.filter(a => connected.includes(a.name))
   if (connectedAccounts.length === 0) return null
   return (
