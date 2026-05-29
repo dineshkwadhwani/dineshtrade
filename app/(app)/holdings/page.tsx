@@ -157,39 +157,36 @@ export default function HoldingsPage() {
           }
         })
 
-        // For symbols that appear in BOTH holdings (carried from prior days) and
-        // today's positions (same-day CNC buy not yet T+1 settled), merge the
-        // position qty into the holding row so the user sees their full exposure.
-        // Kite keeps them separate until settlement — we surface them together.
-        const holdingBySymbol = new Map(enrichedHoldings.map(h => [h.tradingsymbol.toUpperCase(), h]))
-        const t0OnlyPositions: EnrichedPosition[] = []
-        for (const position of (Array.isArray(pRes?.positions) ? pRes.positions as EnrichedPosition[] : [])) {
-          if (position.qty === 0) continue
-          const sym = position.symbol.toUpperCase()
-          const existing = holdingBySymbol.get(sym)
-          if (existing) {
-            // Merge: add today's position qty to the holding, recalculate weighted avg + P&L
-            const oldQty = (existing.quantity || 0) + (existing.t1_quantity || 0)
-            const newQty = oldQty + position.qty
-            const weightedAvg = newQty > 0
-              ? (oldQty * existing.average_price + position.qty * (position.avgPrice || 0)) / newQty
-              : existing.average_price
-            const liveLtp = existing.last_price
-            holdingBySymbol.set(sym, {
-              ...existing,
-              t1_quantity: (existing.t1_quantity || 0) + position.qty,
-              average_price: weightedAvg,
-              pnl: newQty * (liveLtp - weightedAvg),
-            })
-          } else {
-            t0OnlyPositions.push(position)
-          }
-        }
+        // Show today's same-day positions as SEPARATE rows even when the symbol
+        // already exists in settled holdings. A stock like COALINDIA bought on
+        // Accumulator (settled, in holdings) and then re-bought today on Catalyst
+        // (T0, in positions) are two distinct lots managed by different strategies
+        // with different exit rules — merging them into one row would destroy the
+        // strategy attribution and apply the wrong exits.
+        const holdingSymbols = new Set(enrichedHoldings.map(item => item.tradingsymbol.toUpperCase()))
+        const t0Rows = Array.isArray(pRes?.positions)
+          ? (pRes.positions as EnrichedPosition[])
+              .filter(position => position.qty !== 0)
+              // Include ALL same-day positions, even if the symbol is already in
+              // settled holdings — they represent a different lot / strategy.
+              .map(positionToHolding)
+          : []
+
+        // De-duplicate: if a T0 row has the same symbol+avgPrice as the holding
+        // (can happen if the only buy was today and Kite shows it in both), prefer
+        // the T0 row and drop the holding to avoid a phantom duplicate.
+        const t0Symbols = new Map(t0Rows.map(r => [r.tradingsymbol.toUpperCase(), r.average_price]))
+        const dedupedHoldings = enrichedHoldings.filter(h => {
+          const t0Price = t0Symbols.get(h.tradingsymbol.toUpperCase())
+          // Only drop the holding if its avg price matches the T0 price exactly
+          // (same-day-only buy appearing in both endpoints — Kite quirk)
+          return t0Price === undefined || Math.abs(t0Price - h.average_price) > 0.01
+        })
 
         setHoldings(
           [
-            ...Array.from(holdingBySymbol.values()).map(item => ({ ...item, source: 'holding' as const })),
-            ...t0OnlyPositions.map(positionToHolding),
+            ...dedupedHoldings.map(item => ({ ...item, source: 'holding' as const })),
+            ...t0Rows,
           ].sort((left, right) => left.tradingsymbol.localeCompare(right.tradingsymbol))
         )
       }
