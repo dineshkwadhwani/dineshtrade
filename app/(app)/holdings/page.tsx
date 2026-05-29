@@ -111,12 +111,11 @@ export default function HoldingsPage() {
     setMargins(null)
     setHoldings([])
     try {
-      const [mRes, hRes, sRes, pRes, oRes] = await Promise.all([
+      const [mRes, hRes, sRes, pRes] = await Promise.all([
         fetch(`/api/zerodha?account=${encodeURIComponent(account)}&action=margins`).then(r => r.json()),
         fetch(`/api/zerodha?account=${encodeURIComponent(account)}&action=holdings`).then(r => r.json()),
         fetch('/api/strategy/positions').then(r => r.json()).catch(() => ({ positions: [] })),
         fetch(`/api/positions?account=${encodeURIComponent(account)}&_t=${Date.now()}`, { cache: 'no-store' }).then(r => r.json()).catch(() => ({ positions: [] })),
-        fetch(`/api/zerodha?account=${encodeURIComponent(account)}&action=orders`).then(r => r.json()).catch(() => ({ data: [] })),
       ])
       if (mRes.error) {
         setError(mRes.error)
@@ -191,7 +190,9 @@ export default function HoldingsPage() {
           ].sort((left, right) => left.tradingsymbol.localeCompare(right.tradingsymbol))
         )
       }
-      // Build strategy tag map from the positions store (used for settled holdings)
+      // Strategy tag map — single source of truth is the positions store.
+      // All rows (settled holdings AND same-day T0 positions) use the same map
+      // so every page shows the same strategy for the same symbol consistently.
       const tagMap = new Map<string, { strategyId: string; strategyName: string; strategyColor: string; strategyType?: string }>()
       for (const p of (sRes?.positions || []) as any[]) {
         tagMap.set(`${String(p.account).toUpperCase()}:${String(p.symbol).toUpperCase()}`, {
@@ -201,56 +202,6 @@ export default function HoldingsPage() {
           strategyType: p.strategyType,
         })
       }
-
-      // Override strategy tags for T0 positions (same-day buys) using today's
-      // Kite order tags. The positions store may have the wrong strategyId for
-      // symbols that existed as a different strategy before today's buy (e.g.
-      // COALINDIA is 'accumulator' in the store but was bought today on 'catalyst').
-      // The Kite order tag (dt-catalyst, dt-accumulator, etc.) is ground truth
-      // for which strategy placed today's buy.
-      if (Array.isArray(oRes?.data)) {
-        // Build symbol → most recent completed BUY order tag map
-        const orderTagBySymbol = new Map<string, string>()
-        for (const order of (oRes.data as any[])) {
-          if (order.transaction_type === 'BUY' && order.status === 'COMPLETE' && order.tag) {
-            orderTagBySymbol.set(String(order.tradingsymbol).toUpperCase(), String(order.tag))
-          }
-        }
-        // For each T0 position, if we have an order tag that indicates a different
-        // strategy than the store, overwrite the tag entry
-        for (const position of (Array.isArray(pRes?.positions) ? pRes.positions as EnrichedPosition[] : [])) {
-          if (position.qty === 0) continue
-          const sym = position.symbol.toUpperCase()
-          const orderTag = orderTagBySymbol.get(sym)
-          if (!orderTag) continue
-          // Parse dt-{strategyId} tag → strategyId
-          const match = orderTag.match(/^dt-([a-z0-9_-]+)$/)
-          if (!match) continue
-          const strategyId = match[1]
-          // Only override if the order's strategy differs from the store's (the
-          // T0 buy was placed by a different strategy than the settled holding)
-          const storeEntry = tagMap.get(`${account.toUpperCase()}:${sym}`)
-          if (storeEntry && storeEntry.strategyId === strategyId) continue
-          // Use the position's existing tag info if the strategyId matches
-          const positionEntry = (sRes?.positions || []).find((p: any) =>
-            String(p.symbol).toUpperCase() === sym && p.strategyId === strategyId
-          )
-          // Derive display name from strategyId — e.g. 'catalyst' → 'Catalyst (Momentum)'
-          const displayName = strategyId === 'accumulator' ? 'Accumulator'
-            : strategyId === 'catalyst' ? 'Catalyst (Mome)'
-            : strategyId.charAt(0).toUpperCase() + strategyId.slice(1)
-          const color = strategyId === 'accumulator' ? '#52b788'
-            : strategyId === 'catalyst' ? '#c9a84c'
-            : '#60a5fa'
-          tagMap.set(`T0:${account.toUpperCase()}:${sym}`, {
-            strategyId,
-            strategyName: positionEntry?.strategyName || displayName,
-            strategyColor: positionEntry?.strategyColor || color,
-            strategyType: strategyId === 'accumulator' ? 'dip' : 'momentum',
-          })
-        }
-      }
-
       setPosTags(tagMap)
       setLastRefreshedAt(new Date().toISOString())
     } catch {
@@ -387,13 +338,10 @@ export default function HoldingsPage() {
 
               {holdings.map((h, i) => {
                 const isT0Position = h.source === 't0'
-                // For T0 rows, prefer the order-tag-derived strategy (T0: prefix)
-                // over the positions store entry — it reflects which strategy actually
-                // placed today's buy rather than which strategy owned the symbol before.
-                const tag = (isT0Position
-                  ? posTags.get(`T0:${(activeTab || '').toUpperCase()}:${h.tradingsymbol.toUpperCase()}`)
-                  : undefined
-                ) ?? posTags.get(`${(activeTab || '').toUpperCase()}:${h.tradingsymbol.toUpperCase()}`)
+                // Positions store is the single source of truth for strategy tags.
+                // Both settled holdings and T0 same-day positions use the same lookup
+                // so strategy attribution is consistent across all pages.
+                const tag = posTags.get(`${(activeTab || '').toUpperCase()}:${h.tradingsymbol.toUpperCase()}`)
                 const isManaged = !!tag
                 const badgeLabel = isManaged ? tag!.strategyName.toUpperCase().slice(0, 14) : 'OOS'
                 const badgeColor = isManaged ? tag!.strategyColor : 'rgba(255,255,255,0.4)'
