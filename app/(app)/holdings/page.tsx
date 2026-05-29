@@ -157,16 +157,40 @@ export default function HoldingsPage() {
           }
         })
 
-        const holdingSymbols = new Set(enrichedHoldings.map(item => item.tradingsymbol.toUpperCase()))
-        const t0Rows = Array.isArray(pRes?.positions)
-          ? (pRes.positions as EnrichedPosition[])
-              .filter(position => position.qty !== 0 && !holdingSymbols.has(position.symbol.toUpperCase()))
-              .map(positionToHolding)
-          : []
+        // For symbols that appear in BOTH holdings (carried from prior days) and
+        // today's positions (same-day CNC buy not yet T+1 settled), merge the
+        // position qty into the holding row so the user sees their full exposure.
+        // Kite keeps them separate until settlement — we surface them together.
+        const holdingBySymbol = new Map(enrichedHoldings.map(h => [h.tradingsymbol.toUpperCase(), h]))
+        const t0OnlyPositions: EnrichedPosition[] = []
+        for (const position of (Array.isArray(pRes?.positions) ? pRes.positions as EnrichedPosition[] : [])) {
+          if (position.qty === 0) continue
+          const sym = position.symbol.toUpperCase()
+          const existing = holdingBySymbol.get(sym)
+          if (existing) {
+            // Merge: add today's position qty to the holding, recalculate weighted avg + P&L
+            const oldQty = (existing.quantity || 0) + (existing.t1_quantity || 0)
+            const newQty = oldQty + position.qty
+            const weightedAvg = newQty > 0
+              ? (oldQty * existing.average_price + position.qty * (position.avgPrice || 0)) / newQty
+              : existing.average_price
+            const liveLtp = existing.last_price
+            holdingBySymbol.set(sym, {
+              ...existing,
+              t1_quantity: (existing.t1_quantity || 0) + position.qty,
+              average_price: weightedAvg,
+              pnl: newQty * (liveLtp - weightedAvg),
+            })
+          } else {
+            t0OnlyPositions.push(position)
+          }
+        }
 
         setHoldings(
-          [...enrichedHoldings.map(item => ({ ...item, source: 'holding' as const })), ...t0Rows]
-            .sort((left, right) => left.tradingsymbol.localeCompare(right.tradingsymbol))
+          [
+            ...Array.from(holdingBySymbol.values()).map(item => ({ ...item, source: 'holding' as const })),
+            ...t0OnlyPositions.map(positionToHolding),
+          ].sort((left, right) => left.tradingsymbol.localeCompare(right.tradingsymbol))
         )
       }
       const tagMap = new Map<string, { strategyId: string; strategyName: string; strategyColor: string; strategyType?: string }>()

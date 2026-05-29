@@ -178,12 +178,11 @@ function OrdersView() {
             <div className="rounded-xl overflow-hidden dt-card">
               <div className="grid grid-cols-12 gap-2 px-4 py-2 text-[9px] tracking-widest uppercase dt-table-head"
                 style={{ fontFamily:'JetBrains Mono, monospace' }}>
-                <span className="col-span-1">Time</span>
-                <span className="col-span-3">Symbol</span>
+                <span className="col-span-2">Time</span>
+                <span className="col-span-5">Symbol</span>
                 <span className="col-span-1 text-center">Type</span>
                 <span className="col-span-1 text-right">Qty</span>
                 <span className="col-span-2 text-right">Price</span>
-                <span className="col-span-3">Strategy</span>
                 <span className="col-span-1 text-center">Status</span>
               </div>
               {orders.map((o, i) => {
@@ -192,23 +191,13 @@ function OrdersView() {
                 <div key={o.order_id}
                   className="grid grid-cols-12 gap-2 px-4 py-3 items-center text-[12px] transition-all hover:bg-white/5"
                   style={{ borderBottom: i < orders.length-1 ? '1px solid rgba(255,255,255,0.04)' : 'none' }}>
-                  <span className="col-span-1 dt-text-muted text-[10px]" style={{ fontFamily:'JetBrains Mono, monospace' }}>
+                  <span className="col-span-2 dt-text-muted text-[10px]" style={{ fontFamily:'JetBrains Mono, monospace' }}>
                     {fmtTime(o.order_timestamp)}
                   </span>
-                  <span className="col-span-3 font-semibold dt-text-primary truncate" style={{ fontFamily:'JetBrains Mono, monospace' }}>{o.tradingsymbol}</span>
-                  <span className="col-span-1 text-center font-semibold" style={{ color: o.transaction_type === 'BUY' ? '#52b788' : '#e05a5e', fontFamily:'JetBrains Mono, monospace' }}
-                    title={o.transaction_type}>
-                    {o.transaction_type === 'BUY' ? 'B' : 'S'}
-                  </span>
-                  <span className="col-span-1 text-right dt-text-secondary" style={{ fontFamily:'JetBrains Mono, monospace' }}>
-                    {o.filled_quantity ?? o.quantity}{o.filled_quantity !== undefined && o.filled_quantity !== o.quantity ? `/${o.quantity}` : ''}
-                  </span>
-                  <span className="col-span-2 text-right dt-text-secondary whitespace-nowrap" style={{ fontFamily:'JetBrains Mono, monospace' }}>
-                    {o.average_price ? `₹${o.average_price.toFixed(2)}` : '—'}
-                  </span>
-                  <span className="col-span-3">
+                  <span className="col-span-5 flex items-center gap-2 min-w-0">
+                    <span className="font-semibold dt-text-primary truncate" style={{ fontFamily:'JetBrains Mono, monospace' }}>{o.tradingsymbol}</span>
                     {strategyLabel && (
-                      <span className="text-[9px] px-1.5 py-0.5 rounded tracking-wider"
+                      <span className="flex-shrink-0 text-[9px] px-1.5 py-0.5 rounded tracking-wider"
                         style={{
                           background: strategyLabel.bg,
                           color: strategyLabel.color,
@@ -218,6 +207,16 @@ function OrdersView() {
                         {strategyLabel.label}
                       </span>
                     )}
+                  </span>
+                  <span className="col-span-1 text-center font-semibold" style={{ color: o.transaction_type === 'BUY' ? '#52b788' : '#e05a5e', fontFamily:'JetBrains Mono, monospace' }}
+                    title={o.transaction_type}>
+                    {o.transaction_type === 'BUY' ? 'B' : 'S'}
+                  </span>
+                  <span className="col-span-1 text-right dt-text-secondary" style={{ fontFamily:'JetBrains Mono, monospace' }}>
+                    {o.filled_quantity ?? o.quantity}{o.filled_quantity !== undefined && o.filled_quantity !== o.quantity ? `/${o.quantity}` : ''}
+                  </span>
+                  <span className="col-span-2 text-right dt-text-secondary whitespace-nowrap" style={{ fontFamily:'JetBrains Mono, monospace' }}>
+                    {o.average_price ? `₹${o.average_price.toFixed(2)}` : '—'}
                   </span>
                   <span className="col-span-1 text-center text-[14px] font-semibold" style={{ color: statusColor(o.status), fontFamily:'JetBrains Mono, monospace' }}
                     title={o.status_message || o.status}>
