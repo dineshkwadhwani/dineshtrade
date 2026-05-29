@@ -19,7 +19,7 @@ import { isMarketOpen, NSE_HOLIDAYS } from './market'
 import { getAccountList } from './accounts'
 import { sendEmail, sendDailyReport, sendMonthlyReport, isEmailConfigured, type EODLineItem } from './email'
 import { generateRecommendations, getMarketMode, runReactiveDipScan, runStrategyScan, type Recommendation } from './strategyEngine'
-import { getActiveStrategies, type Strategy } from './strategyConfig'
+import { getActiveStrategies, getCapital, type Strategy } from './strategyConfig'
 import strategyCfg from '@/config/strategy.json'
 import { monitorAllConnected, STRATEGY_2_BUY_TAG } from './strategy2'
 import {
@@ -48,9 +48,27 @@ const strategyTasks = new Map<string, ScheduledTask>()
 // ──────── DAY-OF STATS (in-process) ────────
 
 let currentDateKey = ''
-// Strategy 1 (dip mode) runs once per day. Strategy 2 (catalyst) runs every tick
-// during 9:30–14:30 IST via the strategyEngine's own time-window check.
 let dipScanDoneDate = ''
+
+// In-process BUY counter — shared across all per-strategy cron tasks to prevent
+// the race condition where two concurrent tasks both pass the Kite quota gate
+// before the other's order shows as COMPLETE in Kite's /orders endpoint.
+// Key: "${account}:${dateKey}", value: count of auto-BUYs placed this IST day.
+// Resets automatically when the date rolls over in maybeRollDay().
+const inProcessBuyCounts: Record<string, number> = {}
+
+function inProcessBuyKey(account: string): string {
+  return `${account.toUpperCase()}:${currentDateKey}`
+}
+
+function incrementInProcessBuy(account: string): void {
+  const k = inProcessBuyKey(account)
+  inProcessBuyCounts[k] = (inProcessBuyCounts[k] || 0) + 1
+}
+
+function getInProcessBuyCount(account: string): number {
+  return inProcessBuyCounts[inProcessBuyKey(account)] || 0
+}
 const dayStats = {
   scans: 0,
   executed: [] as EODLineItem[],
@@ -83,6 +101,8 @@ function maybeRollDay() {
     dayStats.skipped = []
     dayStats.delivery = []
     dayStats.realizedPnl = {}
+    // Clear in-process buy counters for the new day
+    for (const k of Object.keys(inProcessBuyCounts)) delete inProcessBuyCounts[k]
   }
 }
 
@@ -133,7 +153,21 @@ async function autoBuyOnAccount(account: string, accountDisplayName: string | un
     recordSkipped({ time: istHHMM(), account, symbol: '—', side: 'BUY', quantity: 0, reason: creds.error })
     return
   }
+  // Read the capital config once for the in-process quota check
+  const cap = getCapital()
   for (const rec of recs) {
+    // In-process quota guard — prevents two concurrent strategy cron tasks from
+    // both passing the Kite quota gate before each other's order shows COMPLETE.
+    // The Kite gate (gate 5) is the authoritative check; this is a fast pre-check
+    // that catches the race condition within the same process.
+    const inProcessCount = getInProcessBuyCount(account)
+    if (inProcessCount >= cap.maxBuysPerDay) {
+      recordSkipped({
+        time: istHHMM(), account, symbol: rec.symbol, side: 'BUY', quantity: rec.suggestedQty,
+        reason: `[inProcessQuota] already ${inProcessCount}/${cap.maxBuysPerDay} in-process buys today`,
+      })
+      continue
+    }
     const pre = await runPreflight({
       account, symbol: rec.symbol, side: 'BUY',
       quantity: rec.suggestedQty, pricePerShare: rec.price,
@@ -165,6 +199,8 @@ async function autoBuyOnAccount(account: string, accountDisplayName: string | un
       symbol: rec.symbol, side: 'BUY', quantity: rec.suggestedQty, tag,
     })
     if (placed.ok && placed.data?.data?.order_id) {
+      // Increment in-process counter immediately so sibling strategy tasks see it
+      incrementInProcessBuy(account)
       // Persist BEFORE doing anything else — critical for preventing duplicate
       // BUYs on the next cron tick if this function were to crash partway.
       await markPlaced(account, rec.symbol, 'BUY', { price: rec.price, manual: false })

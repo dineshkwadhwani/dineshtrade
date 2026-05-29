@@ -1,7 +1,7 @@
 # DineshTrade — Project Context
 
-**Last Updated:** 23 May 2026
-**Version:** 1.4
+**Last Updated:** 29 May 2026
+**Version:** 1.6
 **Purpose:** Single source of truth on who, what, and why. Upload to any new Claude session to bootstrap full context.
 
 ---
@@ -178,7 +178,7 @@ Each strategy carries a `watchlist: string[]` of internal keys it scans. Setting
 
 ---
 
-## 8. Current Build Status — 20 May 2026
+## 8. Current Build Status — 29 May 2026
 
 ### Phase 1 (complete)
 - Next.js 14 App Router scaffold, Obsidian Gold theme (Cormorant Garamond serif + Outfit body + JetBrains Mono numbers)
@@ -267,6 +267,54 @@ Each strategy carries a `watchlist: string[]` of internal keys it scans. Setting
 - **Market-hours UI gate** — Buy / Sell / Square Off buttons across Watchlist, Holdings, Positions, and Engine are always visible but **disabled** outside NSE hours (with a "Market closed" tooltip). A 60-second `setInterval` re-evaluates `isMarketOpen()` so buttons auto-enable at 9:15 / disable at 15:30 without a refresh.
 - **Header polish** — hid the horizontal scrollbar inside the persistent LiveTicker strip via a scoped `.ticker-strip` CSS class (only WebKit horizontal scrollbar was un-styled, producing a chunky gold half-band on mobile when the ticker content overflowed).
 - All changes pass `tsc --noEmit` and `npm run build`. No schema migration script needed — `lib/watchlistStore.ts:normalize()` reads both legacy top-level `listA`/`listB` and the new `lists` shape.
+
+---
+
+### Phase 6 — built 28–29 May 2026
+
+#### Cron restructure
+- **Per-strategy BUY scan tasks** — each active strategy now registers its own `node-cron` task at `*/${scanIntervalMin} 9-15 * * 1-5`. The core 5-min tick handles only SELL monitors + EOD + reconciliation. `reloadCronStrategies()` hot-swaps tasks on Settings save (no PM2 restart needed).
+
+#### EOD Square-Off for momentum strategies
+- Three new params per momentum strategy: `exitSameDayTime` (default `"15:10"`), `exitSameDayOnPositive`, `squareOffEOD`. Visible/editable in Settings → Strategies → "End of Day Behaviour" section.
+- `squareOffEOD=true` sells all positions at EOD regardless of P&L — bypasses no-loss gate via new `bypassNoLossSell` flag in `runPreflight()`.
+- Market Boom strategy ships with both flags true + `deliveryHandoffDays=0`.
+
+#### CNC holdings bug fix
+- Positions carried forward overnight (CNC) were dropping to OOS because `monitorAccount()` only checked `/portfolio/positions` (intraday), not `/portfolio/holdings`. Fixed: both are now fetched in parallel and merged into `liveQtyBySymbol`.
+- **Journal-based Seed 2 reseeding** — on each monitor tick, reads last 30 days of journal BUY records and reseeds any momentum position that fell out of the store but is still held in Kite (correct strategy tag + original entry price preserved).
+
+#### Manual sell reconciliation
+- `reconcileManualSells()` runs every 5-min tick + at 15:35 EOD. Detects positions closed manually in Kite (Kite qty=0 but store still open), journals a SELL entry (actual fill price if sold today; current LTP/entry price if prior day), removes from store. Trade report then marks the trade as closed.
+
+#### Account Reset
+- Settings → Danger Zone → **Reset Account Data** (per-account dropdown + "RESET" confirmation).
+- Wipes journal records, positions store, idempotency/buy-history cron state for that account.
+- Re-seeds all current Kite holdings/positions as Accumulator at Kite avg price. Entry date = reset date.
+- New functions: `wipeAccountJournal()`, `wipeAccountPositions()`, `resetAccountCronState()`.
+- New API: `POST /api/settings/reset`.
+
+#### Cancel pending orders
+- Engine page shows **Pending Orders** section when any order has status OPEN/TRIGGER PENDING.
+- Red × button per row → `POST /api/orders/cancel` → Kite DELETE. Order list reloads on success.
+- New function: `cancelKiteOrder()` in `lib/kite.ts`.
+
+#### Sync Positions Now
+- Settings → Accounts & Trading → **Sync Positions Now** button. Triggers `POST /api/strategy/monitor` — identical to the 5-min cron tick. Safe outside market hours (preflight blocks SELLs; journal-based reseeding still runs).
+
+#### Capital Bar redesign
+- 2 rows of 4 instead of 10 cells. Row 1: Available · Deployed · Reserve · Remaining. Row 2: Realized P&L · Unrealized MTM · Net MTM · Live Capital. Funded Base + Ledger Adjustment moved to hover tooltip on Live Capital.
+
+#### Light / Dark Mode
+- Nav dropdown toggle (sun/moon emoji). Default = dark high-contrast. Toggle = light mode (warm off-white, near-black text). Persists to `localStorage`.
+- CSS custom property system (`--dt-bg`, `--dt-text-primary`, etc.). Semantic classes (`dt-card`, `dt-table-head`, `dt-banner-*`, `dt-text-muted`). All 9 pages + 3 components converted.
+- Light mode inline-style override: `html.light main * { color: dark !important }` + semantic color restores via higher-specificity attribute selectors.
+
+#### B/S button labels
+- All Buy/Sell action buttons universally use "B" and "S" across Holdings, Positions, Engine.
+
+#### TypeScript build fix
+- `@types/connect` was corrupt. Fixed: `npm install --save-dev @types/connect` + `"types": ["node"]` in `tsconfig.json`.
 
 ---
 

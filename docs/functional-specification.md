@@ -1,6 +1,6 @@
 # DineshTrade — Functional Specification
 
-**Version:** 1.4 · **Last Updated:** 23 May 2026
+**Version:** 1.6 · **Last Updated:** 29 May 2026
 
 This spec documents the *user-visible* behaviour: what the app does, when, and why. Each epic is independently shippable. Nuances and edge cases are listed inline because they are where the value (and the risk) lives.
 
@@ -125,7 +125,7 @@ Strategy 1 has **two trigger paths** — a once-per-day morning scan and a react
 - **Manual mode:** every Engine page Refresh runs both `generateRecommendations()` and `runReactiveDipScan()` in parallel and merges the results — so a reactive dip rec appears as a flagged recommendation alongside any catalyst/dip recs from the regular mode.
 
 ### F4.2 — Strategy 2: The Daily Catalyst (intraday momentum)
-**Used when:** Catalyst mode (GIFT Nifty positive/flat). Scans every tick during 9:30–14:30 IST.
+**Used when:** Catalyst mode (GIFT Nifty positive/flat). Scans at its own `scanIntervalMin` cadence (default 3 min, independent per-strategy cron task) during 9:30–14:30 IST.
 
 - **Momentum signal (replaced the original broker-rec filter):**
   1. Day gain between **+0.5% and +1.5%** (not too late, not too lazy)
@@ -137,6 +137,20 @@ Strategy 1 has **two trigger paths** — a once-per-day morning scan and a react
 - On every cron tick, the Strategy 2 exit monitor checks both live LTP and the most recent completed 5-minute candle. If that candle's high already touched T1 or T2 but the current price has fallen back below the target, the matching sell still fires immediately at market so intraday target touches are not missed between cron runs.
 - **Multi-day handoff (replaced the old 3:00 PM cutoff):** Strategy 2 keeps trying its T1/T2 every day until `firstBuyAt` age ≥ `deliveryHandoffDays` (default **15 calendar days**, per-strategy configurable). At handoff the position's `strategyId` is re-stamped to `accumulator` in the unified position store — accumulator's monitor takes over with EMA-based exits, no time limit.
 - **Order tags:** `dt-catalyst` (BUY, new scheme), `dt-s2-exit` (SELL — legacy literal preserved for back-compat).
+
+### F4.2b — EOD Behaviour for Momentum Strategies *(added 28 May 2026)*
+
+Each momentum strategy has three optional end-of-day params (visible + editable in Settings → Strategies → "End of Day Behaviour"):
+
+- **`exitSameDayTime`** (`string`, default `"15:10"`) — IST HH:MM at which the EOD check fires once per strategy per trading day.
+- **`exitSameDayOnPositive`** (`boolean`, default `false`) — at `exitSameDayTime`, sell any position where `ltp > firstBuyPrice` (in profit). Positions not in profit continue into normal delivery/handoff flow.
+- **`squareOffEOD`** (`boolean`, default `false`) — at `exitSameDayTime`, sell ALL positions regardless of P&L. Overrides the no-loss sell gate. Never takes delivery. Mutually inclusive with `exitSameDayOnPositive` (both can be true simultaneously).
+
+**Market Boom defaults:** `squareOffEOD=true`, `exitSameDayOnPositive=true`, `deliveryHandoffDays=0` — it always squares off EOD, so handoff is irrelevant.
+
+**Catalyst defaults:** both false, `deliveryHandoffDays=15` — purely T1/T2 based exit with 15-day handoff.
+
+The EOD check runs inside the core 5-min tick and fires once per strategy per day at the exact configured minute. `squareOffEOD=true` passes `bypassNoLossSell=true` to preflight, skipping gate 8's no-loss-sell rider while all other gates (token, market open, no-short, quota) still apply.
 
 ### F4.3 — Market Mode resolver
 | GIFT Nifty | Mode | Engine |
@@ -224,7 +238,7 @@ A richer UI layer over the **same** scan logic — no change to the underlying s
 
 **Goal:** Every order — auto or manual — flows through one funnel. No bypasses.
 
-### F5.1 — The 10 Gates (`runPreflight()`)
+### F5.1 — The 11 Gates (`runPreflight()`)
 
 *Three new auto-BUY-only gates added 20–21 May 2026: intraday circuit, panic-sell, pyramid. Order matters; first failure short-circuits with `{ ok: false, gate, reason }`.*
 
@@ -241,7 +255,7 @@ A richer UI layer over the **same** scan logic — no change to the underlying s
 8. **No-short** — SELL only. Fetches live held qty:
    - `held === 0` → reject with `gate: 'noShort'` (signal to monitors that the position was manually closed)
    - `held < requested` → **clamp**: return `adjustedQty: held`, allow order to proceed
-   - **No-loss-sell rider:** Auto SELLs additionally reject if `ltp < entryPrice`. Manual SELLs are never blocked on this.
+   - **No-loss-sell rider:** Auto SELLs additionally reject if `ltp < entryPrice`. Manual SELLs are never blocked on this. Also bypassable via `bypassNoLossSell: true` (used by `squareOffEOD` — must sell regardless of P&L at EOD).
 
 ### F5.2 — Order placement path
 1. Caller (cron, monitor, OrderModal, /engine Execute) builds the order intent
@@ -268,16 +282,24 @@ A richer UI layer over the **same** scan logic — no change to the underlying s
 
 **Goal:** Long-lived background work — strategy monitors, daily reports — runs reliably on PM2-managed EC2.
 
-### F6.1 — Tick (every 5 min, 9:15–15:30 IST weekdays)
-Cron expression: `*/5 9-15 * * 1-5` (Asia/Kolkata). Gated by:
-- `state.mode === 'auto'`
-- `isMarketOpen()` true
-- At least one connected account in `state.kiteTokens`
+### F6.1 — Cron Architecture *(updated 28 May 2026)*
 
-Each tick does, in order:
-1. **Strategy 2 SELL monitor** (`monitorAllConnected()`) — fires +1.5% exits or 3:00 PM handoffs
+**Two layers of scheduling:**
+
+#### Core 5-min tick (`*/5 9-15 * * 1-5`, Asia/Kolkata)
+
+Gated by `state.mode === 'auto'`, `isMarketOpen()`, at least one connected account. Handles only SELL-side work:
+
+1. **Strategy 2 SELL monitor** (`monitorAllConnected()`) — fires T1/T2 exits, 15-day handoff
 2. **Strategy 1 SELL monitor** (`monitorAllAccountsStrategy1()`) — fires tranche 1 / tranche 2 exits
-3. **BUY scan** — only fires if mode is catalyst (every tick) or first dip-tick of the day. Otherwise no-op.
+3. **EOD square-off** (`runEODSquareOff()`) — fires once per strategy per day at `exitSameDayTime`
+4. **Manual sell reconciliation** (`reconcileManualSells()`) — detects positions closed manually in Kite, journals SELL entries so trade report marks them closed
+5. **Reactive dip scan** — every 30 min between 09:15–14:00 IST
+
+#### Per-strategy BUY scan tasks
+Each active strategy registers its own cron task at `*/${scanIntervalMin} 9-15 * * 1-5`. Body re-resolves the strategy config fresh on each fire (hot-reload after Settings save). Hot-reload (`reloadCronStrategies()`) is called automatically on `POST /api/strategies` save — no restart needed.
+
+**Why separate:** BUY scans run at per-strategy cadence (Catalyst = 3 min, Accumulator = 30 min). SELLs need to run every 5 min regardless of strategy. Decoupling them avoids artificially constraining Catalyst's scan rate to the SELL monitor rate.
 
 ### F6.2 — Daily retrospective (15:35 IST weekdays)
 Cron expression: `35 15 * * 1-5`. Skip rules (in order):
@@ -679,4 +701,158 @@ Every order-placing button across the app (Buy / Sell on Watchlist + Holdings, S
 
 ---
 
-*End of functional spec. For implementation details, see `technical-specification.md`.*
+---
+
+## Epic 14 — Manual Sell Reconciliation *(added 28 May 2026)*
+
+**Goal:** Positions closed manually in Kite (not through the auto engine) are automatically detected and marked as closed in the trade report.
+
+### F14.1 — Detection + journaling
+
+`reconcileManualSells()` runs:
+- Inside every 5-min tick (catches same-day manual closes in near-real-time)
+- At 15:35 IST EOD sweep (final pass with closing-price LTPs as fallback)
+
+For each connected account, the function:
+1. Gets all open positions from the unified store
+2. Fetches live Kite holdings + positions to check actual qty
+3. For positions where Kite qty = 0 (position gone):
+   - **Sold today:** finds matching SELL order in today's Kite order book, journals at actual fill price + actual qty, tagged `dt-manual`
+   - **Sold a prior day:** journals a synthetic SELL at current LTP (market closing price at 15:35 sweep), or entry price if no quote available, tagged `dt-manual`
+4. Removes the position from the unified store regardless
+
+### F14.2 — Trade report impact
+
+Once a `dt-manual` SELL journal entry exists, the trade report matches it against the original BUY by `account + symbol` (not by strategy). The trade shows as closed with correct P&L. Verdict = `manual` (label only — does not affect win/loss count or P&L).
+
+### Nuances
+- Manual sells are NOT blocked by the no-loss gate (that gate only applies to auto SELLs)
+- Reconciliation uses today's Kite order book, so prior-day sells get a synthetic entry at best-available price — not broker-exact
+- The `dt-manual` tag identifies source but doesn't change which strategy "owns" the original BUY
+
+---
+
+## Epic 15 — Account Reset *(added 28 May 2026)*
+
+**Goal:** Hard reset a single account's trade history and re-seed from current Kite holdings, enabling a clean evaluation baseline.
+
+### F15.1 — Reset action
+
+Settings → Accounts & Trading → Danger Zone → **Reset Account Data** button:
+- Account picker (dropdown of all connected accounts)
+- Confirmation modal requiring the user to type `RESET` before proceeding
+
+### F15.2 — What gets wiped (per-account)
+
+1. **Journal:** all journal records where `record.account === selected` are deleted from every monthly JSONL file. Files with zero remaining records are deleted entirely.
+2. **Positions store:** all `positions.json` rows where `position.account === selected` are removed.
+3. **Cron state:** idempotency ledger entries and buy history entries for the account are cleared from `state.json`.
+
+### F15.3 — Re-seeding from Kite
+
+After wipe, the app fetches the account's live Kite holdings + net positions (parallel). For each holding/position with qty > 0:
+- Creates a new position row in `positions.json` with `strategyId: 'accumulator'` and `firstBuyPrice: kite.average_price`
+- Writes a `dt-accumulator` BUY journal entry with today's date as entry date
+
+**Entry date = reset date.** Kite's holdings API does not return original purchase dates. All re-seeded positions start their 15-day handoff clock from the reset day.
+
+### F15.4 — Post-reset state
+
+- Trade report shows zero closed trades for the account (clean slate)
+- Open positions appear as Accumulator with Kite avg price as cost basis
+- Starting capital in date-range reports will reflect current live Kite balance (available cash + re-seeded position values at current LTP)
+- The Accumulator monitor manages all re-seeded positions' T1/T2 exits automatically
+
+### Nuances
+- Reset is **irreversible** — journal records are hard-deleted (not soft-marked)
+- If a position was partially sold before reset, the remaining qty is re-seeded at Kite's current avg price (which reflects the partial sell)
+- Backup recommendation: copy `journal-YYYY-MM.jsonl` + `positions.json` before resetting
+
+---
+
+## Epic 16 — Cancel Pending Orders *(added 29 May 2026)*
+
+**Goal:** Cancel a pending (OPEN / TRIGGER PENDING) Kite order directly from the Trading Engine page without leaving the app.
+
+### F16.1 — Pending Orders section
+
+When any order in `todayOrders` has status `OPEN`, `TRIGGER PENDING`, or `AMO REQ RECEIVED`, a **Pending Orders** section appears above the strategy sections on the Engine page. Each row shows: time, symbol, side (▲ B / ▼ S), qty, status, tag, and a red × button.
+
+### F16.2 — Cancel action
+
+Clicking × calls `POST /api/orders/cancel` with `{ account, orderId }`. The API calls `DELETE /orders/regular/{orderId}` on Kite. On success, `loadTodayOrders()` is called immediately — the row disappears from the section. The Pending Orders section disappears once all pending orders are resolved.
+
+### Nuances
+- Cancel is best-effort — Kite may reject if the order is already COMPLETE or REJECTED by the time the request arrives
+- Only orders from the currently selected account are shown/cancellable
+
+---
+
+## Epic 17 — Sync Positions Now *(added 28 May 2026)*
+
+**Goal:** Trigger the full SELL monitor + position reseeding cycle outside market hours, primarily to repair the positions store after the Account Reset.
+
+### F17.1 — Button
+
+Settings → Accounts & Trading → **Sync Positions Now** button. Calls `POST /api/strategy/monitor`, which runs `monitorAllConnected()` — identical to what the 5-min cron tick does.
+
+Safe to run at any time:
+- Preflight gate 2 (market open) blocks any actual SELLs when market is closed
+- Journal-based Seed 2 reseeding still runs regardless of market status
+- Displays result: "Done — N position(s) checked"
+
+---
+
+## Epic 18 — Light / Dark Mode *(added 29 May 2026)*
+
+**Goal:** A comfortable viewing experience in both lit and dark environments.
+
+### F18.1 — Toggle
+
+Nav dropdown → **Dark mode / Light mode** toggle switch with sun/moon emoji. Persists to `localStorage`. Applies `light` class to `<html>` element.
+
+### F18.2 — Themes
+
+**Default (Dark, high-contrast):** `#080604` background, `rgba(255,255,255,0.95)` primary text, gold `#c9a84c` accent. All values high-contrast vs the original dark theme.
+
+**Light mode:** `#f5f4f2` warm off-white background, `#111110` near-black primary text, `#6b4c08` deep bronze gold accent. White cards (`#ffffff`) with `rgba(0,0,0,0.13)` borders.
+
+### F18.3 — Implementation
+
+Three-layer approach:
+1. **CSS custom properties** (`--dt-bg`, `--dt-text-primary`, etc.) with `html.light` overrides — powers CSS class-based components
+2. **Semantic CSS classes** (`dt-card`, `dt-table-head`, `dt-banner-*`, `dt-text-muted`, etc.) — all pages converted from inline styles to these classes
+3. **Attribute selector overrides** — blanket `html.light main * { color: dark !important }` overrides any remaining inline white-rgba text; semantic color restores (`rgb(82,183,136)` → `#0a6e3f` for green, etc.) have higher CSS specificity and win
+
+**Semantic colors in light mode:** green P&L → `#0a6e3f`, red loss → `#a91818`, gold → `#6b4c08`, blue → `#1d40ae`, amber → `#92400e`. All remain clearly legible on light backgrounds.
+
+### F18.4 — Coverage
+
+All 9 app pages + 3 shared components (FundsCard, LiveTicker, OrderModal) converted. The LiveTicker dark strip is explicitly preserved via `html.light .ticker-strip * { color: inherit !important }`.
+
+---
+
+## Cross-Epic Additions (28–29 May 2026)
+
+### CB6 — Position Continuity Across Days (CNC Holdings Bug Fix)
+
+CNC positions bought today move from `/portfolio/positions` into `/portfolio/holdings` overnight. Before 28 May, the strategy2 monitor only checked `/portfolio/positions` for live qty — causing all carried-forward positions to appear as `qty=0` and get dropped from the store (OOS next day).
+
+**Fix:** `monitorAllConnected()` now fetches both positions AND holdings in parallel, merging both into `liveQtyBySymbol`. Carried-forward CNC positions remain tracked correctly.
+
+**Seed 2 (journal-based reseeding):** As a recovery mechanism, the strategy2 monitor also reads the last 30 days of journal BUY records on each tick. Any momentum position with a journal BUY entry that is still held in Kite but absent from the store is automatically re-seeded with the correct strategy tag and original entry price.
+
+### CB7 — Capital Bar Simplification
+
+The 10-cell capital bar was reorganised into 2 rows of 4:
+- **Row 1 (Cash):** Available · Deployed · Reserve · Remaining Deployable
+- **Row 2 (P&L):** Net Realized P&L · Net Unrealized MTM · Net MTM · Live Capital
+- `Funded Base` and `Ledger Adjustment` removed from the visible grid; available as a hover tooltip on `Live Capital`
+
+### CB8 — B/S Button Labels
+
+All Buy and Sell action buttons use single-letter labels ("B" / "S") universally across Holdings, Positions, and Engine pages. Cover/short-close still shows "Cover" for clarity.
+
+---
+
+*End of functional spec v1.6. For implementation details, see `technical-specification.md`.*

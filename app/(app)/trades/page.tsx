@@ -18,6 +18,7 @@ interface Order {
   product: string
   exchange?: string
   status_message?: string
+  tag?: string
 }
 
 type View = 'orders' | 'retro'
@@ -175,39 +176,56 @@ function OrdersView() {
 
           {orders.length > 0 && (
             <div className="rounded-xl overflow-hidden dt-card">
-              <div className="grid grid-cols-6 gap-2 px-4 py-2 text-[9px] tracking-widest uppercase dt-table-head"
+              <div className="grid grid-cols-12 gap-2 px-4 py-2 text-[9px] tracking-widest uppercase dt-table-head"
                 style={{ fontFamily:'JetBrains Mono, monospace' }}>
-                <span>Time</span>
-                <span>Symbol</span>
-                <span className="text-center">Type</span>
-                <span className="text-right">Qty</span>
-                <span className="text-right">Price</span>
-                <span className="text-center">Status</span>
+                <span className="col-span-1">Time</span>
+                <span className="col-span-3">Symbol</span>
+                <span className="col-span-1 text-center">Type</span>
+                <span className="col-span-1 text-right">Qty</span>
+                <span className="col-span-2 text-right">Price</span>
+                <span className="col-span-3">Strategy</span>
+                <span className="col-span-1 text-center">Status</span>
               </div>
-              {orders.map((o, i) => (
+              {orders.map((o, i) => {
+                const strategyLabel = tagToStrategy(o.tag)
+                return (
                 <div key={o.order_id}
-                  className="grid grid-cols-6 gap-2 px-4 py-3 items-center text-[12px] transition-all hover:bg-white/5"
+                  className="grid grid-cols-12 gap-2 px-4 py-3 items-center text-[12px] transition-all hover:bg-white/5"
                   style={{ borderBottom: i < orders.length-1 ? '1px solid rgba(255,255,255,0.04)' : 'none' }}>
-                  <span className="text-white/40 text-[10px]" style={{ fontFamily:'JetBrains Mono, monospace' }}>
+                  <span className="col-span-1 dt-text-muted text-[10px]" style={{ fontFamily:'JetBrains Mono, monospace' }}>
                     {fmtTime(o.order_timestamp)}
                   </span>
-                  <span className="font-semibold text-white/80 truncate" style={{ fontFamily:'JetBrains Mono, monospace' }}>{o.tradingsymbol}</span>
-                  <span className="text-center font-semibold" style={{ color: o.transaction_type === 'BUY' ? '#52b788' : '#e05a5e', fontFamily:'JetBrains Mono, monospace' }}
+                  <span className="col-span-3 font-semibold dt-text-primary truncate" style={{ fontFamily:'JetBrains Mono, monospace' }}>{o.tradingsymbol}</span>
+                  <span className="col-span-1 text-center font-semibold" style={{ color: o.transaction_type === 'BUY' ? '#52b788' : '#e05a5e', fontFamily:'JetBrains Mono, monospace' }}
                     title={o.transaction_type}>
                     {o.transaction_type === 'BUY' ? 'B' : 'S'}
                   </span>
-                  <span className="text-right text-white/60" style={{ fontFamily:'JetBrains Mono, monospace' }}>
+                  <span className="col-span-1 text-right dt-text-secondary" style={{ fontFamily:'JetBrains Mono, monospace' }}>
                     {o.filled_quantity ?? o.quantity}{o.filled_quantity !== undefined && o.filled_quantity !== o.quantity ? `/${o.quantity}` : ''}
                   </span>
-                  <span className="text-right text-white/60 whitespace-nowrap" style={{ fontFamily:'JetBrains Mono, monospace' }}>
+                  <span className="col-span-2 text-right dt-text-secondary whitespace-nowrap" style={{ fontFamily:'JetBrains Mono, monospace' }}>
                     {o.average_price ? `₹${o.average_price.toFixed(2)}` : '—'}
                   </span>
-                  <span className="text-center text-[14px] font-semibold" style={{ color: statusColor(o.status), fontFamily:'JetBrains Mono, monospace' }}
+                  <span className="col-span-3">
+                    {strategyLabel && (
+                      <span className="text-[9px] px-1.5 py-0.5 rounded tracking-wider"
+                        style={{
+                          background: strategyLabel.bg,
+                          color: strategyLabel.color,
+                          border: `1px solid ${strategyLabel.border}`,
+                          fontFamily:'JetBrains Mono, monospace',
+                        }}>
+                        {strategyLabel.label}
+                      </span>
+                    )}
+                  </span>
+                  <span className="col-span-1 text-center text-[14px] font-semibold" style={{ color: statusColor(o.status), fontFamily:'JetBrains Mono, monospace' }}
                     title={o.status_message || o.status}>
                     {statusGlyph(o.status)}
                   </span>
                 </div>
-              ))}
+                )
+              })}
             </div>
           )}
 
@@ -613,6 +631,19 @@ function fmtTime(ts?: string): string {
   if (!ts) return '—'
   const m = ts.match(/(\d{2}):(\d{2}):(\d{2})/)
   return m ? `${m[1]}:${m[2]}` : ts.slice(0, 5)
+}
+
+function tagToStrategy(tag?: string): { label: string; color: string; bg: string; border: string } | null {
+  if (!tag) return null
+  const t = tag.toLowerCase()
+  if (t === 'dt-manual' || t === 'manual') return { label: 'MANUAL', color: '#a78bfa', bg: 'rgba(167,139,250,0.1)', border: 'rgba(167,139,250,0.3)' }
+  if (t.includes('accumulator') || t.includes('s1')) return { label: 'ACCUMULATOR', color: '#52b788', bg: 'rgba(82,183,136,0.1)', border: 'rgba(82,183,136,0.3)' }
+  if (t.includes('catalyst') || t.includes('s2')) return { label: 'CATALYST', color: '#c9a84c', bg: 'rgba(201,168,76,0.1)', border: 'rgba(201,168,76,0.3)' }
+  if (t.includes('eod')) return { label: 'EOD', color: '#60a5fa', bg: 'rgba(96,165,250,0.1)', border: 'rgba(96,165,250,0.3)' }
+  // Generic dt-{strategyId} tag
+  const match = tag.match(/^dt-(.+)$/)
+  if (match) return { label: match[1].toUpperCase().slice(0, 12), color: '#c9a84c', bg: 'rgba(201,168,76,0.1)', border: 'rgba(201,168,76,0.3)' }
+  return { label: tag.slice(0, 12).toUpperCase(), color: 'rgba(255,255,255,0.5)', bg: 'rgba(255,255,255,0.05)', border: 'rgba(255,255,255,0.1)' }
 }
 
 function AccountTabs({ accounts, connected, active, onSelect, loaded }: {

@@ -1,6 +1,6 @@
 # DineshTrade — Technical Specification
 
-**Version:** 1.4 · **Last Updated:** 23 May 2026
+**Version:** 1.6 · **Last Updated:** 29 May 2026
 
 This document covers the *how* — architecture, stack choices, infrastructure, and the build & deploy runbook. For the *what*, see `functional-specification.md`.
 
@@ -48,27 +48,34 @@ This document covers the *how* — architecture, stack choices, infrastructure, 
 │   │   ├── trades/page.tsx         # Today's Orders + Retrospective tabs
 │   │   ├── trade-report/page.tsx   # Date-range real trade report
 │   │   └── settings/page.tsx
-│   ├── api/
+│   │   ├── api/
 │   │   ├── auth/route.ts
 │   │   ├── accounts/route.ts
+│   │   ├── capital/route.ts                # Live capital bar (available + deployed + P&L)
 │   │   ├── email/test/route.ts
-│   │   ├── journal/dates/route.ts          # NEW
-│   │   ├── journal/[date]/route.ts         # NEW
+│   │   ├── journal/dates/route.ts
+│   │   ├── journal/[date]/route.ts
 │   │   ├── market/route.ts
-│   │   ├── positions/route.ts              # NEW — joined positions
+│   │   ├── orders/cancel/route.ts          # NEW 29 May — cancel pending Kite order
+│   │   ├── positions/route.ts              # Joined positions (holdings + intraday)
+│   │   ├── settings/reset/route.ts         # NEW 28 May — account reset + reseed
 │   │   ├── state/route.ts
-│   │   ├── strategy/backtest/history/route.ts          # Backtest history list + reset
-│   │   ├── strategy/backtest/history/analyze/route.ts  # Backtest history analysis
-│   │   ├── trade-report/route.ts           # NEW — real trade report
-│   │   ├── strategy/route.ts
-│   │   ├── strategy/monitor/route.ts
+│   │   ├── strategies/route.ts             # GET + POST strategy config
+│   │   ├── strategy/backtest/history/route.ts
+│   │   ├── strategy/backtest/history/analyze/route.ts
+│   │   ├── strategy/monitor/route.ts       # POST — manual trigger of SELL monitor
 │   │   ├── strategy/positions/route.ts
-│   │   └── zerodha/{route,callback,login,token}.ts
+│   │   ├── strategy/route.ts
+│   │   ├── trade-report/route.ts
+│   │   └── zerodha/{route,callback,login,token,debug}.ts
 │   ├── login/page.tsx
 │   └── layout.tsx
 ├── components/
+│   ├── CapitalBar.tsx              # 2×4 live capital grid (redesigned 29 May)
+│   ├── FundsCard.tsx               # Available funds card
+│   ├── LiveTicker.tsx              # Horizontal scrolling indices strip
 │   ├── OrderModal.tsx              # Universal Buy/Sell modal
-│   └── layout/AppShell.tsx         # Top + bottom nav
+│   └── layout/AppShell.tsx         # Nav + light/dark mode toggle
 ├── config/
 │   ├── accounts.json
 │   ├── holidays.json
@@ -184,14 +191,24 @@ Single Node.js process managed by PM2. Inside:
 4. Client Component hydrates → fires `/api/*` for live data (positions, quotes, etc.)
 5. API routes verify session via `verifySession()` server-side (defence in depth — don't rely on middleware alone)
 
-### 3.3 Cron tick lifecycle
+### 3.3 Cron tick lifecycle *(updated 28 May 2026)*
+
+**Two parallel scheduling systems:**
+
+**Core 5-min tick** (`*/5 9-15 * * 1-5`):
 1. node-cron fires at `*/5` minute
-2. `tick()` reads fresh state from disk (no cache — cron must pick up Manual → Auto toggles instantly)
+2. `tick()` reads fresh state from disk (no cache)
 3. If `state.mode !== 'auto'` or market closed: short-circuit
-4. **Strategy 2 monitor** runs for all connected accounts (parallel `Promise.all`)
-5. **Strategy 1 monitor** runs for all connected accounts (parallel)
-6. **BUY scan** runs once per day in dip mode, every tick in catalyst mode
-7. Each placed order writes to journal + fires email
+4. **Strategy 2 SELL monitor** runs for all connected accounts (parallel)
+5. **Strategy 1 SELL monitor** runs for all connected accounts (parallel)
+6. **EOD square-off** (`runEODSquareOff()`) — checks per-strategy `exitSameDayTime`, fires once per strategy per day
+7. **Manual sell reconciliation** (`reconcileManualSells()`) — detects Kite-closed positions, journals SELL entries
+8. **Reactive dip scan** — every 30 min in window 09:15–14:00
+
+**Per-strategy BUY scan tasks** (registered at startup + hot-reloaded on settings save):
+- Each active strategy: `*/${strategy.scanIntervalMin} 9-15 * * 1-5`
+- Body re-reads strategy config fresh on each fire via `getStrategyById()` — picks up param changes without restart
+- `reloadCronStrategies()` called by `POST /api/strategies` — adds/removes/restarts tasks atomically
 
 ---
 
@@ -322,20 +339,28 @@ Three gates added 20–21 May 2026:
 - `pyramid` — per-symbol BUY-stack cap + min-drop-between-BUYs check, backed by `state.buyHistory`
 
 ### 5.2 `lib/kite.ts`
+
 Centralised wrappers — every caller goes through these. Never make raw HTTP calls to Kite from anywhere else.
+
 - `resolveAccountCreds(account)` — looks up token in state + env-secret in process.env
-- `getPositions(creds)` — `{ net, day }`
+- `getPositions(creds)` — `{ net, day }` (intraday only; does NOT include carried-forward CNC holdings)
+- `getHoldings(creds)` — `KiteHolding[]` (CNC positions carried across days; includes `t1_quantity` for T+1 settlement)
 - `getOrders(creds)` — today's order book
-- `getQuotes(creds, symbols[])` — batched LTPs
+- `getQuotes(creds, symbols[])` — batched LTPs; symbols passed WITHOUT `NSE:` prefix (function adds it internally)
 - `getHistoricalCandles(creds, instrumentToken, from, to, interval)`
 - `placeKiteOrder(creds, { symbol, side, quantity, tag, product?, orderType?, limitPrice? })`
+- `cancelKiteOrder(creds, orderId)` — *(added 29 May)* `DELETE /orders/regular/{orderId}`
+
+**Critical:** `getPositions()` + `getHoldings()` must BOTH be called to get the full picture of held qty. CNC positions move from positions to holdings overnight. Any qty check that omits holdings will incorrectly see `qty=0` for carried-forward positions.
 
 ### 5.3 `lib/journal.ts`
+
 - `appendJournal(record)` — atomic JSONL append, creates dir + file on first write
 - `journalOrder({ account, symbol, side, qty, price, tag?, orderId? })` — derives `strategyId` from tag, writes `order` record. Called from every Kite-order success path.
 - `readJournalDay(ymd)` / `readJournalMonth(ym)` / `readJournalRange(start, end)`
 - `listJournalDates()` — returns the UNION of (trading-day calendar, last 60 days) + (every dated journal record). Today appears even with zero journal records.
 - `classifyVerdict(opts)` — produces `correct_exit | early_exit | delivery | manual`
+- `wipeAccountJournal(account)` — *(added 28 May)* reads every monthly JSONL file, removes all records where `record.account === account`, rewrites. Deletes file if empty after filter. Returns `{ filesModified, recordsRemoved }`.
 - Record types: `trade`, `signal_skipped`, `strategy_scan`, `order`
 
 ### 5.4 `lib/retrospective.ts`
@@ -397,6 +422,7 @@ getPosition(account, symbol): Promise<Position | null>
 listPositions(opts?: { account?, strategyId? }): Promise<Position[]>
 setStrategyId(account, symbol, newStrategyId): Promise<boolean>     // single-row re-stamp
 migrateStrategyId(fromId, toId): Promise<number>                    // bulk re-stamp (deactivate/delete)
+wipeAccountPositions(account): Promise<number>                      // hard delete for account reset
 ageInCalendarDays(firstBuyAt): number
 ```
 
@@ -745,16 +771,112 @@ These were the right call **for now**. They will start to creak as scope grows:
 
 ---
 
-## 14. Open Technical Debt
+## 14. New Modules & API Routes (28–29 May 2026)
 
-- `lib/cron.ts` still tracks `dayStats.executed / failed / skipped / delivery` for the old EOD text email path. The new daily retrospective doesn't need these; can be removed once we're sure no legacy email path is referenced.
-- `EODSummaryData` + `eodSubject` / `eodBody` are dead code from before retrospective. Removable once verified.
-- TS target is es5 with `--downlevelIteration` implicit — would benefit from bumping `tsconfig.json` target to es2017+ to clean up `Array.from(set)` workarounds.
-- No CI: every push is built manually. Adding GitHub Actions for `npm run build` + `tsc --noEmit` on PR is a 10-line workflow.
+### `lib/cron.ts` — additions
+
+**`runEODSquareOff()`**
+- Module-level guard `eodSquareOffDone: Record<string, string>` (key=strategyId, value=YYYY-MM-DD IST) prevents re-firing same strategy same day
+- Reads `exitSameDayTime`, `squareOffEOD`, `exitSameDayOnPositive` from each active momentum strategy's params
+- Calls `listPositions({ account, strategyId })`, fetches quotes, places SELL via `placeKiteOrder` + `markPlaced` + `removePosition`
+- Passes `bypassNoLossSell: squareOffEOD` to `runPreflight` — squareOffEOD bypasses gate 8 no-loss rider
+
+**`reconcileManualSells()`**
+- Runs inside `tick()` (step 1d) AND at start of `dailyRetrospective()` (15:35 EOD)
+- Per-account: fetches positions+holdings (for live qty), orders (for today's fills), reads today's journal (to avoid duplicate SELL entries by orderId)
+- For each open store position where Kite qty=0: journals SELL at fill price (today) or current LTP (prior day), then calls `removePosition()`
+
+**`reloadCronStrategies()`**
+- Called by `POST /api/strategies` after save
+- Compares new active strategy set vs registered `strategyTasks` map
+- Stops removed strategies, registers new ones, restarts changed-interval ones
+- Returns `{ added, removed, restarted }` counts
+
+### `POST /api/settings/reset`
+
+Request body: `{ account: string, confirm: 'RESET' }`
+
+Steps (in order):
+1. Validate `confirm === 'RESET'`
+2. Validate account is in `state.kiteTokens`
+3. Resolve Kite creds
+4. Fetch current holdings + positions from Kite (before any wipe)
+5. `wipeAccountJournal(account)` — deletes all journal records for account
+6. `wipeAccountPositions(account)` — removes all position store rows for account
+7. `resetAccountCronState(account)` — clears idempotency ledger + buy history entries for account from state.json
+8. For each Kite holding/position with qty > 0: `recordBuy('accumulator', ...)` + `journalOrder({ tag: 'dt-accumulator', ... })`
+
+Response: `{ ok, account, journalRecordsRemoved, positionsRemoved, seeded: [{ symbol, qty, avgPrice }] }`
+
+### `POST /api/orders/cancel`
+
+Request body: `{ account: string, orderId: string }`
+
+Calls `cancelKiteOrder(creds, orderId)` → Kite `DELETE /orders/regular/{orderId}`. Returns `{ ok, orderId }` or `{ error }`.
+
+### `lib/state.ts` — new function
+
+**`resetAccountCronState(account)`** — reads current state, filters out all idempotency ledger keys and buy history keys that start with `${account.toUpperCase()}:`, writes back via `replaceState()` (atomic full replacement, not additive merge).
+
+### CSS Design System (`app/globals.css`)
+
+**CSS Custom Properties** (default = dark high-contrast, `html.light` overrides):
+
+| Token | Dark | Light |
+|---|---|---|
+| `--dt-bg` | `#080604` | `#f5f4f2` |
+| `--dt-bg-card` | `#100e0a` | `#ffffff` |
+| `--dt-text-primary` | `rgba(255,255,255,0.95)` | `#111110` |
+| `--dt-text-secondary` | `rgba(255,255,255,0.75)` | `#3a3935` |
+| `--dt-text-muted` | `rgba(255,255,255,0.52)` | `#6b6864` |
+| `--dt-border` | `rgba(255,255,255,0.12)` | `rgba(0,0,0,0.13)` |
+| `--dt-gold-display` | `#c9a84c` | `#6b4c08` |
+
+**Semantic CSS classes** (all pages converted from inline styles):
+
+| Class | Use |
+|---|---|
+| `dt-card` | Card container with `var(--dt-bg-card)` background + `var(--dt-border)` border |
+| `dt-card-gold` | Gold-tinted card (sections, hints) |
+| `dt-card-inner` | Nested/inner card (cells, sub-panels) |
+| `dt-table-head` | Table header row |
+| `dt-table-row` | Table data row with hover |
+| `dt-banner-error/gold/green/blue` | Status banners |
+| `dt-border-t/b` | Single-side border dividers |
+| `dt-text-primary/secondary/muted` | Text colour utilities |
+
+**Light mode inline-style override strategy:**
+```css
+/* Blanket: all main content text becomes dark */
+html.light main * { color: var(--dt-text-primary) !important; }
+
+/* Semantic restores (higher specificity via attribute selector) */
+html.light [style*="rgb(82, 183, 136"] { color: #0a6e3f !important; }   /* green */
+html.light [style*="rgb(224, 90, 94"]  { color: #a91818 !important; }   /* red */
+html.light [style*="rgb(201, 168, 76"] { color: var(--dt-gold-display) !important; } /* gold */
+/* ...blue, amber */
+```
+
+This overrides React inline styles without touching JSX. CSS specificity: `html.light main *` = `(0,1,1,0)`; attribute selectors = `(0,2,0,0)` → semantic rules always win.
+
+Dark background overrides use hex + rgb variants to handle both SSR (hex) and post-hydration (rgb normalization) formats.
 
 ---
 
-## 15. Glossary
+## 15. Open Technical Debt *(updated 29 May 2026)*
+
+- `lib/cron.ts` still tracks `dayStats.executed / failed / skipped / delivery` for the old EOD text email path. The new daily retrospective doesn't need these; removable once verified.
+- `EODSummaryData` + `eodSubject` / `eodBody` are dead code from before retrospective. Removable once verified.
+- TS target is `es5` with `--downlevelIteration` implicit — bumping to `es2017+` would remove `Array.from(set)` workarounds throughout.
+- No CI: every push is built manually. Adding GitHub Actions for `npm run build` + `tsc --noEmit` on PR is a 10-line workflow.
+- `@types/connect` was corrupt (README only, no `.d.ts`). Fixed 29 May: reinstalled + added `"types": ["node"]` to `tsconfig.json`.
+- Light mode: blanket `html.light main * { color: !important }` is effective but coarse. Long-term, migrating remaining inline color styles to `var(--dt-*)` CSS custom properties would allow removing the attribute-selector fallback system.
+- `reconcileManualSells()` uses today's Kite order book for fill prices. Prior-day manual sells get a synthetic SELL at current LTP — not broker-exact. No fix until Kite exposes historical order search by symbol.
+- "Login with Kite" may redirect back to `/settings?error=Unknown account` if `ZERODHA_ENVIRONMENT` or per-account API key env vars are missing on EC2. User must check `.env.local` to diagnose.
+
+---
+
+## 16. Glossary
 
 | Term | Meaning |
 |---|---|

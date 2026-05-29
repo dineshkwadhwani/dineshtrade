@@ -9,7 +9,7 @@
 import { NextResponse } from 'next/server'
 import { cookies } from 'next/headers'
 import { verifySession } from '@/lib/auth'
-import { getState, resetAccountCronState } from '@/lib/state'
+import { getState, resetAccountCronState, recordBuyHistory } from '@/lib/state'
 import { resolveAccountCreds, getPositions, getHoldings } from '@/lib/kite'
 import { wipeAccountJournal, journalOrder, istDateString } from '@/lib/journal'
 import { wipeAccountPositions, recordBuy } from '@/lib/positions'
@@ -105,6 +105,12 @@ export async function POST(req: Request) {
       price: avgPrice,
       tag: 'dt-accumulator',
     })
+    // Seed buy history so the pyramid gate knows there's already one buy at this
+    // price. Without this, history.length === 0 and the gate skips the min-drop
+    // check — allowing the cron to re-buy at the same or higher price immediately
+    // after reset. With this entry, the next auto-BUY must be ≥ minDropBetweenBuysPct
+    // below avgPrice before it qualifies.
+    await recordBuyHistory(account, symbol, avgPrice)
     seeded.push({ symbol, qty, avgPrice })
   }
 
