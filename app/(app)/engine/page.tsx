@@ -295,23 +295,25 @@ export default function EnginePage() {
         </div>
       )}
 
-      {/* Empty / loading / results */}
+      {/* Empty / loading state — compact single-line */}
       {!scan && !loading && (
-        <div className="flex flex-col items-center justify-center py-20 text-center">
-          <div className="text-5xl mb-4 opacity-30">⚡</div>
-          <p className="dt-text-secondary text-base mb-2" style={{ fontFamily:'Cormorant Garamond, serif', fontSize:'20px' }}>Ready to scan</p>
-          <p className="dt-text-muted text-[12px]">
-            {selected.length === 0 ? 'Select at least one account above, then press Refresh & Scan' : 'Press Refresh & Scan to run the strategy engine'}
+        <div className="flex items-center gap-3 px-1">
+          <span style={{ color:'rgba(201,168,76,0.4)', fontSize:16 }}>⚡</span>
+          <p className="dt-text-muted text-[12px]" style={{ fontFamily:'JetBrains Mono, monospace' }}>
+            {selected.length === 0 ? 'Select an account above, then press Refresh & Scan' : 'Ready to scan — press Refresh & Scan to run the strategy engine'}
           </p>
+          <button onClick={runEngine} disabled={loading || selected.length === 0}
+            className="ml-2 px-4 py-1.5 rounded-lg text-[11px] font-semibold tracking-wider transition-all disabled:opacity-40 flex-shrink-0"
+            style={{ background:'linear-gradient(135deg, #7a5510, #c9a84c)', color:'#080604' }}>
+            ↻ Refresh & Scan
+          </button>
         </div>
       )}
 
       {loading && (
-        <div className="flex items-center justify-center py-16">
-          <div className="text-center">
-            <div className="text-3xl mb-3 animate-spin">⚡</div>
-            <p className="text-[12px]" style={{ color:'rgba(201,168,76,0.5)', fontFamily:'JetBrains Mono, monospace' }}>Scanning…</p>
-          </div>
+        <div className="flex items-center gap-2 px-1">
+          <span className="animate-pulse" style={{ color:'rgba(201,168,76,0.6)', fontSize:14 }}>⚡</span>
+          <p className="text-[12px]" style={{ color:'rgba(201,168,76,0.6)', fontFamily:'JetBrains Mono, monospace' }}>Scanning…</p>
         </div>
       )}
 

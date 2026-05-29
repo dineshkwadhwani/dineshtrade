@@ -9,19 +9,21 @@ interface IndexQuote {
 }
 
 interface TickerResponse {
-  indices?: {
-    nifty50: IndexQuote
-    sensex: IndexQuote
-    vix: IndexQuote
-    giftNifty: IndexQuote
-  }
+  indices?: Record<string, IndexQuote>
   fetchedAt?: string
 }
 
 const REFRESH_MS = 30 * 1000
 
-// Thin strip rendered at the top of AppShell on every page. Polls live
-// indices every 30 seconds. Silent fallback when Kite isn't connected.
+// Keys shown on mobile (compact) — only the two headline indices
+const MOBILE_KEYS = ['nifty50', 'sensex']
+
+// Keys shown on desktop — full set including sectoral indices
+const DESKTOP_KEYS = [
+  'nifty50', 'sensex', 'vix',
+  'niftyBank', 'niftyAuto', 'niftyFin', 'niftyIT', 'nifty100', 'niftyInfra',
+]
+
 export default function LiveTicker() {
   const [data, setData] = useState<TickerResponse | null>(null)
 
@@ -39,40 +41,56 @@ export default function LiveTicker() {
   }, [])
 
   if (!data?.indices) return null
-  const order: Array<keyof typeof data.indices> = ['nifty50', 'sensex', 'vix', 'giftNifty']
-  const visible = order.filter(k => data.indices![k].source !== 'unavailable')
-  if (visible.length === 0) return null
+  const indices = data.indices
+
+  function renderItem(key: string, i: number, isFirst: boolean) {
+    const idx = indices[key]
+    if (!idx || idx.source === 'unavailable') return null
+    const chg = idx.changePct
+    const positive = chg !== null && chg > 0
+    const negative = chg !== null && chg < 0
+    const valueColor = positive ? '#52b788' : negative ? '#e05a5e' : 'rgba(255,255,255,0.65)'
+    const arrow = chg === null ? '' : chg > 0 ? '▲' : chg < 0 ? '▼' : '─'
+    const isBriefing = idx.source === 'briefing'
+
+    return (
+      <div key={key} className="flex items-center gap-1.5 whitespace-nowrap"
+        style={{ borderLeft: isFirst ? 'none' : '1px solid rgba(255,255,255,0.08)', paddingLeft: isFirst ? 0 : 14 }}>
+        <span style={{ color: 'rgba(201,168,76,0.7)', fontSize: 11, letterSpacing: '0.06em', fontFamily:'JetBrains Mono, monospace' }}>
+          {idx.label}
+          {isBriefing && <span style={{ color:'rgba(255,255,255,0.3)', fontSize:9, marginLeft:3 }}>(pre)</span>}
+        </span>
+        {idx.ltp !== null && (
+          <span style={{ color: valueColor, fontSize: 12, fontWeight: 700, fontFamily:'JetBrains Mono, monospace' }}>
+            {idx.ltp.toLocaleString('en-IN', { maximumFractionDigits: 2 })}
+          </span>
+        )}
+        {chg !== null && (
+          <span style={{ color: valueColor, fontSize: 11, fontWeight: 600, fontFamily:'JetBrains Mono, monospace' }}>
+            {arrow} {Math.abs(chg).toFixed(2)}%
+          </span>
+        )}
+      </div>
+    )
+  }
+
+  const mobileItems = MOBILE_KEYS.map((k, i) => renderItem(k, i, i === 0)).filter(Boolean)
+  const desktopItems = DESKTOP_KEYS.map((k, i) => renderItem(k, i, i === 0)).filter(Boolean)
+
+  if (mobileItems.length === 0 && desktopItems.length === 0) return null
 
   return (
-    <div className="w-full overflow-x-auto ticker-strip"
-      style={{ background: 'rgba(8,6,4,0.92)', borderBottom: '1px solid rgba(201,168,76,0.12)', backdropFilter: 'blur(8px)' }}>
-      <div className="flex items-center gap-6 px-4 py-1.5 min-w-fit" style={{ fontFamily:'JetBrains Mono, monospace', fontSize: 10 }}>
-        {visible.map((k, i) => {
-          const idx = data.indices![k]
-          const chg = idx.changePct
-          const color = chg === null ? 'rgba(255,255,255,0.5)' : chg > 0 ? '#52b788' : chg < 0 ? '#e05a5e' : 'rgba(255,255,255,0.55)'
-          const arrow = chg === null ? '—' : chg > 0 ? '▲' : chg < 0 ? '▼' : '─'
-          const isBriefing = idx.source === 'briefing'
-          return (
-            <div key={k} className="flex items-center gap-2 whitespace-nowrap"
-              style={{ borderLeft: i === 0 ? 'none' : '1px solid rgba(255,255,255,0.05)', paddingLeft: i === 0 ? 0 : 16 }}>
-              <span style={{ color: 'rgba(201,168,76,0.65)', letterSpacing: '0.1em' }}>
-                {idx.label}
-                {isBriefing && <span className="dt-text-muted" style={{ marginLeft: 4 }}>(pre-mkt)</span>}
-              </span>
-              {idx.ltp !== null && (
-                <span className="dt-text-secondary">
-                  {idx.ltp.toLocaleString('en-IN', { maximumFractionDigits: 2 })}
-                </span>
-              )}
-              {chg !== null && (
-                <span style={{ color }}>
-                  {arrow} {Math.abs(chg).toFixed(2)}%
-                </span>
-              )}
-            </div>
-          )
-        })}
+    <div className="w-full overflow-x-hidden ticker-strip"
+      style={{ background: 'rgba(8,6,4,0.95)', borderBottom: '1px solid rgba(201,168,76,0.15)', backdropFilter: 'blur(8px)' }}>
+
+      {/* Mobile — NIFTY 50 + SENSEX only */}
+      <div className="flex sm:hidden items-center gap-0 px-4 py-2 min-w-fit">
+        {mobileItems}
+      </div>
+
+      {/* Desktop — full set */}
+      <div className="hidden sm:flex items-center gap-0 px-4 py-2 min-w-fit">
+        {desktopItems}
       </div>
     </div>
   )
