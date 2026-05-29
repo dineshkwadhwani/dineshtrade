@@ -386,7 +386,14 @@ export default function HoldingsPage() {
               </div>
 
               {holdings.map((h, i) => {
-                const tag = posTags.get(`${(activeTab || '').toUpperCase()}:${h.tradingsymbol.toUpperCase()}`)
+                const isT0Position = h.source === 't0'
+                // For T0 rows, prefer the order-tag-derived strategy (T0: prefix)
+                // over the positions store entry — it reflects which strategy actually
+                // placed today's buy rather than which strategy owned the symbol before.
+                const tag = (isT0Position
+                  ? posTags.get(`T0:${(activeTab || '').toUpperCase()}:${h.tradingsymbol.toUpperCase()}`)
+                  : undefined
+                ) ?? posTags.get(`${(activeTab || '').toUpperCase()}:${h.tradingsymbol.toUpperCase()}`)
                 const isManaged = !!tag
                 const badgeLabel = isManaged ? tag!.strategyName.toUpperCase().slice(0, 14) : 'OOS'
                 const badgeColor = isManaged ? tag!.strategyColor : 'rgba(255,255,255,0.4)'
@@ -396,7 +403,6 @@ export default function HoldingsPage() {
                 const pnlColor = h.pnl >= 0 ? '#52b788' : '#e05a5e'
                 const dayColor = h.day_change_percentage >= 0 ? '#52b788' : '#e05a5e'
                 const isT1Only = (h.t1_quantity || 0) > 0 && (h.quantity || 0) === 0
-                const isT0Position = h.source === 't0'
                 const qty = totalQty(h)
                 const isShortPosition = qty < 0
                 const actionQty = Math.abs(qty)
