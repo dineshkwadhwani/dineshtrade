@@ -50,24 +50,42 @@ const strategyTasks = new Map<string, ScheduledTask>()
 let currentDateKey = ''
 let dipScanDoneDate = ''
 
-// In-process BUY counter — shared across all per-strategy cron tasks to prevent
-// the race condition where two concurrent tasks both pass the Kite quota gate
-// before the other's order shows as COMPLETE in Kite's /orders endpoint.
-// Key: "${account}:${dateKey}", value: count of auto-BUYs placed this IST day.
-// Resets automatically when the date rolls over in maybeRollDay().
-const inProcessBuyCounts: Record<string, number> = {}
+// In-process BUY counter + new-positions set — shared across all per-strategy
+// cron tasks to prevent the race condition where two concurrent tasks both pass
+// the quota gate or positions gate before the other's order shows in Kite.
+//
+// inProcessBuyCounts: "${account}:${dateKey}" → count of auto-BUYs placed today
+// inProcessNewSymbols: "${account}:${dateKey}" → Set of NEW symbols opened today
+//   (symbols that weren't already in Kite holdings — each adds 1 to positions count)
+//
+// Both reset automatically in maybeRollDay() at midnight IST.
 
-function inProcessBuyKey(account: string): string {
+const inProcessBuyCounts: Record<string, number> = {}
+const inProcessNewSymbols: Record<string, Set<string>> = {}
+
+function inProcessKey(account: string): string {
   return `${account.toUpperCase()}:${currentDateKey}`
 }
 
 function incrementInProcessBuy(account: string): void {
-  const k = inProcessBuyKey(account)
+  const k = inProcessKey(account)
   inProcessBuyCounts[k] = (inProcessBuyCounts[k] || 0) + 1
 }
 
 function getInProcessBuyCount(account: string): number {
-  return inProcessBuyCounts[inProcessBuyKey(account)] || 0
+  return inProcessBuyCounts[inProcessKey(account)] || 0
+}
+
+// Call this when placing a buy for a symbol not already in Kite holdings/positions
+// (i.e. it will add 1 to the open positions count).
+function registerInProcessNewSymbol(account: string, symbol: string): void {
+  const k = inProcessKey(account)
+  if (!inProcessNewSymbols[k]) inProcessNewSymbols[k] = new Set()
+  inProcessNewSymbols[k].add(symbol.toUpperCase())
+}
+
+function getInProcessNewPositionCount(account: string): number {
+  return inProcessNewSymbols[inProcessKey(account)]?.size || 0
 }
 const dayStats = {
   scans: 0,
@@ -101,8 +119,9 @@ function maybeRollDay() {
     dayStats.skipped = []
     dayStats.delivery = []
     dayStats.realizedPnl = {}
-    // Clear in-process buy counters for the new day
+    // Clear in-process buy counters and new-symbol sets for the new day
     for (const k of Object.keys(inProcessBuyCounts)) delete inProcessBuyCounts[k]
+    for (const k of Object.keys(inProcessNewSymbols)) delete inProcessNewSymbols[k]
   }
 }
 
@@ -158,13 +177,31 @@ async function autoBuyOnAccount(account: string, accountDisplayName: string | un
   for (const rec of recs) {
     // In-process quota guard — prevents two concurrent strategy cron tasks from
     // both passing the Kite quota gate before each other's order shows COMPLETE.
-    // The Kite gate (gate 5) is the authoritative check; this is a fast pre-check
-    // that catches the race condition within the same process.
     const inProcessCount = getInProcessBuyCount(account)
     if (inProcessCount >= cap.maxBuysPerDay) {
       recordSkipped({
         time: istHHMM(), account, symbol: rec.symbol, side: 'BUY', quantity: rec.suggestedQty,
         reason: `[inProcessQuota] already ${inProcessCount}/${cap.maxBuysPerDay} in-process buys today`,
+      })
+      continue
+    }
+
+    // In-process positions guard — prevents two concurrent strategy tasks from
+    // both passing Gate 6 (positions cap) before each other's order shows in
+    // Kite's /portfolio/positions. We track NEW symbols committed in-process
+    // today (symbols that will add 1 to the open-position count when settled).
+    // Gate 6 in preflight is still the authoritative check (reads live Kite
+    // data); this fast pre-check closes the same-process race condition.
+    const inProcessNewPos = getInProcessNewPositionCount(account)
+    // Conservative: estimate existing positions = positions already in the
+    // positions store for this account (includes reset-seeded holdings).
+    const existingStorePositions = (await import('./positions'))
+      .listPositions({ account }).then(ps => ps.length).catch(() => 0)
+    const estimatedTotal = (await existingStorePositions) + inProcessNewPos
+    if (estimatedTotal >= cap.maxPositions) {
+      recordSkipped({
+        time: istHHMM(), account, symbol: rec.symbol, side: 'BUY', quantity: rec.suggestedQty,
+        reason: `[inProcessPositions] estimated ${estimatedTotal}/${cap.maxPositions} open positions (including ${inProcessNewPos} in-process today)`,
       })
       continue
     }
@@ -199,8 +236,9 @@ async function autoBuyOnAccount(account: string, accountDisplayName: string | un
       symbol: rec.symbol, side: 'BUY', quantity: rec.suggestedQty, tag,
     })
     if (placed.ok && placed.data?.data?.order_id) {
-      // Increment in-process counter immediately so sibling strategy tasks see it
+      // Increment in-process counters immediately so sibling strategy tasks see them
       incrementInProcessBuy(account)
+      registerInProcessNewSymbol(account, rec.symbol)
       // Persist BEFORE doing anything else — critical for preventing duplicate
       // BUYs on the next cron tick if this function were to crash partway.
       await markPlaced(account, rec.symbol, 'BUY', { price: rec.price, manual: false })
