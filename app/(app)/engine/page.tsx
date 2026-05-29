@@ -50,6 +50,7 @@ export default function EnginePage() {
   const [loaded, setLoaded] = useState(false)
   const [todayOrders, setTodayOrders] = useState<KiteOrder[]>([])
   const [quotaCaps, setQuotaCaps] = useState<{ buyCap: number; sellCap: number }>({ buyCap: 0, sellCap: 0 })
+  const [activeStrategyIntervals, setActiveStrategyIntervals] = useState<{ name: string; intervalMin: number }[]>([])
 
   useEffect(() => {
     Promise.all([
@@ -66,6 +67,13 @@ export default function EnginePage() {
         buyCap: typeof capital?.maxBuysPerDay === 'number' ? capital.maxBuysPerDay : 0,
         sellCap: typeof capital?.maxSellsPerDay === 'number' ? capital.maxSellsPerDay : 0,
       })
+      if (Array.isArray(strategiesRes?.strategies)) {
+        setActiveStrategyIntervals(
+          strategiesRes.strategies
+            .filter((s: any) => s.active)
+            .map((s: any) => ({ name: s.name as string, intervalMin: s.scanIntervalMin as number }))
+        )
+      }
     }).catch(() => {})
       .finally(() => setLoaded(true))
   }, [])
@@ -245,7 +253,11 @@ export default function EnginePage() {
       {tradeMode === 'auto' && (
         <div className="dt-banner-green rounded-xl px-4 py-3">
           <p className="text-[12px]" style={{ color:'#52b788' }}>
-            ⚡ Auto mode is on. The cron scans and executes every 5 minutes during market hours.
+            ⚡ Auto mode is on.{' '}
+            {activeStrategyIntervals.length > 0
+              ? `BUY scans: ${activeStrategyIntervals.map(s => `${s.name} every ${s.intervalMin} min`).join(', ')}. SELL monitors every 5 min.`
+              : 'BUY scans run at each strategy\'s configured interval. SELL monitors every 5 min.'
+            }{' '}
             You can still use Refresh + Execute below for ad-hoc runs.
           </p>
         </div>
@@ -817,7 +829,7 @@ function EngineTilesSection({ firstAccount, accounts, connected, tradeMode }: {
             Full <span className="gold-text">Scan</span>
           </h2>
           <p className="dt-text-muted text-[10px] mt-0.5" style={{ fontFamily:'JetBrains Mono, monospace' }}>
-            Every {listAName} stock · per-rule pass/fail · auto-refreshes every 5 min
+            Every {listAName} stock · per-rule pass/fail · sell monitor every 5 min · buy scans per strategy interval
             {data?.fetchedAt && ` · fetched ${new Date(data.fetchedAt).toLocaleTimeString('en-IN', { hour12: false, timeZone: 'Asia/Kolkata' })}`}
           </p>
         </div>
