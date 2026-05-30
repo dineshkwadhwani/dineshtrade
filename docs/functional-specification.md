@@ -1,6 +1,6 @@
 # DineshTrade — Functional Specification
 
-**Version:** 1.6 · **Last Updated:** 29 May 2026
+**Version:** 1.7 · **Last Updated:** 30 May 2026
 
 This spec documents the *user-visible* behaviour: what the app does, when, and why. Each epic is independently shippable. Nuances and edge cases are listed inline because they are where the value (and the risk) lives.
 
@@ -855,4 +855,74 @@ All Buy and Sell action buttons use single-letter labels ("B" / "S") universally
 
 ---
 
-*End of functional spec v1.6. For implementation details, see `technical-specification.md`.*
+---
+
+## Epic 19 — Today's Orders — Strategy Tag *(added 29 May 2026)*
+
+The Today's Orders table now shows a coloured strategy badge inline next to the symbol name (same visual pattern as Holdings and Positions pages). The badge is derived from the Kite order `tag` field:
+
+| Kite tag | Badge |
+|---|---|
+| `dt-accumulator` / `dt-s1*` | Green ACCUMULATOR |
+| `dt-catalyst` / `dt-s2*` | Gold CATALYST |
+| `dt-manual` | Purple MANUAL |
+| `dt-eod-*` | Blue EOD |
+| any other `dt-{id}` | Gold with id uppercased |
+
+---
+
+## Epic 20 — Holdings — Separate Lots per Strategy *(added 29 May 2026)*
+
+When the same stock appears in both settled Kite holdings (carried from prior days) AND today's intraday positions (same-day CNC buy), the Holdings page now shows **two separate rows** — one per lot — each with its own strategy tag, avg price, and P&L.
+
+Previously, same-day position buys were silently dropped if the symbol was already in settled holdings. This hid the T0 lot completely and prevented the user from seeing their full exposure split by strategy.
+
+**De-duplication rule:** a holdings row is only dropped if a T0 row exists for the same symbol with an exactly matching avg price (within ₹0.01) — this handles the edge case where Kite shows a same-day-only buy in both the holdings and positions endpoints simultaneously.
+
+**Strategy attribution:** The positions store (`positions.json`) is the single source of truth for strategy tags on both the settled row and the T0 row. All pages (Holdings, Positions, Today's Orders) use the same source so strategy labels are consistent everywhere.
+
+---
+
+## Epic 21 — Cron Race Condition Fixes *(added 29–30 May 2026)*
+
+### F21.1 — Quota race condition
+
+Two concurrent per-strategy cron tasks (e.g. Catalyst at 09:42 and Accumulator at 09:42) could both pass Gate 5 (day quota) before either's order showed as COMPLETE in Kite's `/orders` endpoint, allowing more orders than `maxBuysPerDay`.
+
+**Fix:** `inProcessBuyCounts` — a module-level `Record<string, number>` keyed by `${account}:${dateKey}`. Before calling preflight, each task checks `getInProcessBuyCount(account) >= cap.maxBuysPerDay`. On successful order placement, `incrementInProcessBuy(account)` fires immediately. Both counters reset at midnight IST in `maybeRollDay()`.
+
+### F21.2 — Positions cap race condition
+
+Same race with Gate 6 (open positions cap). Two concurrent tasks could both see `totalOpen = 9 < 10` before either's order appeared in Kite's `/portfolio/positions`.
+
+**Fix:** `inProcessNewSymbols` — a `Record<string, Set<string>>` tracking which NEW symbols have been committed in-process today (symbols not already in the positions store, i.e. they add 1 to the open-position count). Before preflight, the task estimates `positions_store_count + in_process_new_positions` vs `maxPositions`. `registerInProcessNewSymbol(account, symbol)` fires on every successful order.
+
+### F21.3 — Reset pyramid gate bypass
+
+After an Account Reset, `buyHistory` was cleared. The pyramid gate's `if (history.length > 0)` check was skipped (empty history = no price check), allowing the cron to re-buy reset-seeded positions at the same or higher price immediately after reset.
+
+**Fix:** `POST /api/settings/reset` now calls `recordBuyHistory(account, symbol, avgPrice)` for each re-seeded position. The pyramid gate then treats the reset price as "the previous buy" and enforces the minimum drop requirement before the next auto-buy.
+
+---
+
+## Epic 22 — UI Polish *(added 29–30 May 2026)*
+
+### F22.1 — Auto-mode banner — dynamic scan intervals
+
+The Engine page auto-mode banner previously hardcoded "every 5 minutes". Now reads active strategy `scanIntervalMin` values from `/api/strategies` and shows per-strategy intervals (e.g. "BUY scans: Accumulator every 30 min, Catalyst (Momentum) every 3 min. SELL monitors every 5 min."). The Full Scan subtitle also updated to reflect the two-layer scheduling model.
+
+### F22.2 — Engine empty state — compact
+
+The pre-scan empty state was a large centered block with `py-20` padding. Replaced with a compact single-line: spark icon + message + Refresh & Scan button inline. No dead space.
+
+### F22.3 — LiveTicker — extended indices + visibility
+
+**Mobile** (`< sm`): NIFTY 50 + SENSEX only.
+
+**Desktop** (`≥ sm`): NIFTY 50, SENSEX, INDIA VIX, NIFTY BANK, NIFTY AUTO, NIFTY FIN SVC, NIFTY IT, NIFTY 100, NIFTY INFRA.
+
+Values are bold (`font-weight: 700`, `font-size: 12px`). Positive change → green `#52b788`, negative → red `#e05a5e`. The API route fetches all 9 symbols in a single Kite `/quote` call.
+
+---
+
+*End of functional spec v1.7. For implementation details, see `technical-specification.md`.*

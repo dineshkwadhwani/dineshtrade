@@ -1,6 +1,6 @@
 # DineshTrade — Project Context
-**Last Updated:** 29 May 2026  
-**Version:** 2.0  
+**Last Updated:** 30 May 2026  
+**Version:** 2.1  
 **Purpose:** This file gives Claude (or any AI assistant) full context of everything discussed so far about this project. Start any new conversation by uploading this file.
 
 ---
@@ -267,11 +267,47 @@ Type check only (no build): `npx tsc --noEmit`
 
 ---
 
-## 12. OPEN ISSUES / KNOWN BUGS (as of 29 May 2026)
+### Phase 7 — built 29–30 May 2026
 
-- **Login with Kite button**: clicking navigates to `/api/zerodha/login` which should redirect to Kite OAuth. If it "refreshes" instead, the redirect is going back to `/settings?error=...` — likely `isAccountConfigured()` returning false. Check if `ZERODHA_ENVIRONMENT` and `PROD_ZERODHA_API_KEY_DINESH` env vars are set correctly on EC2.
-- **Light mode**: attribute selector overrides apply after React hydration. SSR-rendered pages may flash before light mode applies. Further refinement possible.
-- **@types/connect**: was corrupt (no .d.ts files). Fixed by `npm install --save-dev @types/connect` + `"types": ["node"]` in tsconfig.json.
+#### Strategy tag on Today's Orders
+- Orders table (Today's Orders tab) now shows a coloured strategy badge inline next to the symbol name (same style as Holdings/Positions pages) — derived from the Kite order `tag` field via `tagToStrategy()` helper.
+
+#### Holdings page — separate lots for same symbol
+- When a stock is bought today on a DIFFERENT strategy than an existing settled holding (e.g. COALINDIA already in Accumulator from reset, then re-bought today on Catalyst), both rows now appear separately: the settled holding keeps its Accumulator tag, the T0 position shows its own tag.
+- De-duplication only drops a holding if its avg price exactly matches the T0 position (same-day-only buy appearing in both Kite endpoints).
+
+#### Strategy attribution consistency
+- **Positions store is the single source of truth** for strategy tags across ALL pages (Holdings, Positions, Today's Orders). Reverted earlier T0 override that used Kite order tags — it created inconsistency between pages.
+- Any T0 position whose strategy was merged into a different strategy by `recordBuy()` will show that merged strategy on all pages uniformly.
+
+#### Reset bug fix — pyramid gate bypassing
+- `POST /api/settings/reset` now calls `recordBuyHistory(account, symbol, avgPrice)` for each re-seeded position. This seeds the pyramid gate's buy history so the next auto-buy for that symbol requires a ≥10% price drop below the seeded avg price. Previously, empty buy history allowed buys at the same or higher price immediately after reset.
+
+#### Quota + positions race condition fix
+- **`inProcessBuyCounts`**: shared in-process counter across all per-strategy cron tasks. Prevents the race where two concurrent tasks both pass Gate 5 (day quota) before either's order shows as COMPLETE in Kite's `/orders`.
+- **`inProcessNewSymbols`**: shared set of new symbols committed today. Prevents the race where two concurrent tasks both pass Gate 6 (positions cap) before either's order appears in Kite's `/portfolio/positions`. Before placing each buy, the cron checks `existingStorePositions + inProcessNewPositionCount` vs `maxPositions`. Both counters reset at midnight IST via `maybeRollDay()`.
+
+#### Auto-mode banner — dynamic scan intervals
+- Engine page auto-mode banner now reads active strategy scan intervals from the strategies config (not hardcoded "5 min"). Shows: `BUY scans: Accumulator every 30 min, Catalyst (Momentum) every 3 min. SELL monitors every 5 min.`
+- Full Scan subtitle also updated from "auto-refreshes every 5 min" to "sell monitor every 5 min · buy scans per strategy interval".
+
+#### Engine empty state — compact
+- Replaced the large centered `py-20` empty state (big icon + two lines + dead space) with a single inline row: spark icon + message + Refresh & Scan button on the same line.
+
+#### LiveTicker — extended indices + better visibility
+- **Mobile** (`< sm`): NIFTY 50 + SENSEX only
+- **Desktop** (`≥ sm`): NIFTY 50, SENSEX, INDIA VIX, NIFTY BANK, NIFTY AUTO, NIFTY FIN SVC, NIFTY IT, NIFTY 100, NIFTY INFRA
+- Values: bold `font-weight: 700`, `font-size: 12px`
+- Positive → green `#52b788`, Negative → red `#e05a5e`
+- API (`/api/market/indices`) now fetches all 9 symbols from Kite in a single `/quote` call
+
+---
+
+## 12. OPEN ISSUES / KNOWN BUGS (as of 30 May 2026)
+
+- **Login with Kite button**: clicking navigates to `/api/zerodha/login` which should redirect to Kite OAuth. If it "refreshes" instead, check `ZERODHA_ENVIRONMENT` and `PROD_ZERODHA_API_KEY_DINESH` env vars on EC2.
+- **Light mode**: attribute selector overrides apply after React hydration. SSR-rendered pages may flash before light mode applies.
+- **Strategy attribution for duplicate-symbol positions**: When a reset-seeded Accumulator position absorbs a new Catalyst buy (via `recordBuy` pyramid merge), the positions store records the merged entry as Accumulator. The T0 position displays as Accumulator on all pages even though the order was placed by Catalyst. Architectural fix (supporting multiple strategy rows per symbol) deferred.
 
 ---
 
@@ -285,4 +321,4 @@ Also upload `docs/functional-specification.md` + `docs/technical-specification.m
 
 ---
 
-*DineshTrade v2.0 — Built with Claude AI — May 2026*
+*DineshTrade v2.1 — Built with Claude AI — May 2026*

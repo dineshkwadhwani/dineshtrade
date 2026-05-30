@@ -1,6 +1,6 @@
 # DineshTrade — Technical Specification
 
-**Version:** 1.6 · **Last Updated:** 29 May 2026
+**Version:** 1.7 · **Last Updated:** 30 May 2026
 
 This document covers the *how* — architecture, stack choices, infrastructure, and the build & deploy runbook. For the *what*, see `functional-specification.md`.
 
@@ -863,7 +863,66 @@ Dark background overrides use hex + rgb variants to handle both SSR (hex) and po
 
 ---
 
-## 15. Open Technical Debt *(updated 29 May 2026)*
+## 17. New Modules & Changes (29–30 May 2026)
+
+### Cron race-condition guards (`lib/cron.ts`)
+
+Two module-level in-process state objects added to `lib/cron.ts`:
+
+```ts
+const inProcessBuyCounts:   Record<string, number>      = {}  // "${account}:${dateKey}" → count
+const inProcessNewSymbols:  Record<string, Set<string>> = {}  // "${account}:${dateKey}" → Set<symbol>
+```
+
+Both reset in `maybeRollDay()` on date rollover.
+
+`autoBuyOnAccount()` now runs two pre-checks before calling `runPreflight()`:
+
+1. **Quota pre-check**: `getInProcessBuyCount(account) >= cap.maxBuysPerDay` → skip with `[inProcessQuota]` reason
+2. **Positions pre-check**: `await listPositions({ account }).length + getInProcessNewPositionCount(account) >= cap.maxPositions` → skip with `[inProcessPositions]` reason
+
+On successful order: `incrementInProcessBuy(account)` + `registerInProcessNewSymbol(account, symbol)` fire before any async journal/email work.
+
+These are fast pre-checks only. Gate 5 (quota) and Gate 6 (positions) in `runPreflight()` remain the authoritative server-side checks. The in-process layer closes the race window within the same Node.js process.
+
+### Reset API — pyramid gate seeding (`app/api/settings/reset/route.ts`)
+
+`recordBuyHistory(account, symbol, avgPrice)` is now called for each re-seeded position after `recordBuy()`. This plants one buy-history entry at the reset's Kite avg price, so the pyramid gate's `history.length > 0` branch runs on the next auto-buy attempt and enforces the `minDropBetweenBuysPct` requirement.
+
+Import added: `resetAccountCronState, recordBuyHistory` from `@/lib/state`.
+
+### Holdings page — same-symbol separate lots (`app/(app)/holdings/page.tsx`)
+
+Replaced the `holdingSymbols` filter (which dropped T0 positions whose symbol was already in settled holdings) with logic that keeps ALL T0 positions as separate rows. De-dup only removes a holding if a T0 row matches the same symbol AND avg price within ₹0.01 (Kite shows same-day-only buy in both endpoints).
+
+Strategy tag lookup: positions store (`posTags` map) is the single source of truth for both settled and T0 rows. Reverted an intermediate approach that used Kite order tags for T0 overrides — it created cross-page inconsistency.
+
+### Today's Orders — strategy tag (`app/(app)/trades/page.tsx`)
+
+Added `tagToStrategy(tag?: string)` helper that maps Kite order tags to display labels and colours. The orders table is now `grid-cols-12` with the strategy badge rendered inline next to the symbol name (col-span 5 for symbol+badge combined). `Order` interface extended with `tag?: string`.
+
+### LiveTicker — extended indices (`components/LiveTicker.tsx` + `/api/market/indices/route.ts`)
+
+API route now fetches 9 index symbols from Kite in one `/quote` call:
+
+```
+CORE (mobile + desktop): NSE:NIFTY 50, BSE:SENSEX
+EXTENDED (desktop only): NSE:INDIA VIX, NSE:NIFTY BANK, NSE:NIFTY AUTO,
+  NSE:NIFTY FIN SERVICE, NSE:NIFTY IT, NSE:NIFTY 100, NSE:NIFTY INFRA
+```
+
+`TickerResponse.indices` now carries 10 keys (`nifty50`, `sensex`, `vix`, `niftyBank`, `niftyAuto`, `niftyFin`, `niftyIT`, `nifty100`, `niftyInfra`, `giftNifty`).
+
+LiveTicker renders two separate `<div>` blocks — `sm:hidden` (mobile, 2 indices) and `hidden sm:flex` (desktop, 9 indices). Values: `font-weight: 700`, `font-size: 12px`. Positive → `#52b788`, negative → `#e05a5e`.
+
+### Engine page UI (`app/(app)/engine/page.tsx`)
+
+- `activeStrategyIntervals: { name: string; intervalMin: number }[]` state populated from `/api/strategies` on mount. Auto-mode banner renders: `BUY scans: ${strategies.map(s => `${s.name} every ${s.intervalMin} min`).join(', ')}. SELL monitors every 5 min.`
+- Empty pre-scan state replaced: was `py-20` centered block; now a single `flex items-center gap-3` inline row with spark icon + message + Refresh & Scan button.
+
+---
+
+## 15. Open Technical Debt *(updated 30 May 2026)*
 
 - `lib/cron.ts` still tracks `dayStats.executed / failed / skipped / delivery` for the old EOD text email path. The new daily retrospective doesn't need these; removable once verified.
 - `EODSummaryData` + `eodSubject` / `eodBody` are dead code from before retrospective. Removable once verified.
