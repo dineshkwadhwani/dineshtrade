@@ -1,6 +1,6 @@
 # DineshTrade — Project Context
-**Last Updated:** 30 May 2026  
-**Version:** 2.1  
+**Last Updated:** 01 Jun 2026  
+**Version:** 2.2  
 **Purpose:** This file gives Claude (or any AI assistant) full context of everything discussed so far about this project. Start any new conversation by uploading this file.
 
 ---
@@ -94,7 +94,7 @@ Dinesh has been trading Indian equities since **FY2020** across **4 family accou
 
 ---
 
-## 6. APPLICATION — CURRENT STATE (29 May 2026)
+## 6. APPLICATION — CURRENT STATE (01 Jun 2026)
 
 ### Deployed at:
 - **Production:** `https://dineshtrade.online` (EC2 ap-south-1, Elastic IP 3.111.255.172)
@@ -127,7 +127,7 @@ Dinesh has been trading Indian equities since **FY2020** across **4 family accou
 
 ---
 
-## 7. KEY FEATURES BUILT (as of 29 May 2026)
+## 7. KEY FEATURES BUILT (as of 01 Jun 2026)
 
 ### Cron Architecture
 - **Core 5-min tick** (`*/5 9-15 * * 1-5`): SELL monitors (S1 + S2), EOD square-off, manual-sell reconciliation, reactive dip scan
@@ -145,12 +145,46 @@ Dinesh has been trading Indian equities since **FY2020** across **4 family accou
 - Fix: `strategy2.ts` now includes holdings in `liveQtyBySymbol`
 - Journal-based Seed 2 reseeding: on each monitor tick, reads last 30 days of journal BUY records and reseeds any momentum positions that fell out of the store but are still held in Kite
 
-### Manual Sell Reconciliation (added 28 May 2026)
+### Manual Sell Reconciliation (updated 01 Jun 2026)
 - `reconcileManualSells()` runs every 5-min tick + at 15:35 EOD
 - Detects positions closed manually in Kite (Kite qty = 0 but position still in store)
 - Today's sell: journals at actual fill price from Kite order book
 - Prior-day sell: journals synthetic SELL at current LTP (or entry price if market closed)
-- Removes position from store so it doesn't show as "OPEN" in trade report
+- **Positions are NOT removed from the positions store after a manual sell** — strategy tag is preserved on the Holdings page until next re-buy or Reset
+- SELL journal entry is written with `strategyId` = the buying strategy (from positions store) + `source: 'manual'` — ensures trade reports attribute P&L to the correct strategy
+
+### T+1 Settlement Fix (01 Jun 2026)
+- `KiteHolding` now includes a `t1_quantity` field
+- `buildLiveQtyBySymbol()` in `lib/kite.ts` computes live quantity as `quantity + t1_quantity`
+- Prevents day-1 CNC positions from appearing OOS: on T+0 they appear in `/portfolio/positions`; on T+1 they move to `/portfolio/holdings` with `t1_quantity > 0` before settling to `quantity` on T+2
+- Without this fix, T+1 positions showed as OOS because `t1_quantity` was not included in the live qty calculation
+
+### Journal Attribution Fix (01 Jun 2026)
+- `reconcileManualSells()` now journals SELL entries with the buying `strategyId` + `source: 'manual'`
+- Settings → Journal Maintenance → **"Fix Journal Attribution"** button calls `POST /api/journal/fix-attribution`
+- Retroactively patches old `dt-manual` SELL entries that are missing `strategyId` — looks up each entry's symbol in the positions store and backfills the correct strategy tag
+
+### Holdings Avg Fix (01 Jun 2026)
+- T0 rows with `qty = 0` (sold today) now display `average_price` sourced from `holdingAvgBySymbol` — the buy cost from the Kite holdings endpoint
+- Previously showed Kite's `position.average_price` which is the sell execution price (confusing and incorrect for P&L display)
+- `holdingAvgBySymbol` is built from ALL `rawHoldings` including `quantity = 0` entries to ensure no closed position falls through
+
+### Journal Strategy Fallback (01 Jun 2026)
+- `/api/positions` and `/api/strategy/positions` both fall back to `getJournalStrategyFallback()` in `lib/journal.ts` when a symbol is not found in the positions store
+- `getJournalStrategyFallback(account)` reads last 30 days of journal auto-BUY records and returns a `Map<SYMBOL, strategyId>` for use as a read-only fallback tag source
+- Prevents OOS false positives after positions store cleanup (e.g. after Settings Reset or between re-buys)
+
+### Codebase Refactor (01 Jun 2026)
+- `cron.ts` split into four files to eliminate circular dependencies:
+  - `cronState.ts` — module-level mutable state + record helpers (no imports from other cron files)
+  - `cronBuy.ts` — auto-buy engine
+  - `cronEOD.ts` — EOD square-off + retrospective emails
+  - `cronReconcile.ts` — manual sell detection (zero circular deps)
+  - `cron.ts` — pure orchestrator (tick, task lifecycle, start/stop/reload)
+- `lib/strategyTag.ts` — new file centralising `resolvePositionTag()` used across all API routes
+- `buildLiveQtyBySymbol()` extracted to `lib/kite.ts` (handles `quantity + t1_quantity`)
+- `getJournalStrategyFallback()` added to `lib/journal.ts`
+- `StrategyParams` typed as `DipParams | MomentumParams` union; `asDipParams()` / `asMomentumParams()` helpers enforce correct access — eliminates all `params as any` casts
 
 ### Account Reset (added 28 May 2026)
 - Settings page → Danger Zone → "Reset Account Data"
@@ -303,11 +337,10 @@ Type check only (no build): `npx tsc --noEmit`
 
 ---
 
-## 12. OPEN ISSUES / KNOWN BUGS (as of 30 May 2026)
+## 12. OPEN ISSUES / KNOWN BUGS (as of 01 Jun 2026)
 
 - **Login with Kite button**: clicking navigates to `/api/zerodha/login` which should redirect to Kite OAuth. If it "refreshes" instead, check `ZERODHA_ENVIRONMENT` and `PROD_ZERODHA_API_KEY_DINESH` env vars on EC2.
 - **Light mode**: attribute selector overrides apply after React hydration. SSR-rendered pages may flash before light mode applies.
-- **Strategy attribution for duplicate-symbol positions**: When a reset-seeded Accumulator position absorbs a new Catalyst buy (via `recordBuy` pyramid merge), the positions store records the merged entry as Accumulator. The T0 position displays as Accumulator on all pages even though the order was placed by Catalyst. Architectural fix (supporting multiple strategy rows per symbol) deferred.
 
 ---
 
@@ -319,6 +352,8 @@ Start any new Claude conversation:
 
 Also upload `docs/functional-specification.md` + `docs/technical-specification.md` for deep implementation questions.
 
+For GitHub Copilot or Cursor: see `COPILOT.md` in the repo root for the full technical handoff document.
+
 ---
 
-*DineshTrade v2.1 — Built with Claude AI — May 2026*
+*DineshTrade v2.2 — Built with Claude AI — June 2026*
