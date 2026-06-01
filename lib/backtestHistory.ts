@@ -3,7 +3,7 @@ import os from 'os'
 import path from 'path'
 import type { StrategyBacktestResult } from './backtest'
 import { callAI } from './ai'
-import { getCapital, type Strategy, type StrategyType } from './strategyConfig'
+import { getCapital, asMomentumParams, type Strategy, type StrategyType } from './strategyConfig'
 
 export type BacktestHistoryStrategyType = StrategyType | 'all'
 
@@ -150,8 +150,8 @@ export function buildBacktestHistoryEntry(input: {
     exitCriteria = {
       t1Pct: singleStrategy.exits?.t1Pct ?? null,
       t2Pct: singleStrategy.exits?.t2Pct ?? null,
-      squareOffEOD: typeof (singleStrategy.params as any)?.squareOffEOD === 'boolean' ? (singleStrategy.params as any).squareOffEOD : false,
-      exitSameDayOnPositive: typeof (singleStrategy.params as any)?.exitSameDayOnPositive === 'boolean' ? (singleStrategy.params as any).exitSameDayOnPositive : false,
+      squareOffEOD: singleStrategy.type === 'momentum' ? (asMomentumParams(singleStrategy).squareOffEOD ?? false) : false,
+      exitSameDayOnPositive: singleStrategy.type === 'momentum' ? (asMomentumParams(singleStrategy).exitSameDayOnPositive ?? false) : false,
     }
   } else {
     strategyName = 'Run All Active'
@@ -173,8 +173,8 @@ export function buildBacktestHistoryEntry(input: {
         type: strategy.type,
         t1Pct: strategy.exits?.t1Pct ?? null,
         t2Pct: strategy.exits?.t2Pct ?? null,
-        squareOffEOD: typeof (strategy.params as any)?.squareOffEOD === 'boolean' ? (strategy.params as any).squareOffEOD : false,
-        exitSameDayOnPositive: typeof (strategy.params as any)?.exitSameDayOnPositive === 'boolean' ? (strategy.params as any).exitSameDayOnPositive : false,
+        squareOffEOD: strategy.type === 'momentum' ? (asMomentumParams(strategy).squareOffEOD ?? false) : false,
+        exitSameDayOnPositive: strategy.type === 'momentum' ? (asMomentumParams(strategy).exitSameDayOnPositive ?? false) : false,
       })),
     }
   }

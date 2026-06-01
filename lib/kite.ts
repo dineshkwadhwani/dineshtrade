@@ -233,3 +233,23 @@ export async function cancelKiteOrder(
 ): Promise<KiteResponse<{ data?: { order_id?: string }; message?: string; error_type?: string }>> {
   return kiteRequest(`/orders/regular/${orderId}`, creds, 'DELETE')
 }
+
+// Merges Kite positions (day + net) and holdings into a Map<SYMBOL, liveQty>.
+// Holdings contribute quantity + t1_quantity (T+1 settlement shares — bought
+// yesterday, appear in holdings with quantity=0 until settled). Without t1,
+// day-1 CNC positions look like qty=0 and get incorrectly treated as closed.
+export function buildLiveQtyBySymbol(
+  positions: KitePosition[],
+  holdings: KiteHolding[],
+): Map<string, number> {
+  const map = new Map<string, number>()
+  for (const p of positions) {
+    const sym = p.tradingsymbol.toUpperCase()
+    map.set(sym, (map.get(sym) || 0) + (p.quantity || 0))
+  }
+  for (const h of holdings) {
+    const sym = h.tradingsymbol.toUpperCase()
+    map.set(sym, (map.get(sym) || 0) + (h.quantity || 0) + (h.t1_quantity || 0))
+  }
+  return map
+}

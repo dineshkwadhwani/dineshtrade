@@ -3,7 +3,7 @@
 // funds-available, idempotency. Phase 2 will add a seed-from-Kite on cron startup.
 
 import { getState, recordIdempotency, makeIdempotencyKey, getBuyHistory, resetBuyHistoryForSymbol } from '@/lib/state'
-import { getCapital, getStrategyById } from '@/lib/strategyConfig'
+import { getCapital, getStrategyById, asDipParams } from '@/lib/strategyConfig'
 import { getAccountSecrets } from '@/lib/accounts'
 import { isMarketOpen } from '@/lib/market'
 import { checkIntradayCircuit } from '@/lib/intradayCircuit'
@@ -177,7 +177,7 @@ export async function runPreflight(input: PreflightInput): Promise<PreflightResu
   if (!manual && side === 'BUY' && input.strategyId) {
     const strategy = getStrategyById(input.strategyId)
     const maxPerSector = strategy?.type === 'dip'
-      ? (strategy.params as any).maxPerSector
+      ? asDipParams(strategy).maxPerSector
       : undefined
     if (typeof maxPerSector === 'number' && maxPerSector > 0) {
       const { getWatchlist } = await import('@/lib/watchlistStore')

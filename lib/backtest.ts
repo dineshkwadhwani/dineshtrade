@@ -3,7 +3,7 @@ import { getWatchlist } from './watchlistStore'
 import { computeEMA, consecutiveDownDays, deviationPct } from './ema'
 import { getHistoricalCandles, resolveAccountCreds, type HistoricalCandle, type KiteCreds } from './kite'
 import { getInstrumentTokens } from './instruments'
-import { getActiveStrategies, getCapital, getStrategyById, type Strategy } from './strategyConfig'
+import { getActiveStrategies, getCapital, getStrategyById, type Strategy, type DipParams, type MomentumParams } from './strategyConfig'
 
 export interface BacktestOptions {
   days?: number
@@ -371,9 +371,9 @@ async function runAllActiveBacktest(options: BacktestOptions = {}): Promise<Stra
   const capitalCfg = getCapital()
   const dipStrategies = activeStrategies.filter(strategy => strategy.type === 'dip')
   const momentumStrategies = activeStrategies.filter(strategy => strategy.type === 'momentum')
-  const dipEmaPeriods = Array.from(new Set(dipStrategies.map(strategy => clampInt((strategy.params || {}).emaPeriod, 20, 2, 200))))
+  const dipEmaPeriods = Array.from(new Set(dipStrategies.map(strategy => clampInt((strategy.params as DipParams).emaPeriod, 20, 2, 200))))
   const maxDipEmaPeriod = dipEmaPeriods.reduce((max, period) => Math.max(max, period), 20)
-  const maxVolumeAvgDays = momentumStrategies.reduce((max, strategy) => Math.max(max, clampInt((strategy.params || {}).volumeAvgDays, 10, 1, 60)), 10)
+  const maxVolumeAvgDays = momentumStrategies.reduce((max, strategy) => Math.max(max, clampInt((strategy.params as MomentumParams).volumeAvgDays, 10, 1, 60)), 10)
 
   const strategySymbolsEntries = await Promise.all(activeStrategies.map(async strategy => [strategy.id, await uniqueUniverseFromWatchlist(strategy)] as const))
   const strategySymbols = new Map<string, string[]>(strategySymbolsEntries)
@@ -552,7 +552,7 @@ async function runAllActiveBacktest(options: BacktestOptions = {}): Promise<Stra
       if (!trade.strategyId) continue
       const ownerStrategy = resolveActiveStrategy(trade.strategyId)
       if (!ownerStrategy || ownerStrategy.type !== 'momentum') continue
-      const handoffDays = clampInt((ownerStrategy.params || {}).deliveryHandoffDays, 15, 0, 365)
+      const handoffDays = clampInt((ownerStrategy.params as MomentumParams).deliveryHandoffDays, 15, 0, 365)
       if (handoffDays <= 0) continue
       const ageDays = dayDiff(dateOnly(trade.entryDate), date)
       if (ageDays < handoffDays) continue
@@ -637,7 +637,7 @@ async function runAllActiveBacktest(options: BacktestOptions = {}): Promise<Stra
       }
 
       for (const strategy of momentumStrategies) {
-        const params = (strategy.params || {}) as Record<string, unknown>
+        const params = strategy.params as MomentumParams
         const minDayGainPct = typeof params.minDayGainPct === 'number' ? params.minDayGainPct : 0.5
         const maxDayGainPct = typeof params.maxDayGainPct === 'number' ? params.maxDayGainPct : 1.5
         const consecutiveCandles = clampInt(params.consecutiveCandles, 3, 1, 10)
@@ -821,7 +821,7 @@ async function runAllActiveBacktest(options: BacktestOptions = {}): Promise<Stra
     }
 
     for (const strategy of dipStrategies) {
-      const params = (strategy.params || {}) as Record<string, unknown>
+      const params = strategy.params as DipParams
       const emaPeriod = clampInt(params.emaPeriod, 20, 2, 200)
       const entryBelowPct = typeof params.entryBelowPct === 'number' ? params.entryBelowPct : 5
       const strongBuyBelowPct = typeof params.strongBuyBelowPct === 'number' ? params.strongBuyBelowPct : 8
@@ -1017,7 +1017,7 @@ export async function runStrategy1Backtest(options: BacktestOptions = {}): Promi
     ? Number(options.initialCapital.toFixed(2))
     : 50000
 
-  const params = (strategy.params || {}) as Record<string, unknown>
+  const params = strategy.params as DipParams
   const emaPeriod = clampInt(params.emaPeriod, 20, 2, 200)
   const entryBelowPct = typeof params.entryBelowPct === 'number' ? params.entryBelowPct : 5
   const strongBuyBelowPct = typeof params.strongBuyBelowPct === 'number' ? params.strongBuyBelowPct : 8
@@ -1382,7 +1382,7 @@ async function runMomentumBacktest(options: BacktestOptions = {}): Promise<Strat
     ? Number(options.initialCapital.toFixed(2))
     : 50000
 
-  const params = (strategy.params || {}) as Record<string, unknown>
+  const params = strategy.params as MomentumParams
   const minDayGainPct = typeof params.minDayGainPct === 'number' ? params.minDayGainPct : 0.5
   const maxDayGainPct = typeof params.maxDayGainPct === 'number' ? params.maxDayGainPct : 1.5
   const consecutiveCandles = clampInt(params.consecutiveCandles, 3, 1, 10)

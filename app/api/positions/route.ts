@@ -15,26 +15,13 @@ import { NextResponse } from 'next/server'
 import { cookies } from 'next/headers'
 import { verifySession } from '@/lib/auth'
 import { resolveAccountCreds, getPositions, getOrders, getQuotes, type KiteOrder } from '@/lib/kite'
-import {
-  STRATEGY_1_BUY_TAG, STRATEGY_1_TRANCHE1_TAG, STRATEGY_1_TRANCHE2_TAG,
-} from '@/lib/strategy1'
-import { STRATEGY_2_BUY_TAG, STRATEGY_2_SELL_TAG } from '@/lib/strategy2'
+import { resolvePositionTag, type PositionTag } from '@/lib/strategyTag'
 
 // Live broker data — every request must hit Kite fresh, never serve from cache.
 export const dynamic = 'force-dynamic'
 export const revalidate = 0
 
-const MANUAL_TAG = 'dt-manual'
-
-// Position-pill descriptor. Replaces the old fixed-vocabulary tag with a
-// strategy-aware shape so any user-created strategy can render its own
-// display name + color on the Positions row.
-export interface PositionTag {
-  kind: 'strategy' | 'manual' | 'pre' | 'mixed'
-  strategyId?: string      // present when kind === 'strategy'
-  label: string            // short label shown in the pill
-  color: string            // hex/rgba — pill background/text color
-}
+export type { PositionTag }
 
 export interface EnrichedPosition {
   symbol: string
@@ -52,51 +39,6 @@ export interface EnrichedPosition {
   unrealized: number       // qty × (ltp − avgPrice)  -- 0 when fully closed
   realized: number         // best-effort closed-leg P&L for today
   orderIds: string[]       // today's COMPLETE order ids for this symbol
-}
-
-// Build a tag from (1) the position store's strategyId (long-term ownership)
-// and (2) today's Kite order tags (today's activity). Store wins when present;
-// order tags drive the legacy fallbacks. Strategy lookup gives us display +
-// color for any registered strategy id.
-function classifyTag(
-  symbol: string,
-  todaysOrderTags: Set<string>,
-  positionStoreStrategyId: string | null,
-  strategiesById: Map<string, { name: string; color: string }>,
-): PositionTag {
-  // Position store record exists → that's authoritative for long-term ownership
-  if (positionStoreStrategyId) {
-    const s = strategiesById.get(positionStoreStrategyId)
-    return {
-      kind: 'strategy',
-      strategyId: positionStoreStrategyId,
-      label: s?.name?.slice(0, 12) || positionStoreStrategyId,
-      color: s?.color || '#c9a84c',
-    }
-  }
-  // No store record — classify from today's order tags
-  const hasManual = todaysOrderTags.has(MANUAL_TAG)
-  // Legacy tags + new dt-${id} tags
-  const dtPrefixed = Array.from(todaysOrderTags).filter(t => t.startsWith('dt-') && t !== MANUAL_TAG)
-  const strategyIdsFromTags = new Set<string>()
-  for (const t of dtPrefixed) {
-    let sid = t.slice(3).replace(/-(t1|t2|exit)$/, '')   // strip tranche/exit suffix
-    if (sid === 's1') sid = 'accumulator'
-    else if (sid === 's2') sid = 'catalyst'
-    strategyIdsFromTags.add(sid)
-  }
-  if (strategyIdsFromTags.size === 0 && !hasManual) {
-    return { kind: 'pre', label: 'OOS', color: 'rgba(255,255,255,0.5)' }
-  }
-  if (strategyIdsFromTags.size === 1 && !hasManual) {
-    const sid = Array.from(strategyIdsFromTags)[0]
-    const s = strategiesById.get(sid)
-    return { kind: 'strategy', strategyId: sid, label: s?.name?.slice(0, 12) || sid, color: s?.color || '#c9a84c' }
-  }
-  if (strategyIdsFromTags.size === 0 && hasManual) {
-    return { kind: 'manual', label: 'MANUAL', color: '#a78bfa' }
-  }
-  return { kind: 'mixed', label: 'MIXED', color: '#f59e0b' }
 }
 
 export async function GET(req: Request) {
@@ -118,7 +60,7 @@ export async function GET(req: Request) {
       // Load the unified position store + strategy map for tag derivation.
       // Best-effort: if either fails, the tag falls through to legacy logic.
       try {
-        const [{ listPositions }, { getStrategies }, { readJournalRange, istDateString }] = await Promise.all([
+        const [{ listPositions }, { getStrategies }, { getJournalStrategyFallback }] = await Promise.all([
           import('@/lib/positions'),
           import('@/lib/strategyConfig'),
           import('@/lib/journal'),
@@ -132,21 +74,8 @@ export async function GET(req: Request) {
         // store entry cleared), find the most recent auto-BUY strategy from the
         // journal so the tag shows the buying strategy instead of MANUAL.
         try {
-          const thirtyDaysAgo = new Date(Date.now() - 30 * 24 * 3600 * 1000).toISOString().slice(0, 10)
-          const journal = await readJournalRange(thirtyDaysAgo, istDateString())
-          const latestBuy = new Map<string, { strategyId: string; ts: string }>()
-          for (const r of journal) {
-            if (r.type !== 'order' || (r as any).side !== 'BUY' || (r as any).source !== 'auto') continue
-            const sid = (r as any).strategyId as string | undefined
-            if (!sid) continue
-            if ((r as any).account?.toUpperCase() !== account.toUpperCase()) continue
-            const sym = String((r as any).symbol).toUpperCase()
-            if (byKey.has(sym)) continue  // already in store — store wins
-            const ts = (r as any).ts as string
-            const prev = latestBuy.get(sym)
-            if (!prev || ts > prev.ts) latestBuy.set(sym, { strategyId: sid, ts })
-          }
-          for (const [sym, { strategyId }] of Array.from(latestBuy)) byKey.set(sym, strategyId)
+          const fallback = await getJournalStrategyFallback(account, new Set(byKey.keys()))
+          for (const [sym, strategyId] of Array.from(fallback)) byKey.set(sym, strategyId)
         } catch { /* journal read failure is non-fatal */ }
         return { byKey, strategiesById }
       } catch { return { byKey: new Map<string, string>(), strategiesById: new Map<string, { name: string; color: string }>() } }
@@ -238,7 +167,7 @@ export async function GET(req: Request) {
       daySellQty: p.day_sell_quantity || 0,
       pnl: unrealized + realized,   // live + same source as the row's other numbers
       m2m: p.m2m || 0,
-      tag: classifyTag(sym, tags, posStore.byKey.get(sym) || null, posStore.strategiesById),
+      tag: resolvePositionTag(posStore.byKey.get(sym) || null, tags, posStore.strategiesById),
       unrealized,
       realized,
       orderIds: orderIdsBySymbol.get(sym) || [],

@@ -16,6 +16,7 @@
 
 import {
   resolveAccountCreds, getPositions, getHoldings, getOrders, getQuotes, placeKiteOrder, getHistoricalCandles,
+  buildLiveQtyBySymbol,
   type KitePosition, type KiteOrder,
 } from './kite'
 import { runPreflight, markPlaced } from './preflight'
@@ -23,7 +24,7 @@ import { sendEmail } from './email'
 import { getAccountList } from './accounts'
 import { ensureStrategy1Tracking } from './strategy1'
 import { appendJournal, journalOrder, istDateString, istHHMM, classifyVerdict, readJournalRange } from './journal'
-import { getStrategyById, getStrategies } from './strategyConfig'
+import { getStrategyById, getStrategies, asMomentumParams } from './strategyConfig'
 import {
   listStrategy2Positions, removeStrategy2Position, markTranche1Sold,
   recordStrategy2Buy, ageInCalendarDays,
@@ -108,19 +109,7 @@ export async function monitorAccount(account: string): Promise<MonitorResult> {
     Promise.all([getPositions(creds), getHoldings(creds)]),
     getOrders(creds),
   ])
-  const liveQtyBySymbol = new Map<string, number>()
-  for (const p of [...day, ...net]) {
-    const sym = p.tradingsymbol.toUpperCase()
-    liveQtyBySymbol.set(sym, (liveQtyBySymbol.get(sym) || 0) + (p.quantity || 0))
-  }
-  for (const h of holdings) {
-    const sym = h.tradingsymbol.toUpperCase()
-    // Include t1_quantity (shares in T+1 settlement — bought yesterday, quantity=0
-    // until settlement completes). Without this, day-1 CNC positions look like
-    // qty=0 and get dropped from the store, causing them to show OOS on day 2.
-    const heldQty = (h.quantity || 0) + (h.t1_quantity || 0)
-    liveQtyBySymbol.set(sym, (liveQtyBySymbol.get(sym) || 0) + heldQty)
-  }
+  const liveQtyBySymbol = buildLiveQtyBySymbol([...day, ...net], holdings)
 
   // Seed 1: today's Kite dt-s2 BUYs (legacy tag — keeps backward compatibility).
   const todaysS2Buys = orders.filter(o => o.tag === STRATEGY_2_BUY_TAG && o.transaction_type === 'BUY' && o.status === 'COMPLETE')
@@ -195,7 +184,7 @@ export async function monitorAccount(account: string): Promise<MonitorResult> {
     const ownerStrategy = getStrategyById(pos.strategyId)
     const t1Pct = ownerStrategy?.exits?.t1Pct ?? 1.5
     const t2Pct = ownerStrategy?.exits?.t2Pct ?? 2.0
-    const handoffDays = (ownerStrategy?.params as any)?.deliveryHandoffDays ?? HANDOFF_DAYS_DEFAULT
+    const handoffDays = ownerStrategy ? asMomentumParams(ownerStrategy).deliveryHandoffDays : HANDOFF_DAYS_DEFAULT
 
     // Sold externally? Drop from store.
     if (liveQty <= 0) {

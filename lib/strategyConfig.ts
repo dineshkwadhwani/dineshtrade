@@ -57,9 +57,9 @@ export interface GiftNiftyGate {
   maxPct?: number | null    // null/undefined = no upper bound
 }
 
-// Loose param shape — concrete fields depend on the strategy type. The cron /
-// strategy runners narrow this based on `type`.
-export type StrategyParams = Record<string, unknown>
+// Union of all concrete param shapes — cron / strategy runners narrow this
+// based on `type`. Use asDipParams / asMomentumParams helpers to cast safely.
+export type StrategyParams = DipParams | MomentumParams
 
 export interface DipParams {
   emaPeriod: number
@@ -107,7 +107,7 @@ export interface Strategy {
   color: string               // hex for UI accents (tabs, tiles, etc.)
   scanIntervalMin: number     // cron cadence in minutes
   watchlist: string[]         // list keys from config/watchlist.json (e.g. ["listA"])
-  params: StrategyParams
+  params: DipParams | MomentumParams
   exits: StrategyExits
   giftNiftyGate?: GiftNiftyGate  // optional pre-market mode gate; absent = no gate (always fire)
 }
@@ -214,4 +214,17 @@ export function checkGiftNiftyGate(gate: GiftNiftyGate | undefined, giftChangePc
   if (giftChangePct < min) return { allowed: false, reason: `GIFT Nifty ${giftChangePct.toFixed(2)}% < required min ${min}%` }
   if (giftChangePct > max) return { allowed: false, reason: `GIFT Nifty ${giftChangePct.toFixed(2)}% > allowed max ${max}%` }
   return { allowed: true }
+}
+
+// ──────── PARAM NARROWING HELPERS ────────
+// Use these instead of `(s.params as any)` at call sites that already know
+// the strategy type. Both are intentional unsafe casts — callers are
+// responsible for ensuring the strategy.type matches the helper they call.
+
+export function asDipParams(s: Strategy): DipParams {
+  return s.params as DipParams
+}
+
+export function asMomentumParams(s: Strategy): MomentumParams {
+  return s.params as MomentumParams
 }

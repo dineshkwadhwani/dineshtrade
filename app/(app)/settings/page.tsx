@@ -2,6 +2,7 @@
 import { useEffect, useState } from 'react'
 import { createPortal } from 'react-dom'
 import { useSearchParams, useRouter, usePathname } from 'next/navigation'
+import type { MomentumParams } from '@/lib/strategyConfig'
 
 interface AccountDisplay {
   name: string
@@ -2674,9 +2675,9 @@ function StrategyCard({ s, expanded, onToggle, watchlistOptions, onPatch, onTogg
           {s.type === 'momentum' && (
             <div className="space-y-2.5">
               <p className="text-[10px] tracking-widest uppercase dt-text-muted" style={{ fontFamily:'JetBrains Mono, monospace' }}>End of Day Behaviour</p>
-              <TextField label="exitSameDayTime" value={String((s.params as any).exitSameDayTime ?? '15:10')} onChange={x => patchParam('exitSameDayTime', x)} desc={MOMENTUM_PARAM_DESCRIPTIONS.exitSameDayTime} disabled={locked} />
-              <BoolField label="exitSameDayOnPositive" value={Boolean((s.params as any).exitSameDayOnPositive)} onChange={x => patchParam('exitSameDayOnPositive', x)} desc={MOMENTUM_PARAM_DESCRIPTIONS.exitSameDayOnPositive} disabled={locked} />
-              <BoolField label="squareOffEOD" value={Boolean((s.params as any).squareOffEOD)} onChange={x => patchParam('squareOffEOD', x)} desc={MOMENTUM_PARAM_DESCRIPTIONS.squareOffEOD} disabled={locked} />
+              <TextField label="exitSameDayTime" value={String((s.params as unknown as MomentumParams).exitSameDayTime ?? '15:10')} onChange={x => patchParam('exitSameDayTime', x)} desc={MOMENTUM_PARAM_DESCRIPTIONS.exitSameDayTime} disabled={locked} />
+              <BoolField label="exitSameDayOnPositive" value={Boolean((s.params as unknown as MomentumParams).exitSameDayOnPositive)} onChange={x => patchParam('exitSameDayOnPositive', x)} desc={MOMENTUM_PARAM_DESCRIPTIONS.exitSameDayOnPositive} disabled={locked} />
+              <BoolField label="squareOffEOD" value={Boolean((s.params as unknown as MomentumParams).squareOffEOD)} onChange={x => patchParam('squareOffEOD', x)} desc={MOMENTUM_PARAM_DESCRIPTIONS.squareOffEOD} disabled={locked} />
             </div>
           )}
 
