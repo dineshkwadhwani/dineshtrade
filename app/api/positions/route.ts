@@ -118,15 +118,36 @@ export async function GET(req: Request) {
       // Load the unified position store + strategy map for tag derivation.
       // Best-effort: if either fails, the tag falls through to legacy logic.
       try {
-        const [{ listPositions }, { getStrategies }] = await Promise.all([
+        const [{ listPositions }, { getStrategies }, { readJournalRange, istDateString }] = await Promise.all([
           import('@/lib/positions'),
           import('@/lib/strategyConfig'),
+          import('@/lib/journal'),
         ])
         const rows = await listPositions({ account })
         const byKey = new Map<string, string>()
         for (const r of rows) byKey.set(r.symbol.toUpperCase(), r.strategyId)
         const strategiesById = new Map<string, { name: string; color: string }>()
         for (const s of getStrategies()) strategiesById.set(s.id, { name: s.name, color: s.color })
+        // Journal fallback: for symbols not in the positions store (manually sold,
+        // store entry cleared), find the most recent auto-BUY strategy from the
+        // journal so the tag shows the buying strategy instead of MANUAL.
+        try {
+          const thirtyDaysAgo = new Date(Date.now() - 30 * 24 * 3600 * 1000).toISOString().slice(0, 10)
+          const journal = await readJournalRange(thirtyDaysAgo, istDateString())
+          const latestBuy = new Map<string, { strategyId: string; ts: string }>()
+          for (const r of journal) {
+            if (r.type !== 'order' || (r as any).side !== 'BUY' || (r as any).source !== 'auto') continue
+            const sid = (r as any).strategyId as string | undefined
+            if (!sid) continue
+            if ((r as any).account?.toUpperCase() !== account.toUpperCase()) continue
+            const sym = String((r as any).symbol).toUpperCase()
+            if (byKey.has(sym)) continue  // already in store — store wins
+            const ts = (r as any).ts as string
+            const prev = latestBuy.get(sym)
+            if (!prev || ts > prev.ts) latestBuy.set(sym, { strategyId: sid, ts })
+          }
+          for (const [sym, { strategyId }] of Array.from(latestBuy)) byKey.set(sym, strategyId)
+        } catch { /* journal read failure is non-fatal */ }
         return { byKey, strategiesById }
       } catch { return { byKey: new Map<string, string>(), strategiesById: new Map<string, { name: string; color: string }>() } }
     })(),
