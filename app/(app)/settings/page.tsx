@@ -351,6 +351,9 @@ export default function SettingsPage() {
         </div>
       </div>
 
+      {/* ── JOURNAL MAINTENANCE ── */}
+      <FixAttributionSection />
+
       {/* ── DANGER ZONE: ACCOUNT RESET ── */}
       <ResetSection connected={connected} />
 
@@ -662,6 +665,64 @@ function RunMonitorButton() {
         {busy ? 'Running…' : 'Sync Positions Now'}
       </button>
       {msg && <span className="text-[11px]" style={{ color: msg.startsWith('Done') ? '#52b788' : '#e05a5e', ...mono }}>{msg}</span>}
+    </div>
+  )
+}
+
+// ──────────────────────────────────────────────────────────────────────────────
+// FIX ATTRIBUTION SECTION
+// Retroactively patches dt-manual SELL entries missing a strategyId.
+// ──────────────────────────────────────────────────────────────────────────────
+function FixAttributionSection() {
+  const [busy, setBusy] = useState(false)
+  const [result, setResult] = useState<{ fixed: number; fixedBySymbol: Record<string, number>; message: string } | null>(null)
+  const [error, setError] = useState('')
+  const mono: React.CSSProperties = { fontFamily: 'JetBrains Mono, monospace' }
+
+  async function run() {
+    setBusy(true)
+    setError('')
+    setResult(null)
+    try {
+      const res = await fetch('/api/journal/fix-attribution', { method: 'POST' })
+      const data = await res.json()
+      if (!res.ok || data.error) { setError(data.error || `HTTP ${res.status}`); return }
+      setResult(data)
+    } catch (e) {
+      setError(String(e))
+    } finally {
+      setBusy(false)
+    }
+  }
+
+  return (
+    <div className="rounded-xl p-5 mt-4 dt-card-gold">
+      <h2 className="text-[11px] tracking-widest uppercase mb-1" style={{ color: 'rgba(201,168,76,0.7)', ...mono }}>Journal Maintenance</h2>
+      <p className="text-[11px] mb-4 dt-text-muted">
+        Fixes manual sell entries that are missing strategy attribution — e.g. positions sold via the S button before this fix was deployed.
+        Adds the buying strategy (Accumulator, Catalyst, etc.) to each unattributed entry so trade reports count them correctly. Safe to re-run.
+      </p>
+
+      <button onClick={run} disabled={busy}
+        className="px-4 py-1.5 rounded-md text-[11px] transition-all disabled:opacity-40"
+        style={{ background: 'rgba(201,168,76,0.1)', border: '1px solid rgba(201,168,76,0.4)', color: '#c9a84c', ...mono }}>
+        {busy ? 'Scanning journal…' : 'Fix Journal Attribution'}
+      </button>
+
+      {result && (
+        <div className="mt-3 p-3 rounded-md text-[11px] dt-banner-green" style={{ color: '#52b788', ...mono }}>
+          {result.message}
+          {result.fixed > 0 && Object.keys(result.fixedBySymbol).length > 0 && (
+            <div className="mt-1 flex flex-wrap gap-x-3 gap-y-0.5" style={{ color: 'rgba(82,183,136,0.7)' }}>
+              {Object.entries(result.fixedBySymbol).map(([sym, n]) => (
+                <span key={sym}>{sym} ({n})</span>
+              ))}
+            </div>
+          )}
+        </div>
+      )}
+
+      {error && <p className="mt-2 text-[11px]" style={{ color: '#e05a5e', ...mono }}>{error}</p>}
     </div>
   )
 }

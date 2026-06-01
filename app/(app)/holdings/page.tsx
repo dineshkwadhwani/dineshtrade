@@ -164,12 +164,32 @@ export default function HoldingsPage() {
         // with different exit rules — merging them into one row would destroy the
         // strategy attribution and apply the wrong exits.
         const holdingSymbols = new Set(enrichedHoldings.map(item => item.tradingsymbol.toUpperCase()))
+
+        // avgPrice from Kite's holdings endpoint = true weighted buy cost. Keep a
+        // lookup over ALL rawHoldings (including qty=0 ones already filtered out) so
+        // we can patch T0 rows that were sold today — Kite's net positions returns
+        // the SELL price as average_price for closed CNC positions, which is wrong.
+        const holdingAvgBySymbol = new Map<string, number>()
+        for (const h of rawHoldings) {
+          if ((h.average_price || 0) > 0) holdingAvgBySymbol.set(h.tradingsymbol.toUpperCase(), h.average_price)
+        }
+
         const t0Rows = Array.isArray(pRes?.positions)
           ? (pRes.positions as EnrichedPosition[])
               .filter(position => position.qty !== 0)
               // Include ALL same-day positions, even if the symbol is already in
               // settled holdings — they represent a different lot / strategy.
               .map(positionToHolding)
+              .map(r => {
+                // For closed T0 positions (qty=0), Kite's net position avg_price is
+                // the sell execution price, not the buy cost. Replace it with the
+                // holdings avg (Kite's weighted avg of all buy lots) when available.
+                if (totalQty(r) === 0) {
+                  const buyAvg = holdingAvgBySymbol.get(r.tradingsymbol.toUpperCase())
+                  if (buyAvg) return { ...r, average_price: buyAvg }
+                }
+                return r
+              })
           : []
 
         // De-duplicate: if a T0 row has the same symbol+avgPrice as the holding
