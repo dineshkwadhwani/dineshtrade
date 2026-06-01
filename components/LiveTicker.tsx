@@ -50,13 +50,14 @@ export default function LiveTicker() {
     const positive = chg !== null && chg > 0
     const negative = chg !== null && chg < 0
     const valueColor = positive ? '#52b788' : negative ? '#e05a5e' : 'rgba(255,255,255,0.65)'
+    const labelColor = positive ? '#52b788' : negative ? '#e05a5e' : 'rgba(201,168,76,0.7)'
     const arrow = chg === null ? '' : chg > 0 ? '▲' : chg < 0 ? '▼' : '─'
     const isBriefing = idx.source === 'briefing'
 
     return (
       <div key={key} className="flex items-center gap-1.5 whitespace-nowrap"
         style={{ borderLeft: isFirst ? 'none' : '1px solid rgba(255,255,255,0.08)', paddingLeft: isFirst ? 0 : 14 }}>
-        <span style={{ color: 'rgba(201,168,76,0.7)', fontSize: 11, letterSpacing: '0.06em', fontFamily:'JetBrains Mono, monospace' }}>
+        <span style={{ color: labelColor, fontSize: 11, letterSpacing: '0.06em', fontFamily:'JetBrains Mono, monospace' }}>
           {idx.label}
           {isBriefing && <span style={{ color:'rgba(255,255,255,0.3)', fontSize:9, marginLeft:3 }}>(pre)</span>}
         </span>

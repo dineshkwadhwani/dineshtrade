@@ -96,7 +96,7 @@ async function loadLiveCapitalBase(accounts: string[]): Promise<number | null> {
     }
     for (const holding of holdingsResult) {
       const symbol = holding.tradingsymbol.toUpperCase()
-      const heldQty = (holding.quantity || 0) + ((holding as any).t1_quantity || 0)
+      const heldQty = (holding.quantity || 0) + (holding.t1_quantity || 0)
       if (!bySymbol.has(symbol) && heldQty > 0) bySymbol.set(symbol, heldQty * (holding.last_price || 0))
     }
     const deployed = Array.from(bySymbol.values()).reduce((sum, value) => sum + value, 0)

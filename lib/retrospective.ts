@@ -462,7 +462,7 @@ async function buildLiveSnapshot(date: string): Promise<LiveSnapshot> {
     for (const h of holdings) {
       const sym = h.tradingsymbol.toUpperCase()
       // Sum settled + T+1-in-settlement qty so same-day buys appear in the report.
-      const heldQty = (h.quantity || 0) + ((h as any).t1_quantity || 0)
+      const heldQty = (h.quantity || 0) + (h.t1_quantity || 0)
       if (heldQty > 0) allOpenSymbols.set(sym, { qty: heldQty, avgPrice: h.average_price, ltp: h.last_price })
     }
     for (const p of [...positionsKite.net, ...positionsKite.day]) {

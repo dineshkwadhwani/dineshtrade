@@ -115,7 +115,11 @@ export async function monitorAccount(account: string): Promise<MonitorResult> {
   }
   for (const h of holdings) {
     const sym = h.tradingsymbol.toUpperCase()
-    liveQtyBySymbol.set(sym, (liveQtyBySymbol.get(sym) || 0) + (h.quantity || 0))
+    // Include t1_quantity (shares in T+1 settlement — bought yesterday, quantity=0
+    // until settlement completes). Without this, day-1 CNC positions look like
+    // qty=0 and get dropped from the store, causing them to show OOS on day 2.
+    const heldQty = (h.quantity || 0) + (h.t1_quantity || 0)
+    liveQtyBySymbol.set(sym, (liveQtyBySymbol.get(sym) || 0) + heldQty)
   }
 
   // Seed 1: today's Kite dt-s2 BUYs (legacy tag — keeps backward compatibility).

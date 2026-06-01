@@ -232,6 +232,5 @@ html.light [style*="border-top: 1px solid rgba(255, 255, 255"]  { border-color: 
 /* Transparent borders on inactive buttons → subtle visible border */
 html.light main button[style*="transparent"] { border-color: var(--dt-border) !important; }
 
-/* ══ LIVE TICKER — keep its dark strip intact ════════════════════════ */
-html.light .ticker-strip,
-html.light .ticker-strip * { color: inherit !important; }
+/* ══ LIVE TICKER — keep its strip styling intact without flattening item colors ══ */
+html.light .ticker-strip { color: var(--dt-text-primary); }

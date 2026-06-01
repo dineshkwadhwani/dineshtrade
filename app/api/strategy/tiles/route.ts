@@ -44,7 +44,7 @@ export async function POST(req: Request) {
     const h = heldBySymbol.get(tile.symbol)
     if (!h) return tile
     // Sum settled + T+1-in-settlement qty so same-day buys still show on tiles.
-    const qty = (h.quantity || 0) + ((h as any).t1_quantity || 0)
+    const qty = (h.quantity || 0) + (h.t1_quantity || 0)
     return {
       ...tile,
       holding: {

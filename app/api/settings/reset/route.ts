@@ -60,7 +60,7 @@ export async function POST(req: Request) {
 
   for (const h of holdings) {
     const sym = h.tradingsymbol.toUpperCase()
-    const qty = (h.quantity || 0) + ((h as any).t1_quantity || 0)
+    const qty = (h.quantity || 0) + (h.t1_quantity || 0)
     const avgPrice = Number(h.average_price) || 0
     if (qty > 0 && avgPrice > 0) seedMap.set(sym, { symbol: sym, qty, avgPrice })
   }

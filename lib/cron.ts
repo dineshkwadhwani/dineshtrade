@@ -413,7 +413,7 @@ async function reconcileManualSells(): Promise<void> {
     }
     for (const h of holdings) {
       const sym = h.tradingsymbol.toUpperCase()
-      const heldQty = (h.quantity || 0) + ((h as any).t1_quantity || 0)
+      const heldQty = (h.quantity || 0) + (h.t1_quantity || 0)
       liveQty.set(sym, (liveQty.get(sym) || 0) + heldQty)
     }
 

@@ -44,7 +44,7 @@ export async function GET(req: Request) {
 
   const quoteSymbols = Array.from(new Set([
     ...positionsResult.net.filter(position => position.quantity > 0).map(position => position.tradingsymbol.toUpperCase()),
-    ...holdingsResult.filter(holding => ((holding.quantity || 0) + ((holding as any).t1_quantity || 0)) > 0).map(holding => holding.tradingsymbol.toUpperCase()),
+    ...holdingsResult.filter(holding => ((holding.quantity || 0) + (holding.t1_quantity || 0)) > 0).map(holding => holding.tradingsymbol.toUpperCase()),
   ]))
   const quotes = quoteSymbols.length > 0
     ? await getQuotes(creds, quoteSymbols).catch(() => ({} as Awaited<ReturnType<typeof getQuotes>>))
@@ -68,7 +68,7 @@ export async function GET(req: Request) {
     const sym = h.tradingsymbol.toUpperCase()
     // Holdings split long qty across `quantity` (T+1 settled) and `t1_quantity`
     // (bought today). Both count for capital-deployed accounting — we own them.
-    const heldQty = (h.quantity || 0) + ((h as any).t1_quantity || 0)
+    const heldQty = (h.quantity || 0) + (h.t1_quantity || 0)
     if (!bySymbol.has(sym) && heldQty > 0) {
       const liveLtp = Number(quotes[`NSE:${sym}`]?.last_price) || h.last_price || 0
       bySymbol.set(sym, {

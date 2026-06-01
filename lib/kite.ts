@@ -123,6 +123,7 @@ export interface KiteHolding {
   exchange: string
   product: string
   quantity: number
+  t1_quantity?: number   // shares in T+1 settlement (bought yesterday, quantity=0 until settled)
   average_price: number
   last_price: number
   close_price?: number
