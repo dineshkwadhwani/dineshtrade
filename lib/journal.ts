@@ -205,17 +205,21 @@ export async function journalOrder(opts: {
   qty: number
   price: number
   tag?: string
+  strategyId?: string   // explicit override — bypasses tag-derived value
+  source?: 'auto' | 'manual'  // explicit override
   orderId?: string
 }): Promise<void> {
   const tag = opts.tag || ''
-  let strategyId: string | undefined
-  let source: 'auto' | 'manual' = 'auto'
-  if (tag === 'dt-manual') source = 'manual'
-  else if (tag.startsWith('dt-')) {
-    let sid = tag.slice(3).replace(/-(t1|t2|exit)$/, '')
-    if (sid === 's1') sid = 'accumulator'
-    else if (sid === 's2') sid = 'catalyst'
-    strategyId = sid
+  let strategyId: string | undefined = opts.strategyId
+  let source: 'auto' | 'manual' = opts.source ?? 'auto'
+  if (!strategyId) {
+    if (tag === 'dt-manual') source = 'manual'
+    else if (tag.startsWith('dt-')) {
+      let sid = tag.slice(3).replace(/-(t1|t2|exit)$/, '')
+      if (sid === 's1') sid = 'accumulator'
+      else if (sid === 's2') sid = 'catalyst'
+      strategyId = sid
+    }
   }
   await appendJournal({
     type: 'order',

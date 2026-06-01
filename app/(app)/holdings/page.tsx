@@ -378,7 +378,7 @@ export default function HoldingsPage() {
                 )
                 const SellBtn = isShortPosition ? null : (
                   <button onClick={() => setOrderModal({ open: true, symbol: h.tradingsymbol, side: 'SELL', ltp: h.last_price, initialQty: qty, dayChangePct: h.day_change_percentage })}
-                    disabled={!market.open} title={!market.open ? 'Market closed' : undefined}
+                    disabled={!market.open || actionQty === 0} title={!market.open ? 'Market closed' : actionQty === 0 ? 'No shares to sell' : undefined}
                     className="px-3 py-1.5 rounded text-[10px] font-semibold tracking-wider transition-all disabled:opacity-30 disabled:cursor-not-allowed"
                     style={{ background:'rgba(224,90,94,0.12)', border:'1px solid rgba(224,90,94,0.3)', color:'#e05a5e', fontFamily:'JetBrains Mono, monospace' }}>
                     S

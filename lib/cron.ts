@@ -437,6 +437,27 @@ async function reconcileManualSells(): Promise<void> {
     const zeroQtyPositions = openPositions.filter(p => (liveQty.get(p.symbol.toUpperCase()) ?? 0) <= 0)
     if (zeroQtyPositions.length === 0) continue
 
+    // For Case 2 idempotency: read journal from earliest firstBuyAt across all
+    // zero-qty positions. If a dt-manual SELL already exists for a symbol after
+    // its firstBuyAt, it's already been reconciled — don't re-journal.
+    // (Positions are NOT removed from the store after manual sell so the strategy
+    // tag remains visible in the Holdings UI.)
+    const earliestBuyDate = zeroQtyPositions.reduce((min, p) => {
+      const d = (p.firstBuyAt || today).slice(0, 10)
+      return d < min ? d : min
+    }, today)
+    const priorJournal = earliestBuyDate < today
+      ? await readJournalRange(earliestBuyDate, today).catch(() => [] as Awaited<ReturnType<typeof readJournalRange>>)
+      : todayJournal
+    // Map: sym → latest dt-manual SELL ts (to compare against pos.firstBuyAt)
+    const lastManualSellTs = new Map<string, string>()
+    for (const r of priorJournal) {
+      if (r.type !== 'order' || (r as any).side !== 'SELL' || (r as any).tag !== 'dt-manual') continue
+      const s = (r as any).symbol?.toUpperCase() as string
+      const ts = (r as any).ts as string
+      if (!lastManualSellTs.has(s) || ts > lastManualSellTs.get(s)!) lastManualSellTs.set(s, ts)
+    }
+
     const priorDaySymbols = zeroQtyPositions
       .filter(p => !todaySellBySymbol.has(p.symbol.toUpperCase()))
       .map(p => p.symbol.toUpperCase())
@@ -449,30 +470,32 @@ async function reconcileManualSells(): Promise<void> {
       const kiteOrder = todaySellBySymbol.get(sym)
 
       if (kiteOrder && !journaledOrderIds.has(kiteOrder.order_id)) {
-        // Case 1: sold today manually — journal the actual fill
+        // Case 1: sold today manually — journal the actual fill attributed to the buying strategy
         const fillPrice = Number(kiteOrder.average_price) || pos.firstBuyPrice
         const fillQty = Number(kiteOrder.filled_quantity || kiteOrder.quantity) || pos.remainingQty
         await journalOrder({
           account, symbol: pos.symbol, side: 'SELL',
           qty: fillQty, price: fillPrice,
-          tag: 'dt-manual', orderId: kiteOrder.order_id,
+          tag: 'dt-manual', strategyId: pos.strategyId, source: 'manual',
+          orderId: kiteOrder.order_id,
         }).catch(err => console.error(`[reconcile] journalOrder failed ${account} ${sym}:`, err))
-        console.log(`[reconcile] ${account} ${sym}: journaled manual SELL @ ₹${fillPrice} (order ${kiteOrder.order_id})`)
+        console.log(`[reconcile] ${account} ${sym}: journaled manual SELL @ ₹${fillPrice} (order ${kiteOrder.order_id}) strategy=${pos.strategyId}`)
       } else if (!kiteOrder) {
-        // Case 2: sold a prior day — use LTP if available, else entry price
+        // Case 2: sold a prior day — skip if already reconciled after this position's firstBuyAt
+        const lastSellTs = lastManualSellTs.get(sym)
+        if (lastSellTs && lastSellTs >= pos.firstBuyAt) continue
+        // Use LTP if available, else entry price
         const ltp = quotes[`NSE:${sym}`]?.last_price
         const closePrice = typeof ltp === 'number' && ltp > 0 ? ltp : pos.firstBuyPrice
         await journalOrder({
           account, symbol: pos.symbol, side: 'SELL',
           qty: pos.remainingQty, price: closePrice,
-          tag: 'dt-manual',
+          tag: 'dt-manual', strategyId: pos.strategyId, source: 'manual',
         }).catch(err => console.error(`[reconcile] journalOrder failed ${account} ${sym}:`, err))
-        console.log(`[reconcile] ${account} ${sym}: synthetic SELL @ ₹${closePrice} (prior-day manual close; LTP ${ltp ?? 'unavailable'})`)
+        console.log(`[reconcile] ${account} ${sym}: synthetic SELL @ ₹${closePrice} (prior-day manual close; LTP ${ltp ?? 'unavailable'}) strategy=${pos.strategyId}`)
       }
-
-      // Remove from positions store regardless — Kite shows nothing held
-      await removePosition(account, pos.symbol)
-        .catch(err => console.error(`[reconcile] removePosition failed ${account} ${sym}:`, err))
+      // Position stays in store — strategy tag remains visible in Holdings UI.
+      // Cleaned up on next re-buy (recordBuy overwrites) or manual reset.
     }
   }
 }
