@@ -1,6 +1,6 @@
-import { buildLiveQtyBySymbol, getHistoricalCandles, getHoldings, getPositions, kiteRequest, getQuotes, resolveAccountCreds, type HistoricalCandle, type KiteCreds } from './kite'
+import { buildLiveQtyBySymbol, getHistoricalCandles, getHoldings, getOrders, getPositions, kiteRequest, getQuotes, resolveAccountCreds, type HistoricalCandle, type KiteCreds, type KiteOrder } from './kite'
 import { getInstrumentTokens } from './instruments'
-import { listJournalDates, readJournalRange, type OrderRecord } from './journal'
+import { istDateString, listJournalDates, readJournalRange, type OrderRecord } from './journal'
 import { getStrategies, getStrategyById } from './strategyConfig'
 import { getState } from './state'
 import { applyBacktestCharges, type BacktestEquityPoint, type BacktestTrade, type StrategyBacktestResult } from './backtest'
@@ -181,6 +181,105 @@ function hasActivityInRange(trade: InternalTrade, fromDate: string, toDate: stri
     || rangeIncludes(fromDate, toDate, trade.exitDate)
 }
 
+function deriveOrderMeta(tag: string | undefined): { strategyId?: string; source: 'auto' | 'manual' } {
+  if (!tag) return { source: 'manual' }
+  if (tag === 'dt-manual') return { source: 'manual' }
+  if (tag.startsWith('dt-')) {
+    let strategyId = tag.slice(3).replace(/-(t1|t2|exit)$/, '')
+    if (strategyId === 's1') strategyId = 'accumulator'
+    else if (strategyId === 's2') strategyId = 'catalyst'
+    return { strategyId, source: 'auto' }
+  }
+  return { source: 'manual' }
+}
+
+function normalizeKiteOrderTimestamp(value: string | undefined): string {
+  if (!value) return new Date(0).toISOString()
+  if (/^\d{4}-\d{2}-\d{2}T/.test(value)) return value
+  if (/^\d{4}-\d{2}-\d{2} /.test(value)) {
+    return new Date(value.replace(' ', 'T') + '+05:30').toISOString()
+  }
+  const parsed = new Date(value)
+  return Number.isNaN(parsed.getTime()) ? value : parsed.toISOString()
+}
+
+async function loadTodayLiveOrders(accounts: string[], toDate: string): Promise<OrderRecord[]> {
+  if (toDate !== istDateString() || accounts.length === 0) return []
+
+  const rows = await Promise.all(accounts.map(async account => {
+    const resolved = await resolveAccountCreds(account)
+    if (!resolved.ok) return [] as OrderRecord[]
+    const creds = { apiKey: resolved.apiKey, accessToken: resolved.accessToken }
+    const orders = await getOrders(creds).catch(() => [] as KiteOrder[])
+
+    return orders
+      .filter(order => order.status === 'COMPLETE')
+      .map(order => {
+        const ts = normalizeKiteOrderTimestamp(order.order_timestamp)
+        const date = ts.slice(0, 10)
+        const meta = deriveOrderMeta(order.tag)
+        return {
+          type: 'order' as const,
+          date,
+          ts,
+          account: account.toUpperCase(),
+          symbol: order.tradingsymbol.toUpperCase(),
+          side: order.transaction_type,
+          qty: order.filled_quantity || order.quantity || 0,
+          price: order.average_price || 0,
+          tag: order.tag,
+          strategyId: meta.strategyId,
+          source: meta.source,
+          orderId: order.order_id,
+        }
+      })
+      .filter(order => order.date === toDate && order.qty > 0)
+  }))
+
+  return rows.flat()
+}
+
+function mergeTodayOrders(rawOrders: OrderRecord[], liveOrders: OrderRecord[], toDate: string): OrderRecord[] {
+  if (liveOrders.length === 0) return rawOrders
+
+  const liveByOrderId = new Map(liveOrders.filter(order => order.orderId).map(order => [order.orderId!, order]))
+  const liveSellKeys = new Set(
+    liveOrders
+      .filter(order => order.side === 'SELL')
+      .map(order => `${order.account}:${order.symbol}:${order.side}:${order.date}`),
+  )
+
+  const merged: OrderRecord[] = []
+  const consumedLiveOrderIds = new Set<string>()
+
+  for (const order of rawOrders) {
+    if (order.date !== toDate) {
+      merged.push(order)
+      continue
+    }
+
+    if (order.orderId && liveByOrderId.has(order.orderId)) {
+      consumedLiveOrderIds.add(order.orderId)
+      merged.push(liveByOrderId.get(order.orderId)!)
+      continue
+    }
+
+    const liveSellKey = `${order.account}:${order.symbol}:${order.side}:${order.date}`
+    if (order.side === 'SELL' && !order.orderId && liveSellKeys.has(liveSellKey)) {
+      continue
+    }
+
+    merged.push(order)
+  }
+
+  for (const order of liveOrders) {
+    if (order.orderId && consumedLiveOrderIds.has(order.orderId)) continue
+    merged.push(order)
+  }
+
+  return merged.sort((a, b) => a.ts.localeCompare(b.ts))
+}
+
 async function reconcileLiveOpenTrades(
   trades: InternalTrade[],
   accounts: string[],
@@ -210,21 +309,24 @@ async function reconcileLiveOpenTrades(
 
   for (const account of accounts) {
     const tracked = await listPositions({ account })
+    const trackedBySymbol = new Map(tracked.map(position => [position.symbol.toUpperCase(), position]))
     const liveQtyBySymbol = liveQtyByAccountMap.get(account) || new Map<string, number>()
 
-    for (const position of tracked) {
-      if (strategyFilter && strategyFilter !== 'manual' && position.strategyId !== strategyFilter) continue
-      if (strategyFilter === 'manual') continue
-
-      const symbol = position.symbol.toUpperCase()
-      const brokerQty = liveQtyBySymbol.get(symbol) || 0
+    for (const [symbol, brokerQty] of Array.from(liveQtyBySymbol.entries())) {
       if (brokerQty <= 0) continue
+      const position = trackedBySymbol.get(symbol)
+      if (strategyFilter === 'manual' && position?.strategyId) continue
+      if (strategyFilter && strategyFilter !== 'manual' && position?.strategyId && position.strategyId !== strategyFilter) continue
 
       const symbolMatches = reconciled.filter(trade => (
         trade.account === account
         && trade.symbol === symbol
       ))
-      const strategyMatches = symbolMatches.filter(trade => trade.strategyId === position.strategyId)
+      if (symbolMatches.length === 0 && !position) continue
+
+      const strategyMatches = position
+        ? symbolMatches.filter(trade => trade.strategyId === position.strategyId)
+        : []
       const matches = strategyMatches.length > 0 ? strategyMatches : symbolMatches
       const existingOpenQty = symbolMatches.reduce((sum, trade) => sum + trade.remainingQty, 0)
       const missingQty = Math.max(0, brokerQty - existingOpenQty)
@@ -236,7 +338,7 @@ async function reconcileLiveOpenTrades(
       })[0]
 
       if (candidate) {
-        if (!candidate.strategyId) {
+        if (!candidate.strategyId && position?.strategyId) {
           candidate.strategyId = position.strategyId
           candidate.strategyName = displayStrategyName(position.strategyId, account, multiAccount, false)
         }
@@ -247,6 +349,8 @@ async function reconcileLiveOpenTrades(
         candidate.activeInRange = true
         continue
       }
+
+      if (!position) continue
 
       const entryDate = dateOnly(position.firstBuyAt)
       reconciled.push({
@@ -301,9 +405,11 @@ export async function buildLiveTradeReport(options: LiveTradeReportOptions): Pro
   const knownDates = (await listJournalDates()).filter(date => date <= toDate).sort()
   const earliest = knownDates[0] || fromDate
   const records = await readJournalRange(earliest, toDate)
-  const rawOrders = records
+  const journalOrders = records
     .filter((record): record is OrderRecord => record.type === 'order')
     .sort((a, b) => a.ts.localeCompare(b.ts))
+  const liveTodayOrders = await loadTodayLiveOrders(selectedAccounts, toDate)
+  const rawOrders = mergeTodayOrders(journalOrders, liveTodayOrders, toDate)
 
   // De-duplicate dt-manual SELL entries: when the same account+symbol+date has
   // both a Case 1 entry (has orderId = real fill price) and a Case 2 entry (no
