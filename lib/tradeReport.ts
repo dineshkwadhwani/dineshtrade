@@ -243,11 +243,23 @@ function mergeTodayOrders(rawOrders: OrderRecord[], liveOrders: OrderRecord[], t
   if (liveOrders.length === 0) return rawOrders
 
   const liveByOrderId = new Map(liveOrders.filter(order => order.orderId).map(order => [order.orderId!, order]))
-  const liveSellKeys = new Set(
-    liveOrders
-      .filter(order => order.side === 'SELL')
-      .map(order => `${order.account}:${order.symbol}:${order.side}:${order.date}`),
-  )
+  const liveByShape = new Map<string, OrderRecord[]>()
+  const makeShapeKey = (order: OrderRecord): string => [
+    order.account,
+    order.symbol,
+    order.side,
+    order.date,
+    order.qty,
+    order.strategyId || '',
+    order.source,
+  ].join(':')
+
+  for (const order of liveOrders) {
+    const key = makeShapeKey(order)
+    const bucket = liveByShape.get(key) || []
+    bucket.push(order)
+    liveByShape.set(key, bucket)
+  }
 
   const merged: OrderRecord[] = []
   const consumedLiveOrderIds = new Set<string>()
@@ -264,9 +276,15 @@ function mergeTodayOrders(rawOrders: OrderRecord[], liveOrders: OrderRecord[], t
       continue
     }
 
-    const liveSellKey = `${order.account}:${order.symbol}:${order.side}:${order.date}`
-    if (order.side === 'SELL' && !order.orderId && liveSellKeys.has(liveSellKey)) {
-      continue
+    if (!order.orderId) {
+      const shapeKey = makeShapeKey(order)
+      const bucket = liveByShape.get(shapeKey) || []
+      const replacement = bucket.shift()
+      if (replacement) {
+        if (replacement.orderId) consumedLiveOrderIds.add(replacement.orderId)
+        merged.push(replacement)
+        continue
+      }
     }
 
     merged.push(order)
@@ -329,7 +347,41 @@ async function reconcileLiveOpenTrades(
         : []
       const matches = strategyMatches.length > 0 ? strategyMatches : symbolMatches
       const existingOpenQty = symbolMatches.reduce((sum, trade) => sum + trade.remainingQty, 0)
-      const missingQty = Math.max(0, brokerQty - existingOpenQty)
+      let missingQty = Math.max(0, brokerQty - existingOpenQty)
+      if (missingQty <= 0) continue
+
+      const restorable = [...matches].sort((a, b) => {
+        if (a.entryDate !== b.entryDate) return a.entryDate.localeCompare(b.entryDate)
+        return a.buyNumber - b.buyNumber
+      })
+
+      for (const trade of restorable) {
+        if (missingQty <= 0) break
+        const restoreCapacity = Math.max(0, trade.qty - trade.remainingQty)
+        if (restoreCapacity <= 0) continue
+
+        const restoredQty = Math.min(restoreCapacity, missingQty)
+        trade.remainingQty += restoredQty
+        if (!trade.strategyId && position?.strategyId) {
+          trade.strategyId = position.strategyId
+          trade.strategyName = displayStrategyName(position.strategyId, account, multiAccount, false)
+        }
+        trade.status = 'open'
+        trade.activeInRange = true
+        missingQty -= restoredQty
+
+        if (trade.remainingQty === trade.qty) {
+          trade.sellEvents = []
+          trade.exitValue = 0
+          trade.realizedPnl = 0
+          trade.realizedPct = 0
+          trade.exitDate = undefined
+          trade.exitPrice = undefined
+          trade.t1Date = undefined
+          trade.t2Date = undefined
+        }
+      }
+
       if (missingQty <= 0) continue
 
       const candidate = [...matches].sort((a, b) => {

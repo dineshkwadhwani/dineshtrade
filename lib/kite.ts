@@ -234,10 +234,13 @@ export async function cancelKiteOrder(
   return kiteRequest(`/orders/regular/${orderId}`, creds, 'DELETE')
 }
 
-// Merges Kite positions (day + net) and holdings into a Map<SYMBOL, liveQty>.
-// Holdings contribute quantity + t1_quantity (T+1 settlement shares — bought
-// yesterday, appear in holdings with quantity=0 until settled). Without t1,
-// day-1 CNC positions look like qty=0 and get incorrectly treated as closed.
+// Merges Kite positions and holdings into a Map<SYMBOL, liveQty>.
+// Important: Kite's `day` and `net` position snapshots can both contain the
+// same symbol for the same live quantity, so callers often pass either `net`
+// or `[...day, ...net]`. We therefore take the MAX live position qty seen for
+// a symbol rather than summing repeated position snapshots. Holdings are then
+// added on top because delivery holdings and today's live position quantity are
+// distinct sources of stock.
 export function buildLiveQtyBySymbol(
   positions: KitePosition[],
   holdings: KiteHolding[],
@@ -245,7 +248,8 @@ export function buildLiveQtyBySymbol(
   const map = new Map<string, number>()
   for (const p of positions) {
     const sym = p.tradingsymbol.toUpperCase()
-    map.set(sym, (map.get(sym) || 0) + (p.quantity || 0))
+    const qty = Math.max(0, p.quantity || 0)
+    map.set(sym, Math.max(map.get(sym) || 0, qty))
   }
   for (const h of holdings) {
     const sym = h.tradingsymbol.toUpperCase()
