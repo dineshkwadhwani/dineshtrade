@@ -20,6 +20,8 @@ export function resolvePositionTag(
   todaysOrderTags: Set<string>,
   strategiesById: Map<string, Pick<Strategy, 'name' | 'color'>>,
 ): PositionTag {
+  const accumulator = strategiesById.get('accumulator')
+
   if (journalStrategyId) {
     const s = strategiesById.get(journalStrategyId)
     return {
@@ -38,7 +40,14 @@ export function resolvePositionTag(
     else if (sid === 's2') sid = 'catalyst'
     strategyIdsFromTags.add(sid)
   }
-  if (strategyIdsFromTags.size === 0 && !hasManual) return { kind: 'pre', label: 'OOS', color: 'rgba(255,255,255,0.5)' }
+  if (strategyIdsFromTags.size === 0 && !hasManual) {
+    return {
+      kind: 'strategy',
+      strategyId: 'accumulator',
+      label: accumulator?.name?.slice(0, 12) || 'Accumulator',
+      color: accumulator?.color || '#c9a84c',
+    }
+  }
   if (strategyIdsFromTags.size === 1 && !hasManual) {
     const sid = Array.from(strategyIdsFromTags)[0]
     const s = strategiesById.get(sid)

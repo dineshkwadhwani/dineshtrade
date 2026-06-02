@@ -74,7 +74,7 @@ This spec documents the *user-visible* behaviour: what the app does, when, and w
 - The top holdings summary cards remain long-holdings oriented and do not mix same-day short exposure into Invested / Current / Overall P&L totals.
 - Joins with `/api/strategy/positions` to label each row:
   - **S1 (gold)** — managed by Strategy 1 (tracked in `strategy1.json`)
-  - **OOS (gray)** — Out Of System; pre-existing or hand-entered, **never** auto-managed
+  - **Accumulator (gold/strategy color)** — any live broker-held position that the system absorbs without a stronger owning strategy is brought into `accumulator` and managed as an accumulator position
 - Each row has Buy and Sell buttons that open the universal OrderModal.
 
 ### F3.3 — OrderModal (used across Watchlist, Holdings, Positions)
@@ -84,7 +84,7 @@ This spec documents the *user-visible* behaviour: what the app does, when, and w
 - On SELL with partial holdings, auto-clamps to held qty.
 
 ### Nuances
-- **OOS auto-classification:** done dynamically each render — no manual flag. Any holding not in `strategy1.json` is OOS, and auto-mode treats it as untouchable.
+- **No persistent OOS bucket:** broker-held positions without a stronger owning strategy are absorbed into `accumulator` so they remain managed by the system rather than staying permanently outside it.
 - **Funds-gate exemption for manual:** by design — the user wants to be able to buy with their own judgement, even above the auto-mode per-trade cap. The funds gate still prevents NSE rejection.
 
 ---
@@ -218,6 +218,18 @@ A richer UI layer over the **same** scan logic — no change to the underlying s
 ### F4.5 — Multi-strategy framework + universal parking lot
 
 *Built 20–21 May 2026. The "two strategies" model evolved into a generic N-strategy framework.*
+
+### F4.6 — Trading Engine Flow
+
+This is the simplest way to understand the runtime split between strategy logic and cron automation.
+
+- **Strategy scan:** checks whether a strategy has a new **BUY** opportunity.
+- **Per-strategy schedule:** each active strategy runs at its own `scanIntervalMin` and, if a BUY qualifies, that run can place the BUY immediately.
+- **Global cron tick:** runs every 5 minutes and handles account-wide automation that is not owned by one strategy.
+- **Cron responsibilities:** SELL monitoring, manual/outside-system reconciliation with Kite, reactive checks, and end-of-day actions.
+- **Key rule:** strategy schedules are mainly for finding and placing BUYs; the global cron is mainly for managing existing positions and syncing broker truth.
+
+See [docs/TradingEngine.md](docs/TradingEngine.md) for the standalone plain-English flowchart.
 
 - **Strategies live in `data/strategy.json` as records** with `{ id, name, type: 'dip' | 'momentum', active, scanIntervalMin, watchlist, params, exits, giftNiftyGate, color }`. Defaults seed accumulator + catalyst.
 - **Per-strategy exit profiles** — both monitors look up `getStrategyById(pos.strategyId)` *per position* and use that strategy's own `t1Pct`/`t2Pct`/`deliveryHandoffDays`. A custom "quickwin" momentum strategy with T1 = 1.0% will actually sell at +1.0%, not catalyst's 1.5%.
@@ -356,7 +368,7 @@ Hero (4 cards): **Orders Today** · **Open Positions** · **Deployed Today** · 
 Sections (added 19–20 May 2026 to make the report useful on days with no closed round-trips):
 
 1. **Activity Today** — every Kite order today (BUY / SELL, time, symbol, qty, price, strategy tag), not just closed BUY+SELL pairs. Answers "did anything happen today?" honestly even on partial-fill or open-position days.
-2. **Open Positions** — every position still open at EoD, with its strategy source (S1 / S2 / Manual / OOS / Mixed), pyramid status (e.g. "BUY 2/3, next at ≥10% drop"), and S2 handoff countdown for S2-managed positions approaching the 15-calendar-day delivery cutoff.
+2. **Open Positions** — every position still open at EoD, with its strategy source (Accumulator / Catalyst / Manual-same-day / Mixed), pyramid status (e.g. "BUY 2/3, next at ≥10% drop"), and S2 handoff countdown for S2-managed positions approaching the 15-calendar-day delivery cutoff.
 3. **Capital Status** — deployed today / available / max-deployable / circuit-breaker headroom.
 4. **Trade-by-trade** — closed round-trips with entry/exit/P&L, **enriched with live Kite OHLC** so final day-high / left-on-table reflect the full session, not just the moment of sale.
 5. **Per-strategy health** — one card per strategy with 30-day counts (scans / signals / executions), last-signal date, and warnings:
@@ -446,7 +458,7 @@ Fires on the last trading day of the month (after the daily report). Shows: tota
 - Square Off button is always visible; disabled outside market hours per CB5
 
 ### F8.2 — Strategy tag derivation
-*Updated 21 May 2026 — driven by the unified position store's `strategyId`, falling back to today's order-tag inference for OOS / Manual / Mixed cases.*
+*Updated 2 June 2026 — driven by the unified position store's `strategyId`, with accumulator intake for broker-held positions that would previously have rendered as OOS.*
 
 The `PositionTag` shape returned by `GET /api/positions` is now:
 
@@ -460,7 +472,7 @@ Resolution order:
 2. Else infer from today's filled-order tags for the symbol:
    - Single `dt-<strategyId>` (or legacy `dt-s1*` / `dt-s2*`) → `strategy` pill using that strategy's display name + color
    - Only `dt-manual` → `manual` (purple `MANUAL` pill)
-   - No app tags → `pre` (grey `OOS` pill)
+  - No app tags → `strategy` pill for `accumulator` (broker-held position absorbed into system ownership)
    - Multiple distinct strategies → `mixed` (amber `MIXED` pill)
 
 The pill carries a tooltip naming the strategy id ("Owned by strategy: quickwin") so the user can quickly trace which strategy will manage the exit.
@@ -650,7 +662,7 @@ The status column shows a single glyph instead of the raw Kite enum, with a tool
 - Cron auto-BUY, Engine Execute, and tile BUY all tag Kite orders as **`dt-${strategy.id}`** (e.g. `dt-accumulator`, `dt-catalyst`, `dt-quickwin`).
 - `/api/zerodha` parses the tag, derives `strategyId`, and routes BUYs to `positions.recordBuy()`.
 - Legacy `dt-s1` / `dt-s2` tags still understood on the read path (mapped to `accumulator` / `catalyst`).
-- Manual orders from Watchlist / Holdings / Positions OrderModal stay `dt-manual` — no strategy ownership.
+- Manual orders from Watchlist / Holdings / Positions OrderModal still place with `dt-manual`, but successful manual BUYs are absorbed into `accumulator` ownership in the unified position store and journal attribution.
 
 ### Epic 13 nuances
 
@@ -716,19 +728,20 @@ Every order-placing button across the app (Buy / Sell on Watchlist + Holdings, S
 For each connected account, the function:
 1. Gets all open positions from the unified store
 2. Fetches live Kite holdings + positions to check actual qty
+3. Absorbs any live broker-held symbol that is not already tracked into `accumulator` using Kite avg price as the entry basis for system ownership
 3. For positions where Kite qty = 0 (position gone):
-   - **Sold today:** finds matching SELL order in today's Kite order book, journals at actual fill price + actual qty, tagged `dt-manual`
-   - **Sold a prior day:** journals a synthetic SELL at current LTP (market closing price at 15:35 sweep), or entry price if no quote available, tagged `dt-manual`
-4. Removes the position from the unified store regardless
+  - **Sold today:** finds matching SELL order in today's Kite order book, journals at actual fill price + actual qty, tagged `dt-manual`, preserving the tracked strategy id
+  - **Sold a prior day:** journals a synthetic SELL at current LTP (market closing price at 15:35 sweep), or entry price if no quote available, tagged `dt-manual`, preserving the tracked strategy id
+4. Leaves the tracked position ownership available for downstream tag/report consumers until a later reset or overwrite path clears it
 
 ### F14.2 — Trade report impact
 
-Once a `dt-manual` SELL journal entry exists, the trade report matches it against the original BUY by `account + symbol` (not by strategy). The trade shows as closed with correct P&L. Verdict = `manual` (label only — does not affect win/loss count or P&L).
+Once a `dt-manual` SELL journal entry exists, the trade report matches it against the original BUY by `account + symbol`, preserving the owning strategy from the tracked position (`accumulator`, `catalyst`, or another saved strategy). The trade shows as closed with correct P&L. Verdict = `manual` (label only — does not affect win/loss count or P&L).
 
 ### Nuances
 - Manual sells are NOT blocked by the no-loss gate (that gate only applies to auto SELLs)
 - Reconciliation uses today's Kite order book, so prior-day sells get a synthetic entry at best-available price — not broker-exact
-- The `dt-manual` tag identifies source but doesn't change which strategy "owns" the original BUY
+- The `dt-manual` tag identifies source only; strategy ownership is preserved from the tracked position and manual BUYs are absorbed into `accumulator`
 
 ---
 

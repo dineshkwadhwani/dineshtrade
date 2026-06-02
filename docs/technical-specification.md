@@ -942,7 +942,7 @@ LiveTicker renders two separate `<div>` blocks — `sm:hidden` (mobile, 2 indice
 | **S1 / Strategy 1 / Oscillator** | Mean-reversion strategy on EMA-deviated stocks |
 | **S2 / Strategy 2 / Catalyst** | Intraday momentum strategy |
 | **T1 / T2** | Intraday profit targets (+1.5% / +2.0%) |
-| **OOS** | Out Of System — a holding the app didn't initiate, so it's never auto-managed |
+| **OOS** | Legacy label only. Current ownership policy absorbs broker-held unowned positions into **Accumulator** so they are system-managed going forward |
 | **Tranche 1 / Tranche 2** | The two halves of a Strategy 1 exit (50% at EMA recovery, 50% at EMA+3%) |
 | **Catalyst day** | GIFT Nifty positive/flat — Strategy 2 mode |
 | **Dip day** | GIFT Nifty < −0.5% — Strategy 1 mode |

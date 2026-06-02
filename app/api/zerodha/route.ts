@@ -179,6 +179,17 @@ export async function POST(req: NextRequest) {
 
   if (r.ok && r.data?.data?.order_id) {
     await markPlaced(account, symbolUpper, side, { price: pricePerShare, manual })
+    let journalStrategyId: string | undefined
+    if (orderTag && orderTag.startsWith('dt-')) {
+      journalStrategyId = orderTag === 'dt-manual' ? 'accumulator' : orderTag.slice(3)
+      if (journalStrategyId === 's1') journalStrategyId = 'accumulator'
+      else if (journalStrategyId === 's2') journalStrategyId = 'catalyst'
+    }
+    if (side === 'SELL' && orderTag === 'dt-manual') {
+      const { getPosition } = await import('@/lib/positions')
+      const tracked = await getPosition(account, symbolUpper).catch(() => null)
+      if (tracked?.strategyId) journalStrategyId = tracked.strategyId
+    }
     // Journal EVERY successful Kite order — manual + auto, BUY + SELL.
     // The retrospective's "Activity Today" reads from journal for past dates
     // (Kite's /orders only returns the current session).
@@ -186,18 +197,15 @@ export async function POST(req: NextRequest) {
       const { journalOrder } = await import('@/lib/journal')
       journalOrder({
         account, symbol: symbolUpper, side, qty: actualQty,
-        price: pricePerShare, tag: orderTag, orderId: r.data.data.order_id,
+        price: pricePerShare, tag: orderTag, strategyId: journalStrategyId, orderId: r.data.data.order_id,
       }).catch(err => console.error('[zerodha route] journalOrder failed:', err))
     }
-    // Persist BUYs into the unified position store. The order tag carries the
-    // strategy id (`dt-${strategyId}`); legacy tags `dt-s1` / `dt-s2` map to
-    // 'accumulator' / 'catalyst' respectively for backward compatibility.
-    if (side === 'BUY' && orderTag && orderTag.startsWith('dt-') && orderTag !== 'dt-manual') {
-      let strategyId = orderTag.slice(3)   // 'dt-quickwin' → 'quickwin'
-      if (strategyId === 's1') strategyId = 'accumulator'
-      else if (strategyId === 's2') strategyId = 'catalyst'
+    // Persist BUYs into the unified position store. Strategy-tagged buys keep
+    // their owning strategy. Manual buys are absorbed into accumulator so they
+    // are no longer treated as OOS on later days or outside-system sells.
+    if (side === 'BUY' && orderTag && orderTag.startsWith('dt-')) {
       const { recordBuy } = await import('@/lib/positions')
-      recordBuy(strategyId, account, symbolUpper, actualQty, pricePerShare)
+      recordBuy(journalStrategyId || 'accumulator', account, symbolUpper, actualQty, pricePerShare)
         .catch(err => console.error('[zerodha route] position record failed:', err))
     }
     sendEmail('trade_executed', {

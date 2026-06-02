@@ -286,9 +286,9 @@ export async function wipeAccountJournal(account: string): Promise<{ filesModifi
   return { filesModified, recordsRemoved }
 }
 
-// Returns Map<"SYMBOL", strategyId> for the most recent auto-BUY per symbol
-// for the given account within the last 30 days. Used as a fallback tag source
-// when a symbol has been sold and removed from the positions store.
+// Returns Map<"SYMBOL", strategyId> for the most recent strategy-owned BUY per
+// symbol for the given account within the last 30 days. Used as a fallback tag
+// source when a symbol has been sold and removed from the positions store.
 // excludeSymbols: set of already-known SYMBOL keys (store wins — skip those).
 export async function getJournalStrategyFallback(
   account: string,
@@ -300,7 +300,7 @@ export async function getJournalStrategyFallback(
   for (const r of journal) {
     if (r.type !== 'order') continue
     const o = r as OrderRecord
-    if (o.side !== 'BUY' || o.source !== 'auto' || !o.strategyId) continue
+    if (o.side !== 'BUY' || !o.strategyId) continue
     if (o.account.toUpperCase() !== account.toUpperCase()) continue
     const sym = o.symbol.toUpperCase()
     if (excludeSymbols.has(sym)) continue

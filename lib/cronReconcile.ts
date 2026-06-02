@@ -15,9 +15,41 @@
 
 import { getState } from './state'
 import { resolveAccountCreds, getPositions, getHoldings, getOrders, getQuotes, buildLiveQtyBySymbol } from './kite'
-import { appendJournal, istDateString, readJournalRange, journalOrder, type OrderRecord } from './journal'
-import { listPositions } from './positions'
+import { istDateString, readJournalRange, journalOrder, type OrderRecord } from './journal'
+import { listPositions, recordBuy } from './positions'
 import { istHHMM } from './cronState'
+
+function buildLiveInventory(
+  holdings: Awaited<ReturnType<typeof getHoldings>>,
+  positions: Awaited<ReturnType<typeof getPositions>>,
+): Map<string, { qty: number; avgPrice: number }> {
+  const inventory = new Map<string, { qty: number; avgPrice: number }>()
+
+  for (const holding of holdings) {
+    const symbol = holding.tradingsymbol.toUpperCase()
+    const qty = (holding.quantity || 0) + (holding.t1_quantity || 0)
+    const avgPrice = Number(holding.average_price) || 0
+    if (qty > 0 && avgPrice > 0) inventory.set(symbol, { qty, avgPrice })
+  }
+
+  for (const position of positions.net) {
+    const symbol = position.tradingsymbol.toUpperCase()
+    if (inventory.has(symbol)) continue
+    const qty = position.quantity || 0
+    const avgPrice = Number(position.average_price) || 0
+    if (qty > 0 && avgPrice > 0) inventory.set(symbol, { qty, avgPrice })
+  }
+
+  for (const position of positions.day) {
+    const symbol = position.tradingsymbol.toUpperCase()
+    if (inventory.has(symbol)) continue
+    const qty = position.quantity || 0
+    const avgPrice = Number(position.average_price) || 0
+    if (qty > 0 && avgPrice > 0) inventory.set(symbol, { qty, avgPrice })
+  }
+
+  return inventory
+}
 
 export async function reconcileManualSells(): Promise<void> {
   const state = await getState()
@@ -31,16 +63,35 @@ export async function reconcileManualSells(): Promise<void> {
     if (!creds.ok) continue
 
     const openPositions = await listPositions({ account })
-    if (openPositions.length === 0) continue
 
-    // Fetch live qty, today's Kite SELL orders, and quotes for zero-qty symbols in parallel
-    const [{ day, net }, holdings, kiteOrders] = await Promise.all([
+    // Fetch live qty, today's Kite SELL orders, and live avg-price inventory in parallel.
+    const [livePositions, holdings, kiteOrders] = await Promise.all([
       getPositions(creds).catch(() => ({ day: [], net: [] })),
       getHoldings(creds).catch(() => [] as Awaited<ReturnType<typeof getHoldings>>),
       getOrders(creds).catch(() => [] as Awaited<ReturnType<typeof getOrders>>),
     ])
 
-    const liveQty = buildLiveQtyBySymbol([...day, ...net], holdings)
+    const liveQty = buildLiveQtyBySymbol([...livePositions.day, ...livePositions.net], holdings)
+    const liveInventory = buildLiveInventory(holdings, livePositions)
+    const trackedSymbols = new Set(openPositions.map(position => position.symbol.toUpperCase()))
+
+    for (const [symbol, live] of Array.from(liveInventory.entries())) {
+      if (trackedSymbols.has(symbol)) continue
+      await recordBuy('accumulator', account, symbol, live.qty, live.avgPrice)
+      await journalOrder({
+        account,
+        symbol,
+        side: 'BUY',
+        qty: live.qty,
+        price: live.avgPrice,
+        tag: 'dt-accumulator',
+        strategyId: 'accumulator',
+      }).catch(err => console.error(`[reconcile] accumulator intake journal failed ${account} ${symbol}:`, err))
+      console.log(`[reconcile] ${account} ${symbol}: absorbed live broker position into accumulator @ ₹${live.avgPrice}`)
+    }
+
+    const trackedPositions = await listPositions({ account })
+    if (trackedPositions.length === 0) continue
 
     // Build map of today's completed SELL orders by symbol, and a set of
     // symbols with in-flight (pending) SELL orders. Case 2 must not fire for
@@ -68,7 +119,7 @@ export async function reconcileManualSells(): Promise<void> {
     )
 
     // Identify closed-externally positions and fetch quotes for prior-day closes
-    const zeroQtyPositions = openPositions.filter(p => (liveQty.get(p.symbol.toUpperCase()) ?? 0) <= 0)
+    const zeroQtyPositions = trackedPositions.filter(p => (liveQty.get(p.symbol.toUpperCase()) ?? 0) <= 0)
     if (zeroQtyPositions.length === 0) continue
 
     // For Case 2 idempotency: read journal from earliest firstBuyAt across all

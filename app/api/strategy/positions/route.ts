@@ -41,18 +41,18 @@ export async function GET() {
     }
   })
 
-  // Journal fallback: for symbols auto-bought within the last 30 days but no
+  // Journal fallback: for symbols strategy-owned within the last 30 days but no
   // longer in the positions store (already sold and removed), supply the
-  // strategy tag from the most recent auto-BUY journal entry so the Holdings
-  // page shows the buying strategy instead of OOS.
+  // strategy tag from the most recent strategy-owned BUY journal entry so the
+  // Holdings page shows the buying strategy instead of OOS/manual drift.
   try {
     const positionKeys = new Set(all.map(p => `${p.account.toUpperCase()}:${p.symbol.toUpperCase()}`))
     const thirtyDaysAgo = new Date(Date.now() - 30 * 24 * 3600 * 1000).toISOString().slice(0, 10)
     const recentJournal = await readJournalRange(thirtyDaysAgo, istDateString())
-    // Most recent auto-BUY per account:symbol
+    // Most recent strategy-owned BUY per account:symbol
     const latestAutoBuy = new Map<string, { strategyId: string; ts: string }>()
     for (const r of recentJournal) {
-      if (r.type !== 'order' || (r as any).side !== 'BUY' || (r as any).source !== 'auto') continue
+      if (r.type !== 'order' || (r as any).side !== 'BUY') continue
       const sid = (r as any).strategyId as string | undefined
       if (!sid) continue
       const key = `${String((r as any).account).toUpperCase()}:${String((r as any).symbol).toUpperCase()}`

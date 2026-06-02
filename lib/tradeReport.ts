@@ -592,6 +592,14 @@ export async function buildLiveTradeReport(options: LiveTradeReportOptions): Pro
 
   for (const trade of includedTrades) {
     const soldQty = trade.sellEvents.reduce((sum, event) => sum + event.qty, 0)
+    if (soldQty > 0) {
+      trade.realizedPnl = clampMoney((trade.exitValue || 0) - (soldQty * trade.entryPrice))
+      trade.realizedPct = trade.entryValue > 0 ? Number(((trade.realizedPnl / trade.entryValue) * 100).toFixed(2)) : 0
+      if (trade.remainingQty > 0 && !trade.t1Date) {
+        const firstSell = [...trade.sellEvents].sort((a, b) => a.ts.localeCompare(b.ts))[0]
+        if (firstSell) trade.t1Date = firstSell.date
+      }
+    }
     trade.exitPrice = soldQty > 0 ? clampMoney((trade.exitValue || 0) / soldQty) : undefined
     const markPrice = trade.remainingQty > 0
       ? (todayMarks.get(trade.symbol) || closeOnOrBefore(closeSeries.get(trade.symbol), toDate, trade.entryPrice))
@@ -599,7 +607,6 @@ export async function buildLiveTradeReport(options: LiveTradeReportOptions): Pro
     trade.markPrice = markPrice
     trade.markValue = clampMoney(trade.remainingQty * markPrice)
     trade.unrealizedPnl = clampMoney(trade.remainingQty * (markPrice - trade.entryPrice))
-    trade.realizedPct = trade.entryValue > 0 ? Number(((trade.realizedPnl / trade.entryValue) * 100).toFixed(2)) : 0
     trade.holdDays = dayDiff(trade.entryDate, trade.exitDate || toDate)
   }
 
