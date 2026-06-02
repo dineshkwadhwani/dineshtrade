@@ -42,11 +42,20 @@ export async function reconcileManualSells(): Promise<void> {
 
     const liveQty = buildLiveQtyBySymbol([...day, ...net], holdings)
 
-    // Build map of today's completed SELL orders by symbol
+    // Build map of today's completed SELL orders by symbol, and a set of
+    // symbols with in-flight (pending) SELL orders. Case 2 must not fire for
+    // pending sells — the order will complete shortly, and Case 1 will journal
+    // it at the actual fill price. Firing Case 2 first would record the wrong
+    // price (firstBuyPrice fallback) and block Case 1 via idempotency.
     const todaySellBySymbol = new Map<string, typeof kiteOrders[0]>()
+    const pendingSellSymbols = new Set<string>()
     for (const o of kiteOrders) {
-      if (o.transaction_type === 'SELL' && o.status === 'COMPLETE') {
-        todaySellBySymbol.set(o.tradingsymbol.toUpperCase(), o)
+      if (o.transaction_type !== 'SELL') continue
+      const sym = o.tradingsymbol.toUpperCase()
+      if (o.status === 'COMPLETE') {
+        todaySellBySymbol.set(sym, o)
+      } else if (['OPEN', 'PENDING', 'PUT ORDER REQ RECEIVED', 'VALIDATION PENDING', 'TRIGGER PENDING'].includes(o.status)) {
+        pendingSellSymbols.add(sym)
       }
     }
 
@@ -108,7 +117,14 @@ export async function reconcileManualSells(): Promise<void> {
         }).catch(err => console.error(`[reconcile] journalOrder failed ${account} ${sym}:`, err))
         console.log(`[reconcile] ${account} ${sym}: journaled manual SELL @ ₹${fillPrice} (order ${kiteOrder.order_id}) strategy=${pos.strategyId}`)
       } else if (!kiteOrder) {
-        // Case 2: sold a prior day — skip if already reconciled after this position's firstBuyAt
+        // Case 2: sold a prior day — but first skip if there's a pending SELL
+        // order today. The order will complete and Case 1 will journal it at
+        // the actual fill price on the next tick. Don't journal with wrong price now.
+        if (pendingSellSymbols.has(sym)) {
+          console.log(`[reconcile] ${account} ${sym}: sell order pending — deferring to next tick`)
+          continue
+        }
+        // Also skip if already reconciled after this position's firstBuyAt
         const lastSellTs = lastManualSellTs.get(sym)
         if (lastSellTs && lastSellTs >= pos.firstBuyAt) continue
         // Use LTP if available, else entry price

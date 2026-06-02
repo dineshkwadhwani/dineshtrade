@@ -247,9 +247,12 @@ export async function buildLiveTradeReport(options: LiveTradeReportOptions): Pro
       .filter(trade => trade.account === order.account && trade.symbol === order.symbol && trade.remainingQty > 0)
       .sort((a, b) => a.entryDate.localeCompare(b.entryDate))
     if (order.strategyId) {
+      // Prefer trades owned by this strategy (covers auto-sells and manual sells
+      // with strategyId set by reconcileManualSells — buying strategy attribution)
       const exact = candidates.filter(trade => trade.strategyId === order.strategyId)
       if (exact.length > 0) candidates = exact
     } else if (order.source === 'manual') {
+      // True manual sell with no strategy attribution — match unattributed trades
       const manualOnly = candidates.filter(trade => !trade.strategyId)
       if (manualOnly.length > 0) candidates = manualOnly
     }

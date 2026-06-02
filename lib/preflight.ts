@@ -143,7 +143,7 @@ export async function runPreflight(input: PreflightInput): Promise<PreflightResu
       if (p.tradingsymbol?.toUpperCase() === symbol.toUpperCase()) heldQty += (p.quantity || 0)
     }
     for (const h of (holdingsJson?.data || [])) {
-      if (h.tradingsymbol?.toUpperCase() === symbol.toUpperCase()) heldQty += (h.quantity || 0)
+      if (h.tradingsymbol?.toUpperCase() === symbol.toUpperCase()) heldQty += (h.quantity || 0) + (h.t1_quantity || 0)
     }
     if (heldQty <= 0) {
       // No open position — clear any stale history for this symbol
@@ -214,8 +214,9 @@ export async function runPreflight(input: PreflightInput): Promise<PreflightResu
       const sells = completed.filter(o => o.transaction_type === 'SELL').length
       const maxBuys = cap.maxBuysPerDay
       const maxSells = cap.maxSellsPerDay
-      if (side === 'BUY' && buys >= maxBuys) {
-        return { ok: false, gate: 'quota', reason: `${account}: already ${buys}/${maxBuys} buys today` }
+      const netBuys = buys - sells  // sells free up a slot — keeps open positions in check
+      if (side === 'BUY' && netBuys >= maxBuys) {
+        return { ok: false, gate: 'quota', reason: `${account}: net buys today ${netBuys}/${maxBuys} (${buys} buys − ${sells} sells)` }
       }
       if (side === 'SELL' && sells >= maxSells) {
         return { ok: false, gate: 'quota', reason: `${account}: already ${sells}/${maxSells} sells today` }

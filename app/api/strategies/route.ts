@@ -32,12 +32,19 @@ export async function GET() {
     for (const p of positions) openPositionCounts[p.strategyId] = (openPositionCounts[p.strategyId] || 0) + 1
   } catch { /* best-effort */ }
 
+  let strategyLastRunAt: Record<string, string> = {}
+  try {
+    const { strategyLastRunAt: runAt } = await import('@/lib/cronState')
+    strategyLastRunAt = { ...runAt }
+  } catch { /* best-effort: not available in local dev */ }
+
   return NextResponse.json({
     capital: getCapital(),
     strategies: getStrategies(),
     watchlistKeys,
     watchlistOptions,
     openPositionCounts,
+    strategyLastRunAt,
   }, { headers: { 'Cache-Control': 'no-store' } })
 }
 

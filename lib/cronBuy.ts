@@ -14,7 +14,7 @@ import {
   istHHMM, maybeRollDay,
   getInProcessBuyCount, getInProcessNewPositionCount,
   incrementInProcessBuy, registerInProcessNewSymbol,
-  dayStats,
+  dayStats, strategyLastRunAt,
   recordExecuted, recordFailed, recordSkipped,
 } from './cronState'
 
@@ -145,6 +145,7 @@ export async function runStrategyTaskBody(strategy: Strategy): Promise<void> {
   if (Object.keys(state.kiteTokens).length === 0) return
 
   const t = istHHMM()
+  strategyLastRunAt[strategy.id] = new Date().toISOString()
   console.log(`[cron strategy:${strategy.id}] ${t} IST — scan firing (every ${strategy.scanIntervalMin} min)`)
 
   let recsCount = 0

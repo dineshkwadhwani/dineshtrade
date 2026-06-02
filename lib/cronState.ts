@@ -9,6 +9,10 @@ import type { EODLineItem } from './email'
 export let currentDateKey = ''
 export let dipScanDoneDate = ''
 
+// Per-strategy last-run timestamps (ISO). Updated by runStrategyTaskBody each time
+// a strategy's cron task fires. Survives in-process; resets on PM2 restart.
+export const strategyLastRunAt: Record<string, string> = {}
+
 // In-process BUY counter + new-positions set — shared across all per-strategy
 // cron tasks to prevent the race condition where two concurrent tasks both pass
 // the quota gate or positions gate before the other's order shows in Kite.

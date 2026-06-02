@@ -852,7 +852,7 @@ function ResetSection({ connected }: { connected: string[] }) {
 
 function StrategiesTab({ autoModeOn }: { autoModeOn: boolean }) {
   // The server response is the SOURCE; `draft` is the user's working copy.
-  const [source, setSource] = useState<{ capital: CapitalConfig; strategies: StrategyConfig[]; watchlistOptions: { key: string; name: string }[]; openPositionCounts: Record<string, number> } | null>(null)
+  const [source, setSource] = useState<{ capital: CapitalConfig; strategies: StrategyConfig[]; watchlistOptions: { key: string; name: string }[]; openPositionCounts: Record<string, number>; strategyLastRunAt: Record<string, string> } | null>(null)
   const [draft, setDraft] = useState<{ capital: CapitalConfig; strategies: StrategyConfig[] } | null>(null)
   const [funds, setFunds] = useState<{ available: number; maxDeployable: number; reserve: number; remaining: number; deployed: number } | null>(null)
   const [error, setError] = useState('')
@@ -872,7 +872,7 @@ function StrategiesTab({ autoModeOn }: { autoModeOn: boolean }) {
         const opts = Array.isArray(d.watchlistOptions) && d.watchlistOptions.length > 0
           ? d.watchlistOptions
           : (Array.isArray(d.watchlistKeys) ? d.watchlistKeys.map((k: string) => ({ key: k, name: k })) : [])
-        setSource({ capital: d.capital, strategies: d.strategies, watchlistOptions: opts, openPositionCounts: d.openPositionCounts || {} })
+        setSource({ capital: d.capital, strategies: d.strategies, watchlistOptions: opts, openPositionCounts: d.openPositionCounts || {}, strategyLastRunAt: d.strategyLastRunAt || {} })
         setDraft({ capital: d.capital, strategies: d.strategies })
       }
     }).catch(() => setError('Failed to load strategies'))
@@ -984,7 +984,7 @@ function StrategiesTab({ autoModeOn }: { autoModeOn: boolean }) {
       })
       const data = await res.json()
       if (res.ok) {
-        setSource({ capital: draft.capital, strategies: draft.strategies, watchlistOptions: source?.watchlistOptions || [], openPositionCounts: source?.openPositionCounts || {} })
+        setSource({ capital: draft.capital, strategies: draft.strategies, watchlistOptions: source?.watchlistOptions || [], openPositionCounts: source?.openPositionCounts || {}, strategyLastRunAt: source?.strategyLastRunAt || {} })
         const r = data.reload
         const parts: string[] = []
         if (r?.added?.length)     parts.push(`+${r.added.length} added`)
@@ -1068,6 +1068,7 @@ function StrategiesTab({ autoModeOn }: { autoModeOn: boolean }) {
             canReset={!!source.strategies.find(o => o.id === s.id)}
             isProtected={s.id === 'accumulator'}
             locked={locked}
+            lastRunAt={source.strategyLastRunAt?.[s.id]}
           />
         ))}
 
@@ -2536,7 +2537,7 @@ function compareBacktestHistory(
   return direction === 'asc' ? result : -result
 }
 
-function StrategyCard({ s, expanded, onToggle, watchlistOptions, onPatch, onToggleActive, onReset, onDuplicate, onDelete, canReset, isProtected, locked }: {
+function StrategyCard({ s, expanded, onToggle, watchlistOptions, onPatch, onToggleActive, onReset, onDuplicate, onDelete, canReset, isProtected, locked, lastRunAt }: {
   s: StrategyConfig
   expanded: boolean
   onToggle: () => void
@@ -2549,7 +2550,15 @@ function StrategyCard({ s, expanded, onToggle, watchlistOptions, onPatch, onTogg
   canReset: boolean
   isProtected: boolean    // true for accumulator — disables active toggle + delete
   locked: boolean
+  lastRunAt?: string      // ISO timestamp of last cron fire (undefined = not run yet this session)
 }) {
+  function fmtLastRun(iso: string): string {
+    const d = new Date(iso)
+    const ist = new Date(d.toLocaleString('en-US', { timeZone: 'Asia/Kolkata' }))
+    const hh = String(ist.getHours()).padStart(2, '0')
+    const mm = String(ist.getMinutes()).padStart(2, '0')
+    return `${hh}:${mm} IST`
+  }
   const paramDescs = s.type === 'dip' ? DIP_PARAM_DESCRIPTIONS : MOMENTUM_PARAM_DESCRIPTIONS
   function toggleListKey(k: string) {
     const next = s.watchlist.includes(k) ? s.watchlist.filter(x => x !== k) : [...s.watchlist, k]
@@ -2571,6 +2580,15 @@ function StrategyCard({ s, expanded, onToggle, watchlistOptions, onPatch, onTogg
           </span>
         </button>
         <div className="flex items-center gap-2 flex-shrink-0">
+          {lastRunAt ? (
+            <span className="text-[9px] dt-text-muted hidden sm:block" style={{ fontFamily:'JetBrains Mono, monospace' }}>
+              last run {fmtLastRun(lastRunAt)}
+            </span>
+          ) : (
+            <span className="text-[9px] hidden sm:block" style={{ color:'rgba(255,255,255,0.2)', fontFamily:'JetBrains Mono, monospace' }}>
+              not run yet
+            </span>
+          )}
           {/* Active toggle — disabled for protected (accumulator) so it stays Active */}
           <button onClick={() => !locked && !isProtected && onToggleActive()} disabled={locked || isProtected}
             title={isProtected ? 'Accumulator cannot be deactivated — it is the keeper strategy' : undefined}

@@ -195,7 +195,12 @@ export default function HoldingsPage() {
         // De-duplicate: if a T0 row has the same symbol+avgPrice as the holding
         // (can happen if the only buy was today and Kite shows it in both), prefer
         // the T0 row and drop the holding to avoid a phantom duplicate.
-        const t0Symbols = new Map(t0Rows.map(r => [r.tradingsymbol.toUpperCase(), r.average_price]))
+        // IMPORTANT: only include T0 rows with qty > 0. A zero-qty T0 row is a
+        // closed/sold position (e.g. T1 auto-sell, manual sell) — it is NOT a
+        // duplicate of a remaining settled holding and must never suppress it.
+        const t0Symbols = new Map(
+          t0Rows.filter(r => totalQty(r) > 0).map(r => [r.tradingsymbol.toUpperCase(), r.average_price])
+        )
         const dedupedHoldings = enrichedHoldings.filter(h => {
           const t0Price = t0Symbols.get(h.tradingsymbol.toUpperCase())
           // Only drop the holding if its avg price matches the T0 price exactly
