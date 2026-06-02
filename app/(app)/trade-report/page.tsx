@@ -262,7 +262,7 @@ export default function TradeReportPage() {
               <table className="w-full text-left min-w-[1380px]">
                 <thead>
                   <tr className="dt-table-head">
-                    {['Symbol', 'Strategy', 'Signal', 'Entry Price', 'T1 Date', 'T2 Date', 'Exit Price / Mark Price', 'Qty / Remaining', 'Status', 'Gross Realized', 'Charges (Est.)', 'Net Realized (Est.)', 'Hold', 'Reason'].map(h => (
+                    {['Symbol', 'Strategy', 'Signal', 'Entry Price', 'T1 Date', 'T2 Date', 'Exit Price / Mark Price', 'Qty / Remaining', 'Status', 'Gross Realized', 'Charges', 'Net Realized', 'Hold', 'Reason'].map(h => (
                       <th key={h} className="px-3 py-2 text-[10px] tracking-widest uppercase font-medium" style={{ fontFamily:'JetBrains Mono, monospace' }}>{h}</th>
                     ))}
                   </tr>
@@ -274,6 +274,11 @@ export default function TradeReportPage() {
                     const brokerage = trade.incurredCharges ?? trade.charges ?? 0
                     const netPnl = trade.netRealizedPnl ?? grossPnl
                     const displayStatus = trade.status === 'closed' ? 'closed' : trade.t1Date ? 'partial' : 'open'
+                    const realizedChargeLabel = displayStatus === 'closed'
+                      ? (trade.chargeModel || 'actual')
+                      : displayStatus === 'partial'
+                        ? 'actual sold qty'
+                        : 'actual sold qty'
                     const realizedPct = trade.entryValue > 0 ? (trade.realizedPnl / trade.entryValue) * 100 : 0
                     const netRealizedPct = trade.entryValue > 0 ? ((trade.netRealizedPnl ?? trade.realizedPnl) / trade.entryValue) * 100 : 0
                     return (
@@ -344,7 +349,7 @@ export default function TradeReportPage() {
                           {hasRealizedSell ? (
                             <>
                               <div>{formatCurrency(brokerage)}</div>
-                              <div className="dt-text-muted">{displayStatus === 'closed' ? (trade.chargeModel || 'actual') : `est. ${trade.chargeModel || 'delivery'}`}</div>
+                              <div className="dt-text-muted">{realizedChargeLabel}</div>
                             </>
                           ) : (
                             <div className="dt-text-muted">—</div>
