@@ -193,9 +193,30 @@ export async function buildLiveTradeReport(options: LiveTradeReportOptions): Pro
   const knownDates = (await listJournalDates()).filter(date => date <= toDate).sort()
   const earliest = knownDates[0] || fromDate
   const records = await readJournalRange(earliest, toDate)
-  const orders = records
+  const rawOrders = records
     .filter((record): record is OrderRecord => record.type === 'order')
     .sort((a, b) => a.ts.localeCompare(b.ts))
+
+  // De-duplicate dt-manual SELL entries: when the same account+symbol+date has
+  // both a Case 1 entry (has orderId = real fill price) and a Case 2 entry (no
+  // orderId = synthetic firstBuyPrice fallback), drop the Case 2 entry.
+  // Case 1 is always authoritative — it comes from the actual Kite fill.
+  const manualSellBuckets = new Map<string, { hasOrderId: boolean; noOrderIdTs: Set<string> }>()
+  for (const o of rawOrders) {
+    if (o.side !== 'SELL' || o.tag !== 'dt-manual') continue
+    const key = `${o.account}:${o.symbol}:${o.date}`
+    const b = manualSellBuckets.get(key) || { hasOrderId: false, noOrderIdTs: new Set() }
+    if (o.orderId) b.hasOrderId = true
+    else b.noOrderIdTs.add(o.ts)
+    manualSellBuckets.set(key, b)
+  }
+  const staleSellTs = new Set<string>()
+  for (const [, b] of Array.from(manualSellBuckets)) {
+    if (b.hasOrderId) b.noOrderIdTs.forEach(ts => staleSellTs.add(ts))
+  }
+  const orders = staleSellTs.size > 0
+    ? rawOrders.filter(o => !staleSellTs.has(o.ts))
+    : rawOrders
 
   const multiAccount = new Set(orders.map(order => order.account)).size > 1
   const strategyIndex = new Map(getStrategies().map(strategy => [strategy.id, strategy]))

@@ -676,7 +676,7 @@ function RunMonitorButton() {
 // ──────────────────────────────────────────────────────────────────────────────
 function FixAttributionSection() {
   const [busy, setBusy] = useState(false)
-  const [result, setResult] = useState<{ fixed: number; fixedBySymbol: Record<string, number>; message: string } | null>(null)
+  const [result, setResult] = useState<{ fixed: number; fixedBySymbol: Record<string, number>; purged?: number; purgedBySymbol?: Record<string, number>; message: string } | null>(null)
   const [error, setError] = useState('')
   const mono: React.CSSProperties = { fontFamily: 'JetBrains Mono, monospace' }
 

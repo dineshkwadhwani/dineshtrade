@@ -1,12 +1,17 @@
 // POST /api/journal/fix-attribution
 //
-// Retroactively fixes dt-manual SELL journal entries that are missing a
-// strategyId. For each such entry, finds the most recent auto-BUY for the
-// same account+symbol that occurred BEFORE the SELL timestamp, and patches
-// the SELL entry's strategyId to match the buying strategy.
+// Two-pass cleanup of dt-manual SELL journal entries:
 //
-// Non-destructive: only adds missing strategyId — never changes side, qty,
-// price, or any other field. Safe to re-run multiple times.
+// Pass 1 — Attribution fix (non-destructive):
+//   Finds dt-manual SELL entries missing a strategyId. For each, looks up the
+//   most recent auto-BUY before the SELL timestamp and patches strategyId.
+//
+// Pass 2 — Synthetic price cleanup (destructive but safe):
+//   Removes dt-manual SELL entries that have NO orderId AND whose price exactly
+//   matches the corresponding position's firstBuyPrice (the dead giveaway of a
+//   Case 2 fallback that wrote the wrong price). After deletion, the cron's next
+//   reconcile tick creates a correct entry using actual LTP or fill price.
+//   Leaves any SELL entries that have an orderId (real fill) untouched.
 
 import { NextResponse } from 'next/server'
 import { cookies } from 'next/headers'
@@ -77,8 +82,27 @@ export async function POST() {
   }
 
   // Pass 2: scan each file for dt-manual SELLs with no strategyId and patch them
+  // Pass 2 setup: load positions.json firstBuyPrice per "ACCOUNT:SYMBOL" key.
+  // Any dt-manual SELL with no orderId whose price exactly matches firstBuyPrice
+  // is a Case 2 synthetic fallback entry — remove it so the next reconcile tick
+  // can create a correct entry using the actual LTP or fill price.
+  let firstBuyPriceByKey: Record<string, number> = {}
+  try {
+    const posFile = stateFilePath.replace(/state\.json$/, 'positions.json')
+    const posRaw = await fs.readFile(posFile, 'utf8').catch(() => '{}')
+    const posData = JSON.parse(posRaw)
+    if (posData && typeof posData === 'object') {
+      for (const [k, v] of Object.entries(posData)) {
+        const price = (v as any)?.firstBuyPrice
+        if (typeof price === 'number' && price > 0) firstBuyPriceByKey[k.toUpperCase()] = price
+      }
+    }
+  } catch { /* best-effort */ }
+
   let totalFixed = 0
   const fixedBySymbol: Record<string, number> = {}
+  let totalPurged = 0
+  const purgedBySymbol: Record<string, number> = {}
 
   for (const file of files) {
     const filePath = path.join(journalDir, file)
@@ -93,23 +117,35 @@ export async function POST() {
       if (!t) { newLines.push(line); continue }
       try {
         const r = JSON.parse(t)
-        if (
-          r.type === 'order' &&
-          r.side === 'SELL' &&
-          r.tag === 'dt-manual' &&
-          !r.strategyId &&
-          r.account && r.symbol && r.ts
-        ) {
-          const strategyId = findBuyingStrategy(r.account, r.symbol, r.ts)
-          if (strategyId) {
-            r.strategyId = strategyId
-            r.source = 'manual'  // ensure source is set correctly
-            newLines.push(JSON.stringify(r))
-            changed = true
-            totalFixed++
-            const sym = String(r.symbol).toUpperCase()
-            fixedBySymbol[sym] = (fixedBySymbol[sym] || 0) + 1
-            continue
+        if (r.type === 'order' && r.side === 'SELL' && r.tag === 'dt-manual' && r.account && r.symbol) {
+
+          // Pass 2: purge wrong synthetic entries (no orderId, price = firstBuyPrice)
+          if (!r.orderId && typeof r.price === 'number') {
+            const key = `${String(r.account).toUpperCase()}:${String(r.symbol).toUpperCase()}`
+            const expectedFallback = firstBuyPriceByKey[key]
+            if (expectedFallback && Math.abs(r.price - expectedFallback) < 0.01) {
+              // This is a Case 2 synthetic entry — drop it
+              changed = true
+              totalPurged++
+              const sym = String(r.symbol).toUpperCase()
+              purgedBySymbol[sym] = (purgedBySymbol[sym] || 0) + 1
+              continue
+            }
+          }
+
+          // Pass 1: fix missing strategyId
+          if (!r.strategyId && r.ts) {
+            const strategyId = findBuyingStrategy(r.account, r.symbol, r.ts)
+            if (strategyId) {
+              r.strategyId = strategyId
+              r.source = 'manual'
+              newLines.push(JSON.stringify(r))
+              changed = true
+              totalFixed++
+              const sym = String(r.symbol).toUpperCase()
+              fixedBySymbol[sym] = (fixedBySymbol[sym] || 0) + 1
+              continue
+            }
           }
         }
       } catch { /* malformed — keep original line */ }
@@ -122,12 +158,17 @@ export async function POST() {
     }
   }
 
+  const parts: string[] = []
+  if (totalFixed > 0) parts.push(`Fixed attribution for ${totalFixed} entr${totalFixed === 1 ? 'y' : 'ies'} (${Object.keys(fixedBySymbol).join(', ')})`)
+  if (totalPurged > 0) parts.push(`Removed ${totalPurged} synthetic SELL entr${totalPurged === 1 ? 'y' : 'ies'} with wrong price (${Object.keys(purgedBySymbol).join(', ')}) — next reconcile will re-create them correctly`)
+  if (parts.length === 0) parts.push('Nothing to fix — all entries look correct')
+
   return NextResponse.json({
     ok: true,
     fixed: totalFixed,
     fixedBySymbol,
-    message: totalFixed > 0
-      ? `Fixed ${totalFixed} journal entr${totalFixed === 1 ? 'y' : 'ies'} across ${Object.keys(fixedBySymbol).length} symbol(s)`
-      : 'All manual sell entries already have correct attribution',
+    purged: totalPurged,
+    purgedBySymbol,
+    message: parts.join('. '),
   })
 }
