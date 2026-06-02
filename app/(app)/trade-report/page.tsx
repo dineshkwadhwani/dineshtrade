@@ -270,6 +270,7 @@ export default function TradeReportPage() {
                 <tbody>
                   {result.trades.map((trade, index) => {
                     const grossPnl = trade.realizedPnl
+                    const hasRealizedSell = (trade.exitValue || 0) > 0
                     const brokerage = trade.incurredCharges ?? trade.charges ?? 0
                     const netPnl = trade.netRealizedPnl ?? grossPnl
                     const displayStatus = trade.status === 'closed' ? 'closed' : trade.t1Date ? 'partial' : 'open'
@@ -330,7 +331,7 @@ export default function TradeReportPage() {
                           </span>
                         </td>
                         <td className="px-3 py-2.5 text-[11px]" style={{ color: grossPnl >= 0 ? '#52b788' : '#e05a5e', fontFamily:'JetBrains Mono, monospace' }}>
-                          {trade.realizedPnl !== 0 ? (
+                          {hasRealizedSell ? (
                             <>
                               <div className="dt-text-muted">Profit</div>
                               <div>{formatSignedCurrency(grossPnl)}</div>
@@ -340,7 +341,7 @@ export default function TradeReportPage() {
                           )}
                         </td>
                         <td className="px-3 py-2.5 text-[11px]" style={{ color:'#c9a84c', fontFamily:'JetBrains Mono, monospace' }}>
-                          {trade.realizedPnl !== 0 ? (
+                          {hasRealizedSell ? (
                             <>
                               <div>{formatCurrency(brokerage)}</div>
                               <div className="dt-text-muted">{displayStatus === 'closed' ? (trade.chargeModel || 'actual') : `est. ${trade.chargeModel || 'delivery'}`}</div>
@@ -350,7 +351,7 @@ export default function TradeReportPage() {
                           )}
                         </td>
                         <td className="px-3 py-2.5 text-[11px]" style={{ color: netPnl >= 0 ? '#52b788' : '#e05a5e', fontFamily:'JetBrains Mono, monospace' }}>
-                          {trade.realizedPnl !== 0 ? (
+                          {hasRealizedSell ? (
                             <>
                               <div>{formatSignedCurrency(netPnl)}</div>
                             </>

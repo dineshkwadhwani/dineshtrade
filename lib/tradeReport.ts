@@ -220,12 +220,13 @@ async function reconcileLiveOpenTrades(
       const brokerQty = liveQtyBySymbol.get(symbol) || 0
       if (brokerQty <= 0) continue
 
-      const matches = reconciled.filter(trade => (
+      const symbolMatches = reconciled.filter(trade => (
         trade.account === account
         && trade.symbol === symbol
-        && trade.strategyId === position.strategyId
       ))
-      const existingOpenQty = matches.reduce((sum, trade) => sum + trade.remainingQty, 0)
+      const strategyMatches = symbolMatches.filter(trade => trade.strategyId === position.strategyId)
+      const matches = strategyMatches.length > 0 ? strategyMatches : symbolMatches
+      const existingOpenQty = symbolMatches.reduce((sum, trade) => sum + trade.remainingQty, 0)
       const missingQty = Math.max(0, brokerQty - existingOpenQty)
       if (missingQty <= 0) continue
 
@@ -235,6 +236,10 @@ async function reconcileLiveOpenTrades(
       })[0]
 
       if (candidate) {
+        if (!candidate.strategyId) {
+          candidate.strategyId = position.strategyId
+          candidate.strategyName = displayStrategyName(position.strategyId, account, multiAccount, false)
+        }
         candidate.qty += missingQty
         candidate.remainingQty += missingQty
         candidate.entryValue = clampMoney(candidate.qty * candidate.entryPrice)
@@ -487,12 +492,14 @@ export async function buildLiveTradeReport(options: LiveTradeReportOptions): Pro
 
   const tradeNotionalCapital = clampMoney(includedTrades.reduce((sum, trade) => sum + trade.entryValue, 0))
   const startingCapital = liveCapitalBase ?? tradeNotionalCapital
-  const realizedPnl = clampMoney(includedTrades.reduce((sum, trade) => sum + trade.realizedPnl, 0))
+  const allRealizedPnl = clampMoney(includedTrades.reduce((sum, trade) => sum + trade.realizedPnl, 0))
   const unrealizedPnl = clampMoney(includedTrades.reduce((sum, trade) => sum + trade.unrealizedPnl, 0))
-  const totalPnl = clampMoney(realizedPnl + unrealizedPnl)
-  const endingCapital = clampMoney(startingCapital + totalPnl)
   const chargeSummary = applyBacktestCharges(includedTrades, toDate)
   const closedTrades = includedTrades.filter(trade => trade.remainingQty === 0)
+  const closedChargeSummary = applyBacktestCharges(closedTrades, toDate)
+  const realizedPnl = clampMoney(closedTrades.reduce((sum, trade) => sum + trade.realizedPnl, 0))
+  const totalPnl = clampMoney(allRealizedPnl + unrealizedPnl)
+  const endingCapital = clampMoney(startingCapital + totalPnl)
   const wins = closedTrades.filter(trade => (trade.netRealizedPnl ?? trade.realizedPnl) > 0).length
   const losses = closedTrades.filter(trade => (trade.netRealizedPnl ?? trade.realizedPnl) < 0).length
   const avgHold = closedTrades.length > 0
@@ -501,10 +508,10 @@ export async function buildLiveTradeReport(options: LiveTradeReportOptions): Pro
   const avgUtilizationPct = startingCapital > 0 && equityCurve.length > 0
     ? Number(((equityCurve.reduce((sum, point) => sum + point.marketValue, 0) / equityCurve.length / startingCapital) * 100).toFixed(2))
     : null
-  const incurredCharges = chargeSummary.incurredCharges ?? chargeSummary.totalCharges ?? 0
+  const incurredCharges = closedChargeSummary.incurredCharges ?? closedChargeSummary.totalCharges ?? 0
   const chargesAsPctOfGross = realizedPnl > 0
-    ? Number((((chargeSummary.netRealizedPnl !== undefined
-      ? realizedPnl - chargeSummary.netRealizedPnl
+    ? Number((((closedChargeSummary.netRealizedPnl !== undefined
+      ? realizedPnl - closedChargeSummary.netRealizedPnl
       : incurredCharges) / realizedPnl) * 100).toFixed(2))
     : null
   const dipDays = new Set(includedTrades.filter(trade => trade.strategyId === 'accumulator').map(trade => trade.entryDate)).size
@@ -525,10 +532,10 @@ export async function buildLiveTradeReport(options: LiveTradeReportOptions): Pro
       momentumDays,
       startingCapital,
       endingCapital,
-      totalCharges: chargeSummary.totalCharges,
+      totalCharges: closedChargeSummary.totalCharges,
       incurredCharges,
       realizedPnl,
-      netRealizedPnl: chargeSummary.netRealizedPnl,
+      netRealizedPnl: closedChargeSummary.netRealizedPnl,
       unrealizedPnl,
       netUnrealizedPnl: chargeSummary.netUnrealizedPnl,
       totalPnl,
