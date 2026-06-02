@@ -244,7 +244,7 @@ function estimateBacktestCharges(mode: 'intraday' | 'delivery', buyValue: number
     : 0
   const stt = mode === 'intraday'
     ? sellValue * 0.00025
-    : (buyValue * 0.001) + (sellValue * 0.001)
+    : sellValue * 0.001   // delivery: STT only on SELL side (0.1%)
   const exchange = turnover * 0.0000297
   const sebi = turnover * 0.000001
   const gst = (brokerage + exchange + sebi) * 0.18

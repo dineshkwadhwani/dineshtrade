@@ -225,7 +225,7 @@ export default function TradeReportPage() {
               />
               <Stat
                 label="Charges"
-                value={`${formatCurrency(result.summary.totalCharges || 0)}${result.summary.chargesAsPctOfGross !== null && result.summary.chargesAsPctOfGross !== undefined ? ` · ${result.summary.chargesAsPctOfGross.toFixed(2)}%` : ''}`}
+                value={`${formatCurrency((result.summary.incurredCharges ?? result.summary.totalCharges) || 0)}${result.summary.chargesAsPctOfGross !== null && result.summary.chargesAsPctOfGross !== undefined ? ` · ${result.summary.chargesAsPctOfGross.toFixed(2)}%` : ''}`}
                 color="#c9a84c"
               />
               <Stat

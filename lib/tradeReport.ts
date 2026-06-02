@@ -1,4 +1,4 @@
-import { getHistoricalCandles, getHoldings, getPositions, kiteRequest, getQuotes, resolveAccountCreds, type HistoricalCandle, type KiteCreds } from './kite'
+import { buildLiveQtyBySymbol, getHistoricalCandles, getHoldings, getPositions, kiteRequest, getQuotes, resolveAccountCreds, type HistoricalCandle, type KiteCreds } from './kite'
 import { getInstrumentTokens } from './instruments'
 import { listJournalDates, readJournalRange, type OrderRecord } from './journal'
 import { getStrategies, getStrategyById } from './strategyConfig'
@@ -181,6 +181,105 @@ function hasActivityInRange(trade: InternalTrade, fromDate: string, toDate: stri
     || rangeIncludes(fromDate, toDate, trade.exitDate)
 }
 
+async function reconcileLiveOpenTrades(
+  trades: InternalTrade[],
+  accounts: string[],
+  toDate: string,
+  strategyFilter: string,
+  multiAccount: boolean,
+): Promise<InternalTrade[]> {
+  const today = new Date().toISOString().slice(0, 10)
+  if (toDate !== today || accounts.length === 0) return trades
+
+  const [{ listPositions }, liveQtyByAccount] = await Promise.all([
+    import('./positions'),
+    Promise.all(accounts.map(async account => {
+      const resolved = await resolveAccountCreds(account)
+      if (!resolved.ok) return [account, new Map<string, number>()] as const
+      const creds = { apiKey: resolved.apiKey, accessToken: resolved.accessToken }
+      const [positions, holdings] = await Promise.all([
+        getPositions(creds).catch(() => ({ net: [], day: [] })),
+        getHoldings(creds).catch(() => [] as Awaited<ReturnType<typeof getHoldings>>),
+      ])
+      return [account, buildLiveQtyBySymbol([...positions.day, ...positions.net], holdings)] as const
+    })),
+  ])
+
+  const liveQtyByAccountMap = new Map(liveQtyByAccount)
+  const reconciled = [...trades]
+
+  for (const account of accounts) {
+    const tracked = await listPositions({ account })
+    const liveQtyBySymbol = liveQtyByAccountMap.get(account) || new Map<string, number>()
+
+    for (const position of tracked) {
+      if (strategyFilter && strategyFilter !== 'manual' && position.strategyId !== strategyFilter) continue
+      if (strategyFilter === 'manual') continue
+
+      const symbol = position.symbol.toUpperCase()
+      const brokerQty = liveQtyBySymbol.get(symbol) || 0
+      if (brokerQty <= 0) continue
+
+      const matches = reconciled.filter(trade => (
+        trade.account === account
+        && trade.symbol === symbol
+        && trade.strategyId === position.strategyId
+      ))
+      const existingOpenQty = matches.reduce((sum, trade) => sum + trade.remainingQty, 0)
+      const missingQty = Math.max(0, brokerQty - existingOpenQty)
+      if (missingQty <= 0) continue
+
+      const candidate = [...matches].sort((a, b) => {
+        if (a.entryDate !== b.entryDate) return b.entryDate.localeCompare(a.entryDate)
+        return b.buyNumber - a.buyNumber
+      })[0]
+
+      if (candidate) {
+        candidate.qty += missingQty
+        candidate.remainingQty += missingQty
+        candidate.entryValue = clampMoney(candidate.qty * candidate.entryPrice)
+        candidate.status = 'open'
+        candidate.activeInRange = true
+        continue
+      }
+
+      const entryDate = dateOnly(position.firstBuyAt)
+      reconciled.push({
+        account,
+        strategyId: position.strategyId,
+        strategyName: displayStrategyName(position.strategyId, account, multiAccount, false),
+        symbol,
+        signalDate: entryDate,
+        entryDate,
+        entryPrice: position.firstBuyPrice,
+        qty: brokerQty,
+        remainingQty: brokerQty,
+        buyNumber: 1,
+        entryValue: clampMoney(brokerQty * position.firstBuyPrice),
+        emaAtSignal: 0,
+        deviationPct: 0,
+        downDays: 0,
+        confidence: 'normal',
+        target1: position.firstBuyPrice,
+        target2: position.firstBuyPrice,
+        exitValue: 0,
+        realizedPnl: 0,
+        realizedPct: 0,
+        holdDays: dayDiff(entryDate, toDate),
+        status: 'open',
+        markPrice: position.firstBuyPrice,
+        markValue: clampMoney(brokerQty * position.firstBuyPrice),
+        unrealizedPnl: 0,
+        setup: `Live carry reconciliation · ${account}`,
+        sellEvents: [],
+        activeInRange: true,
+      })
+    }
+  }
+
+  return reconciled
+}
+
 export async function buildLiveTradeReport(options: LiveTradeReportOptions): Promise<StrategyBacktestResult> {
   const fromDate = options.fromDate
   const toDate = options.toDate
@@ -189,6 +288,10 @@ export async function buildLiveTradeReport(options: LiveTradeReportOptions): Pro
   assertYmd(fromDate, 'From date')
   assertYmd(toDate, 'To date')
   if (fromDate > toDate) throw new Error('From date must be on or before To date')
+
+  const selectedAccounts = accountFilter
+    ? [accountFilter]
+    : Object.keys((await getState()).kiteTokens).map(account => account.toUpperCase())
 
   const knownDates = (await listJournalDates()).filter(date => date <= toDate).sort()
   const earliest = knownDates[0] || fromDate
@@ -218,7 +321,7 @@ export async function buildLiveTradeReport(options: LiveTradeReportOptions): Pro
     ? rawOrders.filter(o => !staleSellTs.has(o.ts))
     : rawOrders
 
-  const multiAccount = new Set(orders.map(order => order.account)).size > 1
+  const multiAccount = new Set([...selectedAccounts, ...orders.map(order => order.account)]).size > 1
   const strategyIndex = new Map(getStrategies().map(strategy => [strategy.id, strategy]))
 
   const openTrades: InternalTrade[] = []
@@ -300,7 +403,7 @@ export async function buildLiveTradeReport(options: LiveTradeReportOptions): Pro
     }
   }
 
-  const includedTrades = allTrades.filter(trade => {
+  let includedTrades = allTrades.filter(trade => {
     trade.activeInRange = trade.activeInRange || hasActivityInRange(trade, fromDate, toDate)
     if (!trade.activeInRange) return false
     if (accountFilter && trade.account !== accountFilter) return false
@@ -308,6 +411,14 @@ export async function buildLiveTradeReport(options: LiveTradeReportOptions): Pro
     if (strategyFilter && strategyFilter !== 'manual') return trade.strategyId === strategyFilter
     return true
   })
+
+  includedTrades = await reconcileLiveOpenTrades(
+    includedTrades,
+    selectedAccounts,
+    toDate,
+    strategyFilter,
+    multiAccount,
+  )
 
   const symbols = Array.from(new Set(includedTrades.map(trade => trade.symbol)))
   const closeSeries = await loadDailyCloses(symbols, fromDate, toDate)
@@ -390,10 +501,11 @@ export async function buildLiveTradeReport(options: LiveTradeReportOptions): Pro
   const avgUtilizationPct = startingCapital > 0 && equityCurve.length > 0
     ? Number(((equityCurve.reduce((sum, point) => sum + point.marketValue, 0) / equityCurve.length / startingCapital) * 100).toFixed(2))
     : null
+  const incurredCharges = chargeSummary.incurredCharges ?? chargeSummary.totalCharges ?? 0
   const chargesAsPctOfGross = realizedPnl > 0
     ? Number((((chargeSummary.netRealizedPnl !== undefined
       ? realizedPnl - chargeSummary.netRealizedPnl
-      : (chargeSummary.incurredCharges ?? chargeSummary.totalCharges ?? 0)) / realizedPnl) * 100).toFixed(2))
+      : incurredCharges) / realizedPnl) * 100).toFixed(2))
     : null
   const dipDays = new Set(includedTrades.filter(trade => trade.strategyId === 'accumulator').map(trade => trade.entryDate)).size
   const momentumDays = new Set(includedTrades.filter(trade => trade.strategyId === 'catalyst').map(trade => trade.entryDate)).size
@@ -414,7 +526,7 @@ export async function buildLiveTradeReport(options: LiveTradeReportOptions): Pro
       startingCapital,
       endingCapital,
       totalCharges: chargeSummary.totalCharges,
-      incurredCharges: chargeSummary.incurredCharges,
+      incurredCharges,
       realizedPnl,
       netRealizedPnl: chargeSummary.netRealizedPnl,
       unrealizedPnl,
