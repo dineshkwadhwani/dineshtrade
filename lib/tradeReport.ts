@@ -480,6 +480,22 @@ export async function buildLiveTradeReport(options: LiveTradeReportOptions): Pro
   for (const [, b] of Array.from(manualSellBuckets)) {
     if (b.hasOrderId) b.noOrderIdTs.forEach(ts => staleSellTs.add(ts))
   }
+  // Also drop synthetic dt-manual SELL rows (no orderId) when a later real
+  // same-day SELL exists for the same account+symbol. This covers stale Case 2
+  // reconcile entries that were written before the actual tranche/exit fill.
+  const syntheticManualSells = rawOrders.filter(o => o.side === 'SELL' && o.tag === 'dt-manual' && !o.orderId)
+  for (const synthetic of syntheticManualSells) {
+    const hasLaterRealSell = rawOrders.some(other => (
+      other !== synthetic
+      && other.side === 'SELL'
+      && other.account === synthetic.account
+      && other.symbol === synthetic.symbol
+      && other.date === synthetic.date
+      && other.ts > synthetic.ts
+      && (!!other.orderId || other.tag !== 'dt-manual')
+    ))
+    if (hasLaterRealSell) staleSellTs.add(synthetic.ts)
+  }
   const orders = staleSellTs.size > 0
     ? rawOrders.filter(o => !staleSellTs.has(o.ts))
     : rawOrders

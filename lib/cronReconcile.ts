@@ -57,6 +57,7 @@ export async function reconcileManualSells(): Promise<void> {
   if (connectedAccounts.length === 0) return
 
   const today = istDateString()
+  const allowSyntheticCloseFallback = istHHMM() >= '15:35'
 
   for (const account of connectedAccounts) {
     const creds = await resolveAccountCreds(account)
@@ -173,6 +174,13 @@ export async function reconcileManualSells(): Promise<void> {
         // the actual fill price on the next tick. Don't journal with wrong price now.
         if (pendingSellSymbols.has(sym)) {
           console.log(`[reconcile] ${account} ${sym}: sell order pending — deferring to next tick`)
+          continue
+        }
+        // Synthetic fallback is intentionally deferred until the end-of-day
+        // sweep. Intraday broker snapshots can transiently miss a holding and
+        // create a false full-close journal row that later masks a real T1/T2.
+        if (!allowSyntheticCloseFallback) {
+          console.log(`[reconcile] ${account} ${sym}: no live qty but no completed SELL — deferring synthetic close until EOD`)
           continue
         }
         // Also skip if already reconciled after this position's firstBuyAt
