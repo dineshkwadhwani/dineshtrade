@@ -16,7 +16,7 @@
 import { getState } from './state'
 import { resolveAccountCreds, getPositions, getHoldings, getOrders, getQuotes, buildLiveQtyBySymbol } from './kite'
 import { istDateString, readJournalRange, journalOrder, type OrderRecord } from './journal'
-import { listPositions, recordBuy } from './positions'
+import { listPositions, recordBuy, removePosition } from './positions'
 import { istHHMM } from './cronState'
 
 function buildLiveInventory(
@@ -195,9 +195,8 @@ export async function reconcileManualSells(): Promise<void> {
           tag: 'dt-manual', strategyId: pos.strategyId, source: 'manual',
         }).catch(err => console.error(`[reconcile] journalOrder failed ${account} ${sym}:`, err))
         console.log(`[reconcile] ${account} ${sym}: synthetic SELL @ ₹${closePrice} (prior-day manual close; LTP ${ltp ?? 'unavailable'}) strategy=${pos.strategyId}`)
+        await removePosition(account, pos.symbol)
       }
-      // Position stays in store — strategy tag remains visible in Holdings UI.
-      // Cleaned up on next re-buy (recordBuy overwrites) or manual reset.
     }
   }
 }
