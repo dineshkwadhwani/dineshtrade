@@ -2,8 +2,8 @@ import { getState } from './state'
 import { getWatchlist } from './watchlistStore'
 import { computeEMA, consecutiveDownDays, deviationPct } from './ema'
 import { getHistoricalCandles, resolveAccountCreds, type HistoricalCandle, type KiteCreds } from './kite'
-import { getInstrumentTokens } from './instruments'
-import { getActiveStrategies, getCapital, getStrategyById, type Strategy, type DipParams, type MomentumParams } from './strategyConfig'
+import { getInstrumentToken, getInstrumentTokens } from './instruments'
+import { getActiveStrategies, getCapital, getStrategyById, checkGiftNiftyGate, type Strategy, type DipParams, type MomentumParams } from './strategyConfig'
 
 export interface BacktestOptions {
   days?: number
@@ -145,6 +145,27 @@ interface MomentumSeries extends SymbolSeries {
   dailyAggByDate: Map<string, { ema20: number; avgVolume10d: number; prevClose: number }>
 }
 
+interface HistoricalBenchmarkSeries {
+  symbol: string
+  dailyCandles: HistoricalCandle[]
+  dailyByDate: Map<string, HistoricalCandle>
+  dailyIndexByDate: Map<string, number>
+  intradayByDate: Map<string, HistoricalCandle[]>
+  intradayByTimestamp: Map<string, HistoricalCandle>
+}
+
+interface DayTradeCounts {
+  buys: number
+  sells: number
+}
+
+interface BacktestIntradayCircuitState {
+  baselineDate?: string
+  tripped: boolean
+}
+
+const BACKTEST_BENCHMARK_CANDIDATES = ['NIFTY 50', 'NIFTYBEES'] as const
+
 function clampInt(value: unknown, fallback: number, min: number, max: number): number {
   if (typeof value !== 'number' || !Number.isFinite(value)) return fallback
   return Math.max(min, Math.min(max, Math.floor(value)))
@@ -235,6 +256,189 @@ function dayDiff(fromYmd: string, toYmd: string): number {
 
 function round2(value: number): number {
   return Number(value.toFixed(2))
+}
+
+function getBacktestEntryQuantity(perTrade: number, cash: number, price: number): number {
+  const qty = Math.floor(perTrade / price)
+  if (qty < 1) return 0
+  const entryValue = round2(qty * price)
+  return entryValue <= cash ? qty : 0
+}
+
+function getDayTradeCounts(counter: Map<string, DayTradeCounts>, date: string): DayTradeCounts {
+  const existing = counter.get(date)
+  if (existing) return existing
+  const created = { buys: 0, sells: 0 }
+  counter.set(date, created)
+  return created
+}
+
+function canBacktestBuyForQuota(counter: Map<string, DayTradeCounts>, date: string, maxBuysPerDay: number): boolean {
+  const counts = getDayTradeCounts(counter, date)
+  return counts.buys - counts.sells < maxBuysPerDay
+}
+
+function recordBacktestBuy(counter: Map<string, DayTradeCounts>, date: string): void {
+  getDayTradeCounts(counter, date).buys += 1
+}
+
+function canBacktestSellForQuota(counter: Map<string, DayTradeCounts>, date: string, maxSellsPerDay: number): boolean {
+  return getDayTradeCounts(counter, date).sells < maxSellsPerDay
+}
+
+function recordBacktestSell(counter: Map<string, DayTradeCounts>, date: string): void {
+  getDayTradeCounts(counter, date).sells += 1
+}
+
+async function buildSectorBySymbol(): Promise<Map<string, string>> {
+  const watchlist = await getWatchlist()
+  const sectorBySymbol = new Map<string, string>()
+  for (const entries of Object.values(watchlist.lists)) {
+    for (const entry of entries) {
+      const symbol = String(entry?.nse || '').toUpperCase()
+      const sector = typeof entry?.sector === 'string' ? entry.sector.trim() : ''
+      if (symbol && sector && !sectorBySymbol.has(symbol)) sectorBySymbol.set(symbol, sector)
+    }
+  }
+  return sectorBySymbol
+}
+
+function isBacktestSectorBlocked(strategy: Strategy, symbol: string, openTrades: OpenTrade[], sectorBySymbol: Map<string, string>): boolean {
+  if (strategy.type !== 'dip') return false
+  const rawMaxPerSector = (strategy.params as DipParams).maxPerSector
+  const maxPerSector = typeof rawMaxPerSector === 'number' ? rawMaxPerSector : 0
+  if (maxPerSector <= 0) return false
+  const sector = sectorBySymbol.get(symbol.toUpperCase())
+  if (!sector) return false
+  const sectorCount = openTrades.filter(trade => sectorBySymbol.get(trade.symbol.toUpperCase()) === sector).length
+  return sectorCount >= maxPerSector
+}
+
+function panicCandlesNeeded(windowMin: number): number {
+  const rounded = Math.max(5, Math.ceil(windowMin / 5) * 5)
+  return Math.max(1, Math.floor(rounded / 5))
+}
+
+function findLatestIntradayCandleAtOrBefore(candles: HistoricalCandle[], ts: string): HistoricalCandle | null {
+  let latest: HistoricalCandle | null = null
+  for (const candle of candles) {
+    if (candle.date > ts) break
+    latest = candle
+    if (candle.date === ts) break
+  }
+  return latest
+}
+
+function getBacktestGiftChangePct(benchmark: HistoricalBenchmarkSeries | null, date: string): number | null {
+  if (!benchmark) return null
+  const idx = benchmark.dailyIndexByDate.get(date)
+  if (idx === undefined || idx < 1) return null
+  const current = benchmark.dailyCandles[idx]
+  const prev = benchmark.dailyCandles[idx - 1]
+  if (!(current?.open > 0) || !(prev?.close > 0)) return null
+  return round2(((current.open - prev.close) / prev.close) * 100)
+}
+
+function isBacktestGiftCircuitBlocked(benchmark: HistoricalBenchmarkSeries | null, date: string, threshold: number): boolean {
+  const giftChangePct = getBacktestGiftChangePct(benchmark, date)
+  return giftChangePct !== null && giftChangePct <= threshold
+}
+
+function isBacktestGiftGateBlocked(strategy: Strategy, benchmark: HistoricalBenchmarkSeries | null, date: string): boolean {
+  const giftChangePct = getBacktestGiftChangePct(benchmark, date)
+  if (giftChangePct === null) return false
+  return !checkGiftNiftyGate(strategy.giftNiftyGate, giftChangePct).allowed
+}
+
+function isBacktestIntradayCircuitBlocked(
+  benchmark: HistoricalBenchmarkSeries | null,
+  ts: string,
+  capital: ReturnType<typeof getCapital>,
+  state: BacktestIntradayCircuitState,
+): boolean {
+  const tripPct = capital.intradayCircuitTripPct ?? 0
+  const resumePct = capital.intradayCircuitResumePct ?? 0
+  if (tripPct === 0 || resumePct === 0 || !benchmark) return false
+
+  const date = dateOnly(ts)
+  if (state.baselineDate !== date) {
+    state.baselineDate = date
+    state.tripped = false
+  }
+
+  const dayBars = benchmark.intradayByDate.get(date) || []
+  const firstBar = dayBars[0]
+  const currentBar = findLatestIntradayCandleAtOrBefore(dayBars, ts)
+  if (!firstBar || !currentBar || !(firstBar.open > 0)) return state.tripped
+
+  const dropPct = ((currentBar.close - firstBar.open) / firstBar.open) * 100
+  if (!state.tripped && dropPct <= tripPct) state.tripped = true
+  else if (state.tripped && dropPct >= resumePct) state.tripped = false
+  return state.tripped
+}
+
+function isBacktestPanicBlocked(
+  series: MomentumSeries,
+  ts: string,
+  ltp: number,
+  capital: ReturnType<typeof getCapital>,
+  panicSkipByDate: Map<string, Set<string>>,
+): boolean {
+  const dropPctThreshold = capital.panicDropPct ?? 0
+  const windowMin = capital.panicWindowMin ?? 0
+  if (dropPctThreshold <= 0 || windowMin <= 0) return false
+
+  const date = dateOnly(ts)
+  const skipped = panicSkipByDate.get(date) || new Set<string>()
+  if (!panicSkipByDate.has(date)) panicSkipByDate.set(date, skipped)
+  if (skipped.has(series.symbol)) return true
+
+  const candles = series.intradayByDate.get(date) || []
+  const currentIdx = candles.findIndex(candle => candle.date === ts)
+  if (currentIdx < 0) return false
+  const needed = panicCandlesNeeded(windowMin)
+  const window = candles.slice(Math.max(0, currentIdx - needed + 1), currentIdx + 1)
+  const peak = window.reduce((max, candle) => Math.max(max, candle.high), 0)
+  if (!(peak > 0)) return false
+
+  const dropPct = ((peak - ltp) / peak) * 100
+  if (dropPct >= dropPctThreshold) {
+    skipped.add(series.symbol)
+    return true
+  }
+  return false
+}
+
+async function loadHistoricalBenchmark(
+  creds: KiteCreds,
+  fromDaily: string,
+  toDaily: string,
+  fromIntraday?: string,
+  toIntraday?: string,
+): Promise<HistoricalBenchmarkSeries | null> {
+  for (const symbol of BACKTEST_BENCHMARK_CANDIDATES) {
+    const token = await getInstrumentToken(creds, symbol)
+    if (!token) continue
+    try {
+      const dailyCandles = await getHistoricalCandlesStable(creds, token, fromDaily, toDaily, 'day', `${symbol} benchmark daily`)
+      if (dailyCandles.length < 2) continue
+      const intradayCandles = fromIntraday && toIntraday
+        ? await getHistoricalCandlesStable(creds, token, fromIntraday, toIntraday, '5minute', `${symbol} benchmark intraday`)
+        : []
+      const { byDate, byTimestamp } = groupIntradayCandles(intradayCandles)
+      return {
+        symbol,
+        dailyCandles,
+        dailyByDate: new Map(dailyCandles.map(candle => [dateOnly(candle.date), candle])),
+        dailyIndexByDate: new Map(dailyCandles.map((candle, index) => [dateOnly(candle.date), index])),
+        intradayByDate: byDate,
+        intradayByTimestamp: byTimestamp,
+      }
+    } catch {
+      continue
+    }
+  }
+  return null
 }
 
 function estimateBacktestCharges(mode: 'intraday' | 'delivery', buyValue: number, sellValue: number, deliverySellDays: number): number {
@@ -480,6 +684,14 @@ async function runAllActiveBacktest(options: BacktestOptions = {}): Promise<Stra
   const backtestDates = allDates.slice(-days)
   const backtestDateSet = new Set(backtestDates)
   const dateIndex = new Map(allDates.map((date, idx) => [date, idx]))
+  const benchmark = await loadHistoricalBenchmark(
+    creds,
+    fromDaily,
+    toDaily,
+    momentumStrategies.length > 0 ? `${backtestDates[0]} 09:15:00` : undefined,
+    momentumStrategies.length > 0 ? toIntraday : undefined,
+  )
+  const sectorBySymbol = await buildSectorBySymbol()
 
   let cash = startingCapital
   let peakEquity = startingCapital
@@ -487,6 +699,9 @@ async function runAllActiveBacktest(options: BacktestOptions = {}): Promise<Stra
   const openTrades: OpenTrade[] = []
   const allTrades: OpenTrade[] = []
   const equityCurve: BacktestEquityPoint[] = []
+  const dayTradeCounts = new Map<string, DayTradeCounts>()
+  const intradayCircuitState: BacktestIntradayCircuitState = { tripped: false }
+  const panicSkipByDate = new Map<string, Set<string>>()
 
   function pushPending(entry: PendingEntry) {
     const arr = pendingByDate.get(entry.date) || []
@@ -518,8 +733,23 @@ async function runAllActiveBacktest(options: BacktestOptions = {}): Promise<Stra
 
       const ownerStrategy = resolveActiveStrategy(pending.strategyId)
       if (!ownerStrategy) continue
-      const budget = Math.min(capitalCfg.perTrade, cash)
-      const qty = Math.floor(budget / candle.open)
+      if (isBacktestGiftCircuitBlocked(benchmark, date, capitalCfg.circuitBreakerPct)) {
+        bumpGate(gateCounts, 'giftCircuit', 'Global GIFT-Nifty circuit blocked new buys')
+        continue
+      }
+      if (isBacktestGiftGateBlocked(ownerStrategy, benchmark, date)) {
+        bumpGate(gateCounts, 'giftNiftyGate', 'Strategy GIFT-Nifty gate blocked new buys')
+        continue
+      }
+      if (!canBacktestBuyForQuota(dayTradeCounts, date, capitalCfg.maxBuysPerDay)) {
+        bumpGate(gateCounts, 'buyQuota', 'Blocked by max buys per day')
+        continue
+      }
+      if (isBacktestSectorBlocked(ownerStrategy, pending.symbol, openTrades, sectorBySymbol)) {
+        bumpGate(gateCounts, 'sectorConcentration', 'Blocked by sector concentration limit')
+        continue
+      }
+      const qty = getBacktestEntryQuantity(capitalCfg.perTrade, cash, candle.open)
       if (qty < 1) {
         skippedCapitalLimited++
         bumpGate(gateCounts, 'capitalTooLow', 'Insufficient capital for next entry')
@@ -559,6 +789,7 @@ async function runAllActiveBacktest(options: BacktestOptions = {}): Promise<Stra
         t1Done: false,
         t2Done: false,
       }
+      recordBacktestBuy(dayTradeCounts, date)
       openTrades.push(trade)
       allTrades.push(trade)
     }
@@ -594,7 +825,16 @@ async function runAllActiveBacktest(options: BacktestOptions = {}): Promise<Stra
         if (!symbolSeries || !candle || trade.remainingQty < 1) continue
 
         const exitPrice = candle.close
+        const consumeSellQuota = (): boolean => {
+          if (!canBacktestSellForQuota(dayTradeCounts, date, capitalCfg.maxSellsPerDay)) {
+            bumpGate(gateCounts, 'sellQuota', 'Blocked by max sells per day')
+            return false
+          }
+          recordBacktestSell(dayTradeCounts, date)
+          return true
+        }
         if (!trade.t1Done && exitPrice >= trade.target2) {
+          if (!consumeSellQuota()) continue
           const sellQty = trade.remainingQty
           const exitValue = Number((sellQty * trade.target2).toFixed(2))
           const costBasis = trade.remainingCost
@@ -608,6 +848,7 @@ async function runAllActiveBacktest(options: BacktestOptions = {}): Promise<Stra
           trade.exitValue = exitValue
           trade.exitPrice = Number((exitValue / trade.qty).toFixed(2))
         } else if (!trade.t1Done && exitPrice >= trade.target1) {
+          if (!consumeSellQuota()) continue
           const sellQty = Math.max(1, Math.floor(trade.remainingQty / 2))
           const exitValue = Number((sellQty * trade.target1).toFixed(2))
           const costBasis = Number((trade.entryPrice * sellQty).toFixed(2))
@@ -619,6 +860,7 @@ async function runAllActiveBacktest(options: BacktestOptions = {}): Promise<Stra
           trade.t1Done = true
           trade.t1Date = ts
         } else if (trade.t1Done && exitPrice >= trade.target2) {
+          if (!consumeSellQuota()) continue
           const sellQty = trade.remainingQty
           const exitValue = Number((sellQty * trade.target2).toFixed(2))
           const costBasis = trade.remainingCost
@@ -686,6 +928,18 @@ async function runAllActiveBacktest(options: BacktestOptions = {}): Promise<Stra
             bumpGate(gateCounts, 'scanWindow', 'Outside configured scan window')
             continue
           }
+          if (isBacktestGiftCircuitBlocked(benchmark, date, capitalCfg.circuitBreakerPct)) {
+            bumpGate(gateCounts, 'giftCircuit', 'Global GIFT-Nifty circuit blocked new buys')
+            continue
+          }
+          if (isBacktestGiftGateBlocked(strategy, benchmark, date)) {
+            bumpGate(gateCounts, 'giftNiftyGate', 'Strategy GIFT-Nifty gate blocked new buys')
+            continue
+          }
+          if (isBacktestIntradayCircuitBlocked(benchmark, ts, capitalCfg, intradayCircuitState)) {
+            bumpGate(gateCounts, 'intradayCircuit', 'Intraday NIFTY circuit blocked new buys')
+            continue
+          }
           if (openTrades.length >= capitalCfg.maxPositions) {
             skippedPositionLimited++
             bumpGate(gateCounts, 'maxPositions', 'Blocked by max open positions')
@@ -733,9 +987,16 @@ async function runAllActiveBacktest(options: BacktestOptions = {}): Promise<Stra
             bumpGate(gateCounts, 'risingCandles', 'Consecutive rising-candle pattern not met')
             continue
           }
+          if (isBacktestPanicBlocked(item, ts, candle.close, capitalCfg, panicSkipByDate)) {
+            bumpGate(gateCounts, 'panicSell', 'Panic-sell gate blocked new buys')
+            continue
+          }
+          if (!canBacktestBuyForQuota(dayTradeCounts, date, capitalCfg.maxBuysPerDay)) {
+            bumpGate(gateCounts, 'buyQuota', 'Blocked by max buys per day')
+            continue
+          }
 
-          const budget = Math.min(capitalCfg.perTrade, cash)
-          const qty = Math.floor(budget / candle.close)
+          const qty = getBacktestEntryQuantity(capitalCfg.perTrade, cash, candle.close)
           if (qty < 1) {
             skippedCapitalLimited++
             bumpGate(gateCounts, 'capitalTooLow', 'Insufficient capital for next entry')
@@ -776,6 +1037,7 @@ async function runAllActiveBacktest(options: BacktestOptions = {}): Promise<Stra
             t2Done: false,
             strategyPhase: 'momentum',
           }
+          recordBacktestBuy(dayTradeCounts, date)
           openTrades.push(trade)
           allTrades.push(trade)
           enteredToday.add(symbol)
@@ -787,8 +1049,17 @@ async function runAllActiveBacktest(options: BacktestOptions = {}): Promise<Stra
       if (trade.strategyPhase === 'momentum') continue
       const candle = seriesBySymbol.get(trade.symbol)?.candleByDate.get(date)
       if (!candle || trade.remainingQty < 1) continue
+      const consumeSellQuota = (): boolean => {
+        if (!canBacktestSellForQuota(dayTradeCounts, date, capitalCfg.maxSellsPerDay)) {
+          bumpGate(gateCounts, 'sellQuota', 'Blocked by max sells per day')
+          return false
+        }
+        recordBacktestSell(dayTradeCounts, date)
+        return true
+      }
 
       if (!trade.t1Done && candle.high >= trade.target1) {
+        if (!consumeSellQuota()) continue
         const sellQty = Math.ceil(trade.qty / 2)
         const exitValue = Number((sellQty * trade.target1).toFixed(2))
         const costBasis = Number((trade.entryPrice * sellQty).toFixed(2))
@@ -802,6 +1073,7 @@ async function runAllActiveBacktest(options: BacktestOptions = {}): Promise<Stra
       }
 
       if (trade.remainingQty > 0 && candle.high >= trade.target2) {
+        if (!consumeSellQuota()) continue
         const sellQty = trade.remainingQty
         const exitValue = Number((sellQty * trade.target2).toFixed(2))
         const costBasis = trade.remainingCost
@@ -1085,6 +1357,8 @@ export async function runStrategy1Backtest(options: BacktestOptions = {}): Promi
   const backtestDates = allDates.slice(-days)
   const backtestDateSet = new Set(backtestDates)
   const dateIndex = new Map(allDates.map((date, idx) => [date, idx]))
+  const benchmark = await loadHistoricalBenchmark(creds, from, to)
+  const sectorBySymbol = await buildSectorBySymbol()
 
   let cash = startingCapital
   let peakEquity = startingCapital
@@ -1092,6 +1366,7 @@ export async function runStrategy1Backtest(options: BacktestOptions = {}): Promi
   const openTrades: OpenTrade[] = []
   const allTrades: OpenTrade[] = []
   const equityCurve: BacktestEquityPoint[] = []
+  const dayTradeCounts = new Map<string, DayTradeCounts>()
 
   function pushPending(entry: PendingEntry) {
     const arr = pendingByDate.get(entry.date) || []
@@ -1120,8 +1395,24 @@ export async function runStrategy1Backtest(options: BacktestOptions = {}): Promi
         continue
       }
 
-      const budget = Math.min(capital.perTrade, cash)
-      const qty = Math.floor(budget / candle.open)
+      if (isBacktestGiftCircuitBlocked(benchmark, date, capital.circuitBreakerPct)) {
+        bumpGate(gateCounts, 'giftCircuit', 'Global GIFT-Nifty circuit blocked new buys')
+        continue
+      }
+      if (isBacktestGiftGateBlocked(strategy, benchmark, date)) {
+        bumpGate(gateCounts, 'giftNiftyGate', 'Strategy GIFT-Nifty gate blocked new buys')
+        continue
+      }
+      if (!canBacktestBuyForQuota(dayTradeCounts, date, capital.maxBuysPerDay)) {
+        bumpGate(gateCounts, 'buyQuota', 'Blocked by max buys per day')
+        continue
+      }
+      if (isBacktestSectorBlocked(strategy, pending.symbol, openTrades, sectorBySymbol)) {
+        bumpGate(gateCounts, 'sectorConcentration', 'Blocked by sector concentration limit')
+        continue
+      }
+
+      const qty = getBacktestEntryQuantity(capital.perTrade, cash, candle.open)
       if (qty < 1) {
         skippedCapitalLimited++
         bumpGate(gateCounts, 'capitalTooLow', 'Insufficient capital for next entry')
@@ -1157,6 +1448,7 @@ export async function runStrategy1Backtest(options: BacktestOptions = {}): Promi
         t1Done: false,
         t2Done: false,
       }
+      recordBacktestBuy(dayTradeCounts, date)
       openTrades.push(trade)
       allTrades.push(trade)
     }
@@ -1164,8 +1456,17 @@ export async function runStrategy1Backtest(options: BacktestOptions = {}): Promi
     for (const trade of [...openTrades]) {
       const candle = series.find(item => item.symbol === trade.symbol)?.candleByDate.get(date)
       if (!candle || trade.remainingQty < 1) continue
+      const consumeSellQuota = (): boolean => {
+        if (!canBacktestSellForQuota(dayTradeCounts, date, capital.maxSellsPerDay)) {
+          bumpGate(gateCounts, 'sellQuota', 'Blocked by max sells per day')
+          return false
+        }
+        recordBacktestSell(dayTradeCounts, date)
+        return true
+      }
 
       if (!trade.t1Done && candle.high >= trade.target1) {
+        if (!consumeSellQuota()) continue
         const sellQty = Math.ceil(trade.qty / 2)
         const exitValue = Number((sellQty * trade.target1).toFixed(2))
         const costBasis = Number((trade.entryPrice * sellQty).toFixed(2))
@@ -1179,6 +1480,7 @@ export async function runStrategy1Backtest(options: BacktestOptions = {}): Promi
       }
 
       if (trade.remainingQty > 0 && candle.high >= trade.target2) {
+        if (!consumeSellQuota()) continue
         const sellQty = trade.remainingQty
         const exitValue = Number((sellQty * trade.target2).toFixed(2))
         const costBasis = trade.remainingCost
@@ -1488,12 +1790,16 @@ async function runMomentumBacktest(options: BacktestOptions = {}): Promise<Strat
   const backtestDates = allDates.slice(-days)
   const backtestDateSet = new Set(backtestDates)
   const dateIndex = new Map(allDates.map((date, idx) => [date, idx]))
+  const benchmark = await loadHistoricalBenchmark(creds, fromDaily, toDaily, `${backtestDates[0]} 09:15:00`, toIntraday)
 
   let cash = startingCapital
   let peakEquity = startingCapital
   const openTrades: OpenTrade[] = []
   const allTrades: OpenTrade[] = []
   const equityCurve: BacktestEquityPoint[] = []
+  const dayTradeCounts = new Map<string, DayTradeCounts>()
+  const intradayCircuitState: BacktestIntradayCircuitState = { tripped: false }
+  const panicSkipByDate = new Map<string, Set<string>>()
 
   for (const date of backtestDates) {
     const todaysTimes = uniqueSortedTimes(series, date)
@@ -1519,7 +1825,16 @@ async function runMomentumBacktest(options: BacktestOptions = {}): Promise<Strat
         if (!symbolSeries || !candle || trade.remainingQty < 1) continue
 
         const exitPrice = candle.close
+        const consumeSellQuota = (): boolean => {
+          if (!canBacktestSellForQuota(dayTradeCounts, date, capitalCfg.maxSellsPerDay)) {
+            bumpGate(gateCounts, 'sellQuota', 'Blocked by max sells per day')
+            return false
+          }
+          recordBacktestSell(dayTradeCounts, date)
+          return true
+        }
         if (!trade.t1Done && exitPrice >= trade.target2) {
+          if (!consumeSellQuota()) continue
           const sellQty = trade.remainingQty
           const exitValue = Number((sellQty * trade.target2).toFixed(2))
           const costBasis = trade.remainingCost
@@ -1533,6 +1848,7 @@ async function runMomentumBacktest(options: BacktestOptions = {}): Promise<Strat
           trade.exitValue = exitValue
           trade.exitPrice = Number((exitValue / trade.qty).toFixed(2))
         } else if (!trade.t1Done && exitPrice >= trade.target1) {
+          if (!consumeSellQuota()) continue
           const sellQty = Math.max(1, Math.floor(trade.remainingQty / 2))
           const exitValue = Number((sellQty * trade.target1).toFixed(2))
           const costBasis = Number((trade.entryPrice * sellQty).toFixed(2))
@@ -1544,6 +1860,7 @@ async function runMomentumBacktest(options: BacktestOptions = {}): Promise<Strat
           trade.t1Done = true
           trade.t1Date = ts
         } else if (trade.t1Done && exitPrice >= trade.target2) {
+          if (!consumeSellQuota()) continue
           const sellQty = trade.remainingQty
           const exitValue = Number((sellQty * trade.target2).toFixed(2))
           const costBasis = trade.remainingCost
@@ -1597,6 +1914,18 @@ async function runMomentumBacktest(options: BacktestOptions = {}): Promise<Strat
           bumpGate(gateCounts, 'scanWindow', 'Outside configured scan window')
           continue
         }
+        if (isBacktestGiftCircuitBlocked(benchmark, date, capitalCfg.circuitBreakerPct)) {
+          bumpGate(gateCounts, 'giftCircuit', 'Global GIFT-Nifty circuit blocked new buys')
+          continue
+        }
+        if (isBacktestGiftGateBlocked(strategy, benchmark, date)) {
+          bumpGate(gateCounts, 'giftNiftyGate', 'Strategy GIFT-Nifty gate blocked new buys')
+          continue
+        }
+        if (isBacktestIntradayCircuitBlocked(benchmark, ts, capitalCfg, intradayCircuitState)) {
+          bumpGate(gateCounts, 'intradayCircuit', 'Intraday NIFTY circuit blocked new buys')
+          continue
+        }
         if (openTrades.length >= capitalCfg.maxPositions) {
           skippedPositionLimited++
           bumpGate(gateCounts, 'maxPositions', 'Blocked by max open positions')
@@ -1639,9 +1968,16 @@ async function runMomentumBacktest(options: BacktestOptions = {}): Promise<Strat
           bumpGate(gateCounts, 'risingCandles', 'Consecutive rising-candle pattern not met')
           continue
         }
+        if (isBacktestPanicBlocked(item, ts, candle.close, capitalCfg, panicSkipByDate)) {
+          bumpGate(gateCounts, 'panicSell', 'Panic-sell gate blocked new buys')
+          continue
+        }
+        if (!canBacktestBuyForQuota(dayTradeCounts, date, capitalCfg.maxBuysPerDay)) {
+          bumpGate(gateCounts, 'buyQuota', 'Blocked by max buys per day')
+          continue
+        }
 
-        const budget = Math.min(capitalCfg.perTrade, cash)
-        const qty = Math.floor(budget / candle.close)
+        const qty = getBacktestEntryQuantity(capitalCfg.perTrade, cash, candle.close)
         if (qty < 1) {
           skippedCapitalLimited++
           bumpGate(gateCounts, 'capitalTooLow', 'Insufficient capital for next entry')
@@ -1680,6 +2016,7 @@ async function runMomentumBacktest(options: BacktestOptions = {}): Promise<Strat
           t2Done: false,
           strategyPhase: 'momentum',
         }
+        recordBacktestBuy(dayTradeCounts, date)
         openTrades.push(trade)
         allTrades.push(trade)
         enteredToday.add(item.symbol)

@@ -15,6 +15,16 @@ const recordMap = new Map<string, InstrumentRecord>()
 const tokenMap = new Map<string, number>()     // legacy — kept for backwards compat
 let lastLoad = 0
 const CACHE_MS = 24 * 60 * 60 * 1000
+const SPECIAL_NSE_SYMBOLS = new Set([
+  'NIFTY 50',
+  'NIFTY BANK',
+  'NIFTY AUTO',
+  'NIFTY FIN SERVICE',
+  'NIFTY IT',
+  'NIFTY 100',
+  'NIFTY INFRA',
+  'INDIA VIX',
+])
 
 function parseCSVLine(line: string): string[] {
   const out: string[] = []
@@ -55,8 +65,8 @@ async function loadInstruments(creds: KiteCreds): Promise<void> {
     const line = lines[i].trim()
     if (!line) continue
     const row = parseCSVLine(line)
-    if (row[iType] !== 'EQ') continue
     const symbol = row[iSymbol]?.toUpperCase()
+    if (row[iType] !== 'EQ' && !SPECIAL_NSE_SYMBOLS.has(symbol)) continue
     const token = parseInt(row[iToken], 10)
     const name = (iName >= 0 ? row[iName] : '') || symbol
     if (symbol && !isNaN(token)) {

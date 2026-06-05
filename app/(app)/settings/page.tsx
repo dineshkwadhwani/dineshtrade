@@ -1882,20 +1882,20 @@ function BacktestTab({ active }: { active: boolean }) {
                         <td className="px-3 py-2.5 text-[11px]" style={{ color:'#60a5fa', fontFamily:'JetBrains Mono, monospace' }}>
                           {trade.strategyName || '—'}
                         </td>
-                        <td className="px-3 py-2.5 text-[11px] dt-text-secondary" style={{ fontFamily:'JetBrains Mono, monospace' }}>{trade.signalDate}</td>
+                        <td className="px-3 py-2.5 text-[11px] dt-text-secondary" style={{ fontFamily:'JetBrains Mono, monospace' }}>{formatBacktestTimestamp(trade.signalDate)}</td>
                         <td className="px-3 py-2.5 text-[11px] dt-text-primary">
-                          <div>{trade.entryDate}</div>
+                          <div>{formatBacktestTimestamp(trade.entryDate)}</div>
                           <div className="dt-text-muted">Entry Price</div>
                           <div style={{ color:'#c9a84c', fontFamily:'JetBrains Mono, monospace' }}>{formatCurrency(trade.entryPrice)}</div>
                         </td>
                         <td className="px-3 py-2.5 text-[11px] dt-text-secondary" style={{ fontFamily:'JetBrains Mono, monospace' }}>
-                          {trade.t1Date || '—'}
+                          {formatBacktestTimestamp(trade.t1Date)}
                         </td>
                         <td className="px-3 py-2.5 text-[11px] dt-text-secondary" style={{ fontFamily:'JetBrains Mono, monospace' }}>
-                          {trade.t2Date || '—'}
+                          {formatBacktestTimestamp(trade.t2Date)}
                         </td>
                         <td className="px-3 py-2.5 text-[11px] dt-text-primary">
-                          <div>{trade.exitDate || 'Open'}</div>
+                          <div>{trade.exitDate ? formatBacktestTimestamp(trade.exitDate) : 'Open'}</div>
                           <div className="dt-text-muted">{trade.status === 'closed' ? 'Exit Price' : 'Mark Price'}</div>
                           <div style={{ color: trade.status === 'closed' ? '#52b788' : 'rgba(255,255,255,0.65)', fontFamily:'JetBrains Mono, monospace' }}>{formatCurrency(trade.status === 'closed' ? (trade.exitPrice || trade.markPrice) : trade.markPrice)}</div>
                         </td>
@@ -2252,6 +2252,30 @@ function formatDateTime(value: string): string {
     hour: '2-digit',
     minute: '2-digit',
   })
+}
+
+function formatBacktestTimestamp(value?: string): string {
+  if (!value) return '—'
+  if (/^\d{4}-\d{2}-\d{2}$/.test(value)) return value
+
+  const dt = new Date(value)
+  if (!Number.isNaN(dt.getTime())) {
+    return dt.toLocaleString('en-IN', {
+      timeZone: 'Asia/Kolkata',
+      year: 'numeric',
+      month: 'short',
+      day: '2-digit',
+      hour: '2-digit',
+      minute: '2-digit',
+      hour12: false,
+    })
+  }
+
+  return value
+    .replace('T', ' ')
+    .replace(/\.\d+/, '')
+    .replace(/(?:Z|[+-]\d{2}:?\d{2})$/, '')
+    .trim()
 }
 
 function compactJson(value: unknown): string {

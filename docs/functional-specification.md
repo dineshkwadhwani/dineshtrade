@@ -774,6 +774,7 @@ After wipe, the app fetches the account's live Kite holdings + net positions (pa
 - Trade report shows zero closed trades for the account (clean slate)
 - Open positions appear as Accumulator with Kite avg price as cost basis
 - Starting capital in date-range reports will reflect current live Kite balance (available cash + re-seeded position values at current LTP)
+- Backtests should follow live auto-trading gate behavior as closely as historical data allows: the replay must not downsize buys below the configured per-trade bucket, must respect day buy/sell quotas, sector concentration, pyramiding, panic-sell skips, and market-gate blocks derived from historical benchmark data.
 - The Accumulator monitor manages all re-seeded positions' T1/T2 exits automatically
 
 ### Nuances
