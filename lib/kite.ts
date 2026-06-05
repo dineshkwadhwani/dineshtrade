@@ -186,6 +186,10 @@ export async function getHistoricalCandles(
     const preview = JSON.stringify(r.data).slice(0, 800)
     console.log(`[kite historical] RESPONSE status=${r.status} ok=${r.ok} body=${preview}`)
   }
+  if (!r.ok || r.data?.status === 'error') {
+    const message = r.data?.message || `Kite historical HTTP ${r.status}`
+    throw new Error(message)
+  }
   const rows = r.data?.data?.candles || []
   return rows.map(row => ({
     date: row[0],
