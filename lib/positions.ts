@@ -15,6 +15,16 @@
 import { promises as fs } from 'fs'
 import * as path from 'path'
 
+export interface PositionLot {
+  id: string
+  boughtAt: string
+  entryPrice: number
+  originalQty: number
+  remainingQty: number
+  tranche1At?: string | null
+  tranche1SoldQty?: number
+}
+
 export interface Position {
   strategyId: string          // 'accumulator', 'catalyst', or any user-created strategy id
   account: string             // uppercase
@@ -25,6 +35,7 @@ export interface Position {
   remainingQty: number        // after any tranche sells
   tranche1At?: string | null  // ISO when tranche 1 sold (null = not yet)
   tranche1SoldQty?: number
+  lots?: PositionLot[]        // momentum strategies can carry per-buy exit ladders
 }
 
 type PositionsMap = Record<string, Position>   // key: "ACCOUNT:SYMBOL"
@@ -51,6 +62,102 @@ function isoFromYmd(ymd: string): string {
   return `${ymd}T03:45:00.000Z`   // 09:15 IST = 03:45 UTC
 }
 
+function round2(value: number): number {
+  return Number(value.toFixed(2))
+}
+
+function makeLotId(): string {
+  return `${Date.now()}-${Math.random().toString(36).slice(2, 8)}`
+}
+
+function makeLot(qty: number, price: number, boughtAt = new Date().toISOString()): PositionLot {
+  return {
+    id: makeLotId(),
+    boughtAt,
+    entryPrice: price,
+    originalQty: qty,
+    remainingQty: qty,
+    tranche1At: null,
+  }
+}
+
+async function isTrackedStrategyId(strategyId: string): Promise<boolean> {
+  try {
+    const { getStrategyById } = await import('./strategyConfig')
+    return !!getStrategyById(strategyId)
+  } catch {
+    return false
+  }
+}
+
+function getActiveLots(position: Position): PositionLot[] {
+  return (position.lots || []).filter(lot => lot.remainingQty > 0)
+}
+
+function synthesizeLegacyLot(position: Position): PositionLot {
+  return {
+    id: makeLotId(),
+    boughtAt: position.firstBuyAt || new Date().toISOString(),
+    entryPrice: position.firstBuyPrice,
+    originalQty: position.totalQty || position.remainingQty,
+    remainingQty: position.remainingQty,
+    tranche1At: position.tranche1At ?? null,
+    tranche1SoldQty: position.tranche1SoldQty,
+  }
+}
+
+function summarizeMomentumPosition(position: Position): void {
+  const activeLots = getActiveLots(position)
+  const basisLots = activeLots.length > 0 ? activeLots : (position.lots || [])
+  if (basisLots.length === 0) {
+    position.totalQty = 0
+    position.remainingQty = 0
+    position.firstBuyPrice = 0
+    position.firstBuyAt = ''
+    position.tranche1At = null
+    position.tranche1SoldQty = 0
+    return
+  }
+
+  const remainingQty = activeLots.reduce((sum, lot) => sum + lot.remainingQty, 0)
+  const weightedRemainingNotional = activeLots.reduce((sum, lot) => sum + (lot.remainingQty * lot.entryPrice), 0)
+  position.totalQty = basisLots.reduce((sum, lot) => sum + lot.originalQty, 0)
+  position.remainingQty = remainingQty
+  position.firstBuyAt = basisLots.reduce((earliest, lot) => earliest && earliest < lot.boughtAt ? earliest : lot.boughtAt, basisLots[0].boughtAt)
+  position.firstBuyPrice = remainingQty > 0
+    ? round2(weightedRemainingNotional / remainingQty)
+    : round2(basisLots.reduce((sum, lot) => sum + (lot.originalQty * lot.entryPrice), 0) / Math.max(1, basisLots.reduce((sum, lot) => sum + lot.originalQty, 0)))
+  position.tranche1At = activeLots.every(lot => !!lot.tranche1At)
+    ? activeLots.reduce<string | null>((latest, lot) => {
+        const value = lot.tranche1At || null
+        if (!value) return latest
+        return !latest || value > latest ? value : latest
+      }, null)
+    : null
+  position.tranche1SoldQty = activeLots.reduce((sum, lot) => sum + (lot.tranche1SoldQty || 0), 0)
+}
+
+function ensureMomentumLots(position: Position): PositionLot[] {
+  if (!position.lots || position.lots.length === 0) {
+    position.lots = [synthesizeLegacyLot(position)]
+  }
+  return position.lots
+}
+
+async function normalizePosition(position: Position): Promise<boolean> {
+  if (!(await isTrackedStrategyId(position.strategyId))) return false
+  ensureMomentumLots(position)
+  summarizeMomentumPosition(position)
+  return true
+}
+
+export async function listPositionLots(position: Position): Promise<PositionLot[]> {
+  if (!(await isTrackedStrategyId(position.strategyId))) return []
+  const lots = ensureMomentumLots(position)
+  summarizeMomentumPosition(position)
+  return lots.map(lot => ({ ...lot }))
+}
+
 async function readJsonSafe<T = any>(filePath: string): Promise<T | null> {
   try {
     const raw = await fs.readFile(filePath, 'utf8')
@@ -73,7 +180,14 @@ async function migrateIfNeeded(): Promise<PositionsMap> {
 
   // Already migrated? Just read.
   const existing = await readJsonSafe<PositionsMap>(POS_FILE)
-  if (existing && typeof existing === 'object') return existing
+  if (existing && typeof existing === 'object') {
+    let changed = false
+    for (const position of Object.values(existing)) {
+      if (await normalizePosition(position)) changed = true
+    }
+    if (changed) await writeJsonAtomic(POS_FILE, existing)
+    return existing
+  }
 
   console.log('[positions] no positions.json found — checking for legacy files to migrate')
   const unified: PositionsMap = {}
@@ -163,11 +277,18 @@ export async function recordBuy(strategyId: string, account: string, symbol: str
   const k = makeKey(account, symbol)
   const existing = positions[k]
   if (existing) {
-    existing.totalQty += qty
-    existing.remainingQty += qty
-    console.log(`[positions] pyramid BUY ${k} +${qty} @ ₹${price} (totalQty ${existing.totalQty}; anchor unchanged @ ₹${existing.firstBuyPrice}, strategyId=${existing.strategyId})`)
+    if (existing.strategyId === strategyId && await isTrackedStrategyId(strategyId)) {
+      const lots = ensureMomentumLots(existing)
+      lots.push(makeLot(qty, price))
+      summarizeMomentumPosition(existing)
+      console.log(`[positions] lot BUY ${k} +${qty} @ ₹${price} (lots ${lots.length}; avg ₹${existing.firstBuyPrice}, remaining ${existing.remainingQty}, strategyId=${existing.strategyId})`)
+    } else {
+      existing.totalQty += qty
+      existing.remainingQty += qty
+      console.log(`[positions] pyramid BUY ${k} +${qty} @ ₹${price} (totalQty ${existing.totalQty}; anchor unchanged @ ₹${existing.firstBuyPrice}, strategyId=${existing.strategyId})`)
+    }
   } else {
-    positions[k] = {
+    const next: Position = {
       strategyId,
       account: account.toUpperCase(),
       symbol: symbol.toUpperCase(),
@@ -177,6 +298,11 @@ export async function recordBuy(strategyId: string, account: string, symbol: str
       remainingQty: qty,
       tranche1At: null,
     }
+    if (await isTrackedStrategyId(strategyId)) {
+      next.lots = [makeLot(qty, price, next.firstBuyAt)]
+      summarizeMomentumPosition(next)
+    }
+    positions[k] = next
     console.log(`[positions] new ${strategyId} position ${k} × ${qty} @ ₹${price}`)
   }
   await writeAll(positions)
@@ -211,6 +337,26 @@ export async function markTranche1Sold(account: string, symbol: string, soldQty:
   p.tranche1At = new Date().toISOString()
   p.tranche1SoldQty = soldQty
   p.remainingQty = Math.max(0, p.remainingQty - soldQty)
+  await writeAll(positions)
+}
+
+export async function applyLotSell(account: string, symbol: string, lotId: string, soldQty: number, opts?: { markTranche1?: boolean }): Promise<void> {
+  const positions = await readAll()
+  const k = makeKey(account, symbol)
+  const p = positions[k]
+  if (!p || !p.lots || soldQty <= 0) return
+  const lot = p.lots.find(item => item.id === lotId)
+  if (!lot || lot.remainingQty <= 0) return
+  const executedQty = Math.min(soldQty, lot.remainingQty)
+  if (opts?.markTranche1) {
+    lot.tranche1At = new Date().toISOString()
+    lot.tranche1SoldQty = (lot.tranche1SoldQty || 0) + executedQty
+  }
+  lot.remainingQty = Math.max(0, lot.remainingQty - executedQty)
+  summarizeMomentumPosition(p)
+  if (p.remainingQty <= 0) {
+    delete positions[k]
+  }
   await writeAll(positions)
 }
 

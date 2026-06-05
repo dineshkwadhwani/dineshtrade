@@ -83,6 +83,10 @@ This spec documents the *user-visible* behaviour: what the app does, when, and w
 - Funds + no-short + market-open gates still apply.
 - On SELL with partial holdings, auto-clamps to held qty.
 
+### F3.4 — Positions page lot visibility
+- The Positions page still keeps one broker-shaped action row per symbol, but strategy-tracked rows can now show an inline **Open Lots** block beneath that row.
+- Each lot line shows the original buy timestamp, entry price, current open qty versus original qty, tranche-1 status, and live P&L from the current LTP. This lets repeated Accumulator or Catalyst buys remain visible as separate tranches without splitting the main square-off row.
+
 ### Nuances
 - **No persistent OOS bucket:** broker-held positions without a stronger owning strategy are absorbed into `accumulator` so they remain managed by the system rather than staying permanently outside it.
 - **Funds-gate exemption for manual:** by design — the user wants to be able to buy with their own judgement, even above the auto-mode per-trade cap. The funds gate still prevents NSE rejection.
@@ -115,10 +119,11 @@ Strategy 1 has **two trigger paths** — a once-per-day morning scan and a react
 
 #### Exits + persistence (shared between both paths)
 - **Two-tranche exit:**
-  - **Tranche 1:** SELL 50% when LTP ≥ EMA
-  - **Tranche 2:** SELL remaining 50% when LTP ≥ EMA × 1.03 (i.e. **EMA + 3%, no time stop**)
+  - **Tranche 1:** SELL 50% of each open lot when LTP ≥ that lot's EMA anchor
+  - **Tranche 2:** SELL the remaining qty of that same lot when LTP ≥ that lot's EMA × 1.03 (i.e. **EMA + 3%, no time stop**)
 - **Order tags:** `dt-s1` (BUY), `dt-s1-t1` (tranche 1 SELL), `dt-s1-t2` (tranche 2 SELL)
-- **Persistence:** every Strategy 1 BUY is recorded in `data/strategy1.json` with `{ account, symbol, qty, entryPrice, tranche1Done }`. Monitor re-hydrates from this file every tick, so positions survive restarts and span days.
+- Repeated BUYs into an already-open Accumulator position now append a new lot with its own exit ladder. They must not overwrite the older lot's EMA/T1/T2 state even if the symbol is already open in the same account.
+- **Persistence:** open Strategy 1 positions now live in the unified `data/positions.json` store. The aggregate row still shows combined qty for summary surfaces, but monitoring and exits are evaluated lot-by-lot so restarts preserve per-buy targets.
 
 #### Visibility
 - **Auto mode:** cron places the BUY automatically (same `dt-s1` tag, same exit monitor).
@@ -134,6 +139,7 @@ Strategy 1 has **two trigger paths** — a once-per-day morning scan and a react
   4. LTP within **±3% of 20-day EMA** (not a runaway)
   5. Within the 9:30–14:30 IST scan window
 - **Tranche exits (replaced 19 May):** T1 = entry × (1 + `t1Pct`/100), T2 = entry × (1 + `t2Pct`/100). T1 fires first, sells 50%. T2 fires later, sells remainder. Defaults: T1 = 1.5%, T2 = 2.0%. Both anchored to **first BUY price** (pyramid-aware).
+- When the user explicitly executes an additional BUY from the Engine on an already-open momentum position for the same strategy, that BUY becomes a new lot with its own T1/T2 targets. It must not overwrite or merge into the older lot's exit ladder. Summary views may show one combined position with weighted-average cost, but monitoring and sells remain lot-specific.
 - On every cron tick, the Strategy 2 exit monitor checks both live LTP and the most recent completed 5-minute candle. If that candle's high already touched T1 or T2 but the current price has fallen back below the target, the matching sell still fires immediately at market so intraday target touches are not missed between cron runs.
 - **Multi-day handoff (replaced the old 3:00 PM cutoff):** Strategy 2 keeps trying its T1/T2 every day until `firstBuyAt` age ≥ `deliveryHandoffDays` (default **15 calendar days**, per-strategy configurable). At handoff the position's `strategyId` is re-stamped to `accumulator` in the unified position store — accumulator's monitor takes over with EMA-based exits, no time limit.
 - **Order tags:** `dt-catalyst` (BUY, new scheme), `dt-s2-exit` (SELL — legacy literal preserved for back-compat).

@@ -379,12 +379,15 @@ Centralised wrappers — every caller goes through these. Never make raw HTTP ca
 - The backtest result payload now also includes `skippedOrders[]` plus `summary.totalSkippedOrders`, so blocked entry and exit attempts can be reviewed row by row instead of only through aggregated gate counters.
 - Uses daily historical candles only; evaluates signals from day-close vs previous day's EMA, enters at the next trading day's open, and exits at the strategy's saved `t1Pct` / `t2Pct` from entry price (matching the live Strategy 1 monitor)
 - Momentum replay uses 5-minute candles: scans between `scanStartHHMM` and `scanEndHHMM`, checks day-gain / EMA proximity / prorated volume / rising-candle conditions, exits on 5-minute closes at T1 / T2, and hands off aged positions to accumulator-style targets.
+- Live momentum position tracking now preserves per-buy lots inside the unified positions store. Repeated Catalyst buys in the same symbol append a new lot instead of reusing the original target anchor. Each open lot monitors its own T1/T2 ladder from its own entry price, while the aggregate position row keeps total qty / remaining qty plus a weighted-average price for summary views.
+- Live accumulator position tracking now follows the same lot model. Repeated Accumulator buys in the same symbol append a new lot, and Strategy 1 exits each lot against its own EMA-derived T1/T2 ladder instead of reusing the earliest buy as a shared anchor.
 - Live Strategy 2 monitoring now combines `/quote` LTP with the latest completed Kite 5-minute candle per open position. This closes the gap between cron ticks: if the candle high has already crossed T1 or T2 but the current LTP has retreated, the monitor still sends the market SELL immediately and bypasses the normal no-loss gate for that specific already-hit target case.
 - Returns summary metrics, per-trade outcomes, and an equity curve for the selected lookback window
 - Backtest output now includes estimated Zerodha-style equity charges. Same-day trades are classified as `intraday`; multi-day trades are classified as `delivery`. Open positions use the last mark price to estimate remaining exit-side charges for net MTM.
 - HTTP surface: `POST /api/strategy/backtest` (authenticated)
 - `POST /api/strategy/backtest` now also performs a best-effort single-run AI analysis after the replay completes. AI failure must not fail the backtest itself; the route returns `analysisError` separately when recommendation generation fails.
 - Current frontend surface: Settings → Backtest tab. It fetches saved strategies from `GET /api/strategies`, lets the user pick a strategy + day window, renders summary/trades/equity inline for both dip and momentum strategies, and persists every completed run into server-side Backtest History. The summary hero uses net-after-charges values, the trade table includes a per-row `Charges` column plus net profit display, the run result now includes a skipped-orders table plus an AI recommendation card, and the history area is split into a run tab plus a Backtest History tab. The history overview and AI analysis use realized profit / return for comparisons, while unrealized MTM remains a separate exposure metric for open positions.
+- Current Positions page surface: the main row remains broker-shaped for actioning and square-off, while `/api/positions` now also exposes active unified-store lots for that symbol so the UI can render a compact per-lot breakdown (buy time, entry, open qty, tranche-1 state, live P&L) under the row when multiple tranches are active.
 
 ### 5.6 `lib/tradeReport.ts` *(new 23 May 2026)*
 
@@ -409,20 +412,31 @@ interface Position {
   strategyId: string             // e.g. 'accumulator', 'catalyst', 'quickwin'
   account: string                // uppercase
   symbol: string                 // uppercase
-  firstBuyPrice: number          // anchor for T1/T2
-  firstBuyAt: string             // ISO; anchors handoff clock for momentum
-  totalQty: number               // cumulative across pyramid BUYs
+  firstBuyPrice: number          // aggregate summary anchor / weighted view
+  firstBuyAt: string             // ISO; earliest open-lot buy time
+  totalQty: number               // cumulative across open lots
   remainingQty: number
   tranche1At?: string | null
   tranche1SoldQty?: number
+  lots?: Array<{
+    id: string
+    boughtAt: string
+    entryPrice: number
+    originalQty: number
+    remainingQty: number
+    tranche1At?: string | null
+    tranche1SoldQty?: number
+  }>
 }
 
 recordBuy(strategyId, account, symbol, qty, price): Promise<void>   // pyramid-aware
 ensureTracked(strategyId, account, symbol, qty, price): Promise<boolean>
 markTranche1Sold(account, symbol, soldQty): Promise<void>
+applyLotSell(account, symbol, lotId, soldQty, opts?): Promise<void>
 removePosition(account, symbol): Promise<void>
 getPosition(account, symbol): Promise<Position | null>
 listPositions(opts?: { account?, strategyId? }): Promise<Position[]>
+listPositionLots(position): Promise<Position['lots']>
 setStrategyId(account, symbol, newStrategyId): Promise<boolean>     // single-row re-stamp
 migrateStrategyId(fromId, toId): Promise<number>                    // bulk re-stamp (deactivate/delete)
 wipeAccountPositions(account): Promise<number>                      // hard delete for account reset

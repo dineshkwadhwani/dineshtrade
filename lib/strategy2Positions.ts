@@ -9,6 +9,7 @@
 // catalyst's strategyId for backward compatibility.
 
 import * as positions from './positions'
+import type { PositionLot } from './positions'
 
 export interface S2Position {
   firstBuyAt: string
@@ -17,6 +18,7 @@ export interface S2Position {
   remainingQty: number
   tranche1At?: string | null
   tranche1SoldQty?: number
+  lots?: PositionLot[]
 }
 
 export interface S2PositionWithKey extends S2Position {
@@ -33,6 +35,10 @@ export async function recordStrategy2Buy(account: string, symbol: string, qty: n
 
 export async function markTranche1Sold(account: string, symbol: string, soldQty: number): Promise<void> {
   await positions.markTranche1Sold(account, symbol, soldQty)
+}
+
+export async function applyStrategy2LotSell(account: string, symbol: string, lotId: string, soldQty: number, opts?: { markTranche1?: boolean }): Promise<void> {
+  await positions.applyLotSell(account, symbol, lotId, soldQty, opts)
 }
 
 export async function removeStrategy2Position(account: string, symbol: string): Promise<void> {
@@ -60,6 +66,7 @@ export async function listStrategy2Positions(): Promise<S2PositionWithKey[]> {
       remainingQty: p.remainingQty,
       tranche1At: p.tranche1At,
       tranche1SoldQty: p.tranche1SoldQty,
+      lots: p.lots?.map(lot => ({ ...lot })),
     }))
 }
 

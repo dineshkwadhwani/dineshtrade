@@ -23,6 +23,16 @@ export const revalidate = 0
 
 export type { PositionTag }
 
+export interface EnrichedPositionLot {
+  id: string
+  boughtAt: string
+  entryPrice: number
+  originalQty: number
+  remainingQty: number
+  tranche1At?: string | null
+  tranche1SoldQty?: number
+}
+
 export interface EnrichedPosition {
   symbol: string
   exchange: string
@@ -39,6 +49,7 @@ export interface EnrichedPosition {
   unrealized: number       // qty × (ltp − avgPrice)  -- 0 when fully closed
   realized: number         // best-effort closed-leg P&L for today
   orderIds: string[]       // today's COMPLETE order ids for this symbol
+  lots: EnrichedPositionLot[]
 }
 
 export async function GET(req: Request) {
@@ -60,14 +71,30 @@ export async function GET(req: Request) {
       // Load the unified position store + strategy map for tag derivation.
       // Best-effort: if either fails, the tag falls through to legacy logic.
       try {
-        const [{ listPositions }, { getStrategies }, { getJournalStrategyFallback }] = await Promise.all([
+        const [{ listPositions, listPositionLots }, { getStrategies }, { getJournalStrategyFallback }] = await Promise.all([
           import('@/lib/positions'),
           import('@/lib/strategyConfig'),
           import('@/lib/journal'),
         ])
         const rows = await listPositions({ account })
         const byKey = new Map<string, string>()
+        const lotsByKey = new Map<string, EnrichedPositionLot[]>()
         for (const r of rows) byKey.set(r.symbol.toUpperCase(), r.strategyId)
+        for (const r of rows) {
+          const activeLots = (await listPositionLots(r))
+            .filter(lot => lot.remainingQty > 0)
+            .sort((left, right) => left.boughtAt.localeCompare(right.boughtAt))
+            .map(lot => ({
+              id: lot.id,
+              boughtAt: lot.boughtAt,
+              entryPrice: lot.entryPrice,
+              originalQty: lot.originalQty,
+              remainingQty: lot.remainingQty,
+              tranche1At: lot.tranche1At,
+              tranche1SoldQty: lot.tranche1SoldQty,
+            }))
+          lotsByKey.set(r.symbol.toUpperCase(), activeLots)
+        }
         const strategiesById = new Map<string, { name: string; color: string }>()
         for (const s of getStrategies()) strategiesById.set(s.id, { name: s.name, color: s.color })
         // Journal fallback: for symbols not in the positions store (manually sold,
@@ -77,8 +104,14 @@ export async function GET(req: Request) {
           const fallback = await getJournalStrategyFallback(account, new Set(byKey.keys()))
           for (const [sym, strategyId] of Array.from(fallback)) byKey.set(sym, strategyId)
         } catch { /* journal read failure is non-fatal */ }
-        return { byKey, strategiesById }
-      } catch { return { byKey: new Map<string, string>(), strategiesById: new Map<string, { name: string; color: string }>() } }
+        return { byKey, lotsByKey, strategiesById }
+      } catch {
+        return {
+          byKey: new Map<string, string>(),
+          lotsByKey: new Map<string, EnrichedPositionLot[]>(),
+          strategiesById: new Map<string, { name: string; color: string }>(),
+        }
+      }
     })(),
   ])
 
@@ -171,6 +204,7 @@ export async function GET(req: Request) {
       unrealized,
       realized,
       orderIds: orderIdsBySymbol.get(sym) || [],
+      lots: posStore.lotsByKey.get(sym) || [],
     }
   })
 

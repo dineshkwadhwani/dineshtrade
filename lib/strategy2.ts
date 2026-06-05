@@ -29,7 +29,7 @@ import {
   listStrategy2Positions, removeStrategy2Position, markTranche1Sold,
   recordStrategy2Buy, ageInCalendarDays,
 } from './strategy2Positions'
-import { recordBuy as recordPositionBuy } from './positions'
+import { recordBuy as recordPositionBuy, listPositionLots, applyLotSell } from './positions'
 import { getInstrumentTokens } from './instruments'
 
 export const STRATEGY_2_BUY_TAG = 'dt-s2'
@@ -218,10 +218,7 @@ export async function monitorAccount(account: string): Promise<MonitorResult> {
       continue
     }
 
-    const t1Price = pos.firstBuyPrice * (1 + t1Pct / 100)
-    const t2Price = pos.firstBuyPrice * (1 + t2Pct / 100)
     const gainPct = ((ltp - pos.firstBuyPrice) / pos.firstBuyPrice) * 100
-    const tranche1Done = !!pos.tranche1At
     let recentCompletedHigh: number | null = null
 
     const token = instrumentTokens[symbol]
@@ -231,128 +228,136 @@ export async function monitorAccount(account: string): Promise<MonitorResult> {
       recentCompletedHigh = lastCandle ? lastCandle.high : null
     }
 
-    // Decide what to sell, if anything
-    let sellQty = 0
-    let sellReason = ''
-    let willCompletePosition = false
-    let bypassNoLossSell = false
-    if (!tranche1Done && ltp >= t2Price) {
-      // LTP jumped past T2 before T1 fired — sell entire position at T2
-      sellQty = pos.remainingQty
-      sellReason = `LTP ₹${ltp.toFixed(2)} ≥ T2 ₹${t2Price.toFixed(2)} (skipped past T1) — selling entire position`
-      willCompletePosition = true
-    } else if (!tranche1Done && recentCompletedHigh !== null && recentCompletedHigh >= t2Price && ltp < t2Price) {
-      sellQty = pos.remainingQty
-      sellReason = `T2 was hit intraday at ₹${recentCompletedHigh.toFixed(2)} but price retreated to ₹${ltp.toFixed(2)} — selling at market`
-      willCompletePosition = true
-      bypassNoLossSell = true
-    } else if (!tranche1Done && ltp >= t1Price) {
-      // Tranche 1: sell ~50%. Use Math.ceil so a qty of 1 still triggers
-      // tranche1 (we never want to leave 0/1 on a tranche).
-      sellQty = Math.max(1, Math.floor(pos.remainingQty / 2))
-      sellReason = `LTP ₹${ltp.toFixed(2)} ≥ T1 ₹${t1Price.toFixed(2)} — tranche 1 sell (50% of ${pos.remainingQty})`
-    } else if (!tranche1Done && recentCompletedHigh !== null && recentCompletedHigh >= t1Price && ltp < t1Price) {
-      sellQty = Math.max(1, Math.floor(pos.remainingQty / 2))
-      sellReason = `T1 was hit intraday at ₹${recentCompletedHigh.toFixed(2)} but price retreated to ₹${ltp.toFixed(2)} — selling at market`
-      bypassNoLossSell = true
-    } else if (tranche1Done && ltp >= t2Price) {
-      sellQty = pos.remainingQty
-      sellReason = `LTP ₹${ltp.toFixed(2)} ≥ T2 ₹${t2Price.toFixed(2)} — tranche 2 sell (remainder)`
-      willCompletePosition = true
-    } else if (tranche1Done && recentCompletedHigh !== null && recentCompletedHigh >= t2Price && ltp < t2Price) {
-      sellQty = pos.remainingQty
-      sellReason = `T2 was hit intraday at ₹${recentCompletedHigh.toFixed(2)} but price retreated to ₹${ltp.toFixed(2)} — selling at market`
-      willCompletePosition = true
-      bypassNoLossSell = true
+    const lots = (await listPositionLots(pos)).sort((a, b) => a.boughtAt.localeCompare(b.boughtAt))
+    let soldAnyLot = false
+
+    for (const lot of lots) {
+      if (lot.remainingQty < 1) continue
+      const lotT1Price = lot.entryPrice * (1 + t1Pct / 100)
+      const lotT2Price = lot.entryPrice * (1 + t2Pct / 100)
+      const lotGainPct = ((ltp - lot.entryPrice) / lot.entryPrice) * 100
+      const lotTranche1Done = !!lot.tranche1At
+      const lotLabel = `${new Date(lot.boughtAt).toLocaleDateString('en-IN', { timeZone: 'Asia/Kolkata' })} @ ₹${lot.entryPrice.toFixed(2)}`
+
+      let sellQty = 0
+      let sellReason = ''
+      let bypassNoLossSell = false
+      let markTranche1 = false
+      if (!lotTranche1Done && ltp >= lotT2Price) {
+        sellQty = lot.remainingQty
+        sellReason = `Lot ${lotLabel}: LTP ₹${ltp.toFixed(2)} ≥ T2 ₹${lotT2Price.toFixed(2)} (skipped past T1) — selling entire lot`
+      } else if (!lotTranche1Done && recentCompletedHigh !== null && recentCompletedHigh >= lotT2Price && ltp < lotT2Price) {
+        sellQty = lot.remainingQty
+        sellReason = `Lot ${lotLabel}: T2 was hit intraday at ₹${recentCompletedHigh.toFixed(2)} but price retreated to ₹${ltp.toFixed(2)} — selling lot at market`
+        bypassNoLossSell = true
+      } else if (!lotTranche1Done && ltp >= lotT1Price) {
+        sellQty = Math.max(1, Math.floor(lot.remainingQty / 2))
+        sellReason = `Lot ${lotLabel}: LTP ₹${ltp.toFixed(2)} ≥ T1 ₹${lotT1Price.toFixed(2)} — tranche 1 sell (50% of ${lot.remainingQty})`
+        markTranche1 = true
+      } else if (!lotTranche1Done && recentCompletedHigh !== null && recentCompletedHigh >= lotT1Price && ltp < lotT1Price) {
+        sellQty = Math.max(1, Math.floor(lot.remainingQty / 2))
+        sellReason = `Lot ${lotLabel}: T1 was hit intraday at ₹${recentCompletedHigh.toFixed(2)} but price retreated to ₹${ltp.toFixed(2)} — selling lot at market`
+        bypassNoLossSell = true
+        markTranche1 = true
+      } else if (lotTranche1Done && ltp >= lotT2Price) {
+        sellQty = lot.remainingQty
+        sellReason = `Lot ${lotLabel}: LTP ₹${ltp.toFixed(2)} ≥ T2 ₹${lotT2Price.toFixed(2)} — tranche 2 sell (remainder)`
+      } else if (lotTranche1Done && recentCompletedHigh !== null && recentCompletedHigh >= lotT2Price && ltp < lotT2Price) {
+        sellQty = lot.remainingQty
+        sellReason = `Lot ${lotLabel}: T2 was hit intraday at ₹${recentCompletedHigh.toFixed(2)} but price retreated to ₹${ltp.toFixed(2)} — selling lot at market`
+        bypassNoLossSell = true
+      }
+
+      if (sellQty === 0) continue
+
+      const pre = await runPreflight({ account, symbol, side: 'SELL', quantity: sellQty, pricePerShare: ltp, bypassNoLossSell })
+      if (!pre.ok) {
+        entries.push({
+          account, accountDisplayName: displayName, symbol,
+          action: 'skipped', quantity: sellQty, entryPrice: lot.entryPrice, ltp, gainPct: lotGainPct,
+          reason: pre.gate === 'noShort'
+            ? 'Position no longer held in Kite (manually closed?) — skipping'
+            : `Preflight ${pre.gate}: ${pre.reason}`,
+        })
+        continue
+      }
+
+      const actualQty = pre.adjustedQty ?? sellQty
+      const placed = await placeKiteOrder(creds, { symbol, side: 'SELL', quantity: actualQty, tag: STRATEGY_2_SELL_TAG })
+      if (placed.ok && placed.data?.data?.order_id) {
+        soldAnyLot = true
+        await markPlaced(account, symbol, 'SELL', { price: ltp, manual: false })
+        journalOrder({ account, symbol, side: 'SELL', qty: actualQty, price: ltp, tag: STRATEGY_2_SELL_TAG, orderId: placed.data.data.order_id })
+          .catch(err => console.error('[strategy2] journalOrder failed:', err))
+        await applyLotSell(account, symbol, lot.id, actualQty, { markTranche1 })
+
+        const pnlRupees = (ltp - lot.entryPrice) * actualQty
+        const dayHigh = (quote as any)?.ohlc?.high ?? ltp
+        const dayLow  = (quote as any)?.ohlc?.low  ?? ltp
+        appendJournal({
+          type: 'trade',
+          date: istDateString(),
+          account, symbol,
+          qty: actualQty,
+          entryPrice: lot.entryPrice,
+          entryTime: lot.boughtAt,
+          exitPrice: ltp,
+          exitTime: new Date().toISOString(),
+          pnlRupees,
+          pnlPct: lotGainPct,
+          dayHighAfterEntry: dayHigh,
+          dayLowAfterEntry: dayLow,
+          leftOnTable: Math.max(0, dayHigh - ltp),
+          verdict: classifyVerdict({ strategy: 'catalyst', entryPrice: lot.entryPrice, exitPrice: ltp, t1TriggerPct: t1Pct }),
+          strategy: 'catalyst',
+          orderIdSell: placed.data.data.order_id,
+          notes: sellReason,
+        }).catch(err => console.error('[strategy2] journal write failed:', err))
+
+        entries.push({
+          account, accountDisplayName: displayName, symbol,
+          action: 'sold', quantity: actualQty, entryPrice: lot.entryPrice, ltp, gainPct: lotGainPct,
+          orderId: placed.data.data.order_id,
+          reason: sellReason,
+        })
+        sendEmail('trade_executed', {
+          account, accountDisplayName: displayName, symbol,
+          side: 'SELL', quantity: actualQty, price: ltp,
+          orderId: placed.data.data.order_id,
+          source: `S2 auto-exit @ +${lotGainPct.toFixed(2)}%`,
+          reason: sellReason,
+          mode: 'auto',
+        }).catch(err => console.error('[strategy2] sold-email failed:', err))
+      } else {
+        const errMsg = placed.data?.message || placed.data?.error_type || `Kite HTTP ${placed.status}`
+        entries.push({
+          account, accountDisplayName: displayName, symbol,
+          action: 'sold_failed', quantity: actualQty, entryPrice: lot.entryPrice, ltp, gainPct: lotGainPct,
+          reason: errMsg,
+        })
+        sendEmail('trade_failed', {
+          account, accountDisplayName: displayName, symbol,
+          side: 'SELL', quantity: actualQty, price: ltp,
+          failedAt: 'kite', reason: errMsg, mode: 'auto',
+        }).catch(err => console.error('[strategy2] sold-failed-email failed:', err))
+      }
     }
 
-    if (sellQty === 0) {
+    if (!soldAnyLot) {
+      const nextLot = lots.find(lot => lot.remainingQty > 0)
+      const holdEntryPrice = nextLot?.entryPrice ?? pos.firstBuyPrice
+      const holdT1Price = holdEntryPrice * (1 + t1Pct / 100)
+      const holdT2Price = holdEntryPrice * (1 + t2Pct / 100)
+      const holdTranche1Done = !!nextLot?.tranche1At
+      const holdGainPct = ((ltp - holdEntryPrice) / holdEntryPrice) * 100
       // Hold
       entries.push({
         account, accountDisplayName: displayName, symbol,
-        action: 'held', quantity: pos.remainingQty, entryPrice: pos.firstBuyPrice, ltp, gainPct,
-        reason: tranche1Done
-          ? `Waiting for T2 ₹${t2Price.toFixed(2)} — currently ₹${ltp.toFixed(2)} (${gainPct >= 0 ? '+' : ''}${gainPct.toFixed(2)}%)`
-          : `Waiting for T1 ₹${t1Price.toFixed(2)} — currently ₹${ltp.toFixed(2)} (${gainPct >= 0 ? '+' : ''}${gainPct.toFixed(2)}%)`,
+        action: 'held', quantity: pos.remainingQty, entryPrice: holdEntryPrice, ltp, gainPct: holdGainPct,
+        reason: holdTranche1Done
+          ? `Waiting for T2 ₹${holdT2Price.toFixed(2)} on the next open lot — currently ₹${ltp.toFixed(2)} (${holdGainPct >= 0 ? '+' : ''}${holdGainPct.toFixed(2)}%)`
+          : `Waiting for T1 ₹${holdT1Price.toFixed(2)} on the next open lot — currently ₹${ltp.toFixed(2)} (${holdGainPct >= 0 ? '+' : ''}${holdGainPct.toFixed(2)}%)`,
       })
-      continue
-    }
-
-    // Fire SELL — preflight enforces market/no-short/no-loss
-    const pre = await runPreflight({ account, symbol, side: 'SELL', quantity: sellQty, pricePerShare: ltp, bypassNoLossSell })
-    if (!pre.ok) {
-      entries.push({
-        account, accountDisplayName: displayName, symbol,
-        action: 'skipped', quantity: sellQty, entryPrice: pos.firstBuyPrice, ltp, gainPct,
-        reason: pre.gate === 'noShort'
-          ? 'Position no longer held in Kite (manually closed?) — skipping'
-          : `Preflight ${pre.gate}: ${pre.reason}`,
-      })
-      continue
-    }
-    const actualQty = pre.adjustedQty ?? sellQty
-    const placed = await placeKiteOrder(creds, { symbol, side: 'SELL', quantity: actualQty, tag: STRATEGY_2_SELL_TAG })
-    if (placed.ok && placed.data?.data?.order_id) {
-      await markPlaced(account, symbol, 'SELL', { price: ltp, manual: false })
-      journalOrder({ account, symbol, side: 'SELL', qty: actualQty, price: ltp, tag: STRATEGY_2_SELL_TAG, orderId: placed.data.data.order_id })
-        .catch(err => console.error('[strategy2] journalOrder failed:', err))
-
-      // Update the position store
-      if (willCompletePosition || actualQty >= pos.remainingQty) {
-        await removeStrategy2Position(account, symbol)
-      } else {
-        await markTranche1Sold(account, symbol, actualQty)
-      }
-
-      const pnlRupees = (ltp - pos.firstBuyPrice) * actualQty
-      const pnlPct = gainPct
-      const dayHigh = (quote as any)?.ohlc?.high ?? ltp
-      const dayLow  = (quote as any)?.ohlc?.low  ?? ltp
-      appendJournal({
-        type: 'trade',
-        date: istDateString(),
-        account, symbol,
-        qty: actualQty,
-        entryPrice: pos.firstBuyPrice,
-        entryTime: pos.firstBuyAt,
-        exitPrice: ltp,
-        exitTime: new Date().toISOString(),
-        pnlRupees, pnlPct,
-        dayHighAfterEntry: dayHigh,
-        dayLowAfterEntry: dayLow,
-        leftOnTable: Math.max(0, dayHigh - ltp),
-        verdict: classifyVerdict({ strategy: 'catalyst', entryPrice: pos.firstBuyPrice, exitPrice: ltp, t1TriggerPct: t1Pct }),
-        strategy: 'catalyst',
-        orderIdSell: placed.data.data.order_id,
-        notes: sellReason,
-      }).catch(err => console.error('[strategy2] journal write failed:', err))
-
-      entries.push({
-        account, accountDisplayName: displayName, symbol,
-        action: 'sold', quantity: actualQty, entryPrice: pos.firstBuyPrice, ltp, gainPct,
-        orderId: placed.data.data.order_id,
-        reason: sellReason,
-      })
-      sendEmail('trade_executed', {
-        account, accountDisplayName: displayName, symbol,
-        side: 'SELL', quantity: actualQty, price: ltp,
-        orderId: placed.data.data.order_id,
-        source: `S2 auto-exit @ +${gainPct.toFixed(2)}%`,
-        reason: sellReason,
-        mode: 'auto',
-      }).catch(err => console.error('[strategy2] sold-email failed:', err))
-    } else {
-      const errMsg = placed.data?.message || placed.data?.error_type || `Kite HTTP ${placed.status}`
-      entries.push({
-        account, accountDisplayName: displayName, symbol,
-        action: 'sold_failed', quantity: actualQty, entryPrice: pos.firstBuyPrice, ltp, gainPct,
-        reason: errMsg,
-      })
-      sendEmail('trade_failed', {
-        account, accountDisplayName: displayName, symbol,
-        side: 'SELL', quantity: actualQty, price: ltp,
-        failedAt: 'kite', reason: errMsg, mode: 'auto',
-      }).catch(err => console.error('[strategy2] sold-failed-email failed:', err))
     }
   }
 

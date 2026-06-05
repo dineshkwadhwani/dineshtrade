@@ -111,7 +111,7 @@ export default function SettingsPage() {
     <div className={`space-y-6 pb-4 ${tab === 'backtest' ? 'max-w-7xl' : 'max-w-2xl'}`}>
       <div className="flex items-center justify-between gap-3">
         <div className="flex items-center gap-3">
-          <h1 className="text-2xl font-light dt-text-primary" style={{ fontFamily:'Cormorant Garamond, serif' }}>
+          <h1 className="text-[28px] font-semibold leading-none">
             <span className="gold-text">Settings</span>
           </h1>
           {environment && (
@@ -127,53 +127,43 @@ export default function SettingsPage() {
           )}
         </div>
         {savedFlash && (
-          <span className="text-[11px]" style={{ color:'#52b788', fontFamily:'JetBrains Mono, monospace' }}>
-            ✓ Saved
+          <span className="text-[10px] tracking-widest uppercase"
+            style={{ color:'#52b788', fontFamily:'JetBrains Mono, monospace' }}>
+            Saved
           </span>
         )}
       </div>
 
-      {banner && (
-        <div className={`rounded-lg px-4 py-3 text-[12px] ${banner.ok ? 'dt-banner-green' : 'dt-banner-error'}`}
-          style={{ color: banner.ok ? '#52b788' : 'rgba(224,90,94,0.9)' }}>
-          {banner.text}
-        </div>
-      )}
-
-      {/* ── TAB SWITCHER ── */}
       <div className="flex gap-1 rounded-lg p-1 w-fit dt-card">
         {([
-          { id: 'general',    label: 'Accounts & Trading' },
+          { id: 'general', label: 'General' },
           { id: 'strategies', label: 'Strategies' },
-          { id: 'backtest',   label: 'Backtest' },
-        ] as const).map(t => {
-          const active = tab === t.id
+          { id: 'backtest', label: 'Backtest' },
+        ] as const).map(item => {
+          const activeTab = tab === item.id
           return (
-            <button key={t.id} onClick={() => setTab(t.id)}
+            <button key={item.id} onClick={() => setTab(item.id)}
               className="px-4 py-1.5 rounded-md text-[11px] transition-all"
               style={{
-                background: active ? 'rgba(201,168,76,0.12)' : 'transparent',
-                border: active ? '1px solid rgba(201,168,76,0.3)' : '1px solid transparent',
-                color: active ? '#c9a84c' : 'rgba(255,255,255,0.5)',
+                background: activeTab ? 'rgba(201,168,76,0.12)' : 'transparent',
+                border: activeTab ? '1px solid rgba(201,168,76,0.3)' : '1px solid transparent',
+                color: activeTab ? '#c9a84c' : 'rgba(255,255,255,0.5)',
                 fontFamily:'JetBrains Mono, monospace',
               }}>
-              {t.label}
+              {item.label}
             </button>
           )
         })}
       </div>
 
-      <div style={{ display: tab === 'strategies' ? 'block' : 'none' }}>
-        <StrategiesTab autoModeOn={mode === 'auto'} />
-      </div>
+      {banner && (
+        <div className={`rounded-lg p-3 ${banner.ok ? 'dt-banner-green' : 'dt-banner-error'}`}>
+          <p className="text-[12px]" style={{ color: banner.ok ? '#52b788' : 'rgba(224,90,94,0.9)' }}>{banner.text}</p>
+        </div>
+      )}
 
-      <div style={{ display: tab === 'backtest' ? 'block' : 'none' }}>
-        <BacktestTab active={tab === 'backtest'} />
-      </div>
-
-      <div style={{ display: tab === 'general' ? 'block' : 'none' }}><>
-
-      {/* ── TRADE MODE ── */}
+      {tab === 'general' && (
+        <>
       <div className="rounded-xl p-5 dt-card">
         <h2 className="text-[11px] tracking-widest uppercase mb-4"
           style={{ color:'rgba(201,168,76,0.6)', fontFamily:'JetBrains Mono, monospace' }}>
@@ -358,7 +348,11 @@ export default function SettingsPage() {
       {/* ── DANGER ZONE: ACCOUNT RESET ── */}
       <ResetSection connected={connected} />
 
-      </></div>
+      </>
+      )}
+
+      {tab === 'strategies' && <StrategiesTab autoModeOn={mode === 'auto'} />}
+      {tab === 'backtest' && <BacktestTab active={tab === 'backtest'} />}
 
       <p className="text-[10px] text-center dt-text-muted">
         Settings persist until logout · Closing the browser does not log you out · Only Logout clears the session
