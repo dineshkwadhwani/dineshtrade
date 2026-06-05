@@ -427,6 +427,9 @@ Fires on the last trading day of the month (after the daily report). Shows: tota
 - Settings → Backtest now has two internal tabs: **Backtest** and **Backtest History**.
 - The Backtest History tab shows the saved runs in a sortable comparison table. The Overview tab uses **realized** P&L / return for ranking and summaries; open MTM is shown separately and is not treated as booked profit or loss.
 - Every row has a **Load** button. Clicking it opens a user-friendly preview modal with readable parameter names, descriptions, and values before loading the saved snapshot into the editable Backtest rerun panel.
+- The live Backtest result view now also shows a **Skipped Orders** table at the bottom of each run. This lists blocked entry and exit attempts with timestamp, symbol, stage, gate label, and human-readable reason so the user can see exactly what the replay wanted to do but could not do.
+- The live Backtest result summary includes a **Skipped Orders** count so gate-heavy runs can be spotted without opening the table.
+- Every completed Backtest run also triggers a best-effort **AI Recommendation** block at the bottom of the run result. This analysis uses the completed run's metrics, gate breakdown, and skipped orders to explain what limited performance and suggest concrete next parameter experiments.
 - The Backtest tab exposes two history actions:
   - **Reset Tests** — asks for confirmation, then irreversibly clears the history file.
   - **Analyse Tests** — asks for confirmation, then sends all saved runs to the app's configured AI provider for plain-English strategy insights based on **realized** results only.
@@ -775,6 +778,7 @@ After wipe, the app fetches the account's live Kite holdings + net positions (pa
 - Open positions appear as Accumulator with Kite avg price as cost basis
 - Starting capital in date-range reports will reflect current live Kite balance (available cash + re-seeded position values at current LTP)
 - Backtests should follow live auto-trading gate behavior as closely as historical data allows: the replay must not downsize buys below the configured per-trade bucket, must respect day buy/sell quotas, sector concentration, pyramiding, panic-sell skips, and market-gate blocks derived from historical benchmark data.
+- When those historical gates block an order, the backtest should preserve that event as a skipped-order row and count it in the summary instead of silently dropping it.
 - The Accumulator monitor manages all re-seeded positions' T1/T2 exits automatically
 
 ### Nuances

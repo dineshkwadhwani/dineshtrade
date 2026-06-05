@@ -737,8 +737,10 @@ export async function buildLiveTradeReport(options: LiveTradeReportOptions): Pro
       skippedNoHistorical: 0,
       skippedCapitalLimited: 0,
       skippedPositionLimited: 0,
+      totalSkippedOrders: 0,
       gateBreakdown: [],
     },
+    skippedOrders: [],
     trades: includedTrades,
     equityCurve,
   }

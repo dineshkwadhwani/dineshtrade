@@ -67,6 +67,20 @@ export interface BacktestGateCount {
   count: number
 }
 
+export interface BacktestSkippedOrder {
+  date: string
+  timestamp?: string
+  symbol: string
+  strategyId?: string
+  strategyName?: string
+  gate: string
+  label: string
+  reason: string
+  stage: 'entry' | 'exit'
+  price?: number
+  intendedQty?: number
+}
+
 export interface BacktestSummary {
   strategyId: string
   strategyName: string
@@ -100,12 +114,14 @@ export interface BacktestSummary {
   skippedNoHistorical: number
   skippedCapitalLimited: number
   skippedPositionLimited: number
+  totalSkippedOrders: number
   gateBreakdown: BacktestGateCount[]
 }
 
 export interface StrategyBacktestResult {
   summary: BacktestSummary
   trades: BacktestTrade[]
+  skippedOrders: BacktestSkippedOrder[]
   equityCurve: BacktestEquityPoint[]
 }
 
@@ -263,6 +279,13 @@ function getBacktestEntryQuantity(perTrade: number, cash: number, price: number)
   if (qty < 1) return 0
   const entryValue = round2(qty * price)
   return entryValue <= cash ? qty : 0
+}
+
+function recordBacktestSkip(
+  skippedOrders: BacktestSkippedOrder[],
+  input: BacktestSkippedOrder,
+): void {
+  skippedOrders.push(input)
 }
 
 function getDayTradeCounts(counter: Map<string, DayTradeCounts>, date: string): DayTradeCounts {
@@ -698,6 +721,7 @@ async function runAllActiveBacktest(options: BacktestOptions = {}): Promise<Stra
   const pendingByDate = new Map<string, PendingEntry[]>()
   const openTrades: OpenTrade[] = []
   const allTrades: OpenTrade[] = []
+  const skippedOrders: BacktestSkippedOrder[] = []
   const equityCurve: BacktestEquityPoint[] = []
   const dayTradeCounts = new Map<string, DayTradeCounts>()
   const intradayCircuitState: BacktestIntradayCircuitState = { tripped: false }
@@ -723,11 +747,33 @@ async function runAllActiveBacktest(options: BacktestOptions = {}): Promise<Stra
       if (openTrades.length >= capitalCfg.maxPositions) {
         skippedPositionLimited++
         bumpGate(gateCounts, 'maxPositions', 'Blocked by max open positions')
+        recordBacktestSkip(skippedOrders, {
+          date,
+          symbol: pending.symbol,
+          strategyId: pending.strategyId,
+          strategyName: pending.strategyName,
+          gate: 'maxPositions',
+          label: 'Blocked by max open positions',
+          reason: `Open positions already at ${capitalCfg.maxPositions}`,
+          stage: 'entry',
+          price: candle.open,
+        })
         continue
       }
       if (symbolOpenCount >= capitalCfg.maxBuysPerSymbol) {
         skippedPositionLimited++
         bumpGate(gateCounts, 'maxBuysPerSymbol', 'Blocked by max buys per symbol')
+        recordBacktestSkip(skippedOrders, {
+          date,
+          symbol: pending.symbol,
+          strategyId: pending.strategyId,
+          strategyName: pending.strategyName,
+          gate: 'maxBuysPerSymbol',
+          label: 'Blocked by max buys per symbol',
+          reason: `${pending.symbol} already has ${symbolOpenCount} open buy(s)`,
+          stage: 'entry',
+          price: candle.open,
+        })
         continue
       }
 
@@ -735,24 +781,80 @@ async function runAllActiveBacktest(options: BacktestOptions = {}): Promise<Stra
       if (!ownerStrategy) continue
       if (isBacktestGiftCircuitBlocked(benchmark, date, capitalCfg.circuitBreakerPct)) {
         bumpGate(gateCounts, 'giftCircuit', 'Global GIFT-Nifty circuit blocked new buys')
+        recordBacktestSkip(skippedOrders, {
+          date,
+          symbol: pending.symbol,
+          strategyId: pending.strategyId,
+          strategyName: pending.strategyName,
+          gate: 'giftCircuit',
+          label: 'Global GIFT-Nifty circuit blocked new buys',
+          reason: 'Global market gate blocked new buys for the day',
+          stage: 'entry',
+          price: candle.open,
+        })
         continue
       }
       if (isBacktestGiftGateBlocked(ownerStrategy, benchmark, date)) {
         bumpGate(gateCounts, 'giftNiftyGate', 'Strategy GIFT-Nifty gate blocked new buys')
+        recordBacktestSkip(skippedOrders, {
+          date,
+          symbol: pending.symbol,
+          strategyId: pending.strategyId,
+          strategyName: pending.strategyName,
+          gate: 'giftNiftyGate',
+          label: 'Strategy GIFT-Nifty gate blocked new buys',
+          reason: `${ownerStrategy.name} did not pass its GIFT-Nifty gate`,
+          stage: 'entry',
+          price: candle.open,
+        })
         continue
       }
       if (!canBacktestBuyForQuota(dayTradeCounts, date, capitalCfg.maxBuysPerDay)) {
         bumpGate(gateCounts, 'buyQuota', 'Blocked by max buys per day')
+        recordBacktestSkip(skippedOrders, {
+          date,
+          symbol: pending.symbol,
+          strategyId: pending.strategyId,
+          strategyName: pending.strategyName,
+          gate: 'buyQuota',
+          label: 'Blocked by max buys per day',
+          reason: `Daily buy quota ${capitalCfg.maxBuysPerDay} already exhausted`,
+          stage: 'entry',
+          price: candle.open,
+        })
         continue
       }
       if (isBacktestSectorBlocked(ownerStrategy, pending.symbol, openTrades, sectorBySymbol)) {
         bumpGate(gateCounts, 'sectorConcentration', 'Blocked by sector concentration limit')
+        recordBacktestSkip(skippedOrders, {
+          date,
+          symbol: pending.symbol,
+          strategyId: pending.strategyId,
+          strategyName: pending.strategyName,
+          gate: 'sectorConcentration',
+          label: 'Blocked by sector concentration limit',
+          reason: `${ownerStrategy.name} sector cap already reached for ${pending.symbol}`,
+          stage: 'entry',
+          price: candle.open,
+        })
         continue
       }
       const qty = getBacktestEntryQuantity(capitalCfg.perTrade, cash, candle.open)
       if (qty < 1) {
         skippedCapitalLimited++
         bumpGate(gateCounts, 'capitalTooLow', 'Insufficient capital for next entry')
+        recordBacktestSkip(skippedOrders, {
+          date,
+          symbol: pending.symbol,
+          strategyId: pending.strategyId,
+          strategyName: pending.strategyName,
+          gate: 'capitalTooLow',
+          label: 'Insufficient capital for next entry',
+          reason: `Remaining cash ₹${cash.toFixed(2)} cannot fund a full per-trade order`,
+          stage: 'entry',
+          price: candle.open,
+          intendedQty: Math.floor(capitalCfg.perTrade / candle.open),
+        })
         continue
       }
 
@@ -828,6 +930,19 @@ async function runAllActiveBacktest(options: BacktestOptions = {}): Promise<Stra
         const consumeSellQuota = (): boolean => {
           if (!canBacktestSellForQuota(dayTradeCounts, date, capitalCfg.maxSellsPerDay)) {
             bumpGate(gateCounts, 'sellQuota', 'Blocked by max sells per day')
+            recordBacktestSkip(skippedOrders, {
+              date,
+              timestamp: ts,
+              symbol: trade.symbol,
+              strategyId: trade.strategyId,
+              strategyName: trade.strategyName,
+              gate: 'sellQuota',
+              label: 'Blocked by max sells per day',
+              reason: `Daily sell quota ${capitalCfg.maxSellsPerDay} already exhausted`,
+              stage: 'exit',
+              price: exitPrice,
+              intendedQty: trade.remainingQty,
+            })
             return false
           }
           recordBacktestSell(dayTradeCounts, date)
@@ -930,19 +1045,67 @@ async function runAllActiveBacktest(options: BacktestOptions = {}): Promise<Stra
           }
           if (isBacktestGiftCircuitBlocked(benchmark, date, capitalCfg.circuitBreakerPct)) {
             bumpGate(gateCounts, 'giftCircuit', 'Global GIFT-Nifty circuit blocked new buys')
+            recordBacktestSkip(skippedOrders, {
+              date,
+              timestamp: ts,
+              symbol,
+              strategyId: strategy.id,
+              strategyName: strategy.name,
+              gate: 'giftCircuit',
+              label: 'Global GIFT-Nifty circuit blocked new buys',
+              reason: 'Global market gate blocked new buys for the day',
+              stage: 'entry',
+              price: candle.close,
+            })
             continue
           }
           if (isBacktestGiftGateBlocked(strategy, benchmark, date)) {
             bumpGate(gateCounts, 'giftNiftyGate', 'Strategy GIFT-Nifty gate blocked new buys')
+            recordBacktestSkip(skippedOrders, {
+              date,
+              timestamp: ts,
+              symbol,
+              strategyId: strategy.id,
+              strategyName: strategy.name,
+              gate: 'giftNiftyGate',
+              label: 'Strategy GIFT-Nifty gate blocked new buys',
+              reason: `${strategy.name} did not pass its GIFT-Nifty gate`,
+              stage: 'entry',
+              price: candle.close,
+            })
             continue
           }
           if (isBacktestIntradayCircuitBlocked(benchmark, ts, capitalCfg, intradayCircuitState)) {
             bumpGate(gateCounts, 'intradayCircuit', 'Intraday NIFTY circuit blocked new buys')
+            recordBacktestSkip(skippedOrders, {
+              date,
+              timestamp: ts,
+              symbol,
+              strategyId: strategy.id,
+              strategyName: strategy.name,
+              gate: 'intradayCircuit',
+              label: 'Intraday NIFTY circuit blocked new buys',
+              reason: 'Intraday index drawdown gate was tripped at this time',
+              stage: 'entry',
+              price: candle.close,
+            })
             continue
           }
           if (openTrades.length >= capitalCfg.maxPositions) {
             skippedPositionLimited++
             bumpGate(gateCounts, 'maxPositions', 'Blocked by max open positions')
+            recordBacktestSkip(skippedOrders, {
+              date,
+              timestamp: ts,
+              symbol,
+              strategyId: strategy.id,
+              strategyName: strategy.name,
+              gate: 'maxPositions',
+              label: 'Blocked by max open positions',
+              reason: `Open positions already at ${capitalCfg.maxPositions}`,
+              stage: 'entry',
+              price: candle.close,
+            })
             continue
           }
 
@@ -989,10 +1152,34 @@ async function runAllActiveBacktest(options: BacktestOptions = {}): Promise<Stra
           }
           if (isBacktestPanicBlocked(item, ts, candle.close, capitalCfg, panicSkipByDate)) {
             bumpGate(gateCounts, 'panicSell', 'Panic-sell gate blocked new buys')
+            recordBacktestSkip(skippedOrders, {
+              date,
+              timestamp: ts,
+              symbol,
+              strategyId: strategy.id,
+              strategyName: strategy.name,
+              gate: 'panicSell',
+              label: 'Panic-sell gate blocked new buys',
+              reason: `${symbol} was in a panic-sell window`,
+              stage: 'entry',
+              price: candle.close,
+            })
             continue
           }
           if (!canBacktestBuyForQuota(dayTradeCounts, date, capitalCfg.maxBuysPerDay)) {
             bumpGate(gateCounts, 'buyQuota', 'Blocked by max buys per day')
+            recordBacktestSkip(skippedOrders, {
+              date,
+              timestamp: ts,
+              symbol,
+              strategyId: strategy.id,
+              strategyName: strategy.name,
+              gate: 'buyQuota',
+              label: 'Blocked by max buys per day',
+              reason: `Daily buy quota ${capitalCfg.maxBuysPerDay} already exhausted`,
+              stage: 'entry',
+              price: candle.close,
+            })
             continue
           }
 
@@ -1000,6 +1187,19 @@ async function runAllActiveBacktest(options: BacktestOptions = {}): Promise<Stra
           if (qty < 1) {
             skippedCapitalLimited++
             bumpGate(gateCounts, 'capitalTooLow', 'Insufficient capital for next entry')
+            recordBacktestSkip(skippedOrders, {
+              date,
+              timestamp: ts,
+              symbol,
+              strategyId: strategy.id,
+              strategyName: strategy.name,
+              gate: 'capitalTooLow',
+              label: 'Insufficient capital for next entry',
+              reason: `Remaining cash ₹${cash.toFixed(2)} cannot fund a full per-trade order`,
+              stage: 'entry',
+              price: candle.close,
+              intendedQty: Math.floor(capitalCfg.perTrade / candle.close),
+            })
             continue
           }
 
@@ -1052,6 +1252,18 @@ async function runAllActiveBacktest(options: BacktestOptions = {}): Promise<Stra
       const consumeSellQuota = (): boolean => {
         if (!canBacktestSellForQuota(dayTradeCounts, date, capitalCfg.maxSellsPerDay)) {
           bumpGate(gateCounts, 'sellQuota', 'Blocked by max sells per day')
+          recordBacktestSkip(skippedOrders, {
+            date,
+            symbol: trade.symbol,
+            strategyId: trade.strategyId,
+            strategyName: trade.strategyName,
+            gate: 'sellQuota',
+            label: 'Blocked by max sells per day',
+            reason: `Daily sell quota ${capitalCfg.maxSellsPerDay} already exhausted`,
+            stage: 'exit',
+            price: candle.close,
+            intendedQty: trade.remainingQty,
+          })
           return false
         }
         recordBacktestSell(dayTradeCounts, date)
@@ -1246,8 +1458,10 @@ async function runAllActiveBacktest(options: BacktestOptions = {}): Promise<Stra
       skippedNoHistorical,
       skippedCapitalLimited,
       skippedPositionLimited,
+      totalSkippedOrders: skippedOrders.length,
       gateBreakdown: toGateBreakdown(gateCounts),
     },
+    skippedOrders,
     trades: allTrades
       .map(trade => ({
         strategyId: trade.strategyId,
@@ -1365,6 +1579,7 @@ export async function runStrategy1Backtest(options: BacktestOptions = {}): Promi
   const pendingByDate = new Map<string, PendingEntry[]>()
   const openTrades: OpenTrade[] = []
   const allTrades: OpenTrade[] = []
+  const skippedOrders: BacktestSkippedOrder[] = []
   const equityCurve: BacktestEquityPoint[] = []
   const dayTradeCounts = new Map<string, DayTradeCounts>()
 
@@ -1387,28 +1602,34 @@ export async function runStrategy1Backtest(options: BacktestOptions = {}): Promi
       if (openTrades.length >= capital.maxPositions) {
         skippedPositionLimited++
         bumpGate(gateCounts, 'maxPositions', 'Blocked by max open positions')
+        recordBacktestSkip(skippedOrders, { date, symbol: pending.symbol, strategyId: strategy.id, strategyName: strategy.name, gate: 'maxPositions', label: 'Blocked by max open positions', reason: `Open positions already at ${capital.maxPositions}`, stage: 'entry', price: candle.open })
         continue
       }
       if (symbolOpenCount >= capital.maxBuysPerSymbol) {
         skippedPositionLimited++
         bumpGate(gateCounts, 'maxBuysPerSymbol', 'Blocked by max buys per symbol')
+        recordBacktestSkip(skippedOrders, { date, symbol: pending.symbol, strategyId: strategy.id, strategyName: strategy.name, gate: 'maxBuysPerSymbol', label: 'Blocked by max buys per symbol', reason: `${pending.symbol} already has ${symbolOpenCount} open buy(s)`, stage: 'entry', price: candle.open })
         continue
       }
 
       if (isBacktestGiftCircuitBlocked(benchmark, date, capital.circuitBreakerPct)) {
         bumpGate(gateCounts, 'giftCircuit', 'Global GIFT-Nifty circuit blocked new buys')
+        recordBacktestSkip(skippedOrders, { date, symbol: pending.symbol, strategyId: strategy.id, strategyName: strategy.name, gate: 'giftCircuit', label: 'Global GIFT-Nifty circuit blocked new buys', reason: 'Global market gate blocked new buys for the day', stage: 'entry', price: candle.open })
         continue
       }
       if (isBacktestGiftGateBlocked(strategy, benchmark, date)) {
         bumpGate(gateCounts, 'giftNiftyGate', 'Strategy GIFT-Nifty gate blocked new buys')
+        recordBacktestSkip(skippedOrders, { date, symbol: pending.symbol, strategyId: strategy.id, strategyName: strategy.name, gate: 'giftNiftyGate', label: 'Strategy GIFT-Nifty gate blocked new buys', reason: `${strategy.name} did not pass its GIFT-Nifty gate`, stage: 'entry', price: candle.open })
         continue
       }
       if (!canBacktestBuyForQuota(dayTradeCounts, date, capital.maxBuysPerDay)) {
         bumpGate(gateCounts, 'buyQuota', 'Blocked by max buys per day')
+        recordBacktestSkip(skippedOrders, { date, symbol: pending.symbol, strategyId: strategy.id, strategyName: strategy.name, gate: 'buyQuota', label: 'Blocked by max buys per day', reason: `Daily buy quota ${capital.maxBuysPerDay} already exhausted`, stage: 'entry', price: candle.open })
         continue
       }
       if (isBacktestSectorBlocked(strategy, pending.symbol, openTrades, sectorBySymbol)) {
         bumpGate(gateCounts, 'sectorConcentration', 'Blocked by sector concentration limit')
+        recordBacktestSkip(skippedOrders, { date, symbol: pending.symbol, strategyId: strategy.id, strategyName: strategy.name, gate: 'sectorConcentration', label: 'Blocked by sector concentration limit', reason: `${strategy.name} sector cap already reached for ${pending.symbol}`, stage: 'entry', price: candle.open })
         continue
       }
 
@@ -1416,6 +1637,7 @@ export async function runStrategy1Backtest(options: BacktestOptions = {}): Promi
       if (qty < 1) {
         skippedCapitalLimited++
         bumpGate(gateCounts, 'capitalTooLow', 'Insufficient capital for next entry')
+        recordBacktestSkip(skippedOrders, { date, symbol: pending.symbol, strategyId: strategy.id, strategyName: strategy.name, gate: 'capitalTooLow', label: 'Insufficient capital for next entry', reason: `Remaining cash ₹${cash.toFixed(2)} cannot fund a full per-trade order`, stage: 'entry', price: candle.open, intendedQty: Math.floor(capital.perTrade / candle.open) })
         continue
       }
 
@@ -1459,6 +1681,7 @@ export async function runStrategy1Backtest(options: BacktestOptions = {}): Promi
       const consumeSellQuota = (): boolean => {
         if (!canBacktestSellForQuota(dayTradeCounts, date, capital.maxSellsPerDay)) {
           bumpGate(gateCounts, 'sellQuota', 'Blocked by max sells per day')
+          recordBacktestSkip(skippedOrders, { date, symbol: trade.symbol, strategyId: strategy.id, strategyName: strategy.name, gate: 'sellQuota', label: 'Blocked by max sells per day', reason: `Daily sell quota ${capital.maxSellsPerDay} already exhausted`, stage: 'exit', price: candle.close, intendedQty: trade.remainingQty })
           return false
         }
         recordBacktestSell(dayTradeCounts, date)
@@ -1642,8 +1865,10 @@ export async function runStrategy1Backtest(options: BacktestOptions = {}): Promi
       skippedNoHistorical,
       skippedCapitalLimited,
       skippedPositionLimited,
+      totalSkippedOrders: skippedOrders.length,
       gateBreakdown: toGateBreakdown(gateCounts),
     },
+    skippedOrders,
     trades: allTrades.map(trade => ({
       strategyId: strategy.id,
       strategyName: strategy.name,
@@ -1796,6 +2021,7 @@ async function runMomentumBacktest(options: BacktestOptions = {}): Promise<Strat
   let peakEquity = startingCapital
   const openTrades: OpenTrade[] = []
   const allTrades: OpenTrade[] = []
+  const skippedOrders: BacktestSkippedOrder[] = []
   const equityCurve: BacktestEquityPoint[] = []
   const dayTradeCounts = new Map<string, DayTradeCounts>()
   const intradayCircuitState: BacktestIntradayCircuitState = { tripped: false }
@@ -1828,6 +2054,7 @@ async function runMomentumBacktest(options: BacktestOptions = {}): Promise<Strat
         const consumeSellQuota = (): boolean => {
           if (!canBacktestSellForQuota(dayTradeCounts, date, capitalCfg.maxSellsPerDay)) {
             bumpGate(gateCounts, 'sellQuota', 'Blocked by max sells per day')
+            recordBacktestSkip(skippedOrders, { date, timestamp: ts, symbol: trade.symbol, strategyId: strategy.id, strategyName: strategy.name, gate: 'sellQuota', label: 'Blocked by max sells per day', reason: `Daily sell quota ${capitalCfg.maxSellsPerDay} already exhausted`, stage: 'exit', price: exitPrice, intendedQty: trade.remainingQty })
             return false
           }
           recordBacktestSell(dayTradeCounts, date)
@@ -1916,19 +2143,23 @@ async function runMomentumBacktest(options: BacktestOptions = {}): Promise<Strat
         }
         if (isBacktestGiftCircuitBlocked(benchmark, date, capitalCfg.circuitBreakerPct)) {
           bumpGate(gateCounts, 'giftCircuit', 'Global GIFT-Nifty circuit blocked new buys')
+          recordBacktestSkip(skippedOrders, { date, timestamp: ts, symbol: item.symbol, strategyId: strategy.id, strategyName: strategy.name, gate: 'giftCircuit', label: 'Global GIFT-Nifty circuit blocked new buys', reason: 'Global market gate blocked new buys for the day', stage: 'entry', price: candle.close })
           continue
         }
         if (isBacktestGiftGateBlocked(strategy, benchmark, date)) {
           bumpGate(gateCounts, 'giftNiftyGate', 'Strategy GIFT-Nifty gate blocked new buys')
+          recordBacktestSkip(skippedOrders, { date, timestamp: ts, symbol: item.symbol, strategyId: strategy.id, strategyName: strategy.name, gate: 'giftNiftyGate', label: 'Strategy GIFT-Nifty gate blocked new buys', reason: `${strategy.name} did not pass its GIFT-Nifty gate`, stage: 'entry', price: candle.close })
           continue
         }
         if (isBacktestIntradayCircuitBlocked(benchmark, ts, capitalCfg, intradayCircuitState)) {
           bumpGate(gateCounts, 'intradayCircuit', 'Intraday NIFTY circuit blocked new buys')
+          recordBacktestSkip(skippedOrders, { date, timestamp: ts, symbol: item.symbol, strategyId: strategy.id, strategyName: strategy.name, gate: 'intradayCircuit', label: 'Intraday NIFTY circuit blocked new buys', reason: 'Intraday index drawdown gate was tripped at this time', stage: 'entry', price: candle.close })
           continue
         }
         if (openTrades.length >= capitalCfg.maxPositions) {
           skippedPositionLimited++
           bumpGate(gateCounts, 'maxPositions', 'Blocked by max open positions')
+          recordBacktestSkip(skippedOrders, { date, timestamp: ts, symbol: item.symbol, strategyId: strategy.id, strategyName: strategy.name, gate: 'maxPositions', label: 'Blocked by max open positions', reason: `Open positions already at ${capitalCfg.maxPositions}`, stage: 'entry', price: candle.close })
           continue
         }
 
@@ -1970,10 +2201,12 @@ async function runMomentumBacktest(options: BacktestOptions = {}): Promise<Strat
         }
         if (isBacktestPanicBlocked(item, ts, candle.close, capitalCfg, panicSkipByDate)) {
           bumpGate(gateCounts, 'panicSell', 'Panic-sell gate blocked new buys')
+          recordBacktestSkip(skippedOrders, { date, timestamp: ts, symbol: item.symbol, strategyId: strategy.id, strategyName: strategy.name, gate: 'panicSell', label: 'Panic-sell gate blocked new buys', reason: `${item.symbol} was in a panic-sell window`, stage: 'entry', price: candle.close })
           continue
         }
         if (!canBacktestBuyForQuota(dayTradeCounts, date, capitalCfg.maxBuysPerDay)) {
           bumpGate(gateCounts, 'buyQuota', 'Blocked by max buys per day')
+          recordBacktestSkip(skippedOrders, { date, timestamp: ts, symbol: item.symbol, strategyId: strategy.id, strategyName: strategy.name, gate: 'buyQuota', label: 'Blocked by max buys per day', reason: `Daily buy quota ${capitalCfg.maxBuysPerDay} already exhausted`, stage: 'entry', price: candle.close })
           continue
         }
 
@@ -1981,6 +2214,7 @@ async function runMomentumBacktest(options: BacktestOptions = {}): Promise<Strat
         if (qty < 1) {
           skippedCapitalLimited++
           bumpGate(gateCounts, 'capitalTooLow', 'Insufficient capital for next entry')
+          recordBacktestSkip(skippedOrders, { date, timestamp: ts, symbol: item.symbol, strategyId: strategy.id, strategyName: strategy.name, gate: 'capitalTooLow', label: 'Insufficient capital for next entry', reason: `Remaining cash ₹${cash.toFixed(2)} cannot fund a full per-trade order`, stage: 'entry', price: candle.close, intendedQty: Math.floor(capitalCfg.perTrade / candle.close) })
           continue
         }
 
@@ -2093,8 +2327,10 @@ async function runMomentumBacktest(options: BacktestOptions = {}): Promise<Strat
       skippedNoHistorical,
       skippedCapitalLimited,
       skippedPositionLimited,
+      totalSkippedOrders: skippedOrders.length,
       gateBreakdown: toGateBreakdown(gateCounts),
     },
+    skippedOrders,
     trades: allTrades.map(trade => ({
       strategyId: strategy.id,
       strategyName: strategy.name,

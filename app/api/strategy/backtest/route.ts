@@ -2,7 +2,7 @@ import { NextRequest, NextResponse } from 'next/server'
 import { cookies } from 'next/headers'
 import { verifySession } from '@/lib/auth'
 import { runStrategyBacktest } from '@/lib/backtest'
-import { buildBacktestHistoryEntry, appendBacktestHistory } from '@/lib/backtestHistory'
+import { analyseSingleBacktestResult, buildBacktestHistoryEntry, appendBacktestHistory } from '@/lib/backtestHistory'
 import { getActiveStrategies, getStrategyById, type Strategy } from '@/lib/strategyConfig'
 
 export const dynamic = 'force-dynamic'
@@ -44,7 +44,15 @@ export async function POST(req: NextRequest) {
     })
     await appendBacktestHistory(historyEntry)
 
-    return NextResponse.json({ result, historyEntry })
+    let analysis: string | null = null
+    let analysisError: string | null = null
+    try {
+      analysis = await analyseSingleBacktestResult(result)
+    } catch (analysisErr) {
+      analysisError = String(analysisErr).slice(0, 300)
+    }
+
+    return NextResponse.json({ result, historyEntry, analysis, analysisError })
   } catch (err) {
     return NextResponse.json({ error: String(err).slice(0, 300) }, { status: 400 })
   }

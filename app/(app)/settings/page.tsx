@@ -452,6 +452,20 @@ interface BacktestGateCount {
   count: number
 }
 
+interface BacktestSkippedOrder {
+  date: string
+  timestamp?: string
+  symbol: string
+  strategyId?: string
+  strategyName?: string
+  gate: string
+  label: string
+  reason: string
+  stage: 'entry' | 'exit'
+  price?: number
+  intendedQty?: number
+}
+
 interface BacktestSummary {
   strategyId: string
   strategyName: string
@@ -483,11 +497,13 @@ interface BacktestSummary {
   skippedNoHistorical: number
   skippedCapitalLimited: number
   skippedPositionLimited: number
+  totalSkippedOrders: number
   gateBreakdown: BacktestGateCount[]
 }
 
 interface StrategyBacktestResult {
   summary: BacktestSummary
+  skippedOrders: BacktestSkippedOrder[]
   trades: BacktestTrade[]
   equityCurve: BacktestEquityPoint[]
 }
@@ -1190,6 +1206,8 @@ function BacktestTab({ active }: { active: boolean }) {
   const [error, setError] = useState('')
   const [info, setInfo] = useState('')
   const [result, setResult] = useState<StrategyBacktestResult | null>(null)
+  const [runAnalysis, setRunAnalysis] = useState('')
+  const [runAnalysisError, setRunAnalysisError] = useState('')
 
   useEffect(() => {
     if (!active) return
@@ -1275,6 +1293,8 @@ function BacktestTab({ active }: { active: boolean }) {
     setLoading(true)
     setError('')
     setInfo('')
+    setRunAnalysis('')
+    setRunAnalysisError('')
     try {
       const overrides = parseLoadedSnapshot(runAllActive)
       const res = await fetch('/api/strategy/backtest', {
@@ -1296,6 +1316,8 @@ function BacktestTab({ active }: { active: boolean }) {
         return
       }
       setResult(data.result || null)
+      setRunAnalysis(typeof data.analysis === 'string' ? data.analysis : '')
+      setRunAnalysisError(typeof data.analysisError === 'string' ? data.analysisError : '')
       if (data.historyEntry) {
         setHistory(current => [data.historyEntry as BacktestHistoryEntry, ...current.filter(item => item.runId !== data.historyEntry.runId)])
       } else {
@@ -1306,6 +1328,7 @@ function BacktestTab({ active }: { active: boolean }) {
         : `Backtest completed for ${overrides.strategySnapshot?.name || selected?.name} and saved to history`)
     } catch (err) {
       setResult(null)
+      setRunAnalysis('')
       const message = err instanceof Error ? err.message : ''
       setError(message || (loadedRunId ? 'Failed to run the loaded backtest snapshot' : 'Network error while running backtest'))
     } finally {
@@ -1799,6 +1822,7 @@ function BacktestTab({ active }: { active: boolean }) {
               <MiniMetric label="Skipped No Historical" value={String(result.summary.skippedNoHistorical)} />
               <MiniMetric label="Skipped Capital" value={String(result.summary.skippedCapitalLimited)} />
               <MiniMetric label="Skipped Position" value={String(result.summary.skippedPositionLimited)} />
+              <MiniMetric label="Skipped Orders" value={String(result.summary.totalSkippedOrders)} valueColor="#60a5fa" />
             </div>
             {result.summary.tradesOpen > 0 && (
               <div className="px-4 pb-4">
@@ -1990,6 +2014,81 @@ function BacktestTab({ active }: { active: boolean }) {
               </table>
             </div>
           </div>
+
+          {result.skippedOrders.length > 0 && (
+            <div className="rounded-xl overflow-hidden dt-card">
+              <div className="px-4 py-2.5 flex items-center justify-between gap-3 dt-border-b">
+                <p className="text-[11px] tracking-widest uppercase" style={{ color:'rgba(96,165,250,0.72)', fontFamily:'JetBrains Mono, monospace' }}>
+                  Skipped Orders ({result.skippedOrders.length})
+                </p>
+                <p className="text-[10px] dt-text-muted">
+                  Orders the backtest wanted to place or exit but blocked because of a gate.
+                </p>
+              </div>
+              <div className="overflow-x-auto">
+                <table className="w-full text-left min-w-[1180px]">
+                  <thead>
+                    <tr className="dt-table-head">
+                      {['Time', 'Symbol', 'Strategy', 'Stage', 'Gate', 'Price', 'Qty', 'Reason'].map(h => (
+                        <th key={h} className="px-3 py-2 text-[10px] tracking-widest uppercase font-medium dt-text-muted" style={{ fontFamily:'JetBrains Mono, monospace' }}>{h}</th>
+                      ))}
+                    </tr>
+                  </thead>
+                  <tbody>
+                    {result.skippedOrders.map((item, index) => (
+                      <tr key={`${item.symbol}-${item.timestamp || item.date}-${item.gate}-${index}`} className="dt-table-row">
+                        <td className="px-3 py-2.5 text-[11px] dt-text-secondary" style={{ fontFamily:'JetBrains Mono, monospace' }}>
+                          {formatBacktestTimestamp(item.timestamp || item.date)}
+                        </td>
+                        <td className="px-3 py-2.5 text-[11px] dt-text-primary">{item.symbol}</td>
+                        <td className="px-3 py-2.5 text-[11px]" style={{ color:'#60a5fa', fontFamily:'JetBrains Mono, monospace' }}>{item.strategyName || item.strategyId || '—'}</td>
+                        <td className="px-3 py-2.5">
+                          <span className="text-[9px] tracking-widest uppercase px-1.5 py-0.5 rounded"
+                            style={{
+                              background: item.stage === 'entry' ? 'rgba(96,165,250,0.12)' : 'rgba(245,158,11,0.12)',
+                              border: `1px solid ${item.stage === 'entry' ? 'rgba(96,165,250,0.35)' : 'rgba(245,158,11,0.35)'}`,
+                              color: item.stage === 'entry' ? '#60a5fa' : '#f59e0b',
+                              fontFamily:'JetBrains Mono, monospace',
+                            }}>
+                            {item.stage}
+                          </span>
+                        </td>
+                        <td className="px-3 py-2.5 text-[11px] dt-text-primary">{item.label}</td>
+                        <td className="px-3 py-2.5 text-[11px] dt-text-secondary" style={{ fontFamily:'JetBrains Mono, monospace' }}>{typeof item.price === 'number' ? formatCurrency(item.price) : '—'}</td>
+                        <td className="px-3 py-2.5 text-[11px] dt-text-secondary" style={{ fontFamily:'JetBrains Mono, monospace' }}>{typeof item.intendedQty === 'number' ? item.intendedQty : '—'}</td>
+                        <td className="px-3 py-2.5 text-[11px] dt-text-muted">{item.reason}</td>
+                      </tr>
+                    ))}
+                  </tbody>
+                </table>
+              </div>
+            </div>
+          )}
+
+          {(runAnalysis || runAnalysisError) && (
+            <div className="rounded-xl overflow-hidden" style={{ background:'rgba(96,165,250,0.05)', border:'1px solid rgba(96,165,250,0.2)' }}>
+              <div className="px-4 py-2.5" style={{ borderBottom:'1px solid rgba(96,165,250,0.14)' }}>
+                <p className="text-[11px] tracking-widest uppercase" style={{ color:'#60a5fa', fontFamily:'JetBrains Mono, monospace' }}>
+                  AI Recommendation
+                </p>
+              </div>
+              <div className="p-4 space-y-3">
+                {runAnalysis && (
+                  <pre className="whitespace-pre-wrap text-[12px] leading-6 dt-text-primary" style={{ fontFamily:'Outfit, sans-serif' }}>{runAnalysis}</pre>
+                )}
+                {!runAnalysis && runAnalysisError && (
+                  <p className="text-[12px]" style={{ color:'rgba(224,90,94,0.9)' }}>
+                    AI recommendation could not be generated for this run: {runAnalysisError}
+                  </p>
+                )}
+                {runAnalysis && runAnalysisError && (
+                  <p className="text-[11px] dt-text-muted">
+                    AI warning: {runAnalysisError}
+                  </p>
+                )}
+              </div>
+            </div>
+          )}
         </div>
       )}
 

@@ -53,6 +53,18 @@ export const BACKTEST_ANALYSIS_SYSTEM_PROMPT = [
   'In Suggested Next Backtests, provide 3 specific experiments with exact parameter changes and the reason for each.',
 ].join(' ')
 
+const SINGLE_BACKTEST_ANALYSIS_SYSTEM_PROMPT = [
+  'You are a trading strategy coach writing for a non-technical retail investor.',
+  'Analyse one completed backtest run and explain it in plain English.',
+  'Judge performance primarily on net realized profit and net realized return, not open MTM.',
+  'Use skipped orders and gate breakdown to explain why order count or deployed capital may be low.',
+  'Comment on trade frequency, capital usage, open positions, order sizing, and which gates appear too restrictive or too loose.',
+  'Give practical recommendations aimed at improving: net realized profit, number of good orders, capital deployment, and average order size, while respecting risk.',
+  'Be specific about parameter experiments. Mention tradeoffs when suggesting higher capital usage or looser gates.',
+  'Your response must contain exactly these sections: 1) Backtest Summary, 2) What Limited Performance, 3) What Looks Promising, 4) Recommendations, 5) Suggested Next Experiments.',
+  'In Suggested Next Experiments, provide 4 concrete tests with exact parameter changes and why each test matters.',
+].join(' ')
+
 function historyPath(): string {
   const stateFilePath = process.env.STATE_FILE_PATH || ''
   if (stateFilePath) return path.join(path.dirname(stateFilePath), 'backtest-history.json')
@@ -264,6 +276,72 @@ export async function analyseBacktestHistory(runs: BacktestHistoryEntry[]): Prom
   })
   if (!ai.ok) {
     throw new Error(`Backtest analysis failed (${ai.provider}${ai.status ? ` HTTP ${ai.status}` : ''}): ${(ai.error || '').slice(0, 300)}`)
+  }
+  const text = ai.text
+  if (!text.trim()) throw new Error('Configured AI provider returned an empty response')
+  return text.trim()
+}
+
+export async function analyseSingleBacktestResult(result: StrategyBacktestResult): Promise<string> {
+  const summary = result.summary
+  const closedTrades = result.trades.filter(trade => trade.status === 'closed')
+  const payload = {
+    strategyName: summary.strategyName,
+    strategyId: summary.strategyId,
+    backtestDays: summary.days,
+    tradingDays: summary.tradingDays,
+    dipDays: summary.dipDays,
+    momentumDays: summary.momentumDays,
+    startingCapital: summary.startingCapital,
+    endingCapital: summary.endingCapital,
+    netEndingCapital: summary.netEndingCapital ?? summary.endingCapital,
+    grossTotalPnl: summary.totalPnl,
+    netTotalPnl: summary.netTotalPnl ?? summary.totalPnl,
+    grossRealizedPnl: summary.realizedPnl,
+    netRealizedPnl: summary.netRealizedPnl ?? summary.realizedPnl,
+    grossUnrealizedPnl: summary.unrealizedPnl,
+    netUnrealizedPnl: summary.netUnrealizedPnl ?? summary.unrealizedPnl,
+    grossReturnPct: summary.totalReturnPct,
+    netReturnPct: summary.netTotalReturnPct ?? summary.totalReturnPct,
+    maxDrawdownPct: summary.maxDrawdownPct,
+    tradesClosed: summary.tradesClosed,
+    tradesOpen: summary.tradesOpen,
+    wins: summary.wins,
+    losses: summary.losses,
+    winRate: summary.winRate,
+    avgHoldDays: summary.avgHoldDays,
+    estimatedCharges: summary.totalCharges ?? 0,
+    totalSkippedOrders: summary.totalSkippedOrders,
+    skippedNoToken: summary.skippedNoToken,
+    skippedNoHistorical: summary.skippedNoHistorical,
+    skippedCapitalLimited: summary.skippedCapitalLimited,
+    skippedPositionLimited: summary.skippedPositionLimited,
+    gateBreakdown: result.summary.gateBreakdown,
+    topSkippedOrders: result.skippedOrders.slice(0, 40),
+    closedTradePnls: closedTrades.map(trade => round2(trade.netRealizedPnl ?? trade.realizedPnl)).sort((a, b) => b - a).slice(0, 50),
+    openTrades: result.trades
+      .filter(trade => trade.status === 'open')
+      .slice(0, 20)
+      .map(trade => ({
+        symbol: trade.symbol,
+        strategyName: trade.strategyName,
+        entryDate: trade.entryDate,
+        entryPrice: trade.entryPrice,
+        remainingQty: trade.remainingQty,
+        markPrice: trade.markPrice,
+        unrealizedPnl: trade.netUnrealizedPnl ?? trade.unrealizedPnl,
+      })),
+    avgMarketValue: round2(average(result.equityCurve.map(point => point.marketValue || 0))),
+    avgCash: round2(average(result.equityCurve.map(point => point.cash || 0))),
+    peakOpenTrades: result.equityCurve.reduce((max, point) => Math.max(max, point.openTrades), 0),
+  }
+
+  const ai = await callAI({
+    prompt: `${SINGLE_BACKTEST_ANALYSIS_SYSTEM_PROMPT}\n\nAnalyse this single backtest run. Prioritise net realized outcomes. Use skipped orders and gate breakdown to explain what blocked capital deployment or trade count, and suggest parameter changes that could improve outcomes.\n\n${JSON.stringify(payload, null, 2)}`,
+    maxTokens: 2500,
+  })
+  if (!ai.ok) {
+    throw new Error(`Backtest recommendation failed (${ai.provider}${ai.status ? ` HTTP ${ai.status}` : ''}): ${(ai.error || '').slice(0, 300)}`)
   }
   const text = ai.text
   if (!text.trim()) throw new Error('Configured AI provider returned an empty response')
