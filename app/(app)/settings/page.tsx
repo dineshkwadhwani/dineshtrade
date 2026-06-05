@@ -1437,6 +1437,18 @@ function BacktestTab({ active }: { active: boolean }) {
   const avgHistoryWinRate = sortedHistory.length > 0
     ? sortedHistory.reduce((sum, entry) => sum + (entry.winRate ?? 0), 0) / sortedHistory.length
     : null
+  const skippedOrderSummary = result
+    ? Object.values(result.skippedOrders.reduce<Record<string, { label: string; count: number }>>((acc, item) => {
+      const key = item.label || item.reason
+      const current = acc[key]
+      if (current) {
+        current.count += 1
+      } else {
+        acc[key] = { label: key, count: 1 }
+      }
+      return acc
+    }, {})).sort((a, b) => b.count - a.count || a.label.localeCompare(b.label))
+    : []
 
   return (
     <div className="space-y-5">
@@ -2016,51 +2028,82 @@ function BacktestTab({ active }: { active: boolean }) {
           </div>
 
           {result.skippedOrders.length > 0 && (
-            <div className="rounded-xl overflow-hidden dt-card">
-              <div className="px-4 py-2.5 flex items-center justify-between gap-3 dt-border-b">
-                <p className="text-[11px] tracking-widest uppercase" style={{ color:'rgba(96,165,250,0.72)', fontFamily:'JetBrains Mono, monospace' }}>
-                  Skipped Orders ({result.skippedOrders.length})
-                </p>
-                <p className="text-[10px] dt-text-muted">
-                  Orders the backtest wanted to place or exit but blocked because of a gate.
-                </p>
-              </div>
-              <div className="overflow-x-auto">
-                <table className="w-full text-left min-w-[1180px]">
-                  <thead>
-                    <tr className="dt-table-head">
-                      {['Time', 'Symbol', 'Strategy', 'Stage', 'Gate', 'Price', 'Qty', 'Reason'].map(h => (
-                        <th key={h} className="px-3 py-2 text-[10px] tracking-widest uppercase font-medium dt-text-muted" style={{ fontFamily:'JetBrains Mono, monospace' }}>{h}</th>
-                      ))}
-                    </tr>
-                  </thead>
-                  <tbody>
-                    {result.skippedOrders.map((item, index) => (
-                      <tr key={`${item.symbol}-${item.timestamp || item.date}-${item.gate}-${index}`} className="dt-table-row">
-                        <td className="px-3 py-2.5 text-[11px] dt-text-secondary" style={{ fontFamily:'JetBrains Mono, monospace' }}>
-                          {formatBacktestTimestamp(item.timestamp || item.date)}
-                        </td>
-                        <td className="px-3 py-2.5 text-[11px] dt-text-primary">{item.symbol}</td>
-                        <td className="px-3 py-2.5 text-[11px]" style={{ color:'#60a5fa', fontFamily:'JetBrains Mono, monospace' }}>{item.strategyName || item.strategyId || '—'}</td>
-                        <td className="px-3 py-2.5">
-                          <span className="text-[9px] tracking-widest uppercase px-1.5 py-0.5 rounded"
-                            style={{
-                              background: item.stage === 'entry' ? 'rgba(96,165,250,0.12)' : 'rgba(245,158,11,0.12)',
-                              border: `1px solid ${item.stage === 'entry' ? 'rgba(96,165,250,0.35)' : 'rgba(245,158,11,0.35)'}`,
-                              color: item.stage === 'entry' ? '#60a5fa' : '#f59e0b',
-                              fontFamily:'JetBrains Mono, monospace',
-                            }}>
-                            {item.stage}
-                          </span>
-                        </td>
-                        <td className="px-3 py-2.5 text-[11px] dt-text-primary">{item.label}</td>
-                        <td className="px-3 py-2.5 text-[11px] dt-text-secondary" style={{ fontFamily:'JetBrains Mono, monospace' }}>{typeof item.price === 'number' ? formatCurrency(item.price) : '—'}</td>
-                        <td className="px-3 py-2.5 text-[11px] dt-text-secondary" style={{ fontFamily:'JetBrains Mono, monospace' }}>{typeof item.intendedQty === 'number' ? item.intendedQty : '—'}</td>
-                        <td className="px-3 py-2.5 text-[11px] dt-text-muted">{item.reason}</td>
+            <div className="space-y-5">
+              <div className="rounded-xl overflow-hidden dt-card">
+                <div className="px-4 py-2.5 flex items-center justify-between gap-3 dt-border-b">
+                  <p className="text-[11px] tracking-widest uppercase" style={{ color:'rgba(96,165,250,0.72)', fontFamily:'JetBrains Mono, monospace' }}>
+                    Skipped Order Summary ({skippedOrderSummary.length} reasons)
+                  </p>
+                  <p className="text-[10px] dt-text-muted">
+                    Count of blocked orders grouped by skipped reason.
+                  </p>
+                </div>
+                <div className="overflow-x-auto">
+                  <table className="w-full text-left min-w-[560px]">
+                    <thead>
+                      <tr className="dt-table-head">
+                        {['Reason', 'Skipped Trades'].map(h => (
+                          <th key={h} className="px-3 py-2 text-[10px] tracking-widest uppercase font-medium dt-text-muted" style={{ fontFamily:'JetBrains Mono, monospace' }}>{h}</th>
+                        ))}
                       </tr>
-                    ))}
-                  </tbody>
-                </table>
+                    </thead>
+                    <tbody>
+                      {skippedOrderSummary.map(item => (
+                        <tr key={item.label} className="dt-table-row">
+                          <td className="px-3 py-2.5 text-[11px] dt-text-primary">{item.label}</td>
+                          <td className="px-3 py-2.5 text-[11px]" style={{ color:'#60a5fa', fontFamily:'JetBrains Mono, monospace' }}>{item.count.toLocaleString('en-IN')}</td>
+                        </tr>
+                      ))}
+                    </tbody>
+                  </table>
+                </div>
+              </div>
+              <div className="rounded-xl overflow-hidden dt-card">
+                <div className="px-4 py-2.5 flex items-center justify-between gap-3 dt-border-b">
+                  <p className="text-[11px] tracking-widest uppercase" style={{ color:'rgba(96,165,250,0.72)', fontFamily:'JetBrains Mono, monospace' }}>
+                    Skipped Orders ({result.skippedOrders.length})
+                  </p>
+                  <p className="text-[10px] dt-text-muted">
+                    Orders the backtest wanted to place or exit but blocked because of a gate.
+                  </p>
+                </div>
+                <div className="overflow-x-auto">
+                  <table className="w-full text-left min-w-[1180px]">
+                    <thead>
+                      <tr className="dt-table-head">
+                        {['Time', 'Symbol', 'Strategy', 'Stage', 'Gate', 'Price', 'Qty', 'Reason'].map(h => (
+                          <th key={h} className="px-3 py-2 text-[10px] tracking-widest uppercase font-medium dt-text-muted" style={{ fontFamily:'JetBrains Mono, monospace' }}>{h}</th>
+                        ))}
+                      </tr>
+                    </thead>
+                    <tbody>
+                      {result.skippedOrders.map((item, index) => (
+                        <tr key={`${item.symbol}-${item.timestamp || item.date}-${item.gate}-${index}`} className="dt-table-row">
+                          <td className="px-3 py-2.5 text-[11px] dt-text-secondary" style={{ fontFamily:'JetBrains Mono, monospace' }}>
+                            {formatBacktestTimestamp(item.timestamp || item.date)}
+                          </td>
+                          <td className="px-3 py-2.5 text-[11px] dt-text-primary">{item.symbol}</td>
+                          <td className="px-3 py-2.5 text-[11px]" style={{ color:'#60a5fa', fontFamily:'JetBrains Mono, monospace' }}>{item.strategyName || item.strategyId || '—'}</td>
+                          <td className="px-3 py-2.5">
+                            <span className="text-[9px] tracking-widest uppercase px-1.5 py-0.5 rounded"
+                              style={{
+                                background: item.stage === 'entry' ? 'rgba(96,165,250,0.12)' : 'rgba(245,158,11,0.12)',
+                                border: `1px solid ${item.stage === 'entry' ? 'rgba(96,165,250,0.35)' : 'rgba(245,158,11,0.35)'}`,
+                                color: item.stage === 'entry' ? '#60a5fa' : '#f59e0b',
+                                fontFamily:'JetBrains Mono, monospace',
+                              }}>
+                              {item.stage}
+                            </span>
+                          </td>
+                          <td className="px-3 py-2.5 text-[11px] dt-text-primary">{item.label}</td>
+                          <td className="px-3 py-2.5 text-[11px] dt-text-secondary" style={{ fontFamily:'JetBrains Mono, monospace' }}>{typeof item.price === 'number' ? formatCurrency(item.price) : '—'}</td>
+                          <td className="px-3 py-2.5 text-[11px] dt-text-secondary" style={{ fontFamily:'JetBrains Mono, monospace' }}>{typeof item.intendedQty === 'number' ? item.intendedQty : '—'}</td>
+                          <td className="px-3 py-2.5 text-[11px] dt-text-muted">{item.reason}</td>
+                        </tr>
+                      ))}
+                    </tbody>
+                  </table>
+                </div>
               </div>
             </div>
           )}
