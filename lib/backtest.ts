@@ -338,6 +338,25 @@ function uniqueSortedTimes(series: MomentumSeries[], date: string): string[] {
   return Array.from(new Set(series.flatMap(item => (item.intradayByDate.get(date) || []).map(c => c.date)))).sort()
 }
 
+async function getHistoricalCandlesStable(
+  creds: KiteCreds,
+  token: number,
+  from: string,
+  to: string,
+  interval: 'day' | '5minute' | '15minute' | '60minute',
+  context: string,
+): Promise<HistoricalCandle[]> {
+  let lastErr: unknown = null
+  for (let attempt = 1; attempt <= 3; attempt++) {
+    try {
+      return await getHistoricalCandles(creds, token, from, to, interval)
+    } catch (err) {
+      lastErr = err
+    }
+  }
+  throw new Error(`${context} historical fetch failed after 3 attempts: ${String(lastErr).slice(0, 160)}`)
+}
+
 export async function runStrategyBacktest(options: BacktestOptions = {}): Promise<StrategyBacktestResult> {
   if (options.runAllActive) return runAllActiveBacktest(options)
   const strategyId = options.strategyId || 'accumulator'
@@ -402,7 +421,7 @@ async function runAllActiveBacktest(options: BacktestOptions = {}): Promise<Stra
       return null
     }
     try {
-      const dailyCandles = await getHistoricalCandles(creds, token, fromDaily, toDaily, 'day')
+      const dailyCandles = await getHistoricalCandlesStable(creds, token, fromDaily, toDaily, 'day', `${symbol} daily`)
       const minDailyRequired = Math.max(maxDipEmaPeriod + days + 2, 25, maxVolumeAvgDays + 2)
       if (dailyCandles.length < minDailyRequired) {
         skippedNoHistorical++
@@ -414,7 +433,7 @@ async function runAllActiveBacktest(options: BacktestOptions = {}): Promise<Stra
       if (momentumSymbols.has(symbol)) {
         const intradayStartIdx = Math.max(0, dailyCandles.length - days - 5)
         const fromIntraday = `${dateOnly(dailyCandles[intradayStartIdx].date)} 09:15:00`
-        intradayCandles = await getHistoricalCandles(creds, token, fromIntraday, toIntraday, '5minute')
+        intradayCandles = await getHistoricalCandlesStable(creds, token, fromIntraday, toIntraday, '5minute', `${symbol} intraday`)
         if (intradayCandles.length === 0) {
           skippedNoHistorical++
           bumpGate(gateCounts, 'noHistorical', 'Insufficient historical candle coverage')
@@ -450,10 +469,7 @@ async function runAllActiveBacktest(options: BacktestOptions = {}): Promise<Stra
         dailyAggByDate: new Map(),
       }
     } catch (err) {
-      console.warn(`[backtest all-active] historical fetch failed ${symbol}:`, String(err).slice(0, 120))
-      skippedNoHistorical++
-      bumpGate(gateCounts, 'noHistorical', 'Insufficient historical candle coverage')
-      return null
+      throw new Error(`[backtest all-active] ${String(err).slice(0, 220)}`)
     }
   })
   const seriesList = fetched.filter((item): item is MomentumSeries & { closes: number[]; emaByPeriod: Map<number, number[]>; latestIntradayByDate: Map<string, HistoricalCandle> } => !!item)
@@ -1045,7 +1061,7 @@ export async function runStrategy1Backtest(options: BacktestOptions = {}): Promi
     const token = tokens[symbol]
     if (!token) { skippedNoToken++; return null }
     try {
-      const candles = await getHistoricalCandles(creds, token, from, to, 'day')
+      const candles = await getHistoricalCandlesStable(creds, token, from, to, 'day', `${symbol} daily`)
       if (candles.length < emaPeriod + days + 2) {
         skippedNoHistorical++
         return null
@@ -1059,9 +1075,7 @@ export async function runStrategy1Backtest(options: BacktestOptions = {}): Promi
         indexByDate: new Map(candles.map((c, idx) => [c.date.slice(0, 10), idx])),
       }
     } catch (err) {
-      console.warn(`[backtest] historical fetch failed ${symbol}:`, String(err).slice(0, 120))
-      skippedNoHistorical++
-      return null
+      throw new Error(`[backtest] ${String(err).slice(0, 220)}`)
     }
   })
   const series = fetched.filter((item): item is SymbolSeries => !!item)
@@ -1421,7 +1435,7 @@ async function runMomentumBacktest(options: BacktestOptions = {}): Promise<Strat
     const token = tokens[symbol]
     if (!token) { skippedNoToken++; return null }
     try {
-      const dailyCandles = await getHistoricalCandles(creds, token, fromDaily, toDaily, 'day')
+      const dailyCandles = await getHistoricalCandlesStable(creds, token, fromDaily, toDaily, 'day', `${symbol} daily`)
       if (dailyCandles.length < Math.max(25, volumeAvgDays + 2)) {
         skippedNoHistorical++
         return null
@@ -1431,7 +1445,7 @@ async function runMomentumBacktest(options: BacktestOptions = {}): Promise<Strat
       // window, not the full daily lookback used to seed EMA/volume stats.
       const intradayStartIdx = Math.max(0, dailyCandles.length - days - 5)
       const fromIntraday = `${dateOnly(dailyCandles[intradayStartIdx].date)} 09:15:00`
-      const intradayCandles = await getHistoricalCandles(creds, token, fromIntraday, toIntraday, '5minute')
+      const intradayCandles = await getHistoricalCandlesStable(creds, token, fromIntraday, toIntraday, '5minute', `${symbol} intraday`)
       if (intradayCandles.length === 0) {
         skippedNoHistorical++
         return null
@@ -1464,9 +1478,7 @@ async function runMomentumBacktest(options: BacktestOptions = {}): Promise<Strat
         dailyAggByDate,
       }
     } catch (err) {
-      console.warn(`[backtest momentum] historical fetch failed ${symbol}:`, String(err).slice(0, 120))
-      skippedNoHistorical++
-      return null
+      throw new Error(`[backtest momentum] ${String(err).slice(0, 220)}`)
     }
   })
   const series = fetched.filter((item): item is MomentumSeries => !!item)
