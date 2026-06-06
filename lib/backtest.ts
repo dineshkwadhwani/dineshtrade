@@ -464,7 +464,7 @@ async function loadHistoricalBenchmark(
   return null
 }
 
-function estimateBacktestCharges(mode: 'intraday' | 'delivery', buyValue: number, sellValue: number, deliverySellDays: number): number {
+export function estimateBacktestCharges(mode: 'intraday' | 'delivery', buyValue: number, sellValue: number, deliverySellDays: number): number {
   const turnover = buyValue + sellValue
   const brokerage = mode === 'intraday'
     ? Math.min(20, buyValue * 0.0003) + (sellValue > 0 ? Math.min(20, sellValue * 0.0003) : 0)

@@ -12,6 +12,7 @@ import { buildDailyReport, buildMonthlyReport, isLastWeekdayOfMonth } from './re
 import { listPositions, removePosition } from './positions'
 import { sendEmail } from './email'
 import { reconcileManualSells } from './cronReconcile'
+import { estimateBacktestCharges } from './backtest'
 import {
   istHHMM, istDateKey, maybeRollDay, isMarketDay,
   recordExecuted, recordFailed,
@@ -26,7 +27,17 @@ let eodSquareOffDone: Record<string, string> = {}
 // Runs inside each 5-min tick. Fires once per strategy per day at exactly
 // exitSameDayTime (default 15:10 IST). Two modes (non-exclusive):
 //   squareOffEOD=true         → sell everything regardless of P&L (bypasses no-loss gate)
-//   exitSameDayOnPositive=true → sell only positions where LTP > firstBuyPrice
+//   exitSameDayOnPositive=true → sell only positions where estimated net P&L
+//                                after charges is still positive
+
+function estimateExitNetPnl(firstBuyAt: string, entryPrice: number, exitPrice: number, qty: number): number {
+  const buyValue = entryPrice * qty
+  const sellValue = exitPrice * qty
+  const mode: 'intraday' | 'delivery' = firstBuyAt.slice(0, 10) === istDateString() ? 'intraday' : 'delivery'
+  const estimatedCharges = estimateBacktestCharges(mode, buyValue, sellValue, sellValue > 0 ? 1 : 0)
+  const grossPnl = sellValue - buyValue
+  return Number((grossPnl - estimatedCharges).toFixed(2))
+}
 
 export async function runEODSquareOff(): Promise<void> {
   const t = istHHMM()
@@ -73,7 +84,8 @@ export async function runEODSquareOff(): Promise<void> {
           continue
         }
 
-        const shouldSell = squareOffEOD || (exitOnPositive && ltp > pos.firstBuyPrice)
+        const estimatedNetPnl = estimateExitNetPnl(pos.firstBuyAt, pos.firstBuyPrice, ltp, pos.remainingQty)
+        const shouldSell = squareOffEOD || (exitOnPositive && estimatedNetPnl > 0)
         if (!shouldSell) continue
 
         const qty = pos.remainingQty
@@ -98,7 +110,7 @@ export async function runEODSquareOff(): Promise<void> {
             account, accountDisplayName: displayName, symbol: pos.symbol,
             side: 'SELL', quantity: sellQty, price: ltp,
             orderId: placed.data.data.order_id,
-            reason: squareOffEOD ? `EOD square-off (${strategy.name})` : `EOD exit on positive (${strategy.name})`,
+            reason: squareOffEOD ? `EOD square-off (${strategy.name})` : `EOD exit on positive (${strategy.name}) · est. net ${estimatedNetPnl >= 0 ? '+' : ''}${estimatedNetPnl.toFixed(2)} after charges`,
             mode: 'auto',
           }).catch(err => console.error('[cron eod] email failed:', err))
         } else {
