@@ -35,20 +35,28 @@ export async function GET() {
   const todaysRecords = monthRecords.filter(record => record.date === today)
   const todaysScans = todaysRecords.filter((record): record is StrategyScanRecord => record.type === 'strategy_scan')
   const latestScan = todaysScans.slice().sort((a, b) => b.ts.localeCompare(a.ts))[0] || null
+  const latestScanByStrategy = todaysScans.reduce<Record<string, StrategyScanRecord>>((acc, scan) => {
+    const current = acc[scan.strategyId]
+    if (!current || scan.ts.localeCompare(current.ts) > 0) acc[scan.strategyId] = scan
+    return acc
+  }, {})
 
   const now = new Date()
   const strategyHealth = activeStrategies.map(strategy => {
-    const lastRunAt = strategyLastRunAt[strategy.id]
+    const runtimeLastRunAt = strategyLastRunAt[strategy.id]
+    const journalLastRunAt = latestScanByStrategy[strategy.id]?.ts
+    const lastRunAt = runtimeLastRunAt || journalLastRunAt || null
     const minutesSinceLastRun = lastRunAt ? minutesBetween(lastRunAt, now) : null
     const staleAfterMin = Math.max(strategy.scanIntervalMin * 3, 10)
     return {
       id: strategy.id,
       name: strategy.name,
       scanIntervalMin: strategy.scanIntervalMin,
-      lastRunAt: lastRunAt || null,
+      lastRunAt,
       minutesSinceLastRun,
       stale: minutesSinceLastRun === null ? true : minutesSinceLastRun > staleAfterMin,
       staleAfterMin,
+      healthSource: runtimeLastRunAt ? 'memory' : journalLastRunAt ? 'journal' : 'none',
     }
   })
 
@@ -74,7 +82,9 @@ export async function GET() {
       : todaysScans.length === 0
         ? 'No strategy_scan journal records were written today.'
         : !runtimeHealthy
-          ? 'Strategy cron tasks look stale in memory.'
+          ? 'Strategy cron tasks look stale based on the latest journal/runtime heartbeat.'
+          : strategyHealth.some(strategy => strategy.healthSource === 'journal')
+            ? 'Cron scans are healthy, but this request is relying on journal heartbeats because in-memory cron timestamps are missing in the current process.'
           : undefined,
   }, { headers: { 'Cache-Control': 'no-store' } })
 }
