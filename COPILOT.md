@@ -73,6 +73,14 @@ This is not a SaaS product. It is a private, single-owner trading system managin
 
 ---
 
+## 2b. Settings UI Notes
+
+- `app/(app)/settings/page.tsx` now keeps the non-configurable trading rules out of the General tab. They render inside Settings → Strategies as a read-only `Fixed Rules` accordion.
+- Shared capital controls in the same file are wrapped in a separate accordion above the per-strategy cards.
+- `Export to CSV` serializes the live draft config from the Strategies tab with four columns: `Strategy name`, `Parameter`, `Parameter description`, `Value`.
+
+---
+
 ## 3. Data Layer
 
 All runtime data lives in `~/dineshtrade/data/` on the EC2 server. **This directory is never touched by deploy steps.**

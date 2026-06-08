@@ -311,37 +311,6 @@ export default function SettingsPage() {
         )}
       </div>
 
-      {/* ── STRATEGY RULES (read-only) ── */}
-      <div className="rounded-xl p-5 dt-card">
-        <h2 className="text-[11px] tracking-widest uppercase mb-4"
-          style={{ color:'rgba(201,168,76,0.6)', fontFamily:'JetBrains Mono, monospace' }}>
-          Strategy Rules (Fixed — Read Only)
-        </h2>
-        <div className="grid grid-cols-2 gap-2">
-          {[
-            ['Per Trade Cap', '₹5,000'],
-            ['Max Positions', '10'],
-            ['Max Buys/Day', '3'],
-            ['Max Sells/Day', '3'],
-            ['T1 Target', '+1.5%'],
-            ['T2 Target', '+2.0%'],
-            ['EMA Period', '20-day'],
-            ['Entry Signal', '5%+ below EMA'],
-            ['Short Selling', 'Never'],
-            ['F&O', 'Never'],
-            ['Auto Mode Loss-Sell', 'Never'],
-            ['Circuit Breaker', 'GIFT Nifty −5%'],
-            ['Order Type', 'CNC / Market'],
-          ].map(([k,v]) => (
-            <div key={k} className="flex justify-between items-center py-2 px-3 rounded-lg dt-surface">
-              <span className="text-[11px] dt-text-muted">{k}</span>
-              <span className="text-[11px] font-medium"
-                style={{ color:'rgba(201,168,76,0.7)', fontFamily:'JetBrains Mono, monospace' }}>{v}</span>
-            </div>
-          ))}
-        </div>
-      </div>
-
       {/* ── JOURNAL MAINTENANCE ── */}
       <FixAttributionSection />
 
@@ -553,6 +522,7 @@ const STRATEGY_FIELD_LABELS: Record<string, string> = {
   id: 'Strategy ID',
   name: 'Strategy Name',
   type: 'Strategy Type',
+  color: 'Color',
   scanIntervalMin: 'Scan Interval',
   watchlist: 'Watchlists',
   active: 'Active',
@@ -564,10 +534,64 @@ const STRATEGY_FIELD_LABELS: Record<string, string> = {
 }
 
 const STRATEGY_FIELD_DESCRIPTIONS: Record<string, string> = {
+  id: 'Unique internal identifier used by cron, positions, and journal attribution.',
+  name: 'Display name shown across the UI and reports.',
+  type: 'Whether the strategy is dip/mean-reversion or momentum based.',
+  color: 'Accent color used to identify the strategy in the UI.',
   scanIntervalMin: 'How often this strategy scans for entries during market hours.',
   watchlist: 'The saved watchlists this run used for symbol selection.',
   active: 'Whether the strategy was active in the saved snapshot.',
 }
+
+const CAPITAL_FIELD_LABELS: Record<string, string> = {
+  source: 'Funds Source',
+  perTrade: 'Per Trade Amount',
+  maxBuysPerDay: 'Max Buys / Day',
+  maxSellsPerDay: 'Max Sells / Day',
+  circuitBreakerPct: 'Circuit Breaker %',
+  intradayCircuitTripPct: 'Intraday Circuit Trip %',
+  intradayCircuitResumePct: 'Intraday Circuit Resume %',
+  panicDropPct: 'Panic-Sell Drop %',
+  panicWindowMin: 'Panic-Sell Window',
+  maxDeployPct: 'Max Deploy %',
+  sharedPool: 'Shared Pool',
+  maxPositions: 'Max Open Positions',
+  maxBuysPerSymbol: 'Max BUYs / Symbol',
+  minDropBetweenBuysPct: 'Min Drop Between BUYs',
+}
+
+const FIXED_RULES: Array<{ parameter: string; description: string; value: string }> = [
+  {
+    parameter: 'Sell monitor cadence',
+    description: 'Automated SELL monitors run every 5 minutes during market hours, independent of BUY scans.',
+    value: 'Every 5 min',
+  },
+  {
+    parameter: 'Short selling',
+    description: 'Preflight blocks SELL orders when the account does not hold the symbol.',
+    value: 'Never',
+  },
+  {
+    parameter: 'F&O trading',
+    description: 'The engine only trades the NSE cash equity segment; no derivatives route exists.',
+    value: 'Never',
+  },
+  {
+    parameter: 'Auto mode loss sell',
+    description: 'Auto SELLs never fire below the live average price unless a controlled bypass path is explicitly used.',
+    value: 'Never',
+  },
+  {
+    parameter: 'Order route',
+    description: 'Automated orders are sent as CNC market orders through Zerodha.',
+    value: 'CNC / Market',
+  },
+  {
+    parameter: 'Exchange',
+    description: 'Automation is wired for NSE cash symbols only.',
+    value: 'NSE cash',
+  },
+]
 
 const EXIT_DESCRIPTIONS: Record<string, string> = {
   t1Pct: 'First take-profit threshold used by the saved strategy snapshot.',
@@ -867,6 +891,8 @@ function StrategiesTab({ autoModeOn }: { autoModeOn: boolean }) {
   const [funds, setFunds] = useState<{ available: number; maxDeployable: number; reserve: number; remaining: number; deployed: number } | null>(null)
   const [error, setError] = useState('')
   const [expanded, setExpanded] = useState<string | null>(null)
+  const [fixedExpanded, setFixedExpanded] = useState(false)
+  const [capitalExpanded, setCapitalExpanded] = useState(false)
   const [confirming, setConfirming] = useState(false)
   const [saving, setSaving] = useState(false)
   const [okMsg, setOkMsg] = useState('')
@@ -904,6 +930,24 @@ function StrategiesTab({ autoModeOn }: { autoModeOn: boolean }) {
 
   const dirty = JSON.stringify({ capital: source.capital, strategies: source.strategies }) !== JSON.stringify(draft)
   const diffLines = dirty ? buildDiff(source, draft) : []
+
+  function exportToCsv() {
+    if (!draft) return
+    const rows = buildStrategyCsvRows(draft)
+    const header = ['Strategy name', 'Parameter', 'Parameter description', 'Value']
+    const csv = [header, ...rows.map(row => [row.strategyName, row.parameter, row.description, row.value])]
+      .map(cols => cols.map(escapeCsvCell).join(','))
+      .join('\n')
+    const blob = new Blob([csv], { type: 'text/csv;charset=utf-8;' })
+    const url = URL.createObjectURL(blob)
+    const a = document.createElement('a')
+    a.href = url
+    a.download = `dineshtrade-strategies-${new Date().toISOString().slice(0, 10)}.csv`
+    document.body.appendChild(a)
+    a.click()
+    document.body.removeChild(a)
+    URL.revokeObjectURL(url)
+  }
 
   function patchCapital(patch: Partial<CapitalConfig>) {
     if (!draft) return
@@ -1016,6 +1060,29 @@ function StrategiesTab({ autoModeOn }: { autoModeOn: boolean }) {
 
   return (
     <div className="space-y-5">
+      <div className="flex items-center justify-between gap-3 flex-wrap">
+        <p className="text-[11px] tracking-widest uppercase" style={{ color:'rgba(201,168,76,0.6)', fontFamily:'JetBrains Mono, monospace' }}>
+          Strategy Configuration
+        </p>
+        <div className="flex items-center gap-2 flex-wrap justify-end">
+          <button onClick={() => createNewStrategy('dip')} disabled={locked}
+            className="px-3 py-1.5 rounded-lg text-[11px] font-medium tracking-wider transition-all disabled:opacity-40"
+            style={{ background:'rgba(82,183,136,0.12)', border:'1px solid rgba(82,183,136,0.4)', color:'#52b788', fontFamily:'JetBrains Mono, monospace' }}>
+            + New Dip Strategy
+          </button>
+          <button onClick={() => createNewStrategy('momentum')} disabled={locked}
+            className="px-3 py-1.5 rounded-lg text-[11px] font-medium tracking-wider transition-all disabled:opacity-40"
+            style={{ background:'rgba(167,139,250,0.12)', border:'1px solid rgba(167,139,250,0.4)', color:'#a78bfa', fontFamily:'JetBrains Mono, monospace' }}>
+            + New Momentum Strategy
+          </button>
+          <button onClick={exportToCsv}
+            className="px-4 py-2 rounded-lg text-[11px] font-semibold tracking-wider transition-all dt-card-gold"
+            style={{ color:'#c9a84c' }}>
+            Export to CSV
+          </button>
+        </div>
+      </div>
+
       {locked && (
         <div className="rounded-lg p-3" style={{ background:'rgba(245,158,11,0.06)', border:'1px solid rgba(245,158,11,0.3)' }}>
           <p className="text-[12px]" style={{ color:'#f59e0b' }}>⚠ Auto mode is active — editing is disabled. Switch to Manual mode above to tune strategies.</p>
@@ -1027,14 +1094,30 @@ function StrategiesTab({ autoModeOn }: { autoModeOn: boolean }) {
         </div>
       )}
 
-      {/* CAPITAL BLOCK — editable */}
-      <div className="rounded-xl overflow-hidden dt-card-gold">
-        <div className="px-4 py-2.5 dt-border-b">
-          <p className="text-[11px] tracking-widest uppercase" style={{ color:'#c9a84c', fontFamily:'JetBrains Mono, monospace' }}>
-            Shared Capital · applies to all strategies
-          </p>
+      <AccordionSection
+        title="Fixed Rules · read only"
+        subtitle="Engine behavior that is intentionally not editable from the strategy config."
+        expanded={fixedExpanded}
+        onToggle={() => setFixedExpanded(current => !current)}>
+        <div className="grid grid-cols-1 md:grid-cols-2 gap-2">
+          {FIXED_RULES.map(rule => (
+            <div key={rule.parameter} className="rounded-lg p-3 dt-surface">
+              <div className="flex items-center justify-between gap-3">
+                <span className="text-[11px] dt-text-primary">{rule.parameter}</span>
+                <span className="text-[11px] font-medium" style={{ color:'rgba(201,168,76,0.75)', fontFamily:'JetBrains Mono, monospace' }}>{rule.value}</span>
+              </div>
+              <p className="text-[10px] mt-1 dt-text-muted">{rule.description}</p>
+            </div>
+          ))}
         </div>
-        <div className="p-4 space-y-2.5">
+      </AccordionSection>
+
+      <AccordionSection
+        title="Shared Capital · applies to all strategies"
+        subtitle="Shared runtime limits and capital guardrails used by every strategy."
+        expanded={capitalExpanded}
+        onToggle={() => setCapitalExpanded(current => !current)}>
+        <div className="space-y-2.5">
           <NumField label="Per Trade Amount"  value={draft.capital.perTrade}        onChange={v => patchCapital({ perTrade: v })}        desc={CAPITAL_DESCRIPTIONS.perTrade}     prefix="₹"  disabled={locked} />
           <NumField label="Max Buys / Day"     value={draft.capital.maxBuysPerDay}   onChange={v => patchCapital({ maxBuysPerDay: v })}   desc={CAPITAL_DESCRIPTIONS.maxBuysPerDay}            disabled={locked} />
           <NumField label="Max Sells / Day"    value={draft.capital.maxSellsPerDay}  onChange={v => patchCapital({ maxSellsPerDay: v })}  desc={CAPITAL_DESCRIPTIONS.maxSellsPerDay}           disabled={locked} />
@@ -1049,14 +1132,14 @@ function StrategiesTab({ autoModeOn }: { autoModeOn: boolean }) {
           <NumField label="Min Drop Between BUYs" value={draft.capital.minDropBetweenBuysPct} onChange={v => patchCapital({ minDropBetweenBuysPct: v })} desc={CAPITAL_DESCRIPTIONS.minDropBetweenBuysPct} suffix="%" disabled={locked} />
         </div>
         {funds && (
-          <div className="grid grid-cols-2 sm:grid-cols-4 gap-px dt-surface" style={{ borderTop:'1px solid rgba(201,168,76,0.12)' }}>
+          <div className="grid grid-cols-2 sm:grid-cols-4 gap-px dt-surface mt-4" style={{ borderTop:'1px solid rgba(201,168,76,0.12)' }}>
             <Stat label="Live Available" value={`₹${Math.round(funds.available).toLocaleString('en-IN')}`} color="#c9a84c" />
             <Stat label="Max Deployable" value={`₹${Math.round(funds.maxDeployable).toLocaleString('en-IN')}`} color="rgba(255,255,255,0.7)" />
             <Stat label="Reserve" value={`₹${Math.round(funds.reserve).toLocaleString('en-IN')}`} color="rgba(255,255,255,0.5)" />
             <Stat label="Remaining" value={`₹${Math.round(funds.remaining).toLocaleString('en-IN')}`} color="#52b788" />
           </div>
         )}
-      </div>
+      </AccordionSection>
 
       {/* STRATEGY CARDS */}
       <div className="space-y-3">
@@ -1082,25 +1165,6 @@ function StrategiesTab({ autoModeOn }: { autoModeOn: boolean }) {
           />
         ))}
 
-        {/* "Add another strategy" buttons — at the bottom, after all existing
-            cards. Two type-aware buttons so the new strategy starts with the
-            correct param shape, exits, and gate defaults. */}
-        <div className="rounded-xl p-4 flex items-center justify-between gap-3 flex-wrap"
-          style={{ background:'rgba(255,255,255,0.02)', border:'1px dashed rgba(255,255,255,0.1)' }}>
-          <p className="text-[11px] dt-text-secondary">Add another strategy</p>
-          <div className="flex gap-2">
-            <button onClick={() => createNewStrategy('dip')} disabled={locked}
-              className="px-3 py-1.5 rounded-lg text-[11px] font-medium tracking-wider transition-all disabled:opacity-40"
-              style={{ background:'rgba(82,183,136,0.12)', border:'1px solid rgba(82,183,136,0.4)', color:'#52b788', fontFamily:'JetBrains Mono, monospace' }}>
-              + New Dip Strategy
-            </button>
-            <button onClick={() => createNewStrategy('momentum')} disabled={locked}
-              className="px-3 py-1.5 rounded-lg text-[11px] font-medium tracking-wider transition-all disabled:opacity-40"
-              style={{ background:'rgba(167,139,250,0.12)', border:'1px solid rgba(167,139,250,0.4)', color:'#a78bfa', fontFamily:'JetBrains Mono, monospace' }}>
-              + New Momentum Strategy
-            </button>
-          </div>
-        </div>
       </div>
 
       {/* SAVE BAR */}
@@ -2892,6 +2956,107 @@ function StrategyCard({ s, expanded, onToggle, watchlistOptions, onPatch, onTogg
       )}
     </div>
   )
+}
+
+function AccordionSection({ title, subtitle, expanded, onToggle, children }: {
+  title: string
+  subtitle?: string
+  expanded: boolean
+  onToggle: () => void
+  children: React.ReactNode
+}) {
+  return (
+    <div className="rounded-xl overflow-hidden dt-card-gold">
+      <button onClick={onToggle} className="w-full px-4 py-3 flex items-center justify-between gap-3 text-left">
+        <div>
+          <p className="text-[11px] tracking-widest uppercase" style={{ color:'#c9a84c', fontFamily:'JetBrains Mono, monospace' }}>
+            {title}
+          </p>
+          {subtitle && <p className="text-[11px] mt-1 dt-text-muted">{subtitle}</p>}
+        </div>
+        <span className="text-[16px]" style={{ color:'rgba(201,168,76,0.75)', fontFamily:'JetBrains Mono, monospace' }}>{expanded ? '−' : '+'}</span>
+      </button>
+      {expanded && <div className="px-4 pb-4 dt-border-t">{children}</div>}
+    </div>
+  )
+}
+
+function buildStrategyCsvRows(draft: { capital: CapitalConfig; strategies: StrategyConfig[] }) {
+  const rows: Array<{ strategyName: string; parameter: string; description: string; value: string }> = []
+
+  for (const rule of FIXED_RULES) {
+    rows.push({ strategyName: 'Fixed Rules', parameter: rule.parameter, description: rule.description, value: rule.value })
+  }
+
+  for (const [key, value] of Object.entries(draft.capital)) {
+    rows.push({
+      strategyName: 'Shared Capital',
+      parameter: CAPITAL_FIELD_LABELS[key] || getPreviewLabel(key),
+      description: CAPITAL_DESCRIPTIONS[key] || '',
+      value: formatStrategyCsvValue(value),
+    })
+  }
+
+  for (const strategy of draft.strategies) {
+    const coreEntries: Array<[string, unknown]> = [
+      ['id', strategy.id],
+      ['type', strategy.type],
+      ['active', strategy.active],
+      ['color', strategy.color],
+      ['scanIntervalMin', strategy.scanIntervalMin],
+      ['watchlist', strategy.watchlist],
+    ]
+    for (const [key, value] of coreEntries) {
+      rows.push({
+        strategyName: strategy.name,
+        parameter: STRATEGY_FIELD_LABELS[key] || getPreviewLabel(key),
+        description: STRATEGY_FIELD_DESCRIPTIONS[key] || '',
+        value: formatStrategyCsvValue(value),
+      })
+    }
+    for (const [key, value] of Object.entries(strategy.params)) {
+      const descriptions = strategy.type === 'dip' ? DIP_PARAM_DESCRIPTIONS : MOMENTUM_PARAM_DESCRIPTIONS
+      rows.push({
+        strategyName: strategy.name,
+        parameter: getPreviewLabel(key),
+        description: descriptions[key] || '',
+        value: formatStrategyCsvValue(value),
+      })
+    }
+    for (const [key, value] of Object.entries(strategy.exits)) {
+      rows.push({
+        strategyName: strategy.name,
+        parameter: STRATEGY_FIELD_LABELS[key] || getPreviewLabel(key),
+        description: EXIT_DESCRIPTIONS[key] || '',
+        value: formatStrategyCsvValue(value),
+      })
+    }
+    if (strategy.giftNiftyGate) {
+      for (const [key, value] of Object.entries(strategy.giftNiftyGate)) {
+        rows.push({
+          strategyName: strategy.name,
+          parameter: STRATEGY_FIELD_LABELS[key] || getPreviewLabel(key),
+          description: GIFT_GATE_DESCRIPTIONS[key] || '',
+          value: formatStrategyCsvValue(value),
+        })
+      }
+    }
+  }
+
+  return rows
+}
+
+function formatStrategyCsvValue(value: unknown): string {
+  if (Array.isArray(value)) return value.join(', ')
+  if (typeof value === 'boolean') return value ? 'Yes' : 'No'
+  if (typeof value === 'number') return Number.isInteger(value) ? String(value) : value.toFixed(2)
+  if (value === null || value === undefined || value === '') return '—'
+  return String(value)
+}
+
+function escapeCsvCell(value: string): string {
+  if (/[",\n]/.test(value)) return `"${value.replace(/"/g, '""')}"`
+  return value
 }
 
 // ──────── EDITABLE FIELD COMPONENTS ────────

@@ -264,11 +264,13 @@ This is the simplest way to understand the runtime split between strategy logic 
 See [docs/TradingEngine.md](docs/TradingEngine.md) for the standalone plain-English flowchart.
 
 - **Strategies live in `data/strategy.json` as records** with `{ id, name, type: 'dip' | 'momentum', active, scanIntervalMin, watchlist, params, exits, giftNiftyGate, color }`. Defaults seed accumulator + catalyst.
+- **Settings information architecture** — the Strategies tab starts with a read-only `Fixed Rules` accordion for non-configurable engine rules, then a `Shared Capital` accordion for global risk/capital limits, then one accordion card per strategy. The old duplicated rules summary no longer appears in General.
 - **Per-strategy exit profiles** — both monitors look up `getStrategyById(pos.strategyId)` *per position* and use that strategy's own `t1Pct`/`t2Pct`/`deliveryHandoffDays`. A custom "quickwin" momentum strategy with T1 = 1.0% will actually sell at +1.0%, not catalyst's 1.5%.
 - **Universal parking lot** — when any strategy's position ages past its handoff window (or its parent strategy is deactivated/deleted), the position's `strategyId` field is re-stamped to **`accumulator`**. The position itself stays put; only ownership transfers.
 - **Accumulator is permanent** — UI disables its Active toggle + Delete button; `POST /api/strategies` refuses any payload where `accumulator` is missing or inactive. Hard-coded as the handoff target.
 - **Order tag scheme** — Engine page tile BUY and Recommendation Execute now tag Kite orders as `dt-${strategy.id}` (e.g. `dt-quickwin`, `dt-accumulator`). Legacy `dt-s1` / `dt-s2` understood for back-compat but no longer emitted.
 - **Position migration on deactivate/delete** — when user toggles a strategy inactive OR removes it from the strategies array, `migrateStrategyId(<id>, 'accumulator')` re-stamps every open position belonging to that strategy. Settings UI shows a confirmation dialog: *"Quickwin has 3 open positions. They will be moved to Accumulator on save. Continue?"*
+- **CSV export from Strategies** — the Strategies tab can export the current draft snapshot as CSV with columns `Strategy name`, `Parameter`, `Parameter description`, `Value`. Non-configurable rows export under `Fixed Rules`; shared capital rows export under `Shared Capital`.
 
 ### Strategy Nuances
 

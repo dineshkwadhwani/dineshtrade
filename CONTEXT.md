@@ -129,7 +129,7 @@ Dinesh has been trading Indian equities since **FY2020** across **4 family accou
 | Today's Positions | `/positions` | Intraday P&L, Square Off |
 | Today's Orders | `/trades` | Order log + Retrospective tab |
 | Trade Report | `/trade-report` | Date-range P&L from journal |
-| Settings | `/settings` | Accounts, strategies, backtest, Reset |
+| Settings | `/settings` | Accounts, accordion-based strategies editor, backtest, Reset |
 
 ### Authentication
 
@@ -145,6 +145,7 @@ Dinesh has been trading Indian equities since **FY2020** across **4 family accou
 - **Core 5-min tick** (`*/5 9-15 * * 1-5`): SELL monitors (S1 + S2), EOD square-off, manual-sell reconciliation, reactive dip scan
 - **Per-strategy BUY scan tasks**: each active strategy gets its own cron at `scanIntervalMin` — independent of the 5-min tick
 - **15:35 IST**: daily retrospective email
+- **Settings → Strategies UI**: fixed rules moved out of General into the Strategies tab as a read-only accordion; Shared Capital is now its own accordion; each strategy remains its own collapsible card; top-level `Export to CSV` downloads the current draft as `Strategy name, Parameter, Parameter description, Value`
 
 ### EOD Square-Off (added 28 May 2026)
 

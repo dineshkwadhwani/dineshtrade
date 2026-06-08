@@ -1027,6 +1027,13 @@ LiveTicker renders two separate `<div>` blocks — `sm:hidden` (mobile, 2 indice
 - `activeStrategyIntervals: { name: string; intervalMin: number }[]` state populated from `/api/strategies` on mount. Auto-mode banner renders: ``BUY scans: ${strategies.map(s => `${s.name} every ${s.intervalMin} min`).join(', ')}. SELL monitors every 5 min.``
 - Empty pre-scan state replaced: was `py-20` centered block; now a single `flex items-center gap-3` inline row with spark icon + message + Refresh & Scan button.
 
+### Settings strategies UI (`app/(app)/settings/page.tsx`)
+
+- The duplicated fixed-rules summary was removed from the General tab.
+- Strategies tab now renders two top-level accordions before the per-strategy cards: `Fixed Rules · read only` and `Shared Capital · applies to all strategies`.
+- `Export to CSV` is client-side only. It serializes the current in-memory draft, not the last saved source snapshot, so unsaved edits are included in the download.
+- CSV schema is fixed at four columns: `Strategy name`, `Parameter`, `Parameter description`, `Value`.
+
 ---
 
 ## 15. Open Technical Debt *(updated 30 May 2026)*
