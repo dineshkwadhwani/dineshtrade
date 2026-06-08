@@ -18,6 +18,47 @@ import {
   recordExecuted, recordFailed, recordSkipped,
 } from './cronState'
 
+function recordAutoBuySkip(args: {
+  account: string
+  accountDisplayName?: string
+  symbol: string
+  quantity: number
+  price: number
+  reason: string
+  gate?: string
+}) {
+  const { account, accountDisplayName, symbol, quantity, price, reason, gate } = args
+  recordSkipped({
+    time: istHHMM(),
+    account,
+    symbol,
+    side: 'BUY',
+    quantity,
+    reason,
+  })
+  appendJournal({
+    type: 'signal_skipped',
+    date: istDateString(),
+    time: istHHMM(),
+    account,
+    symbol,
+    signalPrice: price,
+    reasonSkipped: reason,
+  }).catch(err => console.error('[cron] journal signal_skipped failed:', err))
+  sendEmail('trade_failed', {
+    account,
+    accountDisplayName,
+    symbol,
+    side: 'BUY',
+    quantity,
+    price,
+    failedAt: 'preflight',
+    gate,
+    reason,
+    mode: 'auto',
+  }).catch(err => console.error('[cron autoBuy] skipped-email failed:', err))
+}
+
 export async function autoBuyOnAccount(account: string, accountDisplayName: string | undefined, recs: Recommendation[]) {
   const creds = await resolveAccountCreds(account)
   if (!creds.ok) {
@@ -31,8 +72,13 @@ export async function autoBuyOnAccount(account: string, accountDisplayName: stri
     // both passing the Kite quota gate before each other's order shows COMPLETE.
     const inProcessCount = getInProcessBuyCount(account)
     if (inProcessCount >= cap.maxBuysPerDay) {
-      recordSkipped({
-        time: istHHMM(), account, symbol: rec.symbol, side: 'BUY', quantity: rec.suggestedQty,
+      recordAutoBuySkip({
+        account,
+        accountDisplayName,
+        symbol: rec.symbol,
+        quantity: rec.suggestedQty,
+        price: rec.price,
+        gate: 'inProcessQuota',
         reason: `[inProcessQuota] already ${inProcessCount}/${cap.maxBuysPerDay} in-process buys today`,
       })
       continue
@@ -51,8 +97,13 @@ export async function autoBuyOnAccount(account: string, accountDisplayName: stri
       .listPositions({ account }).then(ps => ps.length).catch(() => 0)
     const estimatedTotal = (await existingStorePositions) + inProcessNewPos
     if (estimatedTotal >= cap.maxPositions) {
-      recordSkipped({
-        time: istHHMM(), account, symbol: rec.symbol, side: 'BUY', quantity: rec.suggestedQty,
+      recordAutoBuySkip({
+        account,
+        accountDisplayName,
+        symbol: rec.symbol,
+        quantity: rec.suggestedQty,
+        price: rec.price,
+        gate: 'inProcessPositions',
         reason: `[inProcessPositions] estimated ${estimatedTotal}/${cap.maxPositions} open positions (including ${inProcessNewPos} in-process today)`,
       })
       continue
@@ -63,23 +114,15 @@ export async function autoBuyOnAccount(account: string, accountDisplayName: stri
       strategyId: rec.strategy,
     })
     if (!pre.ok) {
-      recordSkipped({
-        time: istHHMM(), account, symbol: rec.symbol, side: 'BUY', quantity: rec.suggestedQty,
-        reason: `[${pre.gate}] ${pre.reason}`,
+      recordAutoBuySkip({
+        account,
+        accountDisplayName,
+        symbol: rec.symbol,
+        quantity: rec.suggestedQty,
+        price: rec.price,
+        gate: pre.gate,
+        reason: `[${pre.gate}] ${pre.reason || 'Unknown'}`.trim(),
       })
-      // Journal the signal we DIDN'T trade so the retrospective can show "what
-      // happened to it by close" — was it a Good Miss or a Missed Opportunity?
-      appendJournal({
-        type: 'signal_skipped', date: istDateString(), time: istHHMM(),
-        account, symbol: rec.symbol, signalPrice: rec.price,
-        reasonSkipped: `[${pre.gate}] ${pre.reason || ''}`.trim(),
-      }).catch(err => console.error('[cron] journal signal_skipped failed:', err))
-      sendEmail('trade_failed', {
-        account, accountDisplayName, symbol: rec.symbol, side: 'BUY',
-        quantity: rec.suggestedQty, price: rec.price,
-        failedAt: 'preflight', gate: pre.gate, reason: pre.reason || 'Unknown',
-        mode: 'auto',
-      }).catch(err => console.error('[cron autoBuy] preflight-email failed:', err))
       continue
     }
     // Tag carries the strategy id directly — unified store + per-strategy params.

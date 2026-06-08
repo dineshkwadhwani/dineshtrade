@@ -43,6 +43,7 @@ const NAV_GROUPS: NavGroup[] = [
   {
     title: 'Reports',
     items: [
+      { href: '/skipped-orders', label: 'Skipped Orders', icon: '⊘' },
       { href: '/trade-report', label: 'Trade Reports', icon: '▤' },
       { href: '/trades?view=retro', label: 'Retrospection Report', icon: '◫', isActive: (pathname, view) => pathname === '/trades' && view === 'retro' },
     ],
