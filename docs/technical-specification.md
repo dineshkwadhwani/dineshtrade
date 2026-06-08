@@ -1,6 +1,6 @@
 # DineshTrade — Technical Specification
 
-**Version:** 1.7 · **Last Updated:** 30 May 2026
+**Version:** 1.8 · **Last Updated:** 07 Jun 2026
 
 This document covers the *how* — architecture, stack choices, infrastructure, and the build & deploy runbook. For the *what*, see `functional-specification.md`.
 
@@ -9,8 +9,9 @@ This document covers the *how* — architecture, stack choices, infrastructure, 
 ## 1. Technology Stack
 
 ### 1.1 Application layer
+
 | Layer | Choice | Version | Why |
-|---|---|---|---|
+| --- | --- | --- | --- |
 | Framework | Next.js | 14.2.3 (App Router) | File-based routing, edge middleware, instrumentation.ts hook for cron registration |
 | Language | TypeScript | 5.x | Trade-side bugs are too expensive to debug at runtime |
 | UI | React | 18 | Default with Next |
@@ -19,14 +20,16 @@ This document covers the *how* — architecture, stack choices, infrastructure, 
 | JWT | `jose` | 5.x | Edge-runtime compatible (middleware can verify) |
 
 ### 1.2 Integrations
+
 | Integration | Library | Purpose |
-|---|---|---|
+| --- | --- | --- |
 | Zerodha Kite | `kiteconnect` 5.x + direct HTTP via `axios` | OAuth, orders, positions, holdings, quotes, historical candles |
 | Email | `nodemailer` 6.x | SMTP send via Gmail App Password |
 | Cron | `node-cron` 3.x | In-process scheduler with Asia/Kolkata timezone support |
 | AI | Multi-provider via `lib/ai.ts` | Anthropic / Gemini / Groq / OpenAI for market briefing |
 
 ### 1.3 Why these choices
+
 - **Next.js over Express:** the app needs a UI *and* server logic. App Router gives both in one project; instrumentation.ts is the cleanest way to register cron jobs that survive HMR in dev and PM2 restarts in prod.
 - **Cookie + file state, no DB:** trade state is small (<100 KB), single-writer, and benefits more from append-only durability than from query power. Adding Postgres would 10× the deploy complexity for zero new capability today. Migrate when query needs justify it.
 - **node-cron, not external schedulers:** the cron must trade against the same authenticated session. An external scheduler would either need to call an HTTP endpoint (extra surface area) or hold its own Kite token (duplicate state).
@@ -36,7 +39,8 @@ This document covers the *how* — architecture, stack choices, infrastructure, 
 
 ## 2. Repository Layout
 
-```
+```text
+
 .
 ├── app/                            # Next.js App Router
 │   ├── (app)/                      # Authenticated layout group
@@ -122,6 +126,7 @@ This document covers the *how* — architecture, stack choices, infrastructure, 
     ├── context.md
     ├── functional-specification.md
     └── technical-specification.md  ← this file
+
 ```
 
 ---
@@ -129,9 +134,11 @@ This document covers the *how* — architecture, stack choices, infrastructure, 
 ## 3. Runtime Architecture
 
 ### 3.1 Process model (production)
+
 Single Node.js process managed by PM2. Inside:
 
-```
+```text
+
 ┌────────────────────────────────────────────────────────────────┐
 │  Next.js server (PM2: dineshtrade)                             │
 │                                                                │
@@ -182,9 +189,11 @@ Single Node.js process managed by PM2. Inside:
 │   - Gmail SMTP (smtp.gmail.com:587)                            │
 │   - AI provider (Anthropic / Gemini / Groq / OpenAI)           │
 └────────────────────────────────────────────────────────────────┘
+
 ```
 
 ### 3.2 Request lifecycle (page request)
+
 1. Browser → CloudFront / direct
 2. **Edge middleware** (`middleware.ts`) checks `dt_session` JWT. Public paths (`/login`, `/api/auth`, OAuth callbacks) bypass.
 3. App Router resolves to a Server Component → renders HTML
@@ -196,6 +205,7 @@ Single Node.js process managed by PM2. Inside:
 **Two parallel scheduling systems:**
 
 **Core 5-min tick** (`*/5 9-15 * * 1-5`):
+
 1. node-cron fires at `*/5` minute
 2. `tick()` reads fresh state from disk (no cache)
 3. If `state.mode !== 'auto'` or market closed: short-circuit
@@ -206,6 +216,7 @@ Single Node.js process managed by PM2. Inside:
 8. **Reactive dip scan** — every 30 min in window 09:15–14:00
 
 **Per-strategy BUY scan tasks** (registered at startup + hot-reloaded on settings save):
+
 - Each active strategy: `*/${strategy.scanIntervalMin} 9-15 * * 1-5`
 - Body re-reads strategy config fresh on each fire via `getStrategyById()` — picks up param changes without restart
 - `reloadCronStrategies()` called by `POST /api/strategies` — adds/removes/restarts tasks atomically
@@ -217,9 +228,11 @@ Single Node.js process managed by PM2. Inside:
 ### 4.1 Persistent files
 
 #### `config/accounts.json`
+
 Static account display metadata plus optional reconciliation metadata:
 
 ```jsonc
+
 [
   {
     "name": "DINESH",
@@ -230,6 +243,7 @@ Static account display metadata plus optional reconciliation metadata:
     "reconciliationBase": 100002
   }
 ]
+
 ```
 
 - `reconciliationBase` is optional and represents the funded capital baseline for that account after known deposits/withdrawals/charges the user wants treated as principal rather than P&L.
@@ -237,7 +251,9 @@ Static account display metadata plus optional reconciliation metadata:
 - This keeps `liveCapital` broker-sourced while making unexplained broker-side debits/credits visible instead of hiding them inside the capital tile.
 
 #### `data/state.json`
+
 ```jsonc
+
 {
   "mode": "auto",
   "selectedAccounts": ["DINESH", "SONIA"],
@@ -247,10 +263,13 @@ Static account display metadata plus optional reconciliation metadata:
   },
   "lastBriefingDate": "2026-05-19"
 }
+
 ```
 
 #### `data/strategy1.json`
+
 ```jsonc
+
 [
   {
     "account": "DINESH",
@@ -261,9 +280,11 @@ Static account display metadata plus optional reconciliation metadata:
     "tranche1Done": false
   }
 ]
+
 ```
 
 #### `data/journal-YYYY-MM.jsonl`
+
 One JSON object per line. Three record shapes:
 
 - `type: 'trade'` — closed BUY+SELL pair with verdict + day high/low + left-on-table
@@ -277,6 +298,7 @@ See Epic 7 in the functional spec for full field definitions.
 Runtime override for the seed at `config/watchlist.json`. Shape:
 
 ```jsonc
+
 {
   "generated": "2026-05-20",
   "meta": {
@@ -290,16 +312,19 @@ Runtime override for the seed at `config/watchlist.json`. Shape:
     "list3": [ … ]
   }
 }
+
 ```
 
 Keys (`listA`, `listB`, `list3` …) are **stable** — strategies reference them via `strategy.watchlist: string[]` and they never change on rename. Display names live in `meta[key].name` and are freely editable. `listA` and `listB` are always present (Manage Lists UX guarantees them); custom lists may be created and deleted.
 
 ### 4.2 In-memory (process-scoped)
+
 - **Idempotency ledger** — `Map<string, true>` keyed by `${account}:${date}:${symbol}`, BUY only. Resets when `${date}` changes.
 - **Market briefing cache** — single object, 5 min TTL.
 - **Day stats** — counts for the EOD summary (deprecated by retrospective but still updated for telemetry).
 
 ### 4.3 Config (static, version-controlled)
+
 - `config/watchlist.json` — List A + List B with NSE symbols. Edit + redeploy.
 - `config/strategy.json` — All thresholds. Edit + redeploy.
 - `config/accounts.json` — Display metadata. Edit + redeploy.
@@ -310,7 +335,9 @@ Keys (`listA`, `listB`, `list3` …) are **stable** — strategies reference the
 ## 5. Key Module Contracts
 
 ### 5.1 `lib/preflight.ts`
+
 ```ts
+
 runPreflight(input: PreflightInput): Promise<PreflightResult>
 
 interface PreflightInput {
@@ -326,6 +353,7 @@ interface PreflightInput {
 type PreflightResult =
   | { ok: true; adjustedQty?: number }  // adjustedQty present iff clamp happened
   | { ok: false; gate: string; reason: string }
+
 ```
 
 Gate order is fixed and short-circuits on first failure. The full chain (see Epic 5 in functional spec for semantics):
@@ -408,6 +436,7 @@ Centralised wrappers — every caller goes through these. Never make raw HTTP ca
 Unified position store. Replaces `strategy1.json` + `strategy2_positions.json` with a single file keyed by `(account, symbol)`. Each row carries `strategyId` — that's what makes per-strategy exit profiles work.
 
 ```ts
+
 interface Position {
   strategyId: string             // e.g. 'accumulator', 'catalyst', 'quickwin'
   account: string                // uppercase
@@ -441,6 +470,7 @@ setStrategyId(account, symbol, newStrategyId): Promise<boolean>     // single-ro
 migrateStrategyId(fromId, toId): Promise<number>                    // bulk re-stamp (deactivate/delete)
 wipeAccountPositions(account): Promise<number>                      // hard delete for account reset
 ageInCalendarDays(firstBuyAt): number
+
 ```
 
 **One-shot migration on first load:** if `positions.json` doesn't exist, the loader reads legacy `strategy1.json` (stamps `strategyId: 'accumulator'`) + `strategy2_positions.json` (stamps `strategyId: 'catalyst'`), writes the unified file, and renames the legacy files to `.migrated`. Recovery path is mechanical (delete `positions.json` and restore the `.migrated` files).
@@ -450,6 +480,7 @@ ageInCalendarDays(firstBuyAt): number
 Hysteresis-based circuit on the live NIFTY 50 spot. Module-level state machine; 30 s quote cache to absorb burst preflight calls without burning Kite API.
 
 ```ts
+
 checkIntradayCircuit(): Promise<IntradayCircuitResult>
 
 interface IntradayCircuitResult {
@@ -460,6 +491,7 @@ interface IntradayCircuitResult {
   resumePct: number
   reason?: string
 }
+
 ```
 
 Disabled when `capital.intradayCircuitTripPct === 0` or `intradayCircuitResumePct === 0`. State resets on new IST day. Holds last-known state on quote-fetch failure (fail-safe held).
@@ -469,6 +501,7 @@ Disabled when `capital.intradayCircuitTripPct === 0` or `intradayCircuitResumePc
 Per-symbol drop-from-peak detector. Reads from the existing 5-min candle stream (`getHistoricalCandles` with `5minute` interval). One retry with 500 ms backoff. Logs warnings on persistent failure.
 
 ```ts
+
 checkPanicSell(creds, symbol, ltp): Promise<PanicCheckResult>
 
 interface PanicCheckResult {
@@ -478,6 +511,7 @@ interface PanicCheckResult {
   windowHigh?: number
   ltp?: number
 }
+
 ```
 
 Disabled when `capital.panicDropPct === 0` or `panicWindowMin === 0`. Tripped symbols persist in `state.panicSkipList[YYYY-MM-DD]`; on cache hit returns `panic: true` without re-fetching candles.
@@ -487,8 +521,10 @@ Disabled when `capital.panicDropPct === 0` or `panicWindowMin === 0`. Tripped sy
 Replaces the morning per-symbol 60-day historical re-fetch with an incremental "fetch yesterday's bar only" path. Same Kite call count (Kite's historical endpoint is per-instrument), but each call returns ~1 day of data instead of ~60 — much smaller payloads, much less rate-limit pressure.
 
 ```ts
+
 loadAndRefreshCloses(creds, symbols): Promise<Record<string, DailyClose[]>>
 readCachedCloses(): Promise<Record<string, DailyClose[]>>
+
 ```
 
 Persistent at `~/dineshtrade/data/daily-closes.json` (atomic write, mode 0o600). Trims each symbol's array to the last 60 entries. Cold-start fetches 90 days, incremental fetches `nextDay(lastCachedDate) → yesterday`. Concurrency capped at 2 with single retry.
@@ -496,6 +532,7 @@ Persistent at `~/dineshtrade/data/daily-closes.json` (atomic write, mode 0o600).
 ### 5.5 `lib/watchlistStore.ts`
 
 ```ts
+
 interface Watchlist {
   meta: Record<string, { name: string }>     // display names — user-editable
   lists: Record<string, WatchlistEntry[]>    // keys are stable: listA, listB, list3, list4, …
@@ -507,19 +544,25 @@ getWatchlist(): Promise<Watchlist>          // reads runtime override or bundled
 saveWatchlist(next: Watchlist): Promise<void>
 nextListKey(existing): string                // returns the next free list key
 isListKey(k: string): boolean                // matches /^list[A-Za-z0-9]+$/
+
 ```
 
 `normalize()` accepts both the new `{ meta, lists }` shape and the legacy top-level-keys shape (`{ listA: [...], listB: [...] }`), so existing EC2 data needs no migration script. Strategies always read by stable key: `wl.lists[k]` where `k` is from `strategy.watchlist: string[]`.
 
 ### 5.6 `lib/email.ts`
+
 Discriminated union dispatcher:
+
 ```ts
+
 sendEmail('trade_executed', data: TradeExecutedData)
 sendEmail('trade_failed',   data: TradeFailedData)
 sendEmail('daily_report',   data: DailyReport)
 sendEmail('monthly_report', data: MonthlyReportData)
 sendEmail('test')
+
 ```
+
 All return `Promise<EmailResult>`. Never throws — fire-and-forget safe.
 
 ---
@@ -527,27 +570,32 @@ All return `Promise<EmailResult>`. Never throws — fire-and-forget safe.
 ## 6. Security
 
 ### 6.1 Authentication
+
 - **App login:** `ddmmyyyyhh` IST password, hourly rotation, hashed comparison
 - **Session:** JWT signed with `SESSION_SECRET` (32+ char random), HttpOnly cookie, expires at midnight IST
 - **Edge middleware:** validates session on every non-public route
 - **API routes:** re-verify session server-side (defence in depth)
 
 ### 6.2 Secrets
+
 - Stored only in `.env.local` (gitignored)
 - File permissions on `.env.local`: `0o600`
 - Per-account Kite secrets use `${ZERODHA_ENVIRONMENT}_ZERODHA_API_KEY_${name}` naming
 - `SMTP_PASS` is a Google App Password (revocable per-app), not the user's main password
 
 ### 6.3 File permissions
+
 - `data/state.json`, `data/strategy1.json`, `data/journal-*.jsonl` — all `0o600`
 - Set explicitly on every write (`fs.appendFile/writeFile` with `mode: 0o600`)
 
 ### 6.4 Kite session security
+
 - Access token never logged
 - OAuth callback validates the `request_token` against Kite's `/session/token` server-side, never trusts client input
 - Per-account isolation: a compromised token for account A can't trade account B
 
 ### 6.5 Input validation
+
 - Order placement schema-validated server-side regardless of UI
 - Journal date path parameter validated against `^\d{4}-\d{2}-\d{2}$`
 - Symbol uppercased + matched against `config/watchlist.json` for auto orders (manual is user-supplied, no whitelist)
@@ -557,7 +605,9 @@ All return `Promise<EmailResult>`. Never throws — fire-and-forget safe.
 ## 7. Infrastructure
 
 ### 7.1 Topology
-```
+
+```text
+
                     DNS: dineshtrade.online
                           (A record)
                               │
@@ -576,19 +626,23 @@ All return `Promise<EmailResult>`. Never throws — fire-and-forget safe.
                           ▼
                   ~/dineshtrade/  (app dir)
                   ~/dineshtrade/data/  (state + journal — never wiped)
+
 ```
 
 ### 7.2 Why EC2 over Vercel (decided mid-Phase 2)
+
 - **Filesystem persistence:** state + journal need disk. Vercel functions are ephemeral.
 - **Long-lived cron:** node-cron must run in a persistent process. Vercel Cron triggers HTTP endpoints, but each invocation is a cold container — incompatible with in-memory caches (idempotency ledger, briefing cache).
 - **Cost predictability:** small EC2 is ₹500–800/month flat. Vercel functions + cron at this trade frequency would be cheaper *only* until something breaks.
 
 ### 7.3 DNS & TLS
+
 - Domain registered separately (e.g. via Namecheap)
 - A record: `dineshtrade.online` → `3.111.255.172`
 - TLS via Caddy automatic Let's Encrypt or Nginx + certbot
 
 ### 7.4 EC2 baseline
+
 - Region: `ap-south-1` (Mumbai) — minimises Kite API latency
 - Instance: `t3.small` (2 vCPU, 2 GB) is comfortable; `t3.micro` works but tight
 - Storage: 20 GB gp3 — plenty for app + months of journal
@@ -599,7 +653,9 @@ All return `Promise<EmailResult>`. Never throws — fire-and-forget safe.
 ## 8. Configuration & Environment Variables
 
 ### 8.1 Required
+
 ```bash
+
 # Auth
 SESSION_SECRET=                        # 32+ random chars
 
@@ -631,14 +687,18 @@ AI_MODEL=gemini-2.5-flash              # provider-specific model id
 SMTP_USER=dinesh.k.wadhwani@gmail.com
 SMTP_PASS=                             # 16-char Google App Password
 NOTIFY_TO=dinesh.k.wadhwani@gmail.com  # optional, defaults to SMTP_USER
+
 ```
 
 ### 8.2 Optional
+
 ```bash
+
 SMTP_HOST=smtp.gmail.com               # default
 SMTP_PORT=587                          # default
 USE_MOCK_MARKET=true                   # local dev only — skips Kite, returns fixtures
 ZERODHA_REDIRECT_URL=                  # override Kite OAuth callback (defaults to https://dineshtrade.online/api/zerodha/callback)
+
 ```
 
 ---
@@ -646,7 +706,9 @@ ZERODHA_REDIRECT_URL=                  # override Kite OAuth callback (defaults 
 ## 9. Build & Deploy
 
 ### 9.1 Local development
+
 ```bash
+
 git clone <repo> dineshtrade
 cd dineshtrade
 npm install
@@ -654,19 +716,26 @@ cp .env.example .env.local             # then fill in
 # Local dev uses cookie state — leave STATE_FILE_PATH unset
 # Leave CRON_ENABLED unset to skip background jobs
 npm run dev                            # http://localhost:3000
+
 ```
 
 Login with the current IST `ddmmyyyyhh`. Set `USE_MOCK_MARKET=true` to skip Kite during pure-UI work.
 
 ### 9.2 Production build
+
 ```bash
+
 npm install                            # do NOT skip even if package-lock is fresh
 npm run build                          # ~30s
+
 ```
+
 `npm run build` runs the Next.js production compile + type-check + lint. Type errors fail the build.
 
 ### 9.3 EC2 first-time deploy
+
 ```bash
+
 # As ubuntu user on the EC2 box
 
 # 1. Node 20 LTS
@@ -700,20 +769,25 @@ dineshtrade.online {
 }
 EOF
 sudo systemctl restart caddy
+
 ```
 
 ### 9.4 Subsequent deploys
+
 ```bash
+
 cd ~/dineshtrade
 git pull
 npm install                            # only re-runs if package-lock changed
 npm run build
 pm2 reload dineshtrade                 # graceful restart
+
 ```
 
 **Critical:** `~/dineshtrade/data/` must NOT be touched by any deploy step. If you ever script a deploy, hard-code an exclusion.
 
 ### 9.5 Health check
+
 - `pm2 list` → `dineshtrade` should show `online`
 - `pm2 logs dineshtrade` → look for `[cron] starting — tick every 5 min during 9:15–15:30 IST`
 - `curl https://dineshtrade.online/login` → 200
@@ -724,17 +798,20 @@ pm2 reload dineshtrade                 # graceful restart
 ## 10. Observability
 
 ### 10.1 Logs
+
 - All app + cron logs go to PM2's log files (`~/.pm2/logs/dineshtrade-out.log` + `-error.log`)
 - Convention: prefixed by subsystem — `[cron tick]`, `[strategy1]`, `[strategy2]`, `[preflight]`, `[journal]`, `[email]`
 - `pm2 logs dineshtrade --lines 200` for tail
 
 ### 10.2 What to watch
+
 - **Cron tick visibility log:** `[cron tick] HH:MM IST — scan #N · mode=auto · accounts=DINESH,SONIA`
 - **Strategy 2 monitor:** `[strategy2 monitor] DINESH: tracking 2 dt-s2 BUY(s) — BAJFINANCE, RELIANCE`
 - **Preflight rejection:** `[preflight] gate=funds reason=Available cash ₹1,200 < trade value ₹2,400`
 - **Journal write:** silent on success; `[strategy2] journal write failed:` on error
 
 ### 10.3 No metrics platform yet
+
 Single-user, single-process. PM2 logs + email reports are enough at current scale. Add Prometheus / Grafana when multi-user or when on-call rotation begins.
 
 ---
@@ -742,7 +819,7 @@ Single-user, single-process. PM2 logs + email reports are enough at current scal
 ## 11. Failure Modes & Recovery
 
 | Scenario | Detection | Recovery |
-|---|---|---|
+| --- | --- | --- |
 | Kite token expired mid-day | Preflight `gate=token` on next order | User re-logs in via Settings → Login with Kite |
 | Kite API down | Cron tick logs `[strategy2 monitor] failed:` | Auto retries next tick (5 min); no manual intervention |
 | Email send fails | `[email] send failed: ...` in PM2 logs | Trades still complete; user checks Kite Console directly |
@@ -752,6 +829,7 @@ Single-user, single-process. PM2 logs + email reports are enough at current scal
 | Stale state.json on bad shutdown | Tokens missing on restart | User re-logs in via Settings; strategy1.json + journal unaffected (append-only) |
 
 ### 11.1 Backup recommendation
+
 - **Daily:** `tar -czf /backup/dineshtrade-data-$(date +%F).tar.gz ~/dineshtrade/data/`
 - Retain 30 days. Lightweight (< 50 MB even after a year).
 - Critical files: `state.json`, `strategy1.json`, all `journal-*.jsonl`
@@ -761,7 +839,7 @@ Single-user, single-process. PM2 logs + email reports are enough at current scal
 ## 12. Performance Targets (current)
 
 | Metric | Current | Headroom |
-|---|---|---|
+| --- | --- | --- |
 | Cron tick wall time | < 2 s per account | 5 min budget — 150× over |
 | BUY scan wall time | 3–8 s (depends on AI provider) | First-of-day only |
 | `/api/positions` p95 | < 1.5 s | Two parallel Kite calls + join |
@@ -777,7 +855,7 @@ No load testing because there's one user. If usage profile changes (e.g. open to
 These were the right call **for now**. They will start to creak as scope grows:
 
 | Decision | Trigger to revisit |
-|---|---|
+| --- | --- |
 | File-backed state, no DB | Multi-writer (more than one user can modify state simultaneously) |
 | In-process node-cron | Multi-server (any HA story) |
 | JSONL journal | Need to query across months frequently, or need joins |
@@ -793,17 +871,21 @@ These were the right call **for now**. They will start to creak as scope grows:
 ### `lib/cron.ts` — additions
 
 **`runEODSquareOff()`**
+
 - Module-level guard `eodSquareOffDone: Record<string, string>` (key=strategyId, value=YYYY-MM-DD IST) prevents re-firing same strategy same day
 - Reads `exitSameDayTime`, `squareOffEOD`, `exitSameDayOnPositive` from each active momentum strategy's params
+- For `exitSameDayOnPositive`, computes estimated net exit P&L after Zerodha-style charges before deciding to sell
 - Calls `listPositions({ account, strategyId })`, fetches quotes, places SELL via `placeKiteOrder` + `markPlaced` + `removePosition`
 - Passes `bypassNoLossSell: squareOffEOD` to `runPreflight` — squareOffEOD bypasses gate 8 no-loss rider
 
 **`reconcileManualSells()`**
+
 - Runs inside `tick()` (step 1d) AND at start of `dailyRetrospective()` (15:35 EOD)
 - Per-account: fetches positions+holdings (for live qty), orders (for today's fills), reads today's journal (to avoid duplicate SELL entries by orderId)
 - For each open store position where Kite qty=0: journals SELL at fill price (today) or current LTP (prior day), then calls `removePosition()`
 
 **`reloadCronStrategies()`**
+
 - Called by `POST /api/strategies` after save
 - Compares new active strategy set vs registered `strategyTasks` map
 - Stops removed strategies, registers new ones, restarts changed-interval ones
@@ -814,6 +896,7 @@ These were the right call **for now**. They will start to creak as scope grows:
 Request body: `{ account: string, confirm: 'RESET' }`
 
 Steps (in order):
+
 1. Validate `confirm === 'RESET'`
 2. Validate account is in `state.kiteTokens`
 3. Resolve Kite creds
@@ -840,7 +923,7 @@ Calls `cancelKiteOrder(creds, orderId)` → Kite `DELETE /orders/regular/{orderI
 **CSS Custom Properties** (default = dark high-contrast, `html.light` overrides):
 
 | Token | Dark | Light |
-|---|---|---|
+| --- | --- | --- |
 | `--dt-bg` | `#080604` | `#f5f4f2` |
 | `--dt-bg-card` | `#100e0a` | `#ffffff` |
 | `--dt-text-primary` | `rgba(255,255,255,0.95)` | `#111110` |
@@ -852,7 +935,7 @@ Calls `cancelKiteOrder(creds, orderId)` → Kite `DELETE /orders/regular/{orderI
 **Semantic CSS classes** (all pages converted from inline styles):
 
 | Class | Use |
-|---|---|
+| --- | --- |
 | `dt-card` | Card container with `var(--dt-bg-card)` background + `var(--dt-border)` border |
 | `dt-card-gold` | Gold-tinted card (sections, hints) |
 | `dt-card-inner` | Nested/inner card (cells, sub-panels) |
@@ -863,7 +946,9 @@ Calls `cancelKiteOrder(creds, orderId)` → Kite `DELETE /orders/regular/{orderI
 | `dt-text-primary/secondary/muted` | Text colour utilities |
 
 **Light mode inline-style override strategy:**
+
 ```css
+
 /* Blanket: all main content text becomes dark */
 html.light main * { color: var(--dt-text-primary) !important; }
 
@@ -872,6 +957,7 @@ html.light [style*="rgb(82, 183, 136"] { color: #0a6e3f !important; }   /* green
 html.light [style*="rgb(224, 90, 94"]  { color: #a91818 !important; }   /* red */
 html.light [style*="rgb(201, 168, 76"] { color: var(--dt-gold-display) !important; } /* gold */
 /* ...blue, amber */
+
 ```
 
 This overrides React inline styles without touching JSX. CSS specificity: `html.light main *` = `(0,1,1,0)`; attribute selectors = `(0,2,0,0)` → semantic rules always win.
@@ -887,8 +973,10 @@ Dark background overrides use hex + rgb variants to handle both SSR (hex) and po
 Two module-level in-process state objects added to `lib/cron.ts`:
 
 ```ts
+
 const inProcessBuyCounts:   Record<string, number>      = {}  // "${account}:${dateKey}" → count
 const inProcessNewSymbols:  Record<string, Set<string>> = {}  // "${account}:${dateKey}" → Set<symbol>
+
 ```
 
 Both reset in `maybeRollDay()` on date rollover.
@@ -922,10 +1010,12 @@ Added `tagToStrategy(tag?: string)` helper that maps Kite order tags to display 
 
 API route now fetches 9 index symbols from Kite in one `/quote` call:
 
-```
+```text
+
 CORE (mobile + desktop): NSE:NIFTY 50, BSE:SENSEX
 EXTENDED (desktop only): NSE:INDIA VIX, NSE:NIFTY BANK, NSE:NIFTY AUTO,
   NSE:NIFTY FIN SERVICE, NSE:NIFTY IT, NSE:NIFTY 100, NSE:NIFTY INFRA
+
 ```
 
 `TickerResponse.indices` now carries 10 keys (`nifty50`, `sensex`, `vix`, `niftyBank`, `niftyAuto`, `niftyFin`, `niftyIT`, `nifty100`, `niftyInfra`, `giftNifty`).
@@ -934,7 +1024,7 @@ LiveTicker renders two separate `<div>` blocks — `sm:hidden` (mobile, 2 indice
 
 ### Engine page UI (`app/(app)/engine/page.tsx`)
 
-- `activeStrategyIntervals: { name: string; intervalMin: number }[]` state populated from `/api/strategies` on mount. Auto-mode banner renders: `BUY scans: ${strategies.map(s => `${s.name} every ${s.intervalMin} min`).join(', ')}. SELL monitors every 5 min.`
+- `activeStrategyIntervals: { name: string; intervalMin: number }[]` state populated from `/api/strategies` on mount. Auto-mode banner renders: ``BUY scans: ${strategies.map(s => `${s.name} every ${s.intervalMin} min`).join(', ')}. SELL monitors every 5 min.``
 - Empty pre-scan state replaced: was `py-20` centered block; now a single `flex items-center gap-3` inline row with spark icon + message + Refresh & Scan button.
 
 ---
@@ -955,7 +1045,7 @@ LiveTicker renders two separate `<div>` blocks — `sm:hidden` (mobile, 2 indice
 ## 16. Glossary
 
 | Term | Meaning |
-|---|---|
+| --- | --- |
 | **S1 / Strategy 1 / Oscillator** | Mean-reversion strategy on EMA-deviated stocks |
 | **S2 / Strategy 2 / Catalyst** | Intraday momentum strategy |
 | **T1 / T2** | Intraday profit targets (+1.5% / +2.0%) |

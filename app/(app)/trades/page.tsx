@@ -85,6 +85,7 @@ function OrdersView() {
   const [connected, setConnected] = useState<string[]>([])
   const [activeTab, setActiveTab] = useState<string | null>(null)
   const [orders, setOrders] = useState<Order[]>([])
+  const [todayReport, setTodayReport] = useState<DailyReport | null>(null)
   const [loading, setLoading] = useState(false)
   const [error, setError] = useState('')
   const [loaded, setLoaded] = useState(false)
@@ -107,11 +108,20 @@ function OrdersView() {
     setError('')
     setOrders([])
     try {
-      const res = await fetch(`/api/zerodha?account=${encodeURIComponent(account)}&action=orders`).then(r => r.json())
-      if (res.error) setError(res.error)
-      else if (Array.isArray(res.data)) setOrders(res.data)
+      const todayYmd = istTodayYmd()
+      const [ordersRes, reportRes] = await Promise.all([
+        fetch(`/api/zerodha?account=${encodeURIComponent(account)}&action=orders`).then(r => r.json()),
+        fetch(`/api/journal/${todayYmd}`).then(async r => {
+          const data = await r.json().catch(() => ({}))
+          return { ok: r.ok, ...data }
+        }),
+      ])
+      if (ordersRes.error) setError(ordersRes.error)
+      else if (Array.isArray(ordersRes.data)) setOrders(ordersRes.data)
+      setTodayReport(reportRes.ok && reportRes.report ? reportRes.report : null)
     } catch {
       setError('Failed to load orders')
+      setTodayReport(null)
     } finally {
       setLoading(false)
     }
@@ -126,6 +136,13 @@ function OrdersView() {
   const totalBuyValue  = buys.reduce((s, o) => s + (o.average_price * (o.filled_quantity ?? o.quantity)), 0)
   const totalSellValue = sells.reduce((s, o) => s + (o.average_price * (o.filled_quantity ?? o.quantity)), 0)
   const dayPnL = totalSellValue - totalBuyValue
+  const skippedToday = (todayReport?.missedSignals || []).filter(item => item.account === activeTab)
+  const skippedReasonSummary = Object.values(skippedToday.reduce<Record<string, { reason: string; count: number }>>((acc, item) => {
+    const key = item.reasonSkipped.trim() || 'Unknown reason'
+    if (!acc[key]) acc[key] = { reason: key, count: 0 }
+    acc[key].count += item.count || 1
+    return acc
+  }, {})).sort((a, b) => b.count - a.count || a.reason.localeCompare(b.reason))
 
   const activeAccount = accounts.find(a => a.name === activeTab)
 
@@ -226,6 +243,52 @@ function OrdersView() {
                 )
               })}
             </div>
+          )}
+
+          {activeTab && (
+            <Section title={`Today Skipped (${skippedToday.length})`}>
+              <div className="space-y-3">
+                <div className="grid grid-cols-1 sm:grid-cols-3 gap-3">
+                  <StatCardSub
+                    label="Skipped Signals"
+                    value={String(skippedToday.length)}
+                    sub="auto-BUYs blocked after signal"
+                    color="#f59e0b"
+                  />
+                  <StatCardSub
+                    label="Top Reason"
+                    value={skippedReasonSummary[0]?.reason.split('] ')[0]?.replace('[', '') || '—'}
+                    sub={skippedReasonSummary[0] ? `${skippedReasonSummary[0].count} skips` : '—'}
+                    color="rgba(255,255,255,0.82)"
+                  />
+                  <StatCardSub
+                    label="Last Refresh"
+                    value={todayReport?.displayDate === formatIstDisplayDate() ? 'Today' : todayReport?.displayDate || '—'}
+                    sub="journal-backed auto-skip report"
+                    color="#60a5fa"
+                  />
+                </div>
+
+                <div className="rounded-xl overflow-hidden dt-card">
+                  {skippedToday.length > 0 ? (
+                    <>
+                      <div className="grid grid-cols-12 px-4 py-2.5 text-[9px] tracking-widest uppercase dt-table-head"
+                        style={{ fontFamily:'JetBrains Mono, monospace' }}>
+                        <span className="col-span-2">Time</span>
+                        <span className="col-span-2">Symbol</span>
+                        <span className="col-span-5">Reason</span>
+                        <span className="col-span-3 text-right">Outcome</span>
+                      </div>
+                      {skippedToday.map((item, index) => <MissedRow key={`${item.account}:${item.symbol}:${item.firstTime}:${index}`} m={item} />)}
+                    </>
+                  ) : (
+                    <div className="px-4 py-5 text-[12px] dt-text-muted">
+                      No auto-BUY skips have been journaled for this account today.
+                    </div>
+                  )}
+                </div>
+              </div>
+            </Section>
           )}
 
           {!loading && !error && orders.length === 0 && (
@@ -630,6 +693,24 @@ function fmtTime(ts?: string): string {
   if (!ts) return '—'
   const m = ts.match(/(\d{2}):(\d{2}):(\d{2})/)
   return m ? `${m[1]}:${m[2]}` : ts.slice(0, 5)
+}
+
+function istTodayYmd(): string {
+  return new Intl.DateTimeFormat('en-CA', {
+    timeZone: 'Asia/Kolkata',
+    year: 'numeric',
+    month: '2-digit',
+    day: '2-digit',
+  }).format(new Date())
+}
+
+function formatIstDisplayDate(): string {
+  return new Intl.DateTimeFormat('en-IN', {
+    timeZone: 'Asia/Kolkata',
+    day: '2-digit',
+    month: 'short',
+    year: 'numeric',
+  }).format(new Date())
 }
 
 function tagToStrategy(tag?: string): { label: string; color: string; bg: string; border: string } | null {

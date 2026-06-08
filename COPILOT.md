@@ -2,8 +2,8 @@
 
 **Purpose:** Zero-context onboarding for GitHub Copilot, Cursor, or any AI assistant picking up this codebase for the first time. Read top-to-bottom before touching any file.
 
-**Last Updated:** 01 Jun 2026  
-**Version:** 1.0
+**Last Updated:** 07 Jun 2026
+**Version:** 1.1
 
 ---
 
@@ -12,7 +12,7 @@
 **DineshTrade** is a personal algorithmic trading application for Indian equities. It automates BUY/SELL decisions on the NSE using Zerodha Kite Connect, targeting CNC (delivery) trades only — no F&O, no intraday short-selling.
 
 - **Owner:** Dinesh Wadhwani, Pune, Maharashtra, India
-- **Production:** https://dineshtrade.online
+- **Production:** <https://dineshtrade.online>
 - **Broker:** Zerodha (Kite Connect API)
 - **Exchange:** NSE only, CNC/Delivery only
 - **Stack:** Next.js 14 (App Router), TypeScript, Tailwind CSS, node-cron, PM2 on AWS EC2 (ap-south-1)
@@ -27,15 +27,15 @@ This is not a SaaS product. It is a private, single-owner trading system managin
 ### `/lib/` — Core library files
 
 | File | Description |
-|---|---|
+| --- | --- |
 | `accounts.ts` | Account list config — maps account IDs to display names and Kite credentials |
 | `auth.ts` | JWT session auth — time-based password (`ddmmyyyyhh` in IST), JWT cookie expiring at midnight IST |
 | `backtest.ts` | Historical strategy simulation — replays strategy signals against close price history |
 | `backtestHistory.ts` | Saved backtest runs — read/write to `backtest-history.json` |
 | `cron.ts` | Pure orchestrator: tick management, node-cron task lifecycle. Imports from cronBuy / cronEOD / cronReconcile / cronState. Exports `startCron`, `reloadCronStrategies`, `stopCron` |
 | `cronBuy.ts` | Auto-buy engine: `autoBuyOnAccount()` and `runStrategyTaskBody()`. Calls preflight, strategyEngine, Kite order placement, and cronState record functions |
-| `cronEOD.ts` | EOD square-off + daily/monthly retrospective emails. Imports `reconcileManualSells` from cronReconcile for the final 15:35 sweep |
-| `cronReconcile.ts` | Detects positions manually closed in Kite, journals SELL entries with buying strategyId. Zero circular deps — only imports cronState + kite/journal/positions |
+| `cronEOD.ts` | EOD square-off + daily/monthly retrospective emails. `exitSameDayOnPositive` now uses estimated net P&L after charges. Imports `reconcileManualSells` from cronReconcile for the final 15:35 sweep |
+| `cronReconcile.ts` | Detects positions manually closed in Kite, journals SELL entries with buying strategyId, and removes the closed row from the live positions store to prevent stale re-buy anchors |
 | `cronState.ts` | Shared mutable day-stats and in-process quota state (`inProcessBuyCounts`, `inProcessNewSymbols`). No imports from other cron files. Exports record helpers (`recordExecuted`, `recordFailed`, etc.) |
 | `dailyCloses.ts` | Rolling 60-day close price cache — reads/writes `daily-closes.json` |
 | `ema.ts` | EMA calculation utility |
@@ -64,7 +64,7 @@ This is not a SaaS product. It is a private, single-owner trading system managin
 ### Key `/app/api/` routes
 
 | Route | Method | Description |
-|---|---|---|
+| --- | --- | --- |
 | `/api/positions` | GET | Today's Kite positions enriched with strategy tags from positions store + journal fallback |
 | `/api/strategy/positions` | GET | Unified position store entries + journal fallback for tag resolution |
 | `/api/journal/fix-attribution` | POST | Retroactively patches old `dt-manual` SELL entries missing `strategyId` |
@@ -78,7 +78,7 @@ This is not a SaaS product. It is a private, single-owner trading system managin
 All runtime data lives in `~/dineshtrade/data/` on the EC2 server. **This directory is never touched by deploy steps.**
 
 | File | Purpose |
-|---|---|
+| --- | --- |
 | `state.json` | App mode (auto/manual), Kite access tokens, idempotency keys, buy history per symbol, panic skip list |
 | `positions.json` | Unified position store: `{ strategyId, account, symbol, firstBuyPrice, firstBuyAt, totalQty, remainingQty }` — one entry per account+symbol |
 | `journal-YYYY-MM.jsonl` | Append-only trade journal. One JSON object per line. New file per month. Never mutated, only appended |
@@ -88,6 +88,7 @@ All runtime data lives in `~/dineshtrade/data/` on the EC2 server. **This direct
 | `backtest-history.json` | Saved backtest runs |
 
 **CRITICAL rules:**
+
 - `~/dineshtrade/data/` must **never** be modified by any deploy, migration, or script step
 - `STATE_FILE_PATH` must be **unset on local dev** — if set, it overrides the local file path and crashes with ENOENT because `/home/ubuntu/...` doesn't exist locally
 
@@ -103,7 +104,8 @@ This is the most complex part of the codebase. Read carefully.
 
 ### Tag Resolution Flow (`lib/strategyTag.ts` — `resolvePositionTag()`)
 
-```
+```text
+
 1. positions store has entry for account:symbol?
    → YES: use its strategyId (ACCUMULATOR, CATALYST, etc.)
    → NO: continue
@@ -117,22 +119,21 @@ This is the most complex part of the codebase. Read carefully.
 3. Kite order tag is 'dt-manual'?
    → YES: tag = MANUAL
    → NO: tag = OOS (out of system — bought outside DineshTrade)
+
 ```
 
-### Key Rule: Positions Are NOT Removed After Manual Sell
+### Key Rule: Manually Closed Positions Are Removed After Reconciliation
 
-When a user manually sells a position in Kite (using the S button in the Holdings page, or directly in Kite's own app), `reconcileManualSells()` detects the closure and journals the SELL — but it does **not** remove the entry from `positions.json`.
+When a user manually sells a position in Kite (using the S button in the Holdings page, or directly in Kite's own app), `reconcileManualSells()` detects the closure, journals the SELL, and then removes the open row from `positions.json`.
 
-**Why:** This preserves the strategy tag on the Holdings page even after the position is sold. Without the store entry, the sold position would appear as OOS on the next page load before the user navigates away.
+**Why:** Leaving the row behind can contaminate the next re-buy of the same symbol with a stale `firstBuyPrice`, which in turn breaks momentum exit logic.
 
-The positions store entry is cleaned up on:
-- Next re-buy of the same symbol (` recordBuy()` overwrites)
-- Settings → Reset (full account wipe + re-seed)
+Closed-position attribution should come from the journal and broker snapshot, not from a lingering open-position store entry.
 
-### OOS vs Sold-but-Known
+### OOS vs Known-By-Journal
 
 - **OOS (Out Of System):** truly unknown — no positions store entry AND no journal auto-BUY fallback. Typically a position bought manually in Kite without DineshTrade.
-- **Sold-but-known:** positions store entry still present after a manual sell. Shows the original strategy tag, not OOS. This is intentional.
+- **Known-by-journal:** a closed or transitional row can still resolve to its owning strategy through journaled activity even after the open-position store entry has been removed.
 
 ---
 
@@ -141,11 +142,13 @@ The positions store entry is cleaned up on:
 When `reconcileManualSells()` detects a manually-sold position, it journals the SELL with:
 
 ```json
+
 {
   "tag": "dt-manual",
   "strategyId": "<from positions store — the BUYING strategy>",
   "source": "manual"
 }
+
 ```
 
 **Example:** COALINDIA was bought by Accumulator. User sells it manually in Kite. `reconcileManualSells()` journals the SELL with `strategyId = 'accumulator'`. The trade report correctly attributes the profit/loss to Accumulator.
@@ -155,6 +158,7 @@ When `reconcileManualSells()` detects a manually-sold position, it journals the 
 Located in `lib/journal.ts`. Reads the last 30 days of journal files and returns a `Map<SYMBOL, strategyId>` of auto-BUY records for a given account.
 
 Used as a **read-only fallback** in:
+
 - `GET /api/positions` — to tag T0 Kite positions whose positions store entry was cleaned up
 - `GET /api/strategy/positions` — same purpose
 
@@ -168,26 +172,31 @@ The cron system is split across four files to prevent circular dependencies.
 
 ### Dependency Graph
 
-```
+```text
+
 cronState  ←  cronBuy
            ←  cronReconcile  ←  cronEOD  ←  cron (orchestrator)
+
 ```
 
 ### File Responsibilities
 
 **`cronState.ts`**
+
 - Module-level mutable state: `dayStats`, `inProcessBuyCounts`, `inProcessNewSymbols`
 - No imports from any other cron file
 - Exports record helpers: `recordExecuted()`, `recordFailed()`, `recordBuyHistory()`, etc.
 - `maybeRollDay()` resets all counters at midnight IST
 
 **`cronBuy.ts`**
+
 - BUY engine for auto-mode
 - `runStrategyTaskBody(account, strategy)` — called by each per-strategy cron task
 - `autoBuyOnAccount(account, strategy)` — runs preflight + strategyEngine scan + places Kite order
 - Imports from cronState, strategyEngine, kite, preflight
 
 **`cronEOD.ts`**
+
 - Triggered at 15:35 IST daily
 - Runs final `reconcileManualSells()` sweep
 - Sends daily retrospective email
@@ -195,11 +204,13 @@ cronState  ←  cronBuy
 - Sends monthly retrospective on last trading day of month
 
 **`cronReconcile.ts`**
+
 - `reconcileManualSells(account)` — compares positions store vs live Kite qty
 - When Kite qty = 0 but store has entry: journals SELL with buying strategyId + `source: 'manual'`
 - Zero circular dependencies — only imports cronState + kite/journal/positions utils
 
 **`cron.ts`**
+
 - Pure orchestrator — no business logic
 - `tick()` calls all four pieces in correct order
 - Manages node-cron task lifecycle (start/stop/reload per strategy)
@@ -208,7 +219,7 @@ cronState  ←  cronBuy
 ### Cron Schedule
 
 | Task | Schedule | Action |
-|---|---|---|
+| --- | --- | --- |
 | Core 5-min tick | `*/5 9-15 * * 1-5` | SELL monitors (S1 + S2), reconciliation, reactive dip scan |
 | Per-strategy BUY scan | `scanIntervalMin` per strategy | Independent BUY scan per active strategy |
 | EOD sweep | 15:35 IST | Retrospective email, final reconcile, EOD square-off |
@@ -224,7 +235,7 @@ The Holdings page (`/holdings`) merges two Kite data sources.
 - **Holdings rows:** from Kite `/portfolio/holdings` — settled positions (`qty > 0`). Includes `t1_quantity` (T+1 settlement pending).
 - **T0 rows:** from `/api/positions` — same-day CNC positions from Kite `/portfolio/positions`.
 
-### T+1 Settlement Fix (01 Jun 2026)
+### T+1 Settlement Summary (01 Jun 2026)
 
 `KiteHolding` now has a `t1_quantity` field. `buildLiveQtyBySymbol()` in `lib/kite.ts` computes live quantity as `quantity + t1_quantity`. This prevents day-1 CNC positions from appearing OOS — on T+0 the holding appears in `/portfolio/positions`, on T+1 it moves to `/portfolio/holdings` with `t1_quantity > 0` before settling to `quantity` on T+2.
 
@@ -245,7 +256,7 @@ Built from all `rawHoldings` (even those with `quantity = 0`) to patch the avera
 
 ### OOS Badge
 
-Shown only when tag resolution returns OOS — i.e., no positions store entry AND no journal auto-BUY fallback AND no `dt-manual` Kite tag. A sold-but-known position (store entry present, Kite qty = 0) shows its original strategy tag, not OOS.
+Shown only when tag resolution returns OOS — i.e., no positions store entry AND no journal auto-BUY fallback AND no `dt-manual` Kite tag. Closed known trades should rely on journal attribution rather than a lingering store row.
 
 ---
 
@@ -254,7 +265,7 @@ Shown only when tag resolution returns OOS — i.e., no positions store entry AN
 `lib/preflight.ts` — runs before every order. All gates must pass or the order is rejected with a reason string.
 
 | Gate | Condition | Applies to |
-|---|---|---|
+| --- | --- | --- |
 | 1 | Token connected | All orders |
 | 2 | Market open (9:15–15:30 IST, weekday, non-holiday) | All orders |
 | 2b | Intraday circuit (live NIFTY 50 hysteresis ≥5% drop) | All orders |
@@ -277,6 +288,7 @@ Defined in `lib/strategyConfig.ts`.
 ### `DipParams` (Accumulator / mean-reversion strategies)
 
 ```typescript
+
 interface DipParams {
   emaPeriod: number;              // EMA window (default 20)
   entryBelowPct: number;          // % below EMA to trigger entry
@@ -289,11 +301,13 @@ interface DipParams {
   firesOnAnyMode: boolean;        // fires in both auto and manual mode
   maxPerSector?: number;          // optional sector concentration limit
 }
+
 ```
 
 ### `MomentumParams` (Catalyst / momentum strategies)
 
 ```typescript
+
 interface MomentumParams {
   minDayGainPct: number;          // min intraday gain % to qualify
   maxDayGainPct: number;          // max intraday gain % (avoid overextended)
@@ -304,9 +318,10 @@ interface MomentumParams {
   scanEndHHMM: string;            // scan window end e.g. "14:30"
   deliveryHandoffDays: number;    // days before handing off to Accumulator
   exitSameDayTime?: string;       // EOD exit time e.g. "15:10"
-  exitSameDayOnPositive?: boolean; // exit same day only if in profit
+  exitSameDayOnPositive?: boolean; // exit same day only if estimated net P&L after charges is positive
   squareOffEOD?: boolean;         // always square off EOD (bypasses no-loss gate)
 }
+
 ```
 
 ### Type Helpers
@@ -314,10 +329,12 @@ interface MomentumParams {
 Always use the helper functions — never cast `strategy.params as any`:
 
 ```typescript
+
 import { asDipParams, asMomentumParams } from '@/lib/strategyConfig';
 
 const params = asDipParams(strategy);       // asserts DipParams, throws if wrong type
 const params = asMomentumParams(strategy);  // asserts MomentumParams, throws if wrong type
+
 ```
 
 ---
@@ -359,7 +376,7 @@ These rules come from hard-won experience. Follow them exactly.
 ### Tag Consistency
 
 - **Positions store is the single source of truth.** Do not override strategy tags using Kite order tags for settled holdings — it creates inconsistency between pages.
-- OOS = truly unknown. Sold-but-known = show original strategy tag.
+- OOS = truly unknown. Closed known trades should resolve through journal attribution, not stale open-position rows.
 
 ### Sector Concentration Gate
 
@@ -370,6 +387,7 @@ These rules come from hard-won experience. Follow them exactly.
 ## 11. Environment Variables
 
 ```bash
+
 # Auth
 SESSION_SECRET=                        # 32+ random chars
 
@@ -394,6 +412,7 @@ AI_MODEL=gemini-2.5-flash
 SMTP_USER=dinesh.k.wadhwani@gmail.com
 SMTP_PASS=                             # 16-char Google App Password
 NOTIFY_TO=dinesh.k.wadhwani@gmail.com
+
 ```
 
 **Local dev:** Copy `.env.example` to `.env.local`. Do NOT set `STATE_FILE_PATH`.
@@ -405,17 +424,21 @@ NOTIFY_TO=dinesh.k.wadhwani@gmail.com
 ### Production deploy (EC2)
 
 ```bash
+
 cd ~/dineshtrade
 git pull
 npm install
 npm run build
 pm2 reload dineshtrade
+
 ```
 
 ### Type check only (safe while dev server is running)
 
 ```bash
+
 npx tsc --noEmit
+
 ```
 
 ### Data directory
@@ -425,9 +448,11 @@ npx tsc --noEmit
 ### PM2 commands
 
 ```bash
+
 pm2 status            # check process state
 pm2 logs dineshtrade  # tail logs
 pm2 restart dineshtrade --update-env  # reload with new env vars
+
 ```
 
 ---
@@ -435,24 +460,31 @@ pm2 restart dineshtrade --update-env  # reload with new env vars
 ## 13. Recent Changes (June 2026)
 
 ### T+1 Settlement Fix (01 Jun 2026)
+
 `KiteHolding` now has a `t1_quantity` field. `buildLiveQtyBySymbol()` in `lib/kite.ts` computes live qty as `quantity + t1_quantity`. Prevents day-1 CNC positions from appearing OOS on the Holdings page — they transition from T0 positions → T+1 holdings → settled holdings without losing their strategy tag.
 
 ### Manual Sell Strategy Attribution (01 Jun 2026)
+
 `reconcileManualSells()` in `lib/cronReconcile.ts` now journals the SELL entry with:
+
 - `strategyId` = the buying strategy (from positions store)
 - `source: 'manual'`
-- Positions store entry is NOT removed after manual sell — strategy tag is preserved on Holdings page until next re-buy or Reset.
+- Positions store entry is removed after the manual SELL is journaled, preventing stale strategy ownership from leaking into later re-buys.
 
 ### Journal Fix-Attribution Button (01 Jun 2026)
+
 Settings → Journal Maintenance → "Fix Journal Attribution" button. Calls `POST /api/journal/fix-attribution`. Retroactively patches old `dt-manual` SELL entries that are missing `strategyId` — looks up each entry's symbol in the positions store and backfills the tag.
 
 ### Holdings Avg for Closed Positions (01 Jun 2026)
+
 T0 rows with `qty = 0` (sold today) now display `average_price` from the holdings endpoint (buy cost), not from Kite's position `average_price` (which is the sell execution price). Makes the displayed avg consistent with the "what did I pay" view.
 
 ### Journal Strategy Fallback (01 Jun 2026)
+
 `/api/positions` and `/api/strategy/positions` both fall back to `getJournalStrategyFallback()` in `lib/journal.ts` when a symbol is not found in the positions store. Reads last 30 days of auto-BUY journal records and returns the most recent `strategyId` for each symbol. Prevents OOS false positives after positions store cleanup.
 
 ### Codebase Refactor (01 Jun 2026)
+
 - `cron.ts` split into `cronState.ts` / `cronBuy.ts` / `cronEOD.ts` / `cronReconcile.ts` / `cron.ts` (orchestrator) — eliminates circular dependencies
 - `strategyTag.ts` — new file, centralises `resolvePositionTag()` logic used across all API routes
 - `buildLiveQtyBySymbol()` — extracted to `lib/kite.ts`, handles `quantity + t1_quantity`
@@ -461,4 +493,4 @@ T0 rows with `qty = 0` (sold today) now display `average_price` from the holding
 
 ---
 
-*DineshTrade COPILOT.md — Technical handoff document — June 2026*
+Technical handoff document — June 2026.

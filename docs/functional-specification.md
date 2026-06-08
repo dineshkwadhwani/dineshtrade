@@ -1,6 +1,6 @@
 # DineshTrade — Functional Specification
 
-**Version:** 1.7 · **Last Updated:** 30 May 2026
+**Version:** 1.8 · **Last Updated:** 07 Jun 2026
 
 This spec documents the *user-visible* behaviour: what the app does, when, and why. Each epic is independently shippable. Nuances and edge cases are listed inline because they are where the value (and the risk) lives.
 
@@ -11,20 +11,24 @@ This spec documents the *user-visible* behaviour: what the app does, when, and w
 **Goal:** Single-user app, no signup flow, but secure enough that a stolen URL won't trade for someone else.
 
 ### F1.1 — Time-based password login
+
 - Password format: `ddmmyyyyhh` in IST. Example: 19 May 2026 at 14:00 IST → `1905202614`.
 - Password rotates **hourly**. Last hour's password is rejected (no grace window).
 - Login form shows the current IST date/time on the page so the user can compute the password without a separate clock.
 
 ### F1.2 — Session lifetime
+
 - Successful login mints a **JWT in a cookie** (`dt_session`), signed with `SESSION_SECRET`.
 - Session expires at **midnight IST**, not on browser close. Reopening the tab the next morning forces a fresh password.
 - Explicit **Logout** button kills the cookie immediately.
 
 ### F1.3 — Route protection
+
 - Edge middleware enforces auth on every `/` route except `/login`, `/api/auth`, and Kite OAuth callbacks.
 - Unauthenticated requests get a 307 redirect to `/login`. API routes that need auth verify the cookie directly (not relying on middleware in case middleware misses an exception).
 
-### Nuances
+### Authentication Nuances
+
 - Hourly rotation means anyone watching your screen at 14:59 can't reuse the password at 15:00. Trades after a session steal are still gated by Kite OAuth (separate token), so the blast radius is bounded.
 - The session cookie is `HttpOnly` + `Secure` + `SameSite=Lax`. No CSRF token because there's no other writer.
 
@@ -35,20 +39,24 @@ This spec documents the *user-visible* behaviour: what the app does, when, and w
 **Goal:** Connect 1–N Zerodha Kite accounts. Each one is an independent trading surface; the app fans out scans, orders, and monitors across all connected accounts.
 
 ### F2.1 — Account configuration
+
 - Accounts are declared via env vars enumerated by `ZERODHA_ACCOUNT1`, `ZERODHA_ACCOUNT2`, ... up to N.
 - Per-account secrets live under `${ZERODHA_ENVIRONMENT}_ZERODHA_API_KEY_${name}` and `${...}_ZERODHA_API_SECRET_${name}` (e.g. `PROD_ZERODHA_API_KEY_DINESH`). `ZERODHA_ENVIRONMENT` flips between `PROD` and `TEST` apps.
 - `config/accounts.json` carries display metadata (full name, colour, initials, note).
 
 ### F2.2 — Daily token via "Login with Kite"
+
 - Settings page shows a per-account **Login with Kite** button. Clicking opens Kite's OAuth flow.
 - Kite redirects back to `/api/zerodha/callback?request_token=...&action=...`. The app trades the `request_token` for an `access_token` via Kite's `/session/token` endpoint, then stores `{ apiKey, accessToken }` in `state.kiteTokens[accountName]`.
 - Tokens expire daily (Kite mandate) — user must repeat the OAuth flow each morning.
 
 ### F2.3 — Account selection
+
 - Settings has a `selectedAccounts: string[]` — the subset of connected accounts on which **auto** mode is allowed to trade.
 - Manual orders can target any connected account regardless of `selectedAccounts`.
 
-### Nuances
+### Multi-Account Nuances
+
 - TEST vs PROD: the `ZERODHA_ENVIRONMENT` prefix lets you run a sandbox app side-by-side with the real one without renaming any code.
 - If a user has multiple Kite apps inside one account (e.g. Dinesh has two), each app is its own `ACCOUNTn` entry — the human is the same but the API surface is separate.
 - Token state is the single source of truth for "connected" — if the server restarts, persistent state on disk preserves the connection (see Epic 9).
@@ -68,6 +76,7 @@ This spec documents the *user-visible* behaviour: what the app does, when, and w
 - See Epic 12 for the full Manage Lists UX. Watchlist page UI itself is read-only: dynamic tabs (one per list), search filter, batched live LTPs, green/red colouring.
 
 ### F3.2 — Holdings page
+
 - Lists Kite holdings for the active account tab and now also merges still-open non-zero positions from today's Positions feed into the same table for a consolidated view.
 - Refresh pulls live quote data after holdings load, recalculates row P&L from that quote snapshot, and shows a visible "Last Refreshed" timestamp for the current account view.
 - Same-day supplemental long rows are marked with a `T0` badge. Same-day short rows are marked `T0 SHORT` and render a cover BUY action. Fully closed same-day rows (`qty = 0`) are excluded from this view.
@@ -78,16 +87,19 @@ This spec documents the *user-visible* behaviour: what the app does, when, and w
 - Each row has Buy and Sell buttons that open the universal OrderModal.
 
 ### F3.3 — OrderModal (used across Watchlist, Holdings, Positions)
+
 - Fields: account, side (BUY/SELL), quantity, product (CNC/MIS), order type (MARKET/LIMIT), limit price.
 - Sends `manual: true` + `tag: 'dt-manual'` → bypasses rate-limit gates (per-trade cap, idempotency, day quota).
 - Funds + no-short + market-open gates still apply.
 - On SELL with partial holdings, auto-clamps to held qty.
 
 ### F3.4 — Positions page lot visibility
+
 - The Positions page still keeps one broker-shaped action row per symbol, but strategy-tracked rows can now show an inline **Open Lots** block beneath that row.
 - Each lot line shows the original buy timestamp, entry price, current open qty versus original qty, tranche-1 status, and live P&L from the current LTP. This lets repeated Accumulator or Catalyst buys remain visible as separate tranches without splitting the main square-off row.
 
-### Nuances
+### Holdings Nuances
+
 - **No persistent OOS bucket:** broker-held positions without a stronger owning strategy are absorbed into `accumulator` so they remain managed by the system rather than staying permanently outside it.
 - **Funds-gate exemption for manual:** by design — the user wants to be able to buy with their own judgement, even above the auto-mode per-trade cap. The funds gate still prevents NSE rejection.
 
@@ -104,13 +116,17 @@ This spec documents the *user-visible* behaviour: what the app does, when, and w
 Strategy 1 has **two trigger paths** — a once-per-day morning scan and a reactive intraday scan.
 
 #### F4.1a — Morning scan
+
 **Used when:** GIFT Nifty < −0.5% (dip mode). Runs once per day at the first dip-mode tick.
+
 - **Entry filter:**
   - Stock 5–8% below 20-day EMA
   - 3+ consecutive down days (from historical daily candles only)
 
 #### F4.1b — Reactive intraday scan
+
 **Used when:** Always (regardless of market mode). Runs every **30 minutes** between **09:15 and 14:00 IST**.
+
 - **Trigger:** Any List A stock down **≥3% from yesterday's close** intraday.
 - **Re-evaluation:** Full Strategy 1 entry check on the triggered symbol, with one twist — today is **counted as a down day** for the consecutive-down-days check (since we already know the price has dropped ≥3%, today qualifies as down).
 - **Why:** Catches single-stock capitulation moves that the morning scan would have missed because the stock hadn't dropped enough at 9:15 yet.
@@ -118,6 +134,7 @@ Strategy 1 has **two trigger paths** — a once-per-day morning scan and a react
 - **Idempotency:** Shares the standard per-account+date+symbol BUY ledger with the morning scan — no symbol can fire twice in one day across both paths.
 
 #### Exits + persistence (shared between both paths)
+
 - **Two-tranche exit:**
   - **Tranche 1:** SELL 50% of each open lot when LTP ≥ that lot's EMA anchor
   - **Tranche 2:** SELL the remaining qty of that same lot when LTP ≥ that lot's EMA × 1.03 (i.e. **EMA + 3%, no time stop**)
@@ -126,10 +143,12 @@ Strategy 1 has **two trigger paths** — a once-per-day morning scan and a react
 - **Persistence:** open Strategy 1 positions now live in the unified `data/positions.json` store. The aggregate row still shows combined qty for summary surfaces, but monitoring and exits are evaluated lot-by-lot so restarts preserve per-buy targets.
 
 #### Visibility
+
 - **Auto mode:** cron places the BUY automatically (same `dt-s1` tag, same exit monitor).
 - **Manual mode:** every Engine page Refresh runs both `generateRecommendations()` and `runReactiveDipScan()` in parallel and merges the results — so a reactive dip rec appears as a flagged recommendation alongside any catalyst/dip recs from the regular mode.
 
 ### F4.2 — Strategy 2: The Daily Catalyst (intraday momentum)
+
 **Used when:** Catalyst mode (GIFT Nifty positive/flat). Scans at its own `scanIntervalMin` cadence (default 3 min, independent per-strategy cron task) during 9:30–14:30 IST.
 
 - **Momentum signal (replaced the original broker-rec filter):**
@@ -149,7 +168,7 @@ Strategy 1 has **two trigger paths** — a once-per-day morning scan and a react
 Each momentum strategy has three optional end-of-day params (visible + editable in Settings → Strategies → "End of Day Behaviour"):
 
 - **`exitSameDayTime`** (`string`, default `"15:10"`) — IST HH:MM at which the EOD check fires once per strategy per trading day.
-- **`exitSameDayOnPositive`** (`boolean`, default `false`) — at `exitSameDayTime`, sell any position where `ltp > firstBuyPrice` (in profit). Positions not in profit continue into normal delivery/handoff flow.
+- **`exitSameDayOnPositive`** (`boolean`, default `false`) — at `exitSameDayTime`, sell any position whose estimated net P&L after charges is still positive. Gross-green but net-negative-after-charges positions continue into normal delivery/handoff flow.
 - **`squareOffEOD`** (`boolean`, default `false`) — at `exitSameDayTime`, sell ALL positions regardless of P&L. Overrides the no-loss sell gate. Never takes delivery. Mutually inclusive with `exitSameDayOnPositive` (both can be true simultaneously).
 
 **Market Boom defaults:** `squareOffEOD=true`, `exitSameDayOnPositive=true`, `deliveryHandoffDays=0` — it always squares off EOD, so handoff is irrelevant.
@@ -159,8 +178,9 @@ Each momentum strategy has three optional end-of-day params (visible + editable 
 The EOD check runs inside the core 5-min tick and fires once per strategy per day at the exact configured minute. `squareOffEOD=true` passes `bypassNoLossSell=true` to preflight, skipping gate 8's no-loss-sell rider while all other gates (token, market open, no-short, quota) still apply.
 
 ### F4.3 — Market Mode resolver
+
 | GIFT Nifty | Mode | Engine |
-|---|---|---|
+| --- | --- | --- |
 | Positive / flat | Catalyst | Strategy 2 |
 | Gap-down −0.5% to −5% | Dip | Strategy 1 |
 | −5% or worse | Circuit | No trades (auto disabled) |
@@ -168,14 +188,17 @@ The EOD check runs inside the core 5-min tick and fires once per strategy per da
 Mode is computed once per tick via `getMarketMode()`, cached briefly, and shown as a chip on the Dashboard + Engine page.
 
 ### F4.4 — Engine page
+
 Two stacked sections — Recommendations (top) and Full Scan tiles (bottom).
 
 #### Recommendations section (unchanged)
+
 - "Refresh" button runs `generateRecommendations()` — dispatches by current mode.
 - Each recommendation shows: symbol, price, T1, T2, stop loss, suggested qty (computed from per-trade cap), reason text, source.
 - In **Manual mode**, each rec has an Execute button. In **Auto mode**, the cron is already firing them; the page is informational.
 
 #### Capital reconciliation strip
+
 - The Engine header includes a live capital strip sourced from `/api/capital` for the selected account.
 - `Available`, `Overall Deployed`, `Reserve`, and `Remaining Deployable` come directly from the live broker snapshot (`available + deployed`, then the configured deployable % split).
 - `Funded Base` is an account-level configured baseline used only for reconciliation math.
@@ -186,6 +209,7 @@ Two stacked sections — Recommendations (top) and Full Scan tiles (bottom).
 - `Live Capital` remains the broker-truth number and is always `available + deployed`.
 
 #### Full Scan tiles section
+
 A richer UI layer over the **same** scan logic — no change to the underlying strategies or cron. Surfaces *every* List A stock as a tile so you can see **why** filtered-out stocks didn't make it to recommendations.
 
 - **Two tabs:** Catalyst (Strategy 2) and Oscillator (Strategy 1). Default tab is determined by market mode — GIFT Nifty < −0.5% opens on Oscillator, otherwise Catalyst. User can switch tabs manually.
@@ -202,6 +226,7 @@ A richer UI layer over the **same** scan logic — no change to the underlying s
 - **Auto execution behaviour (unchanged from scan logic):** only stocks that pass all rules are auto-traded by the cron. Manual users can click BUY on any tile regardless of score — OrderModal opens pre-filled, all preflight gates still apply.
 
 #### Catalyst rules (8)
+
 1. Within scan window (09:30–14:30 IST)
 2. Day gain ≥ +0.5%
 3. Day gain ≤ +1.5%
@@ -212,6 +237,7 @@ A richer UI layer over the **same** scan logic — no change to the underlying s
 8. Per-trade cap configured
 
 #### Oscillator rules (8)
+
 1. Market open (09:15–15:30 IST)
 2. 20-day EMA computable
 3. LTP ≥ 5% below 20-EMA (stretched)
@@ -244,7 +270,8 @@ See [docs/TradingEngine.md](docs/TradingEngine.md) for the standalone plain-Engl
 - **Order tag scheme** — Engine page tile BUY and Recommendation Execute now tag Kite orders as `dt-${strategy.id}` (e.g. `dt-quickwin`, `dt-accumulator`). Legacy `dt-s1` / `dt-s2` understood for back-compat but no longer emitted.
 - **Position migration on deactivate/delete** — when user toggles a strategy inactive OR removes it from the strategies array, `migrateStrategyId(<id>, 'accumulator')` re-stamps every open position belonging to that strategy. Settings UI shows a confirmation dialog: *"Quickwin has 3 open positions. They will be moved to Accumulator on save. Continue?"*
 
-### Nuances
+### Strategy Nuances
+
 - **Tranche 2 rule change:** originally "next day above EMA". Changed to "EMA + 3% same-day, no time stop" on user request (18 May 2026) — captures more upside on momentum names.
 - **Why accumulator is hardcoded:** simplifies the mental model. Tactical strategies are siblings; the strategic mean-reversion strategy is the keeper everyone flows into. A config-driven handoff target would invite chained handoffs (`quickwin → deep_dip → accumulator`) that loop or surprise the user.
 - **Strategy IDs are immutable** — Settings UI locks the `id` field after first save. Renaming requires delete-then-create (and a position migration to accumulator in the middle). Display names are freely editable.
@@ -261,21 +288,23 @@ See [docs/TradingEngine.md](docs/TradingEngine.md) for the standalone plain-Engl
 *Three new auto-BUY-only gates added 20–21 May 2026: intraday circuit, panic-sell, pyramid. Order matters; first failure short-circuits with `{ ok: false, gate, reason }`.*
 
 1. **Token** — `state.kiteTokens[account]` exists and isn't expired
-2. **Market open** — current IST time within 9:15–15:30, weekday, non-holiday per `config/holidays.json`
-2b. **Intraday circuit** — *(auto-BUY only)* live NIFTY 50 vs today's open. Trips when `dropPct ≤ capital.intradayCircuitTripPct` (default `0` = disabled). Hysteresis: resumes when `dropPct ≥ capital.intradayCircuitResumePct`. Module-level state machine in `lib/intradayCircuit.ts`; holds last-known state if the Kite quote fetch fails (fail-safe held). Distinct from the pre-market `circuitBreakerPct` which gates on GIFT Nifty before market open.
-3. **Per-trade cap** — `pricePerShare × quantity ≤ capital.perTrade` *(auto only; manual bypasses)*
-4. **Idempotency** — persistent ledger in `state.idempotencyLedger` keyed by `${account}:${date}:${symbol}:BUY` *(auto only; manual bypasses)*
-4b. **Panic-sell** — *(auto-BUY only)* per-symbol peak-to-current drop in the last `capital.panicWindowMin` minutes (read from the 5-min candle cache). Trips when `dropPct ≥ capital.panicDropPct` (default `0` = disabled). Tripped symbols join `state.panicSkipList[YYYY-MM-DD]` and short-circuit all subsequent auto-BUYs that IST day. Persistent across restarts.
-4c. **Pyramid** — *(auto-BUY only)* per-symbol cap on consecutive BUYs accumulating into one position: `capital.maxBuysPerSymbol` (default 3), each subsequent BUY must be ≥ `capital.minDropBetweenBuysPct`% below the previous BUY price. History resets to fresh on sellout.
-5. **Day quota** — max `capital.maxBuysPerDay` / `capital.maxSellsPerDay` per day per account *(auto only)*
-6. **Position cap** — BUY only; auto + manual both gated. Max `capital.maxPositions` open positions per account
-7. **Funds** — BUY only. Live `/user/margins` check; rejects if `available_cash < tradeValue`
-8. **No-short** — SELL only. Fetches live held qty:
-   - `held === 0` → reject with `gate: 'noShort'` (signal to monitors that the position was manually closed)
-   - `held < requested` → **clamp**: return `adjustedQty: held`, allow order to proceed
-   - **No-loss-sell rider:** Auto SELLs additionally reject if `ltp < entryPrice`. Manual SELLs are never blocked on this. Also bypassable via `bypassNoLossSell: true` (used by `squareOffEOD` — must sell regardless of P&L at EOD).
+1. **Market open** — current IST time within 9:15–15:30, weekday, non-holiday per `config/holidays.json`
+1. **Intraday circuit** — *(auto-BUY only)* live NIFTY 50 vs today's open. Trips when `dropPct ≤ capital.intradayCircuitTripPct` (default `0` = disabled). Hysteresis: resumes when `dropPct ≥ capital.intradayCircuitResumePct`. Module-level state machine in `lib/intradayCircuit.ts`; holds last-known state if the Kite quote fetch fails (fail-safe held). Distinct from the pre-market `circuitBreakerPct` which gates on GIFT Nifty before market open.
+1. **Per-trade cap** — `pricePerShare × quantity ≤ capital.perTrade` *(auto only; manual bypasses)*
+1. **Idempotency** — persistent ledger in `state.idempotencyLedger` keyed by `${account}:${date}:${symbol}:BUY` *(auto only; manual bypasses)*
+1. **Panic-sell** — *(auto-BUY only)* per-symbol peak-to-current drop in the last `capital.panicWindowMin` minutes (read from the 5-min candle cache). Trips when `dropPct ≥ capital.panicDropPct` (default `0` = disabled). Tripped symbols join `state.panicSkipList[YYYY-MM-DD]` and short-circuit all subsequent auto-BUYs that IST day. Persistent across restarts.
+1. **Pyramid** — *(auto-BUY only)* per-symbol cap on consecutive BUYs accumulating into one position: `capital.maxBuysPerSymbol` (default 3), each subsequent BUY must be ≥ `capital.minDropBetweenBuysPct`% below the previous BUY price. History resets to fresh on sellout.
+1. **Day quota** — max `capital.maxBuysPerDay` / `capital.maxSellsPerDay` per day per account *(auto only)*
+1. **Position cap** — BUY only; auto + manual both gated. Max `capital.maxPositions` open positions per account
+1. **Funds** — BUY only. Live `/user/margins` check; rejects if `available_cash < tradeValue`
+1. **No-short** — SELL only. Fetches live held qty:
+
+- `held === 0` → reject with `gate: 'noShort'` (signal to monitors that the position was manually closed)
+- `held < requested` → **clamp**: return `adjustedQty: held`, allow order to proceed
+- **No-loss-sell rider:** Auto SELLs additionally reject if `ltp < entryPrice`. Manual SELLs are never blocked on this. Also bypassable via `bypassNoLossSell: true` (used by `squareOffEOD` — must sell regardless of P&L at EOD).
 
 ### F5.2 — Order placement path
+
 1. Caller (cron, monitor, OrderModal, /engine Execute) builds the order intent
 2. `runPreflight()` runs all 8 gates
 3. If clamped, `adjustedQty` is used as the actual quantity
@@ -284,12 +313,14 @@ See [docs/TradingEngine.md](docs/TradingEngine.md) for the standalone plain-Engl
 6. Email fires (`trade_executed` or `trade_failed`) — fire-and-forget, never blocks the response
 
 ### F5.3 — Manual override of auto
+
 - If the user manually closes a position via the Square Off button (or directly in Kite), the next auto-mode tick:
   - **S1 monitor:** noShort gate fires → S1 entry is removed from `strategy1.json`
   - **S2 monitor:** `qty <= 0` branch hits → entry is silently skipped
 - No need for a "pause auto" toggle — manual actions naturally take precedence.
 
-### Nuances
+### Preflight Nuances
+
 - **Why manual bypasses rate-limit gates:** they exist to prevent runaway auto-mode, not to second-guess the user. Funds + no-short still hold because those prevent broker-side rejection or shorting.
 - **Why idempotency is BUY-only:** SELLs are managed by monitors that already track tranche state; idempotency on SELL would prevent legitimate partial closes.
 - **Funds gate uses live margin, not state:** state is updated lazily, but the user can place a manual order any time. Always querying Kite ensures accuracy.
@@ -315,12 +346,15 @@ Gated by `state.mode === 'auto'`, `isMarketOpen()`, at least one connected accou
 5. **Reactive dip scan** — every 30 min between 09:15–14:00 IST
 
 #### Per-strategy BUY scan tasks
+
 Each active strategy registers its own cron task at `*/${scanIntervalMin} 9-15 * * 1-5`. Body re-resolves the strategy config fresh on each fire (hot-reload after Settings save). Hot-reload (`reloadCronStrategies()`) is called automatically on `POST /api/strategies` save — no restart needed.
 
 **Why separate:** BUY scans run at per-strategy cadence (Catalyst = 3 min, Accumulator = 30 min). SELLs need to run every 5 min regardless of strategy. Decoupling them avoids artificially constraining Catalyst's scan rate to the SELL monitor rate.
 
 ### F6.2 — Daily retrospective (15:35 IST weekdays)
+
 Cron expression: `35 15 * * 1-5`. Skip rules (in order):
+
 1. Not a market day → skip
 2. SMTP not configured → skip
 3. *(Removed 21 May)* — the "no activity → skip" rule is gone. The retrospective now functions as a **daily diary** and always sends on trading days even with zero trades. A zero-trade day still surfaces open positions, capital status, strategy health, and the manual-mode indicator.
@@ -330,9 +364,11 @@ Cron expression: `35 15 * * 1-5`. Skip rules (in order):
 > **Recovery if PM2 restarts after 15:35:** node-cron has no missed-fire replay. A deploy that completes after 15:35 IST means the cron task registers for the *next* day's 15:35. Users can still view the same report live at `/trades` → Retrospective → today.
 
 ### F6.3 — Gating env var
+
 - `CRON_ENABLED=true` must be set; otherwise `startCron()` logs and returns. This prevents local dev from accidentally trading.
 
-### Nuances
+### Cron Nuances
+
 - **Why every 5 min instead of every minute:** Kite API rate limits, and Strategy 2's momentum signal doesn't need sub-minute resolution.
 - **Why the BUY scan runs once a day for dip mode:** dip is a morning-only setup. The signal doesn't reappear intraday; re-scanning would just burn API quota.
 - **Why monitors run *before* BUY scan in each tick:** so a position that hit T1 at 14:35 IST closes before the 14:35 tick considers a new BUY in the same symbol. Avoids accidental re-entry.
@@ -344,6 +380,7 @@ Cron expression: `35 15 * * 1-5`. Skip rules (in order):
 **Goal:** Every trade and every preflight-rejected signal goes in an append-only log. The log powers the EoD email AND the in-app Retrospective view.
 
 ### F7.1 — Journal storage (`lib/journal.ts`)
+
 - Append-only JSONL files: `~/dineshtrade/data/journal-YYYY-MM.jsonl` (one per IST month)
 - File mode `0o600`. Never wiped by deploys.
 - Four record types:
@@ -361,7 +398,9 @@ Cron expression: `35 15 * * 1-5`. Skip rules (in order):
 - **Cron strategy task** — every scan, regardless of outcome: writes `strategy_scan`
 
 ### F7.3 — Verdict classification
+
 At journal-write time, `classifyVerdict({ strategy, entryPrice, exitPrice, t1TriggerPct, isDelivery })`:
+
 - `correct_exit` — gainPct ≥ T1 trigger − 0.05 (tolerance for fill slippage)
 - `early_exit` — exited below T1
 - `delivery` — Strategy 2 position taken to delivery at 3 PM
@@ -392,6 +431,7 @@ Sections (added 19–20 May 2026 to make the report useful on days with no close
 Skip rules now send if **any** of: trades, missed signals, today's orders, open positions exist. The old "skip if zero closed trades" rule was hiding days where BUYs happened but no SELLs.
 
 ### F7.5 — Monthly rollup (`buildMonthlyReport(date)`)
+
 Fires on the last trading day of the month (after the daily report). Shows: total trades, win rate, total P&L, best/worst trade, avg daily return, signals missed, optional recommendation.
 
 ### F7.6 — In-app Retrospective tab
@@ -441,7 +481,8 @@ Fires on the last trading day of the month (after the daily report). Shows: tota
   - **Analyse Tests** — asks for confirmation, then sends all saved runs to the app's configured AI provider for plain-English strategy insights based on **realized** results only.
 - The analysis action is blocked when fewer than 3 runs exist and shows: `Run at least 3 backtests with different parameters before analysing for meaningful insights.`
 
-### Nuances
+### Reporting Nuances
+
 - **Why enrich with OHLC at report time, not write time:** at SELL time the day isn't over. EoD high may be higher than what we recorded. Enriching at 15:35 IST gives the user the "what would have been" honestly.
 - **Why JSONL not JSON:** atomic append (one write syscall, never partial). No risk of corrupting earlier records on a crash.
 - **Why monthly fires even if today's daily skipped:** today might be a flat day but the month had plenty of activity earlier.
@@ -467,32 +508,38 @@ Fires on the last trading day of the month (after the daily report). Shows: tota
 - Square Off button is always visible; disabled outside market hours per CB5
 
 ### F8.2 — Strategy tag derivation
+
 *Updated 2 June 2026 — driven by the unified position store's `strategyId`, with accumulator intake for broker-held positions that would previously have rendered as OOS.*
 
 The `PositionTag` shape returned by `GET /api/positions` is now:
 
 ```ts
+
 { kind: 'strategy' | 'manual' | 'pre' | 'mixed', strategyId?: string, label: string, color: string }
+
 ```
 
 Resolution order:
 
 1. If `data/positions.json` has a row for `(account, symbol)` → `kind: 'strategy'`, `label` = strategy's display name (truncated), `color` = strategy's configured color
 2. Else infer from today's filled-order tags for the symbol:
-   - Single `dt-<strategyId>` (or legacy `dt-s1*` / `dt-s2*`) → `strategy` pill using that strategy's display name + color
-   - Only `dt-manual` → `manual` (purple `MANUAL` pill)
-  - No app tags → `strategy` pill for `accumulator` (broker-held position absorbed into system ownership)
-   - Multiple distinct strategies → `mixed` (amber `MIXED` pill)
+
+- Single `dt-<strategyId>` (or legacy `dt-s1*` / `dt-s2*`) → `strategy` pill using that strategy's display name + color
+- Only `dt-manual` → `manual` (purple `MANUAL` pill)
+- No app tags → `strategy` pill for `accumulator` (broker-held position absorbed into system ownership)
+- Multiple distinct strategies → `mixed` (amber `MIXED` pill)
 
 The pill carries a tooltip naming the strategy id ("Owned by strategy: quickwin") so the user can quickly trace which strategy will manage the exit.
 
 ### F8.3 — Square Off action
+
 - Click opens OrderModal pre-filled with: SELL · held qty · matching product (MIS or CNC) · MARKET · current LTP
 - User can edit qty (partial close), switch to LIMIT, or change anything else before placing
 - Fires the same `dt-manual` order path → tagged Manual in the journal
 - On success, the row auto-refreshes (modal closes, positions reload)
 
-### Nuances
+### Positions Nuances
+
 - **Why "realized" is a separate number on the row:** if you did a buy and partial sell today, the row shows what's still open (unrealized) AND what you already booked (realized). Both pieces matter.
 - **Realized calculation is approximate:** `min(buyQty, sellQty) × (sellVWAP − buyVWAP)` from today's complete orders. Kite's `pnl` field is the broker-exact number; we exposed the simple one for transparency. Easy swap if you want broker-exact.
 
@@ -503,9 +550,11 @@ The pill carries a tooltip naming the strategy id ("Owned by strategy: quickwin"
 **Goal:** Survive restarts. Don't lose user choices, tokens, or strategy state on a deploy.
 
 ### F9.1 — State surface
+
 Single object persisted on every mutation:
 
 ```jsonc
+
 {
   "mode": "auto" | "manual",
   "selectedAccounts": ["DINESH", ...],
@@ -514,6 +563,7 @@ Single object persisted on every mutation:
   "buyHistory": { "DINESH:ITC": [{ "price": 312.10, "ts": "..." }, ...] },
   "panicSkipList": { "2026-05-21": ["IDFC", "PNB"] }
 }
+
 ```
 
 - `idempotencyLedger` — persistent BUY-side ledger, pruned to today's entries on every read
@@ -521,10 +571,12 @@ Single object persisted on every mutation:
 - `panicSkipList` — per-day skip list for the panic-sell gate. Date-keyed; only today's entry survives `normalize()`'s prune step
 
 ### F9.2 — Storage backend
+
 - **Local dev (no `STATE_FILE_PATH`):** JWT cookie. Quick to iterate, no filesystem dependency.
 - **EC2 (`STATE_FILE_PATH=~/dineshtrade/data/state.json`):** file on disk, mode `0o600`. Cron reads fresh on every tick — no in-memory cache to invalidate.
 
 ### F9.3 — Separate persisted files
+
 - `data/state.json` — runtime state (above)
 - `data/strategy.json` — runtime overlay of bundled `config/strategy.json` (Settings → Strategies saves)
 - `data/watchlist.json` — runtime overlay of bundled `config/watchlist.json` (Manage Lists saves; `{ meta, lists }` shape)
@@ -534,7 +586,8 @@ Single object persisted on every mutation:
 
 All files live in the **same directory** (`~/dineshtrade/data/`) so EC2 deploys only need to whitelist one path.
 
-### Nuances
+### State Persistence Nuances
+
 - **Why JWT cookie locally:** there's no cron running locally either, so file persistence is overkill. The cookie survives page reloads and that's enough.
 - **Why mode 0o600:** state.json + journal files contain trade history + tokens. Only the owner UID should read them.
 
@@ -545,22 +598,27 @@ All files live in the **same directory** (`~/dineshtrade/data/`) so EC2 deploys 
 **Goal:** Real-time situational awareness without sitting in front of the app.
 
 ### F10.1 — Per-trade emails
+
 - `trade_executed` — fires after every successful BUY or SELL (auto or manual). Includes account, symbol, qty, price, T1/T2/SL (for BUYs), source, reason, mode, Kite order ID.
 - `trade_failed` — fires when preflight rejects OR Kite rejects. Distinguishes the two: preflight failures show the gate name + reason; Kite failures show the raw API error.
 
 ### F10.2 — Daily retrospective (15:35 IST)
+
 - HTML email with the full `DailyReport` payload (see Epic 7).
 - Skip rules in F6.2.
 
 ### F10.3 — Monthly rollup
+
 - HTML email with `MonthlyReportData` on the last trading day of the month.
 
 ### F10.4 — Transport
+
 - Gmail SMTP via `nodemailer`, Google App Password.
 - Required env: `SMTP_USER`, `SMTP_PASS`. Optional: `SMTP_HOST`, `SMTP_PORT`, `NOTIFY_TO`.
 - All sends are **fire-and-forget** — failures log but never block the calling code.
 
-### Nuances
+### Notification Nuances
+
 - **Why both text and HTML in daily/monthly:** terminals + plain-text clients still render the readable fallback. The HTML version is for the inbox.
 - **Why no morning briefing email:** user opted out (19 May 2026) — the Dashboard in-app view is sufficient.
 
@@ -684,12 +742,15 @@ The status column shows a single glyph instead of the raw Kite enum, with a tool
 ## Cross-Epic Behaviours
 
 ### CB1 — "Never sell at a loss"
+
 Hard-coded in preflight gate 8 (no-short / no-loss-sell). **Auto-mode SELLs** fail this gate if `ltp < entryPrice`. **Manual SELLs** are exempt — the user is the human override.
 
 ### CB2 — Idempotency for "execute again" clicks
+
 The in-process ledger (`${account}:${date}:${symbol}`, BUY-only) means double-clicking Execute on the Engine page in a single session won't fire the same BUY twice. Crossing midnight IST resets the ledger.
 
 ### CB3 — Holiday handling
+
 NSE holidays come from `config/holidays.json`. `isMarketDay()` checks both weekend and holiday. The cron's daily-retrospective + tick functions both consult this; no separate holiday wiring per feature.
 
 ### CB4 — Multi-account fanout
@@ -731,23 +792,28 @@ Every order-placing button across the app (Buy / Sell on Watchlist + Holdings, S
 ### F14.1 — Detection + journaling
 
 `reconcileManualSells()` runs:
+
 - Inside every 5-min tick (catches same-day manual closes in near-real-time)
 - At 15:35 IST EOD sweep (final pass with closing-price LTPs as fallback)
 
 For each connected account, the function:
+
 1. Gets all open positions from the unified store
 2. Fetches live Kite holdings + positions to check actual qty
 3. Absorbs any live broker-held symbol that is not already tracked into `accumulator` using Kite avg price as the entry basis for system ownership
-3. For positions where Kite qty = 0 (position gone):
-  - **Sold today:** finds matching SELL order in today's Kite order book, journals at actual fill price + actual qty, tagged `dt-manual`, preserving the tracked strategy id
-  - **Sold a prior day:** journals a synthetic SELL at current LTP (market closing price at 15:35 sweep), or entry price if no quote available, tagged `dt-manual`, preserving the tracked strategy id
-4. Leaves the tracked position ownership available for downstream tag/report consumers until a later reset or overwrite path clears it
+4. For positions where Kite qty = 0 (position gone):
+
+- **Sold today:** finds matching SELL order in today's Kite order book, journals at actual fill price + actual qty, tagged `dt-manual`, preserving the tracked strategy id
+- **Sold a prior day:** journals a synthetic SELL at current LTP (market closing price at 15:35 sweep), or entry price if no quote available, tagged `dt-manual`, preserving the tracked strategy id
+
+1. Removes the now-closed tracked row from the positions store so a later re-buy starts with a fresh anchor instead of inheriting stale ownership state
 
 ### F14.2 — Trade report impact
 
 Once a `dt-manual` SELL journal entry exists, the trade report matches it against the original BUY by `account + symbol`, preserving the owning strategy from the tracked position (`accumulator`, `catalyst`, or another saved strategy). The trade shows as closed with correct P&L. Verdict = `manual` (label only — does not affect win/loss count or P&L).
 
-### Nuances
+### Manual Reconciliation Nuances
+
 - Manual sells are NOT blocked by the no-loss gate (that gate only applies to auto SELLs)
 - Reconciliation uses today's Kite order book, so prior-day sells get a synthetic entry at best-available price — not broker-exact
 - The `dt-manual` tag identifies source only; strategy ownership is preserved from the tracked position and manual BUYs are absorbed into `accumulator`
@@ -761,6 +827,7 @@ Once a `dt-manual` SELL journal entry exists, the trade report matches it agains
 ### F15.1 — Reset action
 
 Settings → Accounts & Trading → Danger Zone → **Reset Account Data** button:
+
 - Account picker (dropdown of all connected accounts)
 - Confirmation modal requiring the user to type `RESET` before proceeding
 
@@ -773,6 +840,7 @@ Settings → Accounts & Trading → Danger Zone → **Reset Account Data** butto
 ### F15.3 — Re-seeding from Kite
 
 After wipe, the app fetches the account's live Kite holdings + net positions (parallel). For each holding/position with qty > 0:
+
 - Creates a new position row in `positions.json` with `strategyId: 'accumulator'` and `firstBuyPrice: kite.average_price`
 - Writes a `dt-accumulator` BUY journal entry with today's date as entry date
 
@@ -787,7 +855,8 @@ After wipe, the app fetches the account's live Kite holdings + net positions (pa
 - When those historical gates block an order, the backtest should preserve that event as a skipped-order row and count it in the summary instead of silently dropping it.
 - The Accumulator monitor manages all re-seeded positions' T1/T2 exits automatically
 
-### Nuances
+### Reset Nuances
+
 - Reset is **irreversible** — journal records are hard-deleted (not soft-marked)
 - If a position was partially sold before reset, the remaining qty is re-seeded at Kite's current avg price (which reflects the partial sell)
 - Backup recommendation: copy `journal-YYYY-MM.jsonl` + `positions.json` before resetting
@@ -806,7 +875,8 @@ When any order in `todayOrders` has status `OPEN`, `TRIGGER PENDING`, or `AMO RE
 
 Clicking × calls `POST /api/orders/cancel` with `{ account, orderId }`. The API calls `DELETE /orders/regular/{orderId}` on Kite. On success, `loadTodayOrders()` is called immediately — the row disappears from the section. The Pending Orders section disappears once all pending orders are resolved.
 
-### Nuances
+### Pending Orders Nuances
+
 - Cancel is best-effort — Kite may reject if the order is already COMPLETE or REJECTED by the time the request arrives
 - Only orders from the currently selected account are shown/cancellable
 
@@ -821,6 +891,7 @@ Clicking × calls `POST /api/orders/cancel` with `{ account, orderId }`. The API
 Settings → Accounts & Trading → **Sync Positions Now** button. Calls `POST /api/strategy/monitor`, which runs `monitorAllConnected()` — identical to what the 5-min cron tick does.
 
 Safe to run at any time:
+
 - Preflight gate 2 (market open) blocks any actual SELLs when market is closed
 - Journal-based Seed 2 reseeding still runs regardless of market status
 - Displays result: "Done — N position(s) checked"
@@ -844,6 +915,7 @@ Nav dropdown → **Dark mode / Light mode** toggle switch with sun/moon emoji. P
 ### F18.3 — Implementation
 
 Three-layer approach:
+
 1. **CSS custom properties** (`--dt-bg`, `--dt-text-primary`, etc.) with `html.light` overrides — powers CSS class-based components
 2. **Semantic CSS classes** (`dt-card`, `dt-table-head`, `dt-banner-*`, `dt-text-muted`, etc.) — all pages converted from inline styles to these classes
 3. **Attribute selector overrides** — blanket `html.light main * { color: dark !important }` overrides any remaining inline white-rgba text; semantic color restores (`rgb(82,183,136)` → `#0a6e3f` for green, etc.) have higher CSS specificity and win
@@ -869,6 +941,7 @@ CNC positions bought today move from `/portfolio/positions` into `/portfolio/hol
 ### CB7 — Capital Bar Simplification
 
 The 10-cell capital bar was reorganised into 2 rows of 4:
+
 - **Row 1 (Cash):** Available · Deployed · Reserve · Remaining Deployable
 - **Row 2 (P&L):** Net Realized P&L · Net Unrealized MTM · Net MTM · Live Capital
 - `Funded Base` and `Ledger Adjustment` removed from the visible grid; available as a hover tooltip on `Live Capital`
@@ -886,7 +959,7 @@ All Buy and Sell action buttons use single-letter labels ("B" / "S") universally
 The Today's Orders table now shows a coloured strategy badge inline next to the symbol name (same visual pattern as Holdings and Positions pages). The badge is derived from the Kite order `tag` field:
 
 | Kite tag | Badge |
-|---|---|
+| --- | --- |
 | `dt-accumulator` / `dt-s1*` | Green ACCUMULATOR |
 | `dt-catalyst` / `dt-s2*` | Gold CATALYST |
 | `dt-manual` | Purple MANUAL |

@@ -1,4 +1,4 @@
-# Trading Endine Flow
+# Trading Engine Flow
 
 This file explains the trading flow in simple English.
 
@@ -10,6 +10,8 @@ This file explains the trading flow in simple English.
 - The global cron tick runs every 5 minutes.
 - The global cron tick monitors open positions for SELL conditions.
 - The global cron tick also reconciles broker reality with the app state.
+- End-of-day positive exits use estimated net P&L after charges, not just raw gross profit.
+- Manual / outside-app closes are journaled and then removed from the live positions store so re-buys start with a fresh anchor.
 - End-of-day actions are also handled by cron.
 
 ## Flowchart

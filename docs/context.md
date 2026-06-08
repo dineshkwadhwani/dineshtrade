@@ -1,7 +1,7 @@
 # DineshTrade — Project Context
 
-**Last Updated:** 29 May 2026
-**Version:** 1.6
+**Last Updated:** 07 Jun 2026
+**Version:** 1.7
 **Purpose:** Single source of truth on who, what, and why. Upload to any new Claude session to bootstrap full context.
 
 ---
@@ -10,7 +10,7 @@
 
 **Dinesh Wadhwani** — Founder & CEO of StudioVerse (separate SaaS, unrelated).
 **Location:** Pune, Maharashtra, India
-**Email:** dinesh.k.wadhwani@gmail.com (work: dinesh.wadhwani@nice.com)
+**Email:** <dinesh.k.wadhwani@gmail.com> (work: <dinesh.wadhwani@nice.com>)
 
 ---
 
@@ -19,16 +19,18 @@
 Trading Indian equities since FY2020 across 4 family accounts plus ~10 friends/family informally.
 
 ### Family Accounts
+
 | Name | Relation | Broker | Account No | Status |
-|---|---|---|---|---|
+| --- | --- | --- | --- | --- |
 | Dinesh Wadhwani | Self | Motilal Oswal | 2180536 | Primary |
 | Kiran Wadhwani | Wife | Motilal Oswal | 4180283 | Active |
 | Sheela Wadhwani | Mother | Motilal Oswal | 4432333 | Active |
 | Sonia Wadhwani | Daughter | Zerodha | CJD607 | Active |
 
 ### Verified P&L (FY2020–FY2026)
+
 | Account | Net Realised P&L | Best Year ROC |
-|---|---|---|
+| --- | --- | --- |
 | Dinesh | ₹7,28,820 | 17.5% (FY23-24) |
 | Kiran | ₹27,68,752 | 20.8% (FY23-24) |
 | Sheela | ₹19,35,215 | 11.1% (FY23-24) |
@@ -85,8 +87,9 @@ The original "two strategies" model evolved on 21 May into a **multi-strategy fr
 Users can create additional **dip** or **momentum** strategies via Settings → Strategies (e.g. "quickwin" with T1=1.0%, T2=1.2%, handoff=5d). Each gets its own `dt-<id>` order tag, its own row in `data/positions.json`, and its own monitor params. Universal parking lot is hard-coded to `accumulator` — any custom strategy's positions flow there on expiry/deactivate/delete.
 
 ### Market Mode
+
 | GIFT Nifty | Mode | Engine |
-|---|---|---|
+| --- | --- | --- |
 | Positive / flat | Catalyst | Strategy 2 |
 | Gap-down < −0.5% | Dip | Strategy 1 (Accumulator) |
 | −5% or worse | Circuit | No trades |
@@ -98,16 +101,16 @@ Users can create additional **dip** or **momentum** strategies via Settings → 
 Every order (auto or manual) passes through `runPreflight()`. Gates fire in order; first failure short-circuits with `{ ok: false, gate, reason }`.
 
 1. **Token** — Kite access token must be valid
-2. **Market open** — 9:15–15:30 IST, weekdays, non-holiday
-2b. **Intraday circuit** — *(auto-BUY only)* live NIFTY 50 vs today's open. Trips when drop ≤ `intradayCircuitTripPct` (default 0 = disabled). Hysteresis resume at `intradayCircuitResumePct`. Doesn't block exits or manual orders.
-3. **Per-trade cap** — order value ≤ ₹5,000 (auto only; manual bypasses)
-4. **Idempotency** — one BUY per `${account}:${date}:${symbol}` (auto only)
-4b. **Panic-sell** — *(auto-BUY only)* per-symbol drop from peak in last N min (from 5-min candles). Default 0 = disabled. Once tripped, the symbol joins `state.panicSkipList[today]` and is blocked for the rest of the IST day. Persists across restarts.
-4c. **Pyramid** — *(auto-BUY only)* max BUYs per symbol + minimum drop between consecutive BUYs.
-5. **Day quota** — max 3 BUYs / 3 SELLs per day per account (auto only)
-6. **Position cap** — max 10 open positions per account (BUY only)
-7. **Funds** — live margin check before BUY (BUY only)
-8. **No-short** — fetch live held qty, clamp SELL to held, never short
+1. **Market open** — 9:15–15:30 IST, weekdays, non-holiday
+1. **Intraday circuit** — *(auto-BUY only)* live NIFTY 50 vs today's open. Trips when drop ≤ `intradayCircuitTripPct` (default 0 = disabled). Hysteresis resume at `intradayCircuitResumePct`. Doesn't block exits or manual orders.
+1. **Per-trade cap** — order value ≤ ₹5,000 (auto only; manual bypasses)
+1. **Idempotency** — one BUY per `${account}:${date}:${symbol}` (auto only)
+1. **Panic-sell** — *(auto-BUY only)* per-symbol drop from peak in last N min (from 5-min candles). Default 0 = disabled. Once tripped, the symbol joins `state.panicSkipList[today]` and is blocked for the rest of the IST day. Persists across restarts.
+1. **Pyramid** — *(auto-BUY only)* max BUYs per symbol + minimum drop between consecutive BUYs.
+1. **Day quota** — max 3 BUYs / 3 SELLs per day per account (auto only)
+1. **Position cap** — max 10 open positions per account (BUY only)
+1. **Funds** — live margin check before BUY (BUY only)
+1. **No-short** — fetch live held qty, clamp SELL to held, never short
    - Also: **No-loss-sell** rider — Auto SELLs never fire if LTP < entry. Manual SELLs are exempt — user judgement.
 
 Manual trades bypass gates 2b, 3, 4, 4b, 4c, 5 (rate-limit + auto-only safety gates). Gates 1, 2, 6, 7, 8 always apply.
@@ -124,7 +127,8 @@ Total corpus: ₹50,000. CNC + MIS supported. NSE only.
 
 App supports **multi-account** via env-var prefix:
 
-```
+```text
+
 ZERODHA_ENVIRONMENT=PROD          # or TEST
 ZERODHA_ACCOUNT1=DINESH
 ZERODHA_ACCOUNT2=SONIA
@@ -132,6 +136,7 @@ PROD_ZERODHA_API_KEY_DINESH=...
 PROD_ZERODHA_API_SECRET_DINESH=...
 PROD_ZERODHA_API_KEY_SONIA=...
 PROD_ZERODHA_API_SECRET_SONIA=...
+
 ```
 
 Token refresh is **daily** — user clicks "Login with Kite" each morning, OAuth redirect handles `request_token` → `access_token` via `/api/zerodha/callback`.
@@ -157,10 +162,12 @@ Top List A: BAJFINANCE (91), TMPV (81), RELIANCE (74), BIRLACORPN (62), TATASTEE
 `config/watchlist.json` seeds + `data/watchlist.json` overrides:
 
 ```json
+
 {
   "meta":  { "listA": { "name": "List A" }, "listB": { "name": "List B" } },
   "lists": { "listA": [...], "listB": [...], "list3": [...] }
 }
+
 ```
 
 - **Stable internal keys** (`listA`, `listB`, `list3`, …) — never change, so renaming a list never touches `strategy.json`.
@@ -181,6 +188,7 @@ Each strategy carries a `watchlist: string[]` of internal keys it scans. Setting
 ## 8. Current Build Status — 29 May 2026
 
 ### Phase 1 (complete)
+
 - Next.js 14 App Router scaffold, Obsidian Gold theme (Cormorant Garamond serif + Outfit body + JetBrains Mono numbers)
 - Time-based login (`ddmmyyyyhh` IST, hourly rotation, midnight session expiry)
 - All pages built: Dashboard, Watchlist, Engine, Holdings, Positions, Today's Orders + Retrospective, Trade Report, Settings
@@ -190,6 +198,7 @@ Each strategy carries a `watchlist: string[]` of internal keys it scans. Setting
 - State backed by cookie (local dev) or file (`STATE_FILE_PATH` on EC2)
 
 ### Phase 2 (complete)
+
 - AI provider abstraction (Anthropic / Gemini / Groq / OpenAI) — flip via `AI_PROVIDER` env
 - Morning market briefing on Dashboard (cached, USE_MOCK_MARKET toggle for dev)
 - Strategy 1 (oscillator) — full EMA computation, two-tranche SELL monitor, persistent `strategy1.json` registry
@@ -203,6 +212,7 @@ Each strategy carries a `watchlist: string[]` of internal keys it scans. Setting
 - OOS (Out Of System) badge on Holdings — pre-existing positions never auto-managed
 
 ### Phase 3 — built on 18–19 May 2026 (this thread)
+
 - Journal system (`lib/journal.ts`) — append-only JSONL at `~/dineshtrade/data/journal-YYYY-MM.jsonl`. Two record types: `trade` (completed BUY+SELL pair with verdict + day high/low + left-on-table) and `signal_skipped` (auto-mode BUYs blocked by preflight). Writes hooked in: strategy1 tranche exits, strategy2 SELLs, cron auto-BUY rejections. Never wiped by deployments.
 - Daily retrospective (`lib/retrospective.ts`) — `buildDailyReport(date)`: enriches today's trades with live Kite OHLC (final day-high / left-on-table reflect full session), classifies missed signals as `good_miss` vs `missed_opportunity` by EoD close, computes 30-day rolling stats (win rate, avg gain, capital efficiency, delivery open), generates up to 3 fine-tuning bullets from heuristics.
 - Strategy 1 backtest (`lib/backtest.ts`) — replays the Accumulator rules on historical daily candles for the last N trading days (default 60), using next-day opens for entries and the strategy's saved T1/T2 percentage exits from entry price, plus per-trade capital sizing, position caps, an equity curve, and estimated Zerodha-style equity charges. Net P&L is now computed alongside gross P&L.
@@ -273,21 +283,32 @@ Each strategy carries a `watchlist: string[]` of internal keys it scans. Setting
 ### Phase 6 — built 28–29 May 2026
 
 #### Cron restructure
+
 - **Per-strategy BUY scan tasks** — each active strategy now registers its own `node-cron` task at `*/${scanIntervalMin} 9-15 * * 1-5`. The core 5-min tick handles only SELL monitors + EOD + reconciliation. `reloadCronStrategies()` hot-swaps tasks on Settings save (no PM2 restart needed).
 
 #### EOD Square-Off for momentum strategies
+
 - Three new params per momentum strategy: `exitSameDayTime` (default `"15:10"`), `exitSameDayOnPositive`, `squareOffEOD`. Visible/editable in Settings → Strategies → "End of Day Behaviour" section.
 - `squareOffEOD=true` sells all positions at EOD regardless of P&L — bypasses no-loss gate via new `bypassNoLossSell` flag in `runPreflight()`.
+- `exitSameDayOnPositive=true` now checks estimated net P&L after charges, not just raw gross profit.
 - Market Boom strategy ships with both flags true + `deliveryHandoffDays=0`.
 
 #### CNC holdings bug fix
+
 - Positions carried forward overnight (CNC) were dropping to OOS because `monitorAccount()` only checked `/portfolio/positions` (intraday), not `/portfolio/holdings`. Fixed: both are now fetched in parallel and merged into `liveQtyBySymbol`.
 - **Journal-based Seed 2 reseeding** — on each monitor tick, reads last 30 days of journal BUY records and reseeds any momentum position that fell out of the store but is still held in Kite (correct strategy tag + original entry price preserved).
 
 #### Manual sell reconciliation
+
 - `reconcileManualSells()` runs every 5-min tick + at 15:35 EOD. Detects positions closed manually in Kite (Kite qty=0 but store still open), journals a SELL entry (actual fill price if sold today; current LTP/entry price if prior day), removes from store. Trade report then marks the trade as closed.
 
+### Phase 7 — built 03–07 Jun 2026
+
+- **Momentum stale-anchor fix** — manually reconciled closes are now removed from `positions.json` immediately after journaling, preventing later same-symbol re-buys from inheriting an obsolete `firstBuyPrice`.
+- **Charge-aware EOD positive exits** — `exitSameDayOnPositive` now reuses the estimated Zerodha-style charge model so EOD exits only fire when the trade remains positive after charges.
+
 #### Account Reset
+
 - Settings → Danger Zone → **Reset Account Data** (per-account dropdown + "RESET" confirmation).
 - Wipes journal records, positions store, idempotency/buy-history cron state for that account.
 - Re-seeds all current Kite holdings/positions as Accumulator at Kite avg price. Entry date = reset date.
@@ -295,25 +316,31 @@ Each strategy carries a `watchlist: string[]` of internal keys it scans. Setting
 - New API: `POST /api/settings/reset`.
 
 #### Cancel pending orders
+
 - Engine page shows **Pending Orders** section when any order has status OPEN/TRIGGER PENDING.
 - Red × button per row → `POST /api/orders/cancel` → Kite DELETE. Order list reloads on success.
 - New function: `cancelKiteOrder()` in `lib/kite.ts`.
 
 #### Sync Positions Now
+
 - Settings → Accounts & Trading → **Sync Positions Now** button. Triggers `POST /api/strategy/monitor` — identical to the 5-min cron tick. Safe outside market hours (preflight blocks SELLs; journal-based reseeding still runs).
 
 #### Capital Bar redesign
+
 - 2 rows of 4 instead of 10 cells. Row 1: Available · Deployed · Reserve · Remaining. Row 2: Realized P&L · Unrealized MTM · Net MTM · Live Capital. Funded Base + Ledger Adjustment moved to hover tooltip on Live Capital.
 
 #### Light / Dark Mode
+
 - Nav dropdown toggle (sun/moon emoji). Default = dark high-contrast. Toggle = light mode (warm off-white, near-black text). Persists to `localStorage`.
 - CSS custom property system (`--dt-bg`, `--dt-text-primary`, etc.). Semantic classes (`dt-card`, `dt-table-head`, `dt-banner-*`, `dt-text-muted`). All 9 pages + 3 components converted.
 - Light mode inline-style override: `html.light main * { color: dark !important }` + semantic color restores via higher-specificity attribute selectors.
 
 #### B/S button labels
+
 - All Buy/Sell action buttons universally use "B" and "S" across Holdings, Positions, Engine.
 
 #### TypeScript build fix
+
 - `@types/connect` was corrupt. Fixed: `npm install --save-dev @types/connect` + `"types": ["node"]` in `tsconfig.json`.
 
 ---
@@ -343,7 +370,8 @@ See `docs/technical-specification.md` for the full deploy runbook.
 
 ## 11. Config + Data Files
 
-```
+```text
+
 config/                         # ships in repo; bundled seeds
   watchlist.json    Default lists — { meta, lists: { listA, listB } } shape
   accounts.json     Display metadata (name, broker, accountNo, colour, isTrading)
@@ -365,6 +393,7 @@ config/                         # ships in repo; bundled seeds
                             / order records
   strategy1.json.migrated   ← legacy (Phase 2/3); migrated into positions.json
   strategy2_positions.json.migrated   ← legacy; migrated into positions.json
+
 ```
 
 ---
@@ -376,4 +405,4 @@ config/                         # ships in repo; bundled seeds
 
 ---
 
-*DineshTrade v1.4 — Built with Claude — May 2026*
+Built with Claude — May 2026.
