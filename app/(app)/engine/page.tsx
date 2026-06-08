@@ -25,6 +25,38 @@ interface EngineScan {
   priceSource?: 'kite_live' | 'briefing_cmp'
 }
 
+interface CronStatusResponse {
+  today: string
+  cronEnabled: boolean
+  autoMode: boolean
+  selectedAccounts: string[]
+  accountsWithToken: string[]
+  activeStrategies: Array<{
+    id: string
+    name: string
+    scanIntervalMin: number
+    lastRunAt: string | null
+    minutesSinceLastRun: number | null
+    stale: boolean
+    staleAfterMin: number
+  }>
+  latestScan: {
+    strategyId: string
+    strategyName: string
+    ts: string
+    recs: number
+    executed: number
+    skipReason?: string
+  } | null
+  todayCounts: {
+    strategyScans: number
+    skippedSignals: number
+    orders: number
+  }
+  runtimeHealthy: boolean
+  warning?: string
+}
+
 type TradeMode = 'auto' | 'manual'
 
 // Kite order shape — we only use the fields we care about for today's activity.
@@ -49,6 +81,7 @@ export default function EnginePage() {
   const [loading, setLoading] = useState(false)
   const [loaded, setLoaded] = useState(false)
   const [todayOrders, setTodayOrders] = useState<KiteOrder[]>([])
+  const [cronStatus, setCronStatus] = useState<CronStatusResponse | null>(null)
   const [quotaCaps, setQuotaCaps] = useState<{ buyCap: number; sellCap: number }>({ buyCap: 0, sellCap: 0 })
   const [activeStrategyIntervals, setActiveStrategyIntervals] = useState<{ name: string; intervalMin: number }[]>([])
 
@@ -90,6 +123,21 @@ export default function EnginePage() {
   }
   useEffect(() => { loadTodayOrders() // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [selected.join(','), connected.join(',')])
+
+  async function loadCronStatus() {
+    try {
+      const res = await fetch('/api/cron-status', { cache: 'no-store' }).then(r => r.json())
+      setCronStatus(res)
+    } catch {
+      setCronStatus(null)
+    }
+  }
+
+  useEffect(() => {
+    loadCronStatus()
+    const id = setInterval(loadCronStatus, 60_000)
+    return () => clearInterval(id)
+  }, [])
 
   async function toggleAccount(name: string) {
     if (!connected.includes(name)) return  // can't trade on un-tokened account
@@ -251,15 +299,18 @@ export default function EnginePage() {
 
       {/* Auto-mode banner */}
       {tradeMode === 'auto' && (
-        <div className="dt-banner-green rounded-xl px-4 py-3">
-          <p className="text-[12px]" style={{ color:'#52b788' }}>
-            ⚡ Auto mode is on.{' '}
-            {activeStrategyIntervals.length > 0
-              ? `BUY scans: ${activeStrategyIntervals.map(s => `${s.name} every ${s.intervalMin} min`).join(', ')}. SELL monitors every 5 min.`
-              : 'BUY scans run at each strategy\'s configured interval. SELL monitors every 5 min.'
-            }{' '}
-            You can still use Refresh + Execute below for ad-hoc runs.
-          </p>
+        <div className="space-y-3">
+          <div className="dt-banner-green rounded-xl px-4 py-3">
+            <p className="text-[12px]" style={{ color:'#52b788' }}>
+              ⚡ Auto mode is on.{' '}
+              {activeStrategyIntervals.length > 0
+                ? `BUY scans: ${activeStrategyIntervals.map(s => `${s.name} every ${s.intervalMin} min`).join(', ')}. SELL monitors every 5 min.`
+                : 'BUY scans run at each strategy\'s configured interval. SELL monitors every 5 min.'
+              }{' '}
+              You can still use Refresh + Execute below for ad-hoc runs.
+            </p>
+          </div>
+          {cronStatus && <CronHealthCard status={cronStatus} />}
         </div>
       )}
 
@@ -355,6 +406,54 @@ export default function EnginePage() {
         connected={connected}
         tradeMode={tradeMode}
       />
+    </div>
+  )
+}
+
+function CronHealthCard({ status }: { status: CronStatusResponse }) {
+  const hasProblem = !status.cronEnabled || !status.runtimeHealthy || status.todayCounts.strategyScans === 0
+  const panelStyle = hasProblem
+    ? { background:'rgba(224,90,94,0.08)', border:'1px solid rgba(224,90,94,0.2)' }
+    : { background:'rgba(82,183,136,0.08)', border:'1px solid rgba(82,183,136,0.2)' }
+  const headingColor = hasProblem ? '#e05a5e' : '#52b788'
+  return (
+    <div className="rounded-xl px-4 py-3" style={panelStyle}>
+      <div className="flex items-start justify-between gap-3 flex-wrap">
+        <div>
+          <p className="text-[11px] tracking-widest uppercase mb-1" style={{ color: headingColor, fontFamily:'JetBrains Mono, monospace' }}>
+            Auto Engine Health
+          </p>
+          <p className="text-[12px]" style={{ color: hasProblem ? 'rgba(224,90,94,0.92)' : '#52b788' }}>
+            {status.warning || 'Cron worker looks active and is writing today\'s scan records.'}
+          </p>
+        </div>
+        <div className="text-[10px] dt-text-muted" style={{ fontFamily:'JetBrains Mono, monospace' }}>
+          Today: scans {status.todayCounts.strategyScans} · skips {status.todayCounts.skippedSignals} · orders {status.todayCounts.orders}
+        </div>
+      </div>
+
+      <div className="grid grid-cols-1 md:grid-cols-2 gap-3 mt-3">
+        {status.activeStrategies.map(strategy => (
+          <div key={strategy.id} className="rounded-lg px-3 py-2.5" style={{ background:'rgba(255,255,255,0.04)', border:'1px solid rgba(255,255,255,0.08)' }}>
+            <div className="flex items-center justify-between gap-2">
+              <span className="text-[12px] dt-text-primary" style={{ fontFamily:'JetBrains Mono, monospace' }}>{strategy.name}</span>
+              <span className="text-[9px] tracking-widest uppercase" style={{ color: strategy.stale ? '#e05a5e' : '#52b788', fontFamily:'JetBrains Mono, monospace' }}>
+                {strategy.stale ? 'stale' : 'running'}
+              </span>
+            </div>
+            <p className="text-[10px] mt-1 dt-text-muted" style={{ fontFamily:'JetBrains Mono, monospace' }}>
+              every {strategy.scanIntervalMin} min · last run {formatLastRun(strategy.lastRunAt, strategy.minutesSinceLastRun)}
+            </p>
+          </div>
+        ))}
+      </div>
+
+      {status.latestScan && (
+        <div className="mt-3 text-[10px] dt-text-muted" style={{ fontFamily:'JetBrains Mono, monospace' }}>
+          Last journal scan: {status.latestScan.strategyName} · {fmtOrderTime(status.latestScan.ts)} · recs {status.latestScan.recs} · executed {status.latestScan.executed}
+          {status.latestScan.skipReason ? ` · ${status.latestScan.skipReason}` : ''}
+        </div>
+      )}
     </div>
   )
 }
@@ -585,6 +684,13 @@ function fmtOrderTime(ts?: string): string {
   if (!ts) return '—'
   const m = ts.match(/(\d{2}):(\d{2}):(\d{2})/)
   return m ? `${m[1]}:${m[2]}` : ts.slice(0, 5)
+}
+
+function formatLastRun(lastRunAt: string | null, minutesSinceLastRun: number | null): string {
+  if (!lastRunAt) return 'never in this process'
+  const time = new Date(lastRunAt).toLocaleTimeString('en-IN', { hour:'2-digit', minute:'2-digit', hour12:false, timeZone:'Asia/Kolkata' })
+  if (minutesSinceLastRun === null) return time
+  return `${time} IST (${minutesSinceLastRun}m ago)`
 }
 
 function RecCard({ rec, tradeMode, onExecute, accountCount }: {
