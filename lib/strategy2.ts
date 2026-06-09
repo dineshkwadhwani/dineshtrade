@@ -182,6 +182,7 @@ export async function monitorAccount(account: string): Promise<MonitorResult> {
     // defaults if the strategy was deleted (which shouldn't happen because of
     // the deactivate/delete migration, but defensive).
     const ownerStrategy = getStrategyById(pos.strategyId)
+    const ownerStrategyName = ownerStrategy?.name || pos.strategyId
     const t1Pct = ownerStrategy?.exits?.t1Pct ?? 1.5
     const t2Pct = ownerStrategy?.exits?.t2Pct ?? 2.0
     const handoffDays = ownerStrategy ? asMomentumParams(ownerStrategy).deliveryHandoffDays : HANDOFF_DAYS_DEFAULT
@@ -309,7 +310,7 @@ export async function monitorAccount(account: string): Promise<MonitorResult> {
           dayLowAfterEntry: dayLow,
           leftOnTable: Math.max(0, dayHigh - ltp),
           verdict: classifyVerdict({ strategy: 'catalyst', entryPrice: lot.entryPrice, exitPrice: ltp, t1TriggerPct: t1Pct }),
-          strategy: 'catalyst',
+          strategy: pos.strategyId,
           orderIdSell: placed.data.data.order_id,
           notes: sellReason,
         }).catch(err => console.error('[strategy2] journal write failed:', err))
@@ -324,7 +325,7 @@ export async function monitorAccount(account: string): Promise<MonitorResult> {
           account, accountDisplayName: displayName, symbol,
           side: 'SELL', quantity: actualQty, price: ltp,
           orderId: placed.data.data.order_id,
-          source: `S2 auto-exit @ +${lotGainPct.toFixed(2)}%`,
+          source: `${ownerStrategyName} auto-exit @ +${lotGainPct.toFixed(2)}%`,
           reason: sellReason,
           mode: 'auto',
         }).catch(err => console.error('[strategy2] sold-email failed:', err))

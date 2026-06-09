@@ -1024,4 +1024,38 @@ Values are bold (`font-weight: 700`, `font-size: 12px`). Positive change → gre
 
 ---
 
-*End of functional spec v1.7. For implementation details, see `technical-specification.md`.*
+## Epic 23 — Position Strategy Switch *(added 09 Jun 2026)*
+
+### F23.1 — Holdings page — switch strategy owner for a tracked position
+
+The strategy badge on Current Holdings is now interactive for tracked positions when there is at least one other active strategy available.
+
+Clicking the badge opens a small modal listing the other active strategies. Choosing one and confirming re-stamps that holding's owning `strategyId` in the unified positions store.
+
+### F23.2 — Strategy switch semantics
+
+Switching strategy changes the position owner only. The existing position anchors are preserved:
+
+- `firstBuyPrice`
+- `firstBuyAt`
+- lot state
+- tranche state
+
+This means the target strategy takes over immediately using the position's existing basis. If the target strategy's exit conditions are already met, the next sell-monitor tick may exit the position right away.
+
+### F23.3 — Switch validation
+
+The switch API rejects:
+
+- untracked positions (not present in the unified positions store)
+- switching to the same strategy
+- unknown strategy ids
+- inactive target strategies
+
+### F23.4 — Reporting after switch
+
+Sell journaling and trade email labels now use the position's current owning `strategyId` instead of hardcoded Accumulator/Catalyst labels. This keeps reporting aligned after a manual strategy reassignment.
+
+---
+
+*End of functional spec v1.8. For implementation details, see `technical-specification.md`.*

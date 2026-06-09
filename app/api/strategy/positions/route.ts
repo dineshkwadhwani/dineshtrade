@@ -12,8 +12,8 @@
 import { NextResponse } from 'next/server'
 import { cookies } from 'next/headers'
 import { verifySession } from '@/lib/auth'
-import { listPositions } from '@/lib/positions'
-import { getStrategies } from '@/lib/strategyConfig'
+import { getPosition, listPositions, setStrategyId } from '@/lib/positions'
+import { getStrategies, getStrategyById } from '@/lib/strategyConfig'
 import { readJournalRange, istDateString } from '@/lib/journal'
 
 export async function GET() {
@@ -85,4 +85,56 @@ export async function GET() {
   }
 
   return NextResponse.json({ positions })
+}
+
+export async function POST(req: Request) {
+  const session = cookies().get('dt_session')?.value
+  if (!session || !(await verifySession(session))) {
+    return NextResponse.json({ error: 'Unauthorized' }, { status: 401 })
+  }
+
+  const body = await req.json().catch(() => null)
+  if (!body || typeof body !== 'object') {
+    return NextResponse.json({ error: 'Invalid JSON body' }, { status: 400 })
+  }
+
+  const account = typeof body.account === 'string' ? body.account.trim().toUpperCase() : ''
+  const symbol = typeof body.symbol === 'string' ? body.symbol.trim().toUpperCase() : ''
+  const targetStrategyId = typeof body.targetStrategyId === 'string' ? body.targetStrategyId.trim() : ''
+
+  if (!account) return NextResponse.json({ error: 'account is required' }, { status: 400 })
+  if (!symbol) return NextResponse.json({ error: 'symbol is required' }, { status: 400 })
+  if (!targetStrategyId) return NextResponse.json({ error: 'targetStrategyId is required' }, { status: 400 })
+
+  const existing = await getPosition(account, symbol)
+  if (!existing) {
+    return NextResponse.json({ error: `${account}:${symbol} is not tracked in the positions store` }, { status: 404 })
+  }
+  if (existing.strategyId === targetStrategyId) {
+    return NextResponse.json({ error: `${symbol} is already managed by ${targetStrategyId}` }, { status: 409 })
+  }
+
+  const target = getStrategyById(targetStrategyId)
+  if (!target) {
+    return NextResponse.json({ error: `Unknown strategy: ${targetStrategyId}` }, { status: 400 })
+  }
+  if (!target.active) {
+    return NextResponse.json({ error: `${target.name} is inactive — only active strategies can own live positions` }, { status: 409 })
+  }
+
+  const changed = await setStrategyId(account, symbol, targetStrategyId)
+  if (!changed) {
+    return NextResponse.json({ error: 'Strategy switch did not apply' }, { status: 409 })
+  }
+
+  return NextResponse.json({
+    ok: true,
+    account,
+    symbol,
+    fromStrategyId: existing.strategyId,
+    toStrategyId: target.id,
+    toStrategyName: target.name,
+    toStrategyColor: target.color,
+    message: `${symbol} is now managed by ${target.name}`,
+  })
 }

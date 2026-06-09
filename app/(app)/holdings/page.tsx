@@ -6,6 +6,8 @@ import { isMarketOpen } from '@/lib/market'
 
 interface AccountDisplay { name: string; displayName: string; initials: string; color: string; note: string }
 
+interface StrategyOption { id: string; name: string; color: string; type: string }
+
 interface Holding {
   tradingsymbol: string
   exchange: string
@@ -68,6 +70,7 @@ interface MarginsResponse {
 export default function HoldingsPage() {
   const [accounts, setAccounts] = useState<AccountDisplay[]>([])
   const [connected, setConnected] = useState<string[]>([])
+  const [activeStrategies, setActiveStrategies] = useState<StrategyOption[]>([])
   const [activeTab, setActiveTab] = useState<string | null>(null)
   const [loading, setLoading] = useState(false)
   const [error, setError] = useState('')
@@ -81,6 +84,15 @@ export default function HoldingsPage() {
   const [orderModal, setOrderModal] = useState<{
     open: boolean; symbol: string; name?: string; side: 'BUY' | 'SELL'; ltp?: number; initialQty?: number; dayChangePct?: number
   }>({ open: false, symbol: '', side: 'SELL' })
+  const [switchModal, setSwitchModal] = useState<{
+    open: boolean
+    symbol: string
+    currentStrategyId: string
+    currentStrategyName: string
+    selectedStrategyId: string
+    busy: boolean
+    error: string
+  }>({ open: false, symbol: '', currentStrategyId: '', currentStrategyName: '', selectedStrategyId: '', busy: false, error: '' })
 
   const [market, setMarket] = useState(() => isMarketOpen())
   useEffect(() => {
@@ -93,14 +105,63 @@ export default function HoldingsPage() {
     Promise.all([
       fetch('/api/accounts').then(r => r.json()),
       fetch('/api/state').then(r => r.json()),
-    ]).then(([a, s]) => {
+      fetch('/api/strategies').then(r => r.json()).catch(() => ({ strategies: [] })),
+    ]).then(([a, s, strategiesRes]) => {
       setAccounts(a.accounts || [])
       const conn: string[] = s.accountsWithToken || []
       setConnected(conn)
       if (conn.length > 0) setActiveTab(conn[0])
+      const strategies = Array.isArray(strategiesRes?.strategies) ? strategiesRes.strategies : []
+      setActiveStrategies(
+        strategies
+          .filter((item: any) => item?.active)
+          .map((item: any) => ({ id: item.id, name: item.name, color: item.color, type: item.type }))
+      )
     }).catch(() => {})
       .finally(() => setLoaded(true))
   }, [])
+
+  function closeSwitchModal() {
+    setSwitchModal({ open: false, symbol: '', currentStrategyId: '', currentStrategyName: '', selectedStrategyId: '', busy: false, error: '' })
+  }
+
+  function openStrategySwitch(symbol: string, currentStrategyId: string, currentStrategyName: string) {
+    const options = activeStrategies.filter(strategy => strategy.id !== currentStrategyId)
+    setSwitchModal({
+      open: true,
+      symbol,
+      currentStrategyId,
+      currentStrategyName,
+      selectedStrategyId: options[0]?.id || '',
+      busy: false,
+      error: '',
+    })
+  }
+
+  async function confirmStrategySwitch() {
+    if (!activeTab || !switchModal.selectedStrategyId || switchModal.busy) return
+    setSwitchModal(current => ({ ...current, busy: true, error: '' }))
+    try {
+      const res = await fetch('/api/strategy/positions', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          account: activeTab,
+          symbol: switchModal.symbol,
+          targetStrategyId: switchModal.selectedStrategyId,
+        }),
+      })
+      const data = await res.json().catch(() => null)
+      if (!res.ok || data?.error) {
+        setSwitchModal(current => ({ ...current, busy: false, error: data?.error || `HTTP ${res.status}` }))
+        return
+      }
+      closeSwitchModal()
+      await load(activeTab)
+    } catch {
+      setSwitchModal(current => ({ ...current, busy: false, error: 'Failed to switch strategy' }))
+    }
+  }
 
   // Fetch margins + holdings + unified position store whenever active tab changes.
   // The position store tags each holding with its managing strategy (CATALYST,
@@ -368,10 +429,13 @@ export default function HoldingsPage() {
                 // so strategy attribution is consistent across all pages.
                 const tag = posTags.get(`${(activeTab || '').toUpperCase()}:${h.tradingsymbol.toUpperCase()}`)
                 const isManaged = !!tag
+                const canSwitchStrategy = isManaged && activeStrategies.some(strategy => strategy.id !== tag!.strategyId)
                 const badgeLabel = isManaged ? tag!.strategyName.toUpperCase().slice(0, 14) : 'OOS'
                 const badgeColor = isManaged ? tag!.strategyColor : 'rgba(255,255,255,0.4)'
                 const badgeTitle = isManaged
-                  ? `${tag!.strategyName} managed — auto-exit per strategy params (see Settings).`
+                  ? canSwitchStrategy
+                    ? `${tag!.strategyName} managed — click to switch the active strategy for this holding.`
+                    : `${tag!.strategyName} managed — no alternate active strategy available.`
                   : 'Out of System — not auto-managed. Bought outside DineshTrade, or transitioned-out. Manual Sell still works.'
                 const pnlColor = h.pnl >= 0 ? '#52b788' : '#e05a5e'
                 const dayColor = h.day_change_percentage >= 0 ? '#52b788' : '#e05a5e'
@@ -381,14 +445,22 @@ export default function HoldingsPage() {
                 const actionQty = Math.abs(qty)
                 const pnlPct = h.average_price > 0 ? ((h.last_price - h.average_price) / h.average_price) * 100 : 0
 
-                const Badge = (
+                const badgeStyle = {
+                  background: isManaged ? `${badgeColor}26` : 'rgba(255,255,255,0.05)',
+                  color: badgeColor,
+                  border: `1px solid ${isManaged ? `${badgeColor}59` : 'rgba(255,255,255,0.1)'}`,
+                }
+                const Badge = canSwitchStrategy ? (
+                  <button type="button" title={badgeTitle}
+                    onClick={() => openStrategySwitch(h.tradingsymbol, tag!.strategyId, tag!.strategyName)}
+                    className="text-[8px] px-1.5 py-0.5 rounded flex-shrink-0 tracking-wider underline-offset-2 hover:underline"
+                    style={badgeStyle}>
+                    {badgeLabel}
+                  </button>
+                ) : (
                   <span title={badgeTitle}
                     className="text-[8px] px-1.5 py-0.5 rounded flex-shrink-0 tracking-wider"
-                    style={{
-                      background: isManaged ? `${badgeColor}26` : 'rgba(255,255,255,0.05)',
-                      color: badgeColor,
-                      border: `1px solid ${isManaged ? `${badgeColor}59` : 'rgba(255,255,255,0.1)'}`,
-                    }}>
+                    style={badgeStyle}>
                     {badgeLabel}
                   </span>
                 )
@@ -509,6 +581,64 @@ export default function HoldingsPage() {
           // Refresh funds + holdings after a successful order
           if (activeTab) load(activeTab)
         }} />
+
+      {switchModal.open && (
+        <div className="fixed inset-0 z-50 flex items-center justify-center px-4" style={{ background:'rgba(0,0,0,0.72)', backdropFilter:'blur(4px)' }}>
+          <div className="w-full max-w-md rounded-xl p-5 dt-card-inner" style={{ border:'1px solid rgba(201,168,76,0.24)' }}>
+            <div className="flex items-start justify-between gap-3">
+              <div>
+                <p className="text-[11px] tracking-widest uppercase" style={{ color:'#c9a84c', fontFamily:'JetBrains Mono, monospace' }}>Switch Strategy</p>
+                <p className="mt-2 text-[18px] dt-text-primary" style={{ fontFamily:'Cormorant Garamond, serif' }}>{switchModal.symbol}</p>
+                <p className="text-[11px] dt-text-muted mt-1">Current owner: {switchModal.currentStrategyName}</p>
+              </div>
+              <button type="button" onClick={closeSwitchModal} disabled={switchModal.busy}
+                className="text-white/40 hover:text-white/80">✕</button>
+            </div>
+
+            <p className="mt-4 text-[11px] dt-text-muted">
+              The new strategy will inherit the existing entry price, age, and lot state. If its exit rules are already met, it may sell on the next monitor tick.
+            </p>
+
+            <div className="mt-4 space-y-2">
+              {activeStrategies.filter(strategy => strategy.id !== switchModal.currentStrategyId).map(strategy => {
+                const selected = switchModal.selectedStrategyId === strategy.id
+                return (
+                  <button key={strategy.id} type="button"
+                    onClick={() => setSwitchModal(current => ({ ...current, selectedStrategyId: strategy.id, error: '' }))}
+                    className="w-full rounded-lg px-3 py-2 text-left transition-all"
+                    style={{
+                      background: selected ? `${strategy.color}18` : 'rgba(255,255,255,0.03)',
+                      border: `1px solid ${selected ? `${strategy.color}55` : 'rgba(255,255,255,0.08)'}`,
+                    }}>
+                    <div className="flex items-center justify-between gap-3">
+                      <div>
+                        <div className="text-[12px]" style={{ color: selected ? strategy.color : 'rgba(255,255,255,0.86)', fontFamily:'JetBrains Mono, monospace' }}>{strategy.name}</div>
+                        <div className="text-[10px] uppercase tracking-widest" style={{ color:'rgba(255,255,255,0.4)', fontFamily:'JetBrains Mono, monospace' }}>{strategy.type}</div>
+                      </div>
+                      <div className="w-3 h-3 rounded-full" style={{ background: strategy.color, boxShadow: selected ? `0 0 0 3px ${strategy.color}22` : 'none' }} />
+                    </div>
+                  </button>
+                )
+              })}
+            </div>
+
+            {switchModal.error && <p className="mt-3 text-[11px]" style={{ color:'#e05a5e' }}>{switchModal.error}</p>}
+
+            <div className="mt-5 flex justify-end gap-2">
+              <button type="button" onClick={closeSwitchModal} disabled={switchModal.busy}
+                className="px-3 py-1.5 rounded-md text-[11px] dt-card dt-text-secondary">
+                Cancel
+              </button>
+              <button type="button" onClick={confirmStrategySwitch}
+                disabled={!switchModal.selectedStrategyId || switchModal.busy}
+                className="px-4 py-1.5 rounded-md text-[11px] font-semibold tracking-wider disabled:opacity-40"
+                style={{ background:'linear-gradient(135deg, #8a6a1a, #c9a84c)', color:'#080604' }}>
+                {switchModal.busy ? 'Switching…' : 'Switch Strategy'}
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
     </div>
   )
 }

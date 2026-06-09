@@ -137,6 +137,7 @@ export async function monitorAccountStrategy1(account: string): Promise<Strategy
     // Per-position strategy config — uses pos.strategyId so each dip strategy
     // (accumulator, deep_dip, etc.) gets its own t1Pct/t2Pct.
     const ownerStrategy = getStrategyById(pos.strategyId)
+    const ownerStrategyName = ownerStrategy?.name || pos.strategyId
     const t1Pct = ownerStrategy?.exits?.t1Pct ?? 5.0
     const t2Pct = ownerStrategy?.exits?.t2Pct ?? 8.0
     const ltp = quotes[`NSE:${symbol}`]?.last_price
@@ -183,7 +184,7 @@ export async function monitorAccountStrategy1(account: string): Promise<Strategy
             exitPrice: ltp, exitTime: new Date().toISOString(),
             pnlRupees: pnlR, pnlPct: gainPct,
             dayHighAfterEntry: ltp, dayLowAfterEntry: ltp, leftOnTable: 0,
-            verdict: 'correct_exit', strategy: 'accumulator',
+            verdict: 'correct_exit', strategy: pos.strategyId,
             orderIdSell: placed.data.data.order_id,
             notes: `Lot ${lotLabel} skipped past T1 — sold entire lot at T2`,
           }).catch(err => console.error('[strategy1] journal write failed:', err))
@@ -196,7 +197,7 @@ export async function monitorAccountStrategy1(account: string): Promise<Strategy
           sendEmail('trade_executed', {
             account, accountDisplayName: displayName, symbol, side: 'SELL', quantity: actualQty, price: ltp,
             orderId: placed.data.data.order_id,
-            source: `Strategy 1 — Full exit (skipped past T1)`,
+            source: `${ownerStrategyName} — Full exit (skipped past T1)`,
             reason: `Lot ${lotLabel} hit T2 ₹${t2Trigger.toFixed(2)} before T1 — closing entire lot`,
             mode: 'auto',
           }).catch(() => {})
@@ -242,7 +243,7 @@ export async function monitorAccountStrategy1(account: string): Promise<Strategy
             dayHighAfterEntry: ltp, dayLowAfterEntry: ltp,
             leftOnTable: 0,
             verdict: 'correct_exit',
-            strategy: 'accumulator',
+            strategy: pos.strategyId,
             orderIdSell: placed.data.data.order_id,
             notes: `Lot ${lotLabel} tranche 1 hit (T1 ₹${t1Trigger.toFixed(2)})`,
           }).catch(err => console.error('[strategy1] journal write failed:', err))
@@ -255,7 +256,7 @@ export async function monitorAccountStrategy1(account: string): Promise<Strategy
           sendEmail('trade_executed', {
             account, accountDisplayName: displayName, symbol, side: 'SELL', quantity: actualQty, price: ltp,
             orderId: placed.data.data.order_id,
-            source: `Strategy 1 — Tranche 1 (entry +${t1Pct}%)`,
+            source: `${ownerStrategyName} — Tranche 1 (entry +${t1Pct}%)`,
             reason: `Lot ${lotLabel} reached T1 ₹${t1Trigger.toFixed(2)}`,
             mode: 'auto',
           }).catch(err => console.error('[strategy1] tranche1 email failed:', err))
@@ -295,7 +296,7 @@ export async function monitorAccountStrategy1(account: string): Promise<Strategy
             dayHighAfterEntry: ltp, dayLowAfterEntry: ltp,
             leftOnTable: 0,
             verdict: 'correct_exit',
-            strategy: 'accumulator',
+            strategy: pos.strategyId,
             orderIdSell: placed.data.data.order_id,
             notes: `Lot ${lotLabel} tranche 2 hit (T2 ₹${t2Trigger.toFixed(2)})`,
           }).catch(err => console.error('[strategy1] journal write failed:', err))
@@ -308,7 +309,7 @@ export async function monitorAccountStrategy1(account: string): Promise<Strategy
           sendEmail('trade_executed', {
             account, accountDisplayName: displayName, symbol, side: 'SELL', quantity: actualQty, price: ltp,
             orderId: placed.data.data.order_id,
-            source: `Strategy 1 — Tranche 2 (entry +${t2Pct}% hit)`,
+            source: `${ownerStrategyName} — Tranche 2 (entry +${t2Pct}% hit)`,
             reason: `Lot ${lotLabel} reached T2 ₹${t2Trigger.toFixed(2)}`,
             mode: 'auto',
           }).catch(() => {})
