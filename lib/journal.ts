@@ -10,7 +10,10 @@ import { promises as fs } from 'fs'
 import * as path from 'path'
 
 export type TradeVerdict = 'correct_exit' | 'early_exit' | 'delivery' | 'manual'
-export type StrategyTag = 'catalyst' | 'accumulator' | 'manual'
+// Stored strategy owner for a completed trade. Historically this was limited
+// to catalyst / accumulator / manual; it now tracks the active strategyId so
+// switched positions and user-created strategies journal correctly.
+export type StrategyTag = string
 
 export interface TradeRecord {
   type: 'trade'
