@@ -176,7 +176,6 @@ export async function monitorAccount(account: string): Promise<MonitorResult> {
     const quote = quotes[`NSE:${symbol}`]
     const ltp = quote?.last_price
     const liveQty = liveQtyBySymbol.get(symbol) ?? 0
-    const quoteDayHigh = Number((quote as any)?.ohlc?.high) || null
 
     // Look up THIS position's strategy config — every dt-${id}-tagged position
     // uses its own exits + handoff window. Fallback to catalyst-equivalent
@@ -221,13 +220,12 @@ export async function monitorAccount(account: string): Promise<MonitorResult> {
     }
 
     const gainPct = ((ltp - pos.firstBuyPrice) / pos.firstBuyPrice) * 100
-    let recentCompletedHigh: number | null = null
+    let lastCompletedCandle: Awaited<ReturnType<typeof getHistoricalCandles>>[number] | null = null
 
     const token = instrumentTokens[symbol]
     if (token) {
       const candles = await getHistoricalCandles(creds, token, candleWindow.from, candleWindow.to, '5minute').catch(() => [])
-      const lastCandle = candles[candles.length - 1]
-      recentCompletedHigh = lastCandle ? lastCandle.high : null
+      lastCompletedCandle = candles[candles.length - 1] || null
     }
 
     const lots = (await listPositionLots(pos)).sort((a, b) => a.boughtAt.localeCompare(b.boughtAt))
@@ -240,9 +238,13 @@ export async function monitorAccount(account: string): Promise<MonitorResult> {
       const lotGainPct = ((ltp - lot.entryPrice) / lot.entryPrice) * 100
       const lotTranche1Done = !!lot.tranche1At
       const lotLabel = `${new Date(lot.boughtAt).toLocaleDateString('en-IN', { timeZone: 'Asia/Kolkata' })} @ ₹${lot.entryPrice.toFixed(2)}`
+      const lotBoughtAtMs = new Date(lot.boughtAt).getTime()
+      const completedCandleMs = lastCompletedCandle ? new Date(lastCompletedCandle.date).getTime() : Number.NaN
+      const recentCompletedHigh = Number.isFinite(completedCandleMs) && lotBoughtAtMs <= completedCandleMs
+        ? lastCompletedCandle!.high
+        : null
       const observedHigh = Math.max(
         ltp,
-        quoteDayHigh ?? Number.NEGATIVE_INFINITY,
         recentCompletedHigh ?? Number.NEGATIVE_INFINITY,
       )
 
