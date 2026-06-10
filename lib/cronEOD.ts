@@ -18,17 +18,19 @@ import {
   recordExecuted, recordFailed,
 } from './cronState'
 
-// Prevents runEODSquareOff from firing twice for the same strategy on the same
+// Prevents squareOffEOD from firing twice for the same strategy on the same
 // calendar day (key=strategyId, value=YYYY-MM-DD IST date key).
 let eodSquareOffDone: Record<string, string> = {}
 
 // ──────── EOD SQUARE-OFF (momentum strategies) ────────
 //
-// Runs inside each 5-min tick. Fires once per strategy per day at exactly
-// exitSameDayTime (default 15:10 IST). Two modes (non-exclusive):
-//   squareOffEOD=true         → sell everything regardless of P&L (bypasses no-loss gate)
-//   exitSameDayOnPositive=true → sell only positions where estimated net P&L
-//                                after charges is still positive
+// Runs inside each 5-min tick after exitSameDayTime (default 15:10 IST).
+// Two modes (non-exclusive):
+//   squareOffEOD=true          → sell everything regardless of P&L once per day
+//                                (bypasses no-loss gate)
+//   exitSameDayOnPositive=true → on every tick from exitSameDayTime onward,
+//                                sell positions where estimated net P&L after
+//                                charges is still positive
 
 function estimateExitNetPnl(firstBuyAt: string, entryPrice: number, exitPrice: number, qty: number): number {
   const buyValue = entryPrice * qty
@@ -53,11 +55,12 @@ export async function runEODSquareOff(): Promise<void> {
     if (!squareOffEOD && !exitOnPositive) continue
 
     const exitTime: string = typeof mParams.exitSameDayTime === 'string' ? mParams.exitSameDayTime : '15:10'
-    if (t !== exitTime) continue
-    if (eodSquareOffDone[strategy.id] === today) continue
+    if (t < exitTime) continue
+    if (squareOffEOD && eodSquareOffDone[strategy.id] === today) continue
 
-    // Mark done immediately to prevent re-entry if any await below takes time
-    eodSquareOffDone[strategy.id] = today
+    // Mark done immediately to prevent re-entry if any await below takes time.
+    // Positive-only exits intentionally keep checking on each later 5-min tick.
+    if (squareOffEOD) eodSquareOffDone[strategy.id] = today
     console.log(`[cron eod] ${t} IST — ${strategy.id}: running EOD square-off (squareOffEOD=${squareOffEOD}, exitOnPositive=${exitOnPositive})`)
 
     const accounts = getAccountList()

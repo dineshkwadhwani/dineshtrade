@@ -208,7 +208,7 @@ Each strategy carries a `watchlist: string[]` of internal keys it scans. Setting
   - 15:35 IST — daily retrospective email + monthly rollup on last trading day
 - 8 preflight gates including live-held-qty `noShort` with auto-clamp
 - Watchlist live LTPs via batched `/quote`, red/green colouring
-- Manual Buy/Sell modal on Watchlist + Holdings (and now Positions) — bypasses rate-limit gates, tagged `dt-manual`
+- Manual Buy/Sell modal on Holdings and Positions — bypasses rate-limit gates, tagged `dt-manual`
 - OOS (Out Of System) badge on Holdings — pre-existing positions never auto-managed
 
 ### Phase 3 — built on 18–19 May 2026 (this thread)
@@ -274,8 +274,8 @@ Each strategy carries a `watchlist: string[]` of internal keys it scans. Setting
 - New journal record type **`strategy_scan`** — `lib/cron.ts` writes one per strategy scan with `{ strategyId, recs, executed, symbols?, skipReason? }`. Powers Strategy Health by giving the retrospective an authoritative ground truth for "did this strategy run at all today?".
 - New retrospective helpers in `lib/retrospective.ts` — `buildLiveSnapshot()` (parallel Kite orders/holdings/positions/margins → activity + open positions + capital), `buildStrategyHealth()` (30-day rolling: scans, signals, executions, last-signal date; flags inactive / no-scans-30d / no-signals-15d / scans-but-no-signals).
 - **Named watchlists** — replaced the hardcoded `listA` / `listB` pair with a generic `{ meta, lists }` shape supporting N user-named lists. Schema keys remain stable (`listA`, `listB`, `list3`, `list4` …) so renaming a list never touches `strategy.json` — zero regression risk for running strategies. The Manage Lists page now supports create, in-place rename, and delete (delete blocked if any strategy references the list); the move-between-lists button is gone. Watchlist page tabs are now driven by `meta`. Strategy editor in Settings shows a multi-select of all lists by their display name.
-- **UI polish — mobile** — Watchlist row collapses to `B`/`S` buttons + drops the unused Trades column. Positions row redesigned as a 3-line two-column card (symbol/avg/qty left, P&L/LTP/SQ button right) matching the Kite app's density. Today's Orders shows `B`/`S` for side and ✓ / ✗ / C / · glyphs for status instead of raw `COMPLETE` / `REJECTED` / `CANCELLED` text.
-- **Market-hours UI gate** — Buy / Sell / Square Off buttons across Watchlist, Holdings, Positions, and Engine are always visible but **disabled** outside NSE hours (with a "Market closed" tooltip). A 60-second `setInterval` re-evaluates `isMarketOpen()` so buttons auto-enable at 9:15 / disable at 15:30 without a refresh.
+- **UI polish — mobile** — Watchlist row is read-only and drops trading actions. Positions row redesigned as a 3-line two-column card (symbol/avg/qty left, P&L/LTP/SQ button right) matching the Kite app's density. Today's Orders shows `B`/`S` for side and ✓ / ✗ / C / · glyphs for status instead of raw `COMPLETE` / `REJECTED` / `CANCELLED` text.
+- **Market-hours UI gate** — Buy / Sell / Square Off buttons across Holdings, Positions, and Engine are always visible but **disabled** outside NSE hours (with a "Market closed" tooltip). A 60-second `setInterval` re-evaluates `isMarketOpen()` so buttons auto-enable at 9:15 / disable at 15:30 without a refresh.
 - **Header polish** — hid the horizontal scrollbar inside the persistent LiveTicker strip via a scoped `.ticker-strip` CSS class (only WebKit horizontal scrollbar was un-styled, producing a chunky gold half-band on mobile when the ticker content overflowed).
 - All changes pass `tsc --noEmit` and `npm run build`. No schema migration script needed — `lib/watchlistStore.ts:normalize()` reads both legacy top-level `listA`/`listB` and the new `lists` shape.
 

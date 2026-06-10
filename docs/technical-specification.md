@@ -211,7 +211,7 @@ Single Node.js process managed by PM2. Inside:
 3. If `state.mode !== 'auto'` or market closed: short-circuit
 4. **Strategy 2 SELL monitor** runs for all connected accounts (parallel)
 5. **Strategy 1 SELL monitor** runs for all connected accounts (parallel)
-6. **EOD square-off** (`runEODSquareOff()`) — checks per-strategy `exitSameDayTime`, fires once per strategy per day
+6. **EOD square-off** (`runEODSquareOff()`) — checks per-strategy `exitSameDayTime`; `exitSameDayOnPositive` re-checks every 5 minutes afterward, while `squareOffEOD` remains one-shot per strategy per day
 7. **Manual sell reconciliation** (`reconcileManualSells()`) — detects Kite-closed positions, journals SELL entries
 8. **Reactive dip scan** — every 30 min in window 09:15–14:00
 
@@ -409,7 +409,7 @@ Centralised wrappers — every caller goes through these. Never make raw HTTP ca
 - Momentum replay uses 5-minute candles: scans between `scanStartHHMM` and `scanEndHHMM`, checks day-gain / EMA proximity / prorated volume / rising-candle conditions, exits on 5-minute closes at T1 / T2, and hands off aged positions to accumulator-style targets.
 - Live momentum position tracking now preserves per-buy lots inside the unified positions store. Repeated Catalyst buys in the same symbol append a new lot instead of reusing the original target anchor. Each open lot monitors its own T1/T2 ladder from its own entry price, while the aggregate position row keeps total qty / remaining qty plus a weighted-average price for summary views.
 - Live accumulator position tracking now follows the same lot model. Repeated Accumulator buys in the same symbol append a new lot, and Strategy 1 exits each lot against its own EMA-derived T1/T2 ladder instead of reusing the earliest buy as a shared anchor.
-- Live Strategy 2 monitoring now combines `/quote` LTP, `/quote` day-high, and the latest completed Kite 5-minute candle per open position. This closes the gap between cron ticks: if any of those live signals shows T1 or T2 was already hit, the monitor still sends the market SELL immediately and bypasses the normal no-loss gate for that strategy-defined target exit.
+- Live Strategy 2 monitoring now combines `/quote` LTP with the latest completed Kite 5-minute candle per open position. This closes the gap between cron ticks: if the current LTP has not reached T1 or T2 but the last completed candle's high already did, the monitor still sends the market SELL immediately and bypasses the normal no-loss gate for that strategy-defined target exit. The candle-high fallback only applies when that completed candle is not older than the lot being evaluated.
 - Returns summary metrics, per-trade outcomes, and an equity curve for the selected lookback window
 - Backtest output now includes estimated Zerodha-style equity charges. Same-day trades are classified as `intraday`; multi-day trades are classified as `delivery`. Open positions use the last mark price to estimate remaining exit-side charges for net MTM.
 - HTTP surface: `POST /api/strategy/backtest` (authenticated)
@@ -875,6 +875,7 @@ These were the right call **for now**. They will start to creak as scope grows:
 - Module-level guard `eodSquareOffDone: Record<string, string>` (key=strategyId, value=YYYY-MM-DD IST) prevents re-firing same strategy same day
 - Reads `exitSameDayTime`, `squareOffEOD`, `exitSameDayOnPositive` from each active momentum strategy's params
 - For `exitSameDayOnPositive`, computes estimated net exit P&L after Zerodha-style charges before deciding to sell
+- `exitSameDayOnPositive` keeps re-checking on each 5-minute tick from `exitSameDayTime` onward; `squareOffEOD` still uses the per-day guard
 - Calls `listPositions({ account, strategyId })`, fetches quotes, places SELL via `placeKiteOrder` + `markPlaced` + `removePosition`
 - Passes `bypassNoLossSell: squareOffEOD` to `runPreflight` — squareOffEOD bypasses gate 8 no-loss rider
 

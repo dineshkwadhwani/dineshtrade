@@ -86,7 +86,7 @@ This spec documents the *user-visible* behaviour: what the app does, when, and w
   - **Accumulator (gold/strategy color)** — any live broker-held position that the system absorbs without a stronger owning strategy is brought into `accumulator` and managed as an accumulator position
 - Each row has Buy and Sell buttons that open the universal OrderModal.
 
-### F3.3 — OrderModal (used across Watchlist, Holdings, Positions)
+### F3.3 — OrderModal (used across Holdings and Positions)
 
 - Fields: account, side (BUY/SELL), quantity, product (CNC/MIS), order type (MARKET/LIMIT), limit price.
 - Sends `manual: true` + `tag: 'dt-manual'` → bypasses rate-limit gates (per-trade cap, idempotency, day quota).
@@ -159,7 +159,7 @@ Strategy 1 has **two trigger paths** — a once-per-day morning scan and a react
   5. Within the 9:30–14:30 IST scan window
 - **Tranche exits (replaced 19 May):** T1 = entry × (1 + `t1Pct`/100), T2 = entry × (1 + `t2Pct`/100). T1 fires first, sells 50%. T2 fires later, sells remainder. Defaults: T1 = 1.5%, T2 = 2.0%. Both anchored to **first BUY price** (pyramid-aware).
 - When the user explicitly executes an additional BUY from the Engine on an already-open momentum position for the same strategy, that BUY becomes a new lot with its own T1/T2 targets. It must not overwrite or merge into the older lot's exit ladder. Summary views may show one combined position with weighted-average cost, but monitoring and sells remain lot-specific.
-- On every cron tick, the Strategy 2 exit monitor checks both live LTP and the most recent completed 5-minute candle. If that candle's high already touched T1 or T2 but the current price has fallen back below the target, the matching sell still fires immediately at market so intraday target touches are not missed between cron runs.
+- On every cron tick, the Strategy 2 exit monitor checks both live LTP and the most recent completed 5-minute candle. If that candle's high already touched T1 or T2 but the current price has fallen back below the target, the matching sell still fires immediately at market so intraday target touches are not missed between cron runs. The candle fallback only applies when that completed candle is not older than the lot being evaluated.
 - **Multi-day handoff (replaced the old 3:00 PM cutoff):** Strategy 2 keeps trying its T1/T2 every day until `firstBuyAt` age ≥ `deliveryHandoffDays` (default **15 calendar days**, per-strategy configurable). At handoff the position's `strategyId` is re-stamped to `accumulator` in the unified position store — accumulator's monitor takes over with EMA-based exits, no time limit.
 - **Order tags:** `dt-catalyst` (BUY, new scheme), `dt-s2-exit` (SELL — legacy literal preserved for back-compat).
 
@@ -167,15 +167,15 @@ Strategy 1 has **two trigger paths** — a once-per-day morning scan and a react
 
 Each momentum strategy has three optional end-of-day params (visible + editable in Settings → Strategies → "End of Day Behaviour"):
 
-- **`exitSameDayTime`** (`string`, default `"15:10"`) — IST HH:MM at which the EOD check fires once per strategy per trading day.
-- **`exitSameDayOnPositive`** (`boolean`, default `false`) — at `exitSameDayTime`, sell any position whose estimated net P&L after charges is still positive. Gross-green but net-negative-after-charges positions continue into normal delivery/handoff flow.
+- **`exitSameDayTime`** (`string`, default `"15:10"`) — IST HH:MM after which the EOD check becomes active on each 5-minute tick.
+- **`exitSameDayOnPositive`** (`boolean`, default `false`) — from `exitSameDayTime` onward, on each 5-minute tick, sell any position whose estimated net P&L after charges is still positive. Gross-green but net-negative-after-charges positions continue into normal delivery/handoff flow.
 - **`squareOffEOD`** (`boolean`, default `false`) — at `exitSameDayTime`, sell ALL positions regardless of P&L. Overrides the no-loss sell gate. Never takes delivery. Mutually inclusive with `exitSameDayOnPositive` (both can be true simultaneously).
 
 **Market Boom defaults:** `squareOffEOD=true`, `exitSameDayOnPositive=true`, `deliveryHandoffDays=0` — it always squares off EOD, so handoff is irrelevant.
 
 **Catalyst defaults:** both false, `deliveryHandoffDays=15` — purely T1/T2 based exit with 15-day handoff.
 
-The EOD check runs inside the core 5-min tick and fires once per strategy per day at the exact configured minute. `squareOffEOD=true` passes `bypassNoLossSell=true` to preflight, skipping gate 8's no-loss-sell rider while all other gates (token, market open, no-short, quota) still apply.
+The EOD check runs inside the core 5-min tick and becomes active from the configured minute onward. `exitSameDayOnPositive` keeps re-checking on each later 5-minute tick until the position is sold or the session ends. `squareOffEOD=true` remains one-shot per strategy per day and passes `bypassNoLossSell=true` to preflight, skipping gate 8's no-loss-sell rider while all other gates (token, market open, no-short, quota) still apply.
 
 ### F4.3 — Market Mode resolver
 
@@ -343,7 +343,7 @@ Gated by `state.mode === 'auto'`, `isMarketOpen()`, at least one connected accou
 
 1. **Strategy 2 SELL monitor** (`monitorAllConnected()`) — fires T1/T2 exits, 15-day handoff
 2. **Strategy 1 SELL monitor** (`monitorAllAccountsStrategy1()`) — fires tranche 1 / tranche 2 exits
-3. **EOD square-off** (`runEODSquareOff()`) — fires once per strategy per day at `exitSameDayTime`
+3. **EOD square-off** (`runEODSquareOff()`) — activates at `exitSameDayTime`; `exitSameDayOnPositive` re-checks every 5 minutes afterward, while `squareOffEOD` remains one-shot
 4. **Manual sell reconciliation** (`reconcileManualSells()`) — detects positions closed manually in Kite, journals SELL entries so trade report marks them closed
 5. **Reactive dip scan** — every 30 min between 09:15–14:00 IST
 
@@ -731,7 +731,7 @@ The status column shows a single glyph instead of the raw Kite enum, with a tool
 - Cron auto-BUY, Engine Execute, and tile BUY all tag Kite orders as **`dt-${strategy.id}`** (e.g. `dt-accumulator`, `dt-catalyst`, `dt-quickwin`).
 - `/api/zerodha` parses the tag, derives `strategyId`, and routes BUYs to `positions.recordBuy()`.
 - Legacy `dt-s1` / `dt-s2` tags still understood on the read path (mapped to `accumulator` / `catalyst`).
-- Manual orders from Watchlist / Holdings / Positions OrderModal still place with `dt-manual`, but successful manual BUYs are absorbed into `accumulator` ownership in the unified position store and journal attribution.
+- Manual orders from Holdings / Positions OrderModal still place with `dt-manual`, but successful manual BUYs are absorbed into `accumulator` ownership in the unified position store and journal attribution.
 
 ### Epic 13 nuances
 
@@ -761,7 +761,7 @@ Anywhere the app talks to "all connected accounts", it iterates `Object.keys(sta
 
 ### CB5 — Market-hours UI gate
 
-Every order-placing button across the app (Buy / Sell on Watchlist + Holdings, Square Off on Positions, BUY / SELL on Engine tiles) is gated by `isMarketOpen()`:
+Every order-placing button across the app (Buy / Sell on Holdings, Square Off on Positions, BUY / SELL on Engine tiles) is gated by `isMarketOpen()`:
 
 - **Visible always** — the button doesn't disappear after 15:30. Hiding affordances was confusing ("did the page break?").
 - **Disabled outside NSE hours** — opacity-30, `cursor: not-allowed`, native tooltip "Market closed".

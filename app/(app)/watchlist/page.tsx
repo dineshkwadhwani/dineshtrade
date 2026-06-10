@@ -1,7 +1,5 @@
 'use client'
 import { useState, useEffect } from 'react'
-import OrderModal from '@/components/OrderModal'
-import { isMarketOpen } from '@/lib/market'
 
 interface AccountDisplay { name: string; displayName: string; initials: string; color: string; note: string }
 
@@ -20,17 +18,6 @@ export default function WatchlistPage() {
   const [quotesLoading, setQuotesLoading] = useState(false)
   const [quotesError, setQuotesError] = useState<string>('')
   const [invalidSymbols, setInvalidSymbols] = useState<string[]>([])
-  const [orderModal, setOrderModal] = useState<{
-    open: boolean; symbol: string; name?: string; side: 'BUY' | 'SELL'; ltp?: number; dayChangePct?: number
-  }>({ open: false, symbol: '', side: 'BUY' })
-
-  // Market hours gate — buy/sell hidden outside NSE hours. Re-evaluated each
-  // minute so the buttons appear at 9:15 / disappear at 15:30 without a refresh.
-  const [market, setMarket] = useState(() => isMarketOpen())
-  useEffect(() => {
-    const id = setInterval(() => setMarket(isMarketOpen()), 60_000)
-    return () => clearInterval(id)
-  }, [])
 
   // Watchlist now lives in data/watchlist.json (editable from Manage Lists UI),
   // falling back to the bundled seed. Fetched via /api/watchlist on mount.
@@ -275,22 +262,18 @@ export default function WatchlistPage() {
         {!quotesLoading && Object.keys(quotes).length > 0 && (
           <span style={{ color:'#52b788', fontFamily:'JetBrains Mono, monospace' }}>· {Object.keys(quotes).length} live</span>
         )}
-        {!market.open && (
-          <span style={{ color:'rgba(245,158,11,0.85)', fontFamily:'JetBrains Mono, monospace' }}>· {market.status} — trading disabled</span>
-        )}
       </div>
 
       {/* Stock list */}
       <div className="rounded-xl overflow-hidden dt-card">
         <div className="grid gap-2 px-4 py-2 text-[9px] tracking-widest uppercase items-center dt-table-head"
           style={{
-            gridTemplateColumns: '2fr 0.9fr 0.8fr 0.9fr',
+            gridTemplateColumns: '2fr 0.9fr 0.8fr',
             fontFamily:'JetBrains Mono, monospace',
           }}>
           <span>Name</span>
           <span className="text-right">LTP</span>
           <span className="text-right">Today</span>
-          <span className="text-right">Action</span>
         </div>
         {filtered.map((s, i) => {
           const sym = s.nse.toUpperCase()
@@ -303,7 +286,7 @@ export default function WatchlistPage() {
             <div key={s.nse}
               className="grid gap-2 px-4 py-3 items-center transition-all hover:bg-white/5"
               style={{
-                gridTemplateColumns: '2fr 0.9fr 0.8fr 0.9fr',
+                gridTemplateColumns: '2fr 0.9fr 0.8fr',
                 borderBottom: i < filtered.length-1 ? '1px solid rgba(255,255,255,0.04)' : 'none',
                 background: held ? `${activeColor}12` : 'transparent',
               }}>
@@ -326,49 +309,10 @@ export default function WatchlistPage() {
                   ? `${Math.abs(q.changePct).toFixed(2)}%`
                   : '—'}
               </span>
-              <div className="flex gap-1 justify-end">
-                <button onClick={() => setOrderModal({ open: true, symbol: sym, name: s.name, side: 'BUY', ltp: q?.ltp, dayChangePct: q?.changePct })}
-                  disabled={!activeAccount || !market.open}
-                  title={!market.open ? 'Market closed' : undefined}
-                  className="px-2 py-1 rounded text-[10px] font-semibold tracking-wider transition-all disabled:opacity-30 disabled:cursor-not-allowed"
-                  style={{ background: 'rgba(82,183,136,0.12)', border: '1px solid rgba(82,183,136,0.3)', color: '#52b788' }}>
-                  <span className="sm:hidden">B</span><span className="hidden sm:inline">Buy</span>
-                </button>
-                <button onClick={() => setOrderModal({ open: true, symbol: sym, name: s.name, side: 'SELL', ltp: q?.ltp, dayChangePct: q?.changePct })}
-                  disabled={!activeAccount || !market.open}
-                  title={!market.open ? 'Market closed' : undefined}
-                  className="px-2 py-1 rounded text-[10px] font-semibold tracking-wider transition-all disabled:opacity-30 disabled:cursor-not-allowed"
-                  style={{ background: 'rgba(224,90,94,0.12)', border: '1px solid rgba(224,90,94,0.3)', color: '#e05a5e' }}>
-                  <span className="sm:hidden">S</span><span className="hidden sm:inline">Sell</span>
-                </button>
-              </div>
             </div>
           )
         })}
       </div>
-
-      <OrderModal
-        isOpen={orderModal.open}
-        onClose={() => setOrderModal({ ...orderModal, open: false })}
-        symbol={orderModal.symbol}
-        symbolName={orderModal.name}
-        initialSide={orderModal.side}
-        ltp={orderModal.ltp}
-        dayChangePct={orderModal.dayChangePct}
-        accounts={connectedAccounts}
-        defaultAccount={activeAccount ?? undefined}
-        onSuccess={() => {
-          // Refresh holdings highlight after a successful order
-          if (activeAccount) {
-            fetch(`/api/zerodha?account=${encodeURIComponent(activeAccount)}&action=holdings`)
-              .then(r => r.json())
-              .then(d => {
-                const list = Array.isArray(d?.data) ? d.data : []
-                setHeldSymbols(new Set(list.map((h: any) => String(h.tradingsymbol).toUpperCase())))
-              })
-              .catch(() => {})
-          }
-        }} />
 
       <p className="text-[10px] text-center pb-2 dt-text-muted">
         {connectedAccounts.length === 0
