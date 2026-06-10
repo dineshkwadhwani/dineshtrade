@@ -1,7 +1,7 @@
 'use client'
 import { useEffect, useState } from 'react'
 import OrderModal, { type AccountDisplay } from '@/components/OrderModal'
-import type { EnrichedPosition, EnrichedPositionLot, PositionTag } from '@/app/api/positions/route'
+import type { EnrichedPosition } from '@/app/api/positions/route'
 import { isMarketOpen } from '@/lib/market'
 
 export default function PositionsPage() {
@@ -192,7 +192,6 @@ function PositionRow({ p, last, marketOpen, onSquareOff }: {
   const unrealizedPct = isOpen && p.avgPrice > 0 && p.ltp > 0
     ? ((p.ltp - p.avgPrice) / p.avgPrice) * 100
     : null
-  const showLots = p.lots.length > 1 || p.lots.some(lot => !!lot.tranche1At)
 
   const SquareOffBtn = isOpen ? (
     <button onClick={onSquareOff} disabled={!marketOpen}
@@ -220,7 +219,6 @@ function PositionRow({ p, last, marketOpen, onSquareOff }: {
         <div className="min-w-0 flex flex-col gap-1" style={{ fontFamily:'JetBrains Mono, monospace' }}>
           <div className="flex items-center gap-1.5 flex-wrap">
             <span className="text-[16px] font-semibold truncate dt-text-primary">{p.symbol}</span>
-            <TagPill tag={p.tag} />
             {!isOpen && (
               <span className="text-[8px] tracking-widest uppercase px-1.5 py-0.5 rounded"
                 style={{ background:'rgba(255,255,255,0.06)', color:'rgba(255,255,255,0.4)' }}>CLOSED</span>
@@ -263,7 +261,6 @@ function PositionRow({ p, last, marketOpen, onSquareOff }: {
       <div className="hidden sm:grid grid-cols-12 items-center">
         <div className="col-span-3 flex items-center gap-2 flex-wrap">
           <span className="font-semibold text-white/85" style={{ fontFamily:'JetBrains Mono, monospace' }}>{p.symbol}</span>
-          <TagPill tag={p.tag} />
           {!isOpen && (
             <span className="text-[8px] tracking-widest uppercase px-1.5 py-0.5 rounded"
               style={{ background:'rgba(255,255,255,0.06)', color:'rgba(255,255,255,0.4)', fontFamily:'JetBrains Mono, monospace' }}>CLOSED</span>
@@ -294,99 +291,7 @@ function PositionRow({ p, last, marketOpen, onSquareOff }: {
         </span>
         <div className="col-span-2 text-right">{SquareOffBtn}</div>
       </div>
-
-      {showLots && (
-        <div className="mt-3 rounded-lg px-3 py-2"
-          style={{ background:'rgba(255,255,255,0.03)', border:'1px solid rgba(255,255,255,0.05)' }}>
-          <div className="flex items-center justify-between gap-3 flex-wrap mb-2">
-            <span className="text-[9px] tracking-widest uppercase dt-text-muted"
-              style={{ fontFamily:'JetBrains Mono, monospace' }}>
-              Open Lots
-            </span>
-            <span className="text-[9px] tracking-widest uppercase"
-              style={{ color:'rgba(201,168,76,0.8)', fontFamily:'JetBrains Mono, monospace' }}>
-              {p.lots.length} lot{p.lots.length === 1 ? '' : 's'}
-            </span>
-          </div>
-          <div className="grid gap-2">
-            {p.lots.map((lot, index) => (
-              <LotRow key={lot.id} lot={lot} ltp={p.ltp} index={index} />
-            ))}
-          </div>
-        </div>
-      )}
     </div>
-  )
-}
-
-function LotRow({ lot, ltp, index }: { lot: EnrichedPositionLot; ltp: number; index: number }) {
-  const livePnl = lot.remainingQty * (ltp - lot.entryPrice)
-  const livePnlPct = lot.entryPrice > 0 ? ((ltp - lot.entryPrice) / lot.entryPrice) * 100 : null
-  const pnlColor = livePnl >= 0 ? '#52b788' : '#e05a5e'
-  const tranche1Done = !!lot.tranche1At
-  const soldQty = lot.tranche1SoldQty || 0
-
-  return (
-    <div className="grid grid-cols-1 sm:grid-cols-[minmax(0,1.5fr)_minmax(0,1fr)_minmax(0,1fr)_minmax(0,1fr)] gap-2 rounded-lg px-3 py-2"
-      style={{ background:'rgba(0,0,0,0.14)' }}>
-      <div className="min-w-0" style={{ fontFamily:'JetBrains Mono, monospace' }}>
-        <div className="flex items-center gap-2 flex-wrap">
-          <span className="text-[10px] tracking-widest uppercase" style={{ color:'rgba(201,168,76,0.9)' }}>
-            Lot {index + 1}
-          </span>
-          <span className="text-[10px]" style={{ color:'rgba(255,255,255,0.7)' }}>
-            {formatLotTimestamp(lot.boughtAt)}
-          </span>
-        </div>
-        <div className="text-[11px] mt-1" style={{ color:'rgba(255,255,255,0.75)' }}>
-          Entry ₹{lot.entryPrice.toFixed(2)}
-        </div>
-      </div>
-
-      <div style={{ fontFamily:'JetBrains Mono, monospace' }}>
-        <div className="text-[9px] tracking-widest uppercase dt-text-muted">Qty</div>
-        <div className="text-[11px]" style={{ color:'rgba(255,255,255,0.78)' }}>
-          Open {lot.remainingQty} / {lot.originalQty}
-        </div>
-      </div>
-
-      <div style={{ fontFamily:'JetBrains Mono, monospace' }}>
-        <div className="text-[9px] tracking-widest uppercase dt-text-muted">Status</div>
-        <div className="text-[11px]" style={{ color: tranche1Done ? '#c9a84c' : 'rgba(255,255,255,0.78)' }}>
-          {tranche1Done ? `T1 done${soldQty > 0 ? ` (${soldQty})` : ''}` : 'T1 pending'}
-        </div>
-      </div>
-
-      <div style={{ fontFamily:'JetBrains Mono, monospace' }}>
-        <div className="text-[9px] tracking-widest uppercase dt-text-muted">Live P&L</div>
-        <div className="text-[11px]" style={{ color: pnlColor }}>
-          {signedRupees(livePnl)}
-        </div>
-        {livePnlPct !== null && (
-          <div className="text-[10px] mt-0.5" style={{ color: pnlColor, opacity: 0.8 }}>
-            {signedPct(livePnlPct)}
-          </div>
-        )}
-      </div>
-    </div>
-  )
-}
-
-function TagPill({ tag }: { tag: PositionTag }) {
-  // tag.label + tag.color come from the API — driven by the position store's
-  // strategyId (long-term ownership) or today's order-tag classification.
-  const title = tag.kind === 'strategy'
-    ? `Owned by strategy: ${tag.strategyId}`
-    : tag.kind === 'pre'    ? 'Pre-existing (Out Of System) — not auto-managed'
-    : tag.kind === 'mixed'  ? 'Mixed — symbol traded by multiple sources today'
-    : tag.kind === 'manual' ? 'Manual order — not auto-managed'
-    : undefined
-  return (
-    <span title={title}
-      className="text-[8px] tracking-widest uppercase px-1.5 py-0.5 rounded font-semibold"
-      style={{ background:`${tag.color}22`, color: tag.color, border:`1px solid ${tag.color}55`, fontFamily:'JetBrains Mono, monospace' }}>
-      {tag.label}
-    </span>
   )
 }
 
@@ -400,20 +305,6 @@ function signedRupees(n: number): string {
   if (n === undefined || n === null || Number.isNaN(n)) return '—'
   const abs = Math.abs(Math.round(n)).toLocaleString('en-IN')
   return n >= 0 ? `+₹${abs}` : `-₹${abs}`
-}
-
-function formatLotTimestamp(value: string): string {
-  if (!value) return 'Unknown'
-  const date = new Date(value)
-  if (Number.isNaN(date.getTime())) return 'Unknown'
-  return date.toLocaleString('en-IN', {
-    day: '2-digit',
-    month: 'short',
-    hour: '2-digit',
-    minute: '2-digit',
-    hour12: false,
-    timeZone: 'Asia/Kolkata',
-  })
 }
 
 function AccountTabs({ accounts, connected, active, onSelect, loaded }: {

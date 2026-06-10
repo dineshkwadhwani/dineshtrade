@@ -1,37 +1,18 @@
-// GET /api/positions?account=DINESH — today's positions for one account,
-// enriched with the strategy tag derived from today's order book.
+// GET /api/positions?account=DINESH — today's broker positions for one account.
 //
 // Output per row:
 //   symbol, qty, avgPrice, ltp, dayBuyQty, daySellQty, pnl, m2m, product,
-//   tag       : 's1' | 's2' | 'manual' | 'pre' | 'mixed'
 //   realized  : (rough) day_sell_qty × (sell_avg − buy_avg)  -- if we can derive
 //   unrealized: qty × (ltp − avgPrice)
-//
-// `pre` = position we have no order tag for today (started the day already held).
-// `mixed` = today had orders with conflicting tags (rare; reported but not
-//           merged).
 
 import { NextResponse } from 'next/server'
 import { cookies } from 'next/headers'
 import { verifySession } from '@/lib/auth'
 import { resolveAccountCreds, getPositions, getOrders, getQuotes, type KiteOrder } from '@/lib/kite'
-import { resolvePositionTag, type PositionTag } from '@/lib/strategyTag'
 
 // Live broker data — every request must hit Kite fresh, never serve from cache.
 export const dynamic = 'force-dynamic'
 export const revalidate = 0
-
-export type { PositionTag }
-
-export interface EnrichedPositionLot {
-  id: string
-  boughtAt: string
-  entryPrice: number
-  originalQty: number
-  remainingQty: number
-  tranche1At?: string | null
-  tranche1SoldQty?: number
-}
 
 export interface EnrichedPosition {
   symbol: string
@@ -45,11 +26,9 @@ export interface EnrichedPosition {
   daySellQty: number
   pnl: number
   m2m: number
-  tag: PositionTag
   unrealized: number       // qty × (ltp − avgPrice)  -- 0 when fully closed
   realized: number         // best-effort closed-leg P&L for today
   orderIds: string[]       // today's COMPLETE order ids for this symbol
-  lots: EnrichedPositionLot[]
 }
 
 export async function GET(req: Request) {
@@ -64,55 +43,9 @@ export async function GET(req: Request) {
   const creds = await resolveAccountCreds(account)
   if (!creds.ok) return NextResponse.json({ error: creds.error }, { status: 400 })
 
-  const [positions, orders, posStore] = await Promise.all([
+  const [positions, orders] = await Promise.all([
     getPositions(creds).catch(() => ({ day: [], net: [] })),
     getOrders(creds).catch(() => [] as KiteOrder[]),
-    (async () => {
-      // Load the unified position store + strategy map for tag derivation.
-      // Best-effort: if either fails, the tag falls through to legacy logic.
-      try {
-        const [{ listPositions, listPositionLots }, { getStrategies }, { getJournalStrategyFallback }] = await Promise.all([
-          import('@/lib/positions'),
-          import('@/lib/strategyConfig'),
-          import('@/lib/journal'),
-        ])
-        const rows = await listPositions({ account })
-        const byKey = new Map<string, string>()
-        const lotsByKey = new Map<string, EnrichedPositionLot[]>()
-        for (const r of rows) byKey.set(r.symbol.toUpperCase(), r.strategyId)
-        for (const r of rows) {
-          const activeLots = (await listPositionLots(r))
-            .filter(lot => lot.remainingQty > 0)
-            .sort((left, right) => left.boughtAt.localeCompare(right.boughtAt))
-            .map(lot => ({
-              id: lot.id,
-              boughtAt: lot.boughtAt,
-              entryPrice: lot.entryPrice,
-              originalQty: lot.originalQty,
-              remainingQty: lot.remainingQty,
-              tranche1At: lot.tranche1At,
-              tranche1SoldQty: lot.tranche1SoldQty,
-            }))
-          lotsByKey.set(r.symbol.toUpperCase(), activeLots)
-        }
-        const strategiesById = new Map<string, { name: string; color: string }>()
-        for (const s of getStrategies()) strategiesById.set(s.id, { name: s.name, color: s.color })
-        // Journal fallback: for symbols not in the positions store (manually sold,
-        // store entry cleared), find the most recent auto-BUY strategy from the
-        // journal so the tag shows the buying strategy instead of MANUAL.
-        try {
-          const fallback = await getJournalStrategyFallback(account, new Set(byKey.keys()))
-          for (const [sym, strategyId] of Array.from(fallback)) byKey.set(sym, strategyId)
-        } catch { /* journal read failure is non-fatal */ }
-        return { byKey, lotsByKey, strategiesById }
-      } catch {
-        return {
-          byKey: new Map<string, string>(),
-          lotsByKey: new Map<string, EnrichedPositionLot[]>(),
-          strategiesById: new Map<string, { name: string; color: string }>(),
-        }
-      }
-    })(),
   ])
 
   // Kite's two endpoints disagree on price:
@@ -123,16 +56,12 @@ export async function GET(req: Request) {
   // so the same row shows live price + matching P&L, and stays in sync with
   // Watchlist's price. Without /quote the LTP would lag Watchlist on the same
   // symbol by ~20 rupees, which is what the user was seeing.
-  const allSymbols = Array.from(new Set([
-    ...positions.net.map(p => p.tradingsymbol),
-    ...positions.day.map(p => p.tradingsymbol),
-  ]))
+  const allSymbols = Array.from(new Set(positions.day.map(p => p.tradingsymbol)))
   const quotes = allSymbols.length > 0
     ? await getQuotes(creds, allSymbols).catch(() => ({} as Awaited<ReturnType<typeof getQuotes>>))
     : ({} as Awaited<ReturnType<typeof getQuotes>>)
 
-  // Index today's filled orders by symbol → tags + ids + buy/sell-side avgs.
-  const tagsBySymbol = new Map<string, Set<string>>()
+  // Index today's filled orders by symbol → ids + buy/sell-side avgs.
   const orderIdsBySymbol = new Map<string, string[]>()
   // For best-effort realized P&L: track per-symbol sum(qty × price) on each side
   // from today's COMPLETE orders. realized = sellNotional − buyNotional × (min sold qty).
@@ -142,11 +71,6 @@ export async function GET(req: Request) {
   for (const o of orders) {
     if (o.status !== 'COMPLETE') continue
     const sym = o.tradingsymbol.toUpperCase()
-    if (o.tag) {
-      const set = tagsBySymbol.get(sym) || new Set<string>()
-      set.add(o.tag)
-      tagsBySymbol.set(sym, set)
-    }
     const ids = orderIdsBySymbol.get(sym) || []
     ids.push(o.order_id)
     orderIdsBySymbol.set(sym, ids)
@@ -159,12 +83,8 @@ export async function GET(req: Request) {
     bucket.set(sym, cur)
   }
 
-  // Prefer net (holds both intraday + carry positions held today). Fall back to
-  // day only if net is empty — shouldn't happen on a normal account.
-  const rawPositions = positions.net.length > 0 ? positions.net : positions.day
-  const out: EnrichedPosition[] = rawPositions.map(p => {
+  const out: EnrichedPosition[] = positions.day.map(p => {
     const sym = p.tradingsymbol.toUpperCase()
-    const tags = tagsBySymbol.get(sym) || new Set<string>()
     const buyAgg = buyAggBySymbol.get(sym)
     const sellAgg = sellAggBySymbol.get(sym)
     // Closed-leg qty = min of buys and sells filled today. Their VWAP-of-VWAPs gives
@@ -200,24 +120,16 @@ export async function GET(req: Request) {
       daySellQty: p.day_sell_quantity || 0,
       pnl: unrealized + realized,   // live + same source as the row's other numbers
       m2m: p.m2m || 0,
-      tag: resolvePositionTag(posStore.byKey.get(sym) || null, tags, posStore.strategiesById),
       unrealized,
       realized,
       orderIds: orderIdsBySymbol.get(sym) || [],
-      lots: posStore.lotsByKey.get(sym) || [],
     }
   })
 
-  // Drop fully flat rows that had no activity at all today (no order, no qty).
-  const filtered = out.filter(p => p.qty !== 0 || p.dayBuyQty > 0 || p.daySellQty > 0)
+  // Show only non-flat day positions, matching the broker-style positions page.
+  const filtered = out.filter(p => p.qty !== 0)
 
-  // Sort: open positions first (qty != 0), then by symbol.
-  filtered.sort((a, b) => {
-    const ao = a.qty !== 0 ? 0 : 1
-    const bo = b.qty !== 0 ? 0 : 1
-    if (ao !== bo) return ao - bo
-    return a.symbol.localeCompare(b.symbol)
-  })
+  filtered.sort((a, b) => a.symbol.localeCompare(b.symbol))
 
   return NextResponse.json({ positions: filtered, fetchedAt: new Date().toISOString() }, {
     headers: { 'Cache-Control': 'no-store, no-cache, must-revalidate' },

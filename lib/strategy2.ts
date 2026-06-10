@@ -176,6 +176,7 @@ export async function monitorAccount(account: string): Promise<MonitorResult> {
     const quote = quotes[`NSE:${symbol}`]
     const ltp = quote?.last_price
     const liveQty = liveQtyBySymbol.get(symbol) ?? 0
+    const quoteDayHigh = Number((quote as any)?.ohlc?.high) || null
 
     // Look up THIS position's strategy config — every dt-${id}-tagged position
     // uses its own exits + handoff window. Fallback to catalyst-equivalent
@@ -239,6 +240,11 @@ export async function monitorAccount(account: string): Promise<MonitorResult> {
       const lotGainPct = ((ltp - lot.entryPrice) / lot.entryPrice) * 100
       const lotTranche1Done = !!lot.tranche1At
       const lotLabel = `${new Date(lot.boughtAt).toLocaleDateString('en-IN', { timeZone: 'Asia/Kolkata' })} @ ₹${lot.entryPrice.toFixed(2)}`
+      const observedHigh = Math.max(
+        ltp,
+        quoteDayHigh ?? Number.NEGATIVE_INFINITY,
+        recentCompletedHigh ?? Number.NEGATIVE_INFINITY,
+      )
 
       let sellQty = 0
       let sellReason = ''
@@ -247,25 +253,28 @@ export async function monitorAccount(account: string): Promise<MonitorResult> {
       if (!lotTranche1Done && ltp >= lotT2Price) {
         sellQty = lot.remainingQty
         sellReason = `Lot ${lotLabel}: LTP ₹${ltp.toFixed(2)} ≥ T2 ₹${lotT2Price.toFixed(2)} (skipped past T1) — selling entire lot`
-      } else if (!lotTranche1Done && recentCompletedHigh !== null && recentCompletedHigh >= lotT2Price && ltp < lotT2Price) {
+        bypassNoLossSell = true
+      } else if (!lotTranche1Done && observedHigh >= lotT2Price && ltp < lotT2Price) {
         sellQty = lot.remainingQty
-        sellReason = `Lot ${lotLabel}: T2 was hit intraday at ₹${recentCompletedHigh.toFixed(2)} but price retreated to ₹${ltp.toFixed(2)} — selling lot at market`
+        sellReason = `Lot ${lotLabel}: T2 was hit intraday at ₹${observedHigh.toFixed(2)} but price retreated to ₹${ltp.toFixed(2)} — selling lot at market`
         bypassNoLossSell = true
       } else if (!lotTranche1Done && ltp >= lotT1Price) {
         sellQty = Math.max(1, Math.floor(lot.remainingQty / 2))
         sellReason = `Lot ${lotLabel}: LTP ₹${ltp.toFixed(2)} ≥ T1 ₹${lotT1Price.toFixed(2)} — tranche 1 sell (50% of ${lot.remainingQty})`
+        bypassNoLossSell = true
         markTranche1 = true
-      } else if (!lotTranche1Done && recentCompletedHigh !== null && recentCompletedHigh >= lotT1Price && ltp < lotT1Price) {
+      } else if (!lotTranche1Done && observedHigh >= lotT1Price && ltp < lotT1Price) {
         sellQty = Math.max(1, Math.floor(lot.remainingQty / 2))
-        sellReason = `Lot ${lotLabel}: T1 was hit intraday at ₹${recentCompletedHigh.toFixed(2)} but price retreated to ₹${ltp.toFixed(2)} — selling lot at market`
+        sellReason = `Lot ${lotLabel}: T1 was hit intraday at ₹${observedHigh.toFixed(2)} but price retreated to ₹${ltp.toFixed(2)} — selling lot at market`
         bypassNoLossSell = true
         markTranche1 = true
       } else if (lotTranche1Done && ltp >= lotT2Price) {
         sellQty = lot.remainingQty
         sellReason = `Lot ${lotLabel}: LTP ₹${ltp.toFixed(2)} ≥ T2 ₹${lotT2Price.toFixed(2)} — tranche 2 sell (remainder)`
-      } else if (lotTranche1Done && recentCompletedHigh !== null && recentCompletedHigh >= lotT2Price && ltp < lotT2Price) {
+        bypassNoLossSell = true
+      } else if (lotTranche1Done && observedHigh >= lotT2Price && ltp < lotT2Price) {
         sellQty = lot.remainingQty
-        sellReason = `Lot ${lotLabel}: T2 was hit intraday at ₹${recentCompletedHigh.toFixed(2)} but price retreated to ₹${ltp.toFixed(2)} — selling lot at market`
+        sellReason = `Lot ${lotLabel}: T2 was hit intraday at ₹${observedHigh.toFixed(2)} but price retreated to ₹${ltp.toFixed(2)} — selling lot at market`
         bypassNoLossSell = true
       }
 
