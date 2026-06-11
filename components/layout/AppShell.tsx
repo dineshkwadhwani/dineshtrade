@@ -29,6 +29,7 @@ const NAV_GROUPS: NavGroup[] = [
     items: [
       { href: '/watchlist', label: 'Watchlist', icon: '◎' },
       { href: '/manage-lists', label: 'Manage Lists', icon: '✎' },
+      { href: '/pivotal-lists', label: 'Pivotal Lists', icon: '◭' },
     ],
   },
   {

@@ -23,6 +23,7 @@ import { getActiveStrategies, type Strategy } from './strategyConfig'
 import strategyCfg from '@/config/strategy.json'
 import { monitorAllConnected } from './strategy2'
 import { monitorAllAccountsStrategy1 } from './strategy1'
+import { monitorAllPivotalAccounts } from './pivotal'
 import {
   maybeRollDay, istHHMM, recordScan, recordExecuted, recordFailed,
   recordDelivery, shouldRunReactiveDip, dayStats,
@@ -98,14 +99,32 @@ async function tick(): Promise<void> {
     console.error('[cron tick] Strategy 1 monitor failed:', err)
   }
 
-  // 1c. EOD square-off for momentum strategies
+  // 1c. SELL engine — Pivotal breakout monitor
+  try {
+    const pivotalResults = await monitorAllPivotalAccounts()
+    for (const r of pivotalResults) {
+      for (const e of r.entries) {
+        const item: EODLineItem = {
+          time: t, account: e.account, symbol: e.symbol, side: 'SELL',
+          quantity: e.quantity || 0, price: e.ltp, orderId: e.orderId, reason: e.reason,
+        }
+        if (e.action === 'sold') recordExecuted(item)
+        else if (e.action === 'sold_failed') recordFailed(item)
+        else if (e.action === 'handoff') recordDelivery(item)
+      }
+    }
+  } catch (err) {
+    console.error('[cron tick] Pivotal monitor failed:', err)
+  }
+
+  // 1d. EOD square-off for momentum strategies
   try { await runEODSquareOff() } catch (err) { console.error('[cron tick] EOD square-off failed:', err) }
 
-  // 1d. Manual sell reconciliation — journals any Kite SELL orders not placed
+  // 1e. Manual sell reconciliation — journals any Kite SELL orders not placed
   // through the auto engine so the trade report marks those positions as closed.
   try { await reconcileManualSells() } catch (err) { console.error('[cron tick] reconcile manual sells failed:', err) }
 
-  // 1e. REACTIVE DIP scan
+  // 1f. REACTIVE DIP scan
   // Fires every 30 min between 09:15 and 14:00 IST (independent of market mode
   // and of the dip-mode once-per-day BUY scan). Looks for List A stocks that
   // dropped ≥3% intraday, re-evaluates Strategy 1 with today counted as a down

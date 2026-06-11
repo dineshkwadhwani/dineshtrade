@@ -7,6 +7,7 @@ import { cookies } from 'next/headers'
 import { verifySession } from '@/lib/auth'
 import { getCapital, getStrategies } from '@/lib/strategyConfig'
 import { getWatchlist } from '@/lib/watchlistStore'
+import { getPivotalLists } from '@/lib/pivotalListStore'
 import { getRuntimeStrategyConfig, saveRuntimeStrategyConfig } from '@/lib/strategyConfigStore'
 import { getState } from '@/lib/state'
 
@@ -21,6 +22,10 @@ export async function GET() {
   const wl = await getWatchlist()
   const watchlistKeys = Object.keys(wl.lists)
   const watchlistOptions = watchlistKeys.map(k => ({ key: k, name: wl.meta[k]?.name || k }))
+
+  const pivotal = await getPivotalLists()
+  const pivotalListKeys = Object.keys(pivotal.lists)
+  const pivotalListOptions = pivotalListKeys.map(k => ({ key: k, name: pivotal.meta[k]?.name || k }))
 
   // Open-position counts per strategy — used by Settings UI for the
   // "deactivating X has N open positions that will migrate to Accumulator"
@@ -43,6 +48,8 @@ export async function GET() {
     strategies: getStrategies(),
     watchlistKeys,
     watchlistOptions,
+    pivotalListKeys,
+    pivotalListOptions,
     openPositionCounts,
     strategyLastRunAt,
   }, { headers: { 'Cache-Control': 'no-store' } })
@@ -129,7 +136,7 @@ export async function POST(req: Request) {
       if (ids.has(s.id)) errors.push(`Duplicate strategy id "${s.id}"`)
       ids.add(s.id)
       if (!s.name) errors.push(`"${s.id}": name is required`)
-      if (s.type !== 'dip' && s.type !== 'momentum') errors.push(`"${s.id}": type must be 'dip' or 'momentum'`)
+      if (s.type !== 'dip' && s.type !== 'momentum' && s.type !== 'pivotal') errors.push(`"${s.id}": type must be 'dip', 'momentum', or 'pivotal'`)
       if (!Number.isFinite(s.scanIntervalMin) || s.scanIntervalMin < 1) errors.push(`"${s.id}": scanIntervalMin must be ≥ 1`)
       if (!Array.isArray(s.watchlist) || s.watchlist.length === 0) errors.push(`"${s.id}": watchlist must include at least one list`)
       if (!s.exits || typeof s.exits !== 'object') errors.push(`"${s.id}": exits block required`)
@@ -137,6 +144,29 @@ export async function POST(req: Request) {
         if (!(s.exits.t1Pct > 0)) errors.push(`"${s.id}": t1Pct must be > 0`)
         if (!(s.exits.t2Pct > 0)) errors.push(`"${s.id}": t2Pct must be > 0`)
         if (s.exits.t1Pct > s.exits.t2Pct) errors.push(`"${s.id}": t1Pct (${s.exits.t1Pct}) cannot exceed t2Pct (${s.exits.t2Pct})`)
+      }
+      if (s.type === 'pivotal') {
+        if (!s.params || typeof s.params !== 'object') {
+          errors.push(`"${s.id}": pivotal params block required`)
+        } else {
+          const p = s.params
+          if (!(p.consolidationDays >= 1)) errors.push(`"${s.id}": consolidationDays must be ≥ 1`)
+          if (!(p.consolidationMaxRangePct > 0)) errors.push(`"${s.id}": consolidationMaxRangePct must be > 0`)
+          if (!(p.volumeAvgDays >= 1)) errors.push(`"${s.id}": volumeAvgDays must be ≥ 1`)
+          if (!(p.minVolumeSurgeRatio > 0)) errors.push(`"${s.id}": minVolumeSurgeRatio must be > 0`)
+          if (!(p.minDayGainPct >= 0)) errors.push(`"${s.id}": minDayGainPct must be ≥ 0`)
+          if (!(p.maxDayGainPct >= 0)) errors.push(`"${s.id}": maxDayGainPct must be ≥ 0`)
+          if (Number.isFinite(p.minDayGainPct) && Number.isFinite(p.maxDayGainPct) && p.minDayGainPct > p.maxDayGainPct) {
+            errors.push(`"${s.id}": minDayGainPct (${p.minDayGainPct}) cannot exceed maxDayGainPct (${p.maxDayGainPct})`)
+          }
+          if (!(p.breakoutConfirmCandles >= 1)) errors.push(`"${s.id}": breakoutConfirmCandles must be ≥ 1`)
+          if (typeof p.scanStartHHMM !== 'string' || !/^\d{2}:\d{2}$/.test(p.scanStartHHMM)) errors.push(`"${s.id}": scanStartHHMM must be HH:MM`)
+          if (typeof p.scanEndHHMM !== 'string' || !/^\d{2}:\d{2}$/.test(p.scanEndHHMM)) errors.push(`"${s.id}": scanEndHHMM must be HH:MM`)
+          if (typeof p.minProjectedVolumeCheckHHMM !== 'string' || !/^\d{2}:\d{2}$/.test(p.minProjectedVolumeCheckHHMM)) errors.push(`"${s.id}": minProjectedVolumeCheckHHMM must be HH:MM`)
+          if (typeof p.dayEndExecutionTime !== 'string' || !/^\d{2}:\d{2}$/.test(p.dayEndExecutionTime)) errors.push(`"${s.id}": dayEndExecutionTime must be HH:MM`)
+          if (!(p.deliveryHandoffDays >= 0)) errors.push(`"${s.id}": deliveryHandoffDays must be ≥ 0`)
+          if (typeof p.pivotalListId !== 'string' || p.pivotalListId.trim().length === 0) errors.push(`"${s.id}": pivotalListId is required`)
+        }
       }
       // Optional GIFT Nifty gate
       if (s.giftNiftyGate) {

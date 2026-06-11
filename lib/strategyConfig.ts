@@ -6,7 +6,7 @@
 
 import { getRuntimeStrategyConfig } from './strategyConfigStore'
 
-export type StrategyType = 'dip' | 'momentum'
+export type StrategyType = 'dip' | 'momentum' | 'pivotal'
 
 export interface CapitalConfig {
   source: 'live'              // available funds come from Zerodha getMargins
@@ -59,7 +59,7 @@ export interface GiftNiftyGate {
 
 // Union of all concrete param shapes — cron / strategy runners narrow this
 // based on `type`. Use asDipParams / asMomentumParams helpers to cast safely.
-export type StrategyParams = DipParams | MomentumParams
+export type StrategyParams = DipParams | MomentumParams | PivotalParams
 
 export interface DipParams {
   emaPeriod: number
@@ -97,6 +97,22 @@ export interface MomentumParams {
   exitSameDayTime?: string        // "HH:MM" IST, default "15:10"
   exitSameDayOnPositive?: boolean // sell at exitSameDayTime if LTP > firstBuyPrice
   squareOffEOD?: boolean          // sell all at exitSameDayTime regardless of P&L; overrides no-loss gate
+}
+
+export interface PivotalParams {
+  consolidationDays: number
+  consolidationMaxRangePct: number
+  volumeAvgDays: number
+  minVolumeSurgeRatio: number
+  minDayGainPct: number
+  maxDayGainPct: number
+  breakoutConfirmCandles: number
+  scanStartHHMM: string
+  scanEndHHMM: string
+  minProjectedVolumeCheckHHMM: string
+  dayEndExecutionTime: string
+  deliveryHandoffDays: number
+  pivotalListId: string
 }
 
 export interface Strategy {
@@ -178,7 +194,11 @@ export function computeDeployable(available: number, deployed: number): Deployab
 
 function normalizeStrategy(raw: any): Strategy | null {
   if (!raw || typeof raw.id !== 'string') return null
-  const type: StrategyType = raw.type === 'dip' ? 'dip' : 'momentum'
+  const type: StrategyType = raw.type === 'dip'
+    ? 'dip'
+    : raw.type === 'pivotal'
+      ? 'pivotal'
+      : 'momentum'
   let giftNiftyGate: GiftNiftyGate | undefined
   if (raw.giftNiftyGate && typeof raw.giftNiftyGate === 'object') {
     giftNiftyGate = {
@@ -227,4 +247,8 @@ export function asDipParams(s: Strategy): DipParams {
 
 export function asMomentumParams(s: Strategy): MomentumParams {
   return s.params as MomentumParams
+}
+
+export function asPivotalParams(s: Strategy): PivotalParams {
+  return s.params as unknown as PivotalParams
 }

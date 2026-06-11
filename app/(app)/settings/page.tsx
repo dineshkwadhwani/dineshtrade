@@ -352,7 +352,7 @@ interface CapitalConfig {
 interface StrategyConfig {
   id: string
   name: string
-  type: 'dip' | 'momentum'
+  type: 'dip' | 'momentum' | 'pivotal'
   active: boolean
   color: string
   scanIntervalMin: number
@@ -475,7 +475,7 @@ interface BacktestHistoryEntry {
   runId: string
   timestamp: string
   strategyName: string
-  strategyType: 'dip' | 'momentum' | 'all'
+  strategyType: 'dip' | 'momentum' | 'pivotal' | 'all'
   entryParams: Record<string, unknown>
   exitCriteria: Record<string, unknown>
   startingAmount: number
@@ -652,6 +652,22 @@ const MOMENTUM_PARAM_DESCRIPTIONS: Record<string, string> = {
   squareOffEOD: 'Always square all positions at end of day regardless of profit or loss. Never takes delivery. Overrides the no-loss gate.',
 }
 
+const PIVOTAL_PARAM_DESCRIPTIONS: Record<string, string> = {
+  consolidationDays: 'Lookback window in trading days used to validate prior consolidation before breakout.',
+  consolidationMaxRangePct: 'Maximum allowed range width across the consolidation window as a percentage.',
+  volumeAvgDays: 'Number of completed daily candles used for the average volume baseline.',
+  minVolumeSurgeRatio: 'Required volume confirmation multiple. Normal mode uses projected day volume; dayEnd uses realized day volume.',
+  minDayGainPct: 'Minimum day gain required for a valid breakout move.',
+  maxDayGainPct: 'Maximum day gain allowed before the move is treated as too extended.',
+  breakoutConfirmCandles: 'Number of consecutive rising 5-minute candles required for normal intraday confirmation.',
+  scanStartHHMM: 'Intraday scan window start (IST 24-hr HH:MM) for normal-mode scripts.',
+  scanEndHHMM: 'Intraday scan window end (IST 24-hr HH:MM) for normal-mode scripts.',
+  minProjectedVolumeCheckHHMM: 'Earliest time at which projected-volume confirmation is allowed.',
+  dayEndExecutionTime: 'Near-close decision time for dayEnd-mode scripts. No intraday buy is allowed before this.',
+  deliveryHandoffDays: 'Calendar days after entry before an open pivotal position is handed off to Accumulator. Set to 0 to disable handoff.',
+  pivotalListId: 'Dedicated Pivotal List that carries script-level trigger, target, execution mode, and stop-loss settings.',
+}
+
 // Default param sets for the Duplicate / Create-New / Reset flows
 const DEFAULT_DIP_PARAMS = {
   emaPeriod: 20, entryBelowPct: 5, strongBuyBelowPct: 8, minDownDays: 3,
@@ -664,6 +680,27 @@ const DEFAULT_MOMENTUM_PARAMS = {
   volumeAvgDays: 10, scanStartHHMM: '09:30', scanEndHHMM: '14:30',
   deliveryHandoffDays: 15,
   exitSameDayTime: '15:10', exitSameDayOnPositive: false, squareOffEOD: false,
+}
+const DEFAULT_PIVOTAL_PARAMS = {
+  consolidationDays: 10,
+  consolidationMaxRangePct: 6.0,
+  volumeAvgDays: 10,
+  minVolumeSurgeRatio: 1.2,
+  minDayGainPct: 1.0,
+  maxDayGainPct: 4.0,
+  breakoutConfirmCandles: 2,
+  scanStartHHMM: '10:00',
+  scanEndHHMM: '13:00',
+  minProjectedVolumeCheckHHMM: '10:00',
+  dayEndExecutionTime: '15:10',
+  deliveryHandoffDays: 15,
+  pivotalListId: 'pivotalA',
+}
+
+function getParamDescriptions(type: StrategyConfig['type']): Record<string, string> {
+  if (type === 'dip') return DIP_PARAM_DESCRIPTIONS
+  if (type === 'pivotal') return PIVOTAL_PARAM_DESCRIPTIONS
+  return MOMENTUM_PARAM_DESCRIPTIONS
 }
 
 // ──────────────────────────────────────────────────────────────────────────────
@@ -886,7 +923,7 @@ function ResetSection({ connected }: { connected: string[] }) {
 
 function StrategiesTab({ autoModeOn }: { autoModeOn: boolean }) {
   // The server response is the SOURCE; `draft` is the user's working copy.
-  const [source, setSource] = useState<{ capital: CapitalConfig; strategies: StrategyConfig[]; watchlistOptions: { key: string; name: string }[]; openPositionCounts: Record<string, number>; strategyLastRunAt: Record<string, string> } | null>(null)
+  const [source, setSource] = useState<{ capital: CapitalConfig; strategies: StrategyConfig[]; watchlistOptions: { key: string; name: string }[]; pivotalListOptions: { key: string; name: string }[]; openPositionCounts: Record<string, number>; strategyLastRunAt: Record<string, string> } | null>(null)
   const [draft, setDraft] = useState<{ capital: CapitalConfig; strategies: StrategyConfig[] } | null>(null)
   const [funds, setFunds] = useState<{ available: number; maxDeployable: number; reserve: number; remaining: number; deployed: number } | null>(null)
   const [error, setError] = useState('')
@@ -908,7 +945,10 @@ function StrategiesTab({ autoModeOn }: { autoModeOn: boolean }) {
         const opts = Array.isArray(d.watchlistOptions) && d.watchlistOptions.length > 0
           ? d.watchlistOptions
           : (Array.isArray(d.watchlistKeys) ? d.watchlistKeys.map((k: string) => ({ key: k, name: k })) : [])
-        setSource({ capital: d.capital, strategies: d.strategies, watchlistOptions: opts, openPositionCounts: d.openPositionCounts || {}, strategyLastRunAt: d.strategyLastRunAt || {} })
+        const pivotalOpts = Array.isArray(d.pivotalListOptions) && d.pivotalListOptions.length > 0
+          ? d.pivotalListOptions
+          : (Array.isArray(d.pivotalListKeys) ? d.pivotalListKeys.map((k: string) => ({ key: k, name: k })) : [])
+        setSource({ capital: d.capital, strategies: d.strategies, watchlistOptions: opts, pivotalListOptions: pivotalOpts, openPositionCounts: d.openPositionCounts || {}, strategyLastRunAt: d.strategyLastRunAt || {} })
         setDraft({ capital: d.capital, strategies: d.strategies })
       }
     }).catch(() => setError('Failed to load strategies'))
@@ -1005,9 +1045,9 @@ function StrategiesTab({ autoModeOn }: { autoModeOn: boolean }) {
   // Two type-aware creators — pre-fill the correct param shape, exits,
   // scan interval, color, and GIFT Nifty gate defaults so a new strategy
   // starts in a sensible state. User can edit anything after.
-  function createNewStrategy(type: 'dip' | 'momentum') {
+  function createNewStrategy(type: 'dip' | 'momentum' | 'pivotal') {
     if (!draft) return
-    const prefix = type === 'dip' ? 'new_dip' : 'new_momentum'
+    const prefix = type === 'dip' ? 'new_dip' : type === 'momentum' ? 'new_momentum' : 'new_pivotal'
     let newId = prefix
     let n = 2
     while (draft.strategies.some(s => s.id === newId)) { newId = `${prefix}_${n++}` }
@@ -1018,11 +1058,17 @@ function StrategiesTab({ autoModeOn }: { autoModeOn: boolean }) {
           params: { ...DEFAULT_DIP_PARAMS }, exits: { t1Pct: 5.0, t2Pct: 8.0 },
           giftNiftyGate: { enabled: true, minPct: null, maxPct: -0.5 },
         }
-      : {
+      : type === 'momentum' ? {
           id: newId, name: 'New Momentum Strategy', type: 'momentum', active: false, color: '#a78bfa',
           scanIntervalMin: 5, watchlist: ['listA'],
           params: { ...DEFAULT_MOMENTUM_PARAMS }, exits: { t1Pct: 1.5, t2Pct: 2.0 },
           giftNiftyGate: { enabled: false, minPct: null, maxPct: null },
+        }
+      : {
+          id: newId, name: 'New Pivotal Strategy', type: 'pivotal', active: false, color: '#f97316',
+          scanIntervalMin: 5, watchlist: ['listA'],
+          params: { ...DEFAULT_PIVOTAL_PARAMS }, exits: { t1Pct: 2.0, t2Pct: 3.5 },
+          giftNiftyGate: { enabled: false, minPct: 0.5, maxPct: null },
         }
     setDraft({ ...draft, strategies: [...draft.strategies, fresh] })
     setExpanded(newId)
@@ -1038,7 +1084,7 @@ function StrategiesTab({ autoModeOn }: { autoModeOn: boolean }) {
       })
       const data = await res.json()
       if (res.ok) {
-        setSource({ capital: draft.capital, strategies: draft.strategies, watchlistOptions: source?.watchlistOptions || [], openPositionCounts: source?.openPositionCounts || {}, strategyLastRunAt: source?.strategyLastRunAt || {} })
+        setSource({ capital: draft.capital, strategies: draft.strategies, watchlistOptions: source?.watchlistOptions || [], pivotalListOptions: source?.pivotalListOptions || [], openPositionCounts: source?.openPositionCounts || {}, strategyLastRunAt: source?.strategyLastRunAt || {} })
         const r = data.reload
         const parts: string[] = []
         if (r?.added?.length)     parts.push(`+${r.added.length} added`)
@@ -1074,6 +1120,11 @@ function StrategiesTab({ autoModeOn }: { autoModeOn: boolean }) {
             className="px-3 py-1.5 rounded-lg text-[11px] font-medium tracking-wider transition-all disabled:opacity-40"
             style={{ background:'rgba(167,139,250,0.12)', border:'1px solid rgba(167,139,250,0.4)', color:'#a78bfa', fontFamily:'JetBrains Mono, monospace' }}>
             + New Momentum Strategy
+          </button>
+          <button onClick={() => createNewStrategy('pivotal')} disabled={locked}
+            className="px-3 py-1.5 rounded-lg text-[11px] font-medium tracking-wider transition-all disabled:opacity-40"
+            style={{ background:'rgba(249,115,22,0.12)', border:'1px solid rgba(249,115,22,0.4)', color:'#f97316', fontFamily:'JetBrains Mono, monospace' }}>
+            + New Pivotal Strategy
           </button>
           <button onClick={exportToCsv}
             className="px-4 py-2 rounded-lg text-[11px] font-semibold tracking-wider transition-all dt-card-gold"
@@ -1151,6 +1202,7 @@ function StrategiesTab({ autoModeOn }: { autoModeOn: boolean }) {
             expanded={expanded === s.id}
             onToggle={() => setExpanded(expanded === s.id ? null : s.id)}
             watchlistOptions={source.watchlistOptions}
+            pivotalListOptions={source.pivotalListOptions}
             onPatch={p => patchStrategy(s.id, p)}
             onToggleActive={() => {
               if (confirmDeactivate(s.id, s.active)) patchStrategy(s.id, { active: !s.active })
@@ -1256,7 +1308,7 @@ function BacktestTab({ active }: { active: boolean }) {
   const [analysisLoading, setAnalysisLoading] = useState(false)
   const [loadedRunId, setLoadedRunId] = useState('')
   const [loadedRunLabel, setLoadedRunLabel] = useState('')
-  const [loadedRunType, setLoadedRunType] = useState<'dip' | 'momentum' | 'all' | ''>('')
+  const [loadedRunType, setLoadedRunType] = useState<'dip' | 'momentum' | 'pivotal' | 'all' | ''>('')
   const [previewEntry, setPreviewEntry] = useState<BacktestHistoryEntry | null>(null)
   const [snapshotEditor, setSnapshotEditor] = useState('')
   const [loading, setLoading] = useState(false)
@@ -1809,7 +1861,7 @@ function BacktestTab({ active }: { active: boolean }) {
                     <td className="px-3 py-3 sticky left-[190px] z-10 align-middle dt-card-inner" style={{ minWidth:260 }}>
                       <div className="flex flex-col gap-1">
                         <span className="text-[11px] dt-text-primary">{entry.strategyName}</span>
-                        <span className="text-[10px] tracking-widest uppercase" style={{ color: entry.strategyType === 'all' ? '#60a5fa' : entry.strategyType === 'momentum' ? '#52b788' : '#c9a84c', fontFamily:'JetBrains Mono, monospace' }}>{entry.strategyType}</span>
+                        <span className="text-[10px] tracking-widest uppercase" style={{ color: entry.strategyType === 'all' ? '#60a5fa' : entry.strategyType === 'momentum' ? '#52b788' : entry.strategyType === 'pivotal' ? '#f97316' : '#c9a84c', fontFamily:'JetBrains Mono, monospace' }}>{entry.strategyType}</span>
                       </div>
                     </td>
                     {historyColumns.map(column => (
@@ -2249,7 +2301,7 @@ function BacktestTab({ active }: { active: boolean }) {
                     Saved Parameters
                   </p>
                   <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
-                    <PreviewRecordSection title="Entry Parameters" values={previewEntry.entryParams} descriptions={previewEntry.strategyType === 'momentum' ? MOMENTUM_PARAM_DESCRIPTIONS : DIP_PARAM_DESCRIPTIONS} />
+                    <PreviewRecordSection title="Entry Parameters" values={previewEntry.entryParams} descriptions={previewEntry.strategyType === 'momentum' ? MOMENTUM_PARAM_DESCRIPTIONS : previewEntry.strategyType === 'pivotal' ? PIVOTAL_PARAM_DESCRIPTIONS : DIP_PARAM_DESCRIPTIONS} />
                     <PreviewRecordSection title="Exit Criteria" values={previewEntry.exitCriteria} descriptions={EXIT_DESCRIPTIONS} />
                   </div>
                 </div>
@@ -2369,7 +2421,7 @@ function PreviewRecordSection({ title, values, descriptions }: { title: string; 
 }
 
 function StrategySnapshotPreviewCard({ snapshot }: { snapshot: StrategyConfig }) {
-  const paramDescriptions = snapshot.type === 'momentum' ? MOMENTUM_PARAM_DESCRIPTIONS : DIP_PARAM_DESCRIPTIONS
+  const paramDescriptions = getParamDescriptions(snapshot.type)
 
   return (
     <div className="rounded-xl p-4 dt-surface" style={{ border:`1px solid ${snapshot.color}33` }}>
@@ -2641,7 +2693,7 @@ function getBacktestHistoryColumns(view: BacktestHistoryView): BacktestHistoryCo
           label: 'Strategy Type',
           minWidth: 120,
           render: entry => entry.strategyType,
-          color: entry => entry.strategyType === 'all' ? '#60a5fa' : entry.strategyType === 'momentum' ? '#52b788' : '#c9a84c',
+          color: entry => entry.strategyType === 'all' ? '#60a5fa' : entry.strategyType === 'momentum' ? '#52b788' : entry.strategyType === 'pivotal' ? '#f97316' : '#c9a84c',
         },
         {
           key: 'entryParams',
@@ -2691,7 +2743,7 @@ function getBacktestHistoryColumns(view: BacktestHistoryView): BacktestHistoryCo
           label: 'Strategy Type',
           minWidth: 120,
           render: entry => entry.strategyType,
-          color: entry => entry.strategyType === 'all' ? '#60a5fa' : entry.strategyType === 'momentum' ? '#52b788' : '#c9a84c',
+          color: entry => entry.strategyType === 'all' ? '#60a5fa' : entry.strategyType === 'momentum' ? '#52b788' : entry.strategyType === 'pivotal' ? '#f97316' : '#c9a84c',
         },
         {
           key: 'backtestDays',
@@ -2761,11 +2813,12 @@ function compareBacktestHistory(
   return direction === 'asc' ? result : -result
 }
 
-function StrategyCard({ s, expanded, onToggle, watchlistOptions, onPatch, onToggleActive, onReset, onDuplicate, onDelete, canReset, isProtected, locked, lastRunAt }: {
+function StrategyCard({ s, expanded, onToggle, watchlistOptions, pivotalListOptions, onPatch, onToggleActive, onReset, onDuplicate, onDelete, canReset, isProtected, locked, lastRunAt }: {
   s: StrategyConfig
   expanded: boolean
   onToggle: () => void
   watchlistOptions: { key: string; name: string }[]
+  pivotalListOptions: { key: string; name: string }[]
   onPatch: (patch: Partial<StrategyConfig>) => void
   onToggleActive: () => void
   onReset: () => void
@@ -2783,7 +2836,7 @@ function StrategyCard({ s, expanded, onToggle, watchlistOptions, onPatch, onTogg
     const mm = String(ist.getMinutes()).padStart(2, '0')
     return `${hh}:${mm} IST`
   }
-  const paramDescs = s.type === 'dip' ? DIP_PARAM_DESCRIPTIONS : MOMENTUM_PARAM_DESCRIPTIONS
+  const paramDescs = getParamDescriptions(s.type)
   function toggleListKey(k: string) {
     const next = s.watchlist.includes(k) ? s.watchlist.filter(x => x !== k) : [...s.watchlist, k]
     onPatch({ watchlist: next.length > 0 ? next : [k] })   // never go empty
@@ -2839,10 +2892,10 @@ function StrategyCard({ s, expanded, onToggle, watchlistOptions, onPatch, onTogg
             {/* Type selector — changing replaces params + exits + GIFT gate
                 with the new type's defaults (with confirm). */}
             <div className="py-1">
-              <FieldDesc>Dip = mean-reversion (EMA-stretched entry). Momentum = trending up (3 rising candles + volume). Changing type resets params to that type's defaults.</FieldDesc>
+              <FieldDesc>Dip = mean-reversion. Momentum = intraday continuation. Pivotal = breakout above consolidation with script-level trigger, targets, execution mode, and optional stop-loss. Changing type resets params to that type's defaults.</FieldDesc>
               <FieldRow label="Type">
                 <div className="flex gap-1">
-                  {(['dip', 'momentum'] as const).map(t => {
+                  {(['dip', 'momentum', 'pivotal'] as const).map(t => {
                     const active = s.type === t
                     return (
                       <button key={t} disabled={locked} onClick={() => {
@@ -2856,12 +2909,19 @@ function StrategyCard({ s, expanded, onToggle, watchlistOptions, onPatch, onTogg
                               exits: { t1Pct: 5.0, t2Pct: 8.0 },
                               giftNiftyGate: { enabled: true, minPct: null, maxPct: -0.5 },
                             }
-                          : {
+                          : t === 'momentum' ? {
                               type: 'momentum',
                               scanIntervalMin: 5,
                               params: { ...DEFAULT_MOMENTUM_PARAMS },
                               exits: { t1Pct: 1.5, t2Pct: 2.0 },
                               giftNiftyGate: { enabled: false, minPct: null, maxPct: null },
+                            }
+                          : {
+                              type: 'pivotal',
+                              scanIntervalMin: 5,
+                              params: { ...DEFAULT_PIVOTAL_PARAMS },
+                              exits: { t1Pct: 2.0, t2Pct: 3.5 },
+                              giftNiftyGate: { enabled: false, minPct: 0.5, maxPct: null },
                             }
                         onPatch(patch)
                       }}
@@ -2898,6 +2958,26 @@ function StrategyCard({ s, expanded, onToggle, watchlistOptions, onPatch, onTogg
                 })}
               </div>
             </div>
+            {s.type === 'pivotal' && (
+              <div>
+                <p className="text-[10px] mb-1.5 dt-text-secondary">Pivotal List</p>
+                <div className="flex gap-2 flex-wrap">
+                  {pivotalListOptions.map(opt => {
+                    const selected = String((s.params as Record<string, unknown>).pivotalListId ?? '') === opt.key
+                    return (
+                      <button key={opt.key} onClick={() => !locked && patchParam('pivotalListId', opt.key)} disabled={locked}
+                        className="px-2.5 py-1 rounded-md text-[10px] disabled:opacity-50"
+                        style={{
+                          background: selected ? `${s.color}22` : 'rgba(255,255,255,0.03)',
+                          border: `1px solid ${selected ? s.color + '66' : 'rgba(255,255,255,0.1)'}`,
+                          color: selected ? s.color : 'rgba(255,255,255,0.5)',
+                          fontFamily:'JetBrains Mono, monospace',
+                        }}>{selected ? '✓ ' : ''}{opt.name}</button>
+                    )
+                  })}
+                </div>
+              </div>
+            )}
           </div>
 
           {/* Params editable */}
@@ -3015,7 +3095,7 @@ function buildStrategyCsvRows(draft: { capital: CapitalConfig; strategies: Strat
       })
     }
     for (const [key, value] of Object.entries(strategy.params)) {
-      const descriptions = strategy.type === 'dip' ? DIP_PARAM_DESCRIPTIONS : MOMENTUM_PARAM_DESCRIPTIONS
+      const descriptions = getParamDescriptions(strategy.type)
       rows.push({
         strategyName: strategy.name,
         parameter: getPreviewLabel(key),

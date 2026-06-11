@@ -54,7 +54,7 @@ Win rate 94–100% in peak years. Brokerage paid 6 years: ₹4,89,748 (7.6% of g
 
 ## 4. The Strategies (Multi-strategy Framework)
 
-The original "two strategies" model evolved on 21 May into a **multi-strategy framework**. Each strategy is a JSON record in `data/strategy.json` with its own type, watchlist, exits, and handoff window. Two ship by default:
+The original "two strategies" model evolved on 21 May into a **multi-strategy framework**. Each strategy is a JSON record in `data/strategy.json` with its own type, watchlist or script-list linkage, exits, and handoff window. Two ship by default:
 
 ### Strategy 1 — "Accumulator" (Mean Reversion · permanent keeper)
 
@@ -84,9 +84,19 @@ The original "two strategies" model evolved on 21 May into a **multi-strategy fr
 - **Handoff:** if `firstBuyAt` age ≥ `deliveryHandoffDays` (default 15) the position's `strategyId` is re-stamped to `accumulator` — accumulator's EMA-based exits take over.
 - **When used:** "Catalyst mode" (positive/flat days)
 
+### Strategy 3 — "Pivotal" (Jesse Livermore-style breakout)
+
+- **Type:** `pivotal`
+- **Signal source:** a dedicated Pivotal list, not the generic watchlist store. Each script carries `breakoutTriggerPrice`, `t1Pct`, `t2Pct`, `executionMode` (`normal` or `dayEnd`), optional `stopLossPrice`, and notes.
+- **Strategy-level filters:** consolidation window, max consolidation range %, projected/realized volume surge ratio, breakout confirmation candles, scan windows, and delivery handoff days.
+- **`normal` execution:** requires trade above script trigger, projected day volume above the configured surge ratio, and rising recent 5-minute candles during the configured intraday scan window.
+- **`dayEnd` execution:** requires the script to still hold above trigger near the configured close-time check and uses realized day volume instead of projected volume.
+- **Exit order:** script stop-loss first, then T1/T2 lot exits, then handoff to `accumulator` after `deliveryHandoffDays`.
+- **No-loss exception:** only the explicit Pivotal stop-loss path may bypass the normal no-loss sell gate; ordinary Dip/Momentum exits remain unchanged.
+
 ### Custom strategies (user-created)
 
-Users can create additional **dip** or **momentum** strategies via Settings → Strategies (e.g. "quickwin" with T1=1.0%, T2=1.2%, handoff=5d). Each gets its own `dt-<id>` order tag, its own row in `data/positions.json`, and its own monitor params. Universal parking lot is hard-coded to `accumulator` — any custom strategy's positions flow there on expiry/deactivate/delete.
+Users can create additional **dip**, **momentum**, or **pivotal** strategies via Settings → Strategies. Each gets its own `dt-<id>` order tag, its own row in `data/positions.json`, and its own monitor params. Universal parking lot is hard-coded to `accumulator` — any custom strategy's positions flow there on expiry/deactivate/delete.
 
 ### Market Mode
 
@@ -184,6 +194,10 @@ Each strategy carries a `watchlist: string[]` of internal keys it scans. Setting
 ### Delete safety
 
 `listA` and `listB` cannot be deleted (always-on pair). Any other list refuses delete with 409 if any strategy's `watchlist` array references its key — user must unhook from Settings first.
+
+### Pivotal Lists
+
+Pivotal scripts live in their own seed/runtime pair: `config/pivotalLists.json` + `data/pivotalLists.json`. The shape mirrors the named-list pattern with `{ meta, lists }`, but each list entry is a full script record instead of just an NSE symbol. `/pivotal-lists` manages create/rename/delete, blocks deleting the seed key `pivotalA`, and refuses delete when any `pivotal` strategy still references that list.
 
 ---
 

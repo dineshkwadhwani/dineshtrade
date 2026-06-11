@@ -5,8 +5,8 @@
 import { NextResponse } from 'next/server'
 import { cookies } from 'next/headers'
 import { verifySession } from '@/lib/auth'
-import { getCapital } from '@/lib/strategyConfig'
-import { generateRecommendations, runReactiveDipScan } from '@/lib/strategyEngine'
+import { getCapital, getActiveStrategies } from '@/lib/strategyConfig'
+import { generateRecommendations, runReactiveDipScan, runStrategyScan } from '@/lib/strategyEngine'
 
 export const dynamic = 'force-dynamic'
 
@@ -29,12 +29,21 @@ export async function POST() {
     }),
   ])
 
+  const pivotalStrategies = getActiveStrategies().filter(strategy => strategy.type === 'pivotal')
+  const pivotalRuns = await Promise.all(pivotalStrategies.map(strategy => runStrategyScan(strategy).catch(err => {
+    console.warn(`[/api/strategy] pivotal scan failed ${strategy.id}:`, String(err).slice(0, 200))
+    return { recommendations: [] }
+  })))
+  const pivotalRecs = pivotalRuns.flatMap(run => run.recommendations || [])
+
   // De-dupe by symbol; reactive wins since it carries the more specific
   // "intraday −3%+" reason and uses today's down-day count.
   const reactiveSymbols = new Set(reactive.recommendations.map(r => r.symbol))
+  const pivotalSymbols = new Set(pivotalRecs.map(r => r.symbol))
   const merged = [
     ...reactive.recommendations,
-    ...result.recommendations.filter(r => !reactiveSymbols.has(r.symbol)),
+    ...pivotalRecs.filter(r => !reactiveSymbols.has(r.symbol)),
+    ...result.recommendations.filter(r => !reactiveSymbols.has(r.symbol) && !pivotalSymbols.has(r.symbol)),
   ]
 
   return NextResponse.json({

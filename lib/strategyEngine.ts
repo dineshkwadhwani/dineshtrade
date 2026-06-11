@@ -14,6 +14,7 @@ import {
 import { getInstrumentTokens } from './instruments'
 import { loadAndRefreshCloses } from './dailyCloses'
 import { computeEMA, consecutiveDownDays, deviationPct } from './ema'
+import { scanPivotalStrategy } from './pivotal'
 
 // ──────── DAILY-AGGREGATE CACHE (Strategy 2 momentum) ────────
 // Cache EMA + 10-day avg volume per symbol, keyed by IST date. Reset each day.
@@ -50,7 +51,7 @@ export interface Recommendation {
   priceSource: PriceSource
   dayChangePct?: number    // today's % change from previous close — for direction indicator on Engine
   action: string
-  strategy: 'catalyst' | 'accumulator'
+  strategy: string
   source: string
   reason: string
   target1: number
@@ -62,7 +63,7 @@ export interface Recommendation {
 // spec). Preflight gate 8 (no-loss-sell rider) makes auto-SELL impossible below
 // entry, so an SL number would be misleading. Manual SELLs are user judgement.
 
-export type StrategyMode = 'catalyst' | 'dip' | 'circuit' | 'error'
+export type StrategyMode = 'catalyst' | 'dip' | 'pivotal' | 'circuit' | 'error'
 
 export interface StrategyResult {
   mode: StrategyMode
@@ -356,7 +357,7 @@ async function runStrategy2(now: string, giftChangePct: number, strategyOverride
       priceSource: 'kite_live',
       dayChangePct: s.dayGainPct,
       action: 'BUY',
-      strategy: 'catalyst',
+      strategy: strategy?.id || 'catalyst',
       source: 'Momentum scan',
       reason: `+${s.dayGainPct.toFixed(2)}% today, ${cfg.consecutiveCandles} rising 5-min candles, vol > prorated 10-day avg, within ${cfg.emaProximityPct}% of 20-EMA (₹${s.agg.ema20.toFixed(2)})`,
       target1: t1,
@@ -843,7 +844,7 @@ export async function runStrategyScan(strategy: Strategy): Promise<StrategyResul
   const gate = checkGiftNiftyGate(strategy.giftNiftyGate, giftChangePct)
   if (!gate.allowed) {
     return {
-      mode: strategy.type === 'dip' ? 'dip' : 'catalyst',
+      mode: strategy.type === 'dip' ? 'dip' : strategy.type === 'pivotal' ? 'pivotal' : 'catalyst',
       recommendations: [], giftChangePct,
       message: `${strategy.name}: GIFT Nifty gate blocked — ${gate.reason}`,
       generatedAt: now,
@@ -852,6 +853,16 @@ export async function runStrategyScan(strategy: Strategy): Promise<StrategyResul
 
   if (strategy.type === 'momentum') return runStrategy2(now, giftChangePct, strategy)
   if (strategy.type === 'dip')      return runStrategy1(now, giftChangePct, strategy)
+  if (strategy.type === 'pivotal') {
+    const result = await scanPivotalStrategy(strategy)
+    return {
+      mode: 'pivotal',
+      recommendations: result.recommendations.map(rec => ({ ...rec, strategy: strategy.id })),
+      giftChangePct,
+      message: result.message,
+      generatedAt: now,
+    }
+  }
   return {
     mode: 'error', recommendations: [], giftChangePct,
     message: `Unknown strategy type "${strategy.type}" for "${strategy.id}".`,
@@ -979,7 +990,7 @@ async function runStrategy1(now: string, giftChangePct: number, strategyOverride
       priceSource: 'kite_live',
       dayChangePct: dayChgPct,
       action: 'BUY',
-      strategy: 'accumulator',
+      strategy: strategy?.id || 'accumulator',
       source: 'EMA stretch signal',
       reason: `${Math.abs(dev).toFixed(1)}% below 20-EMA (₹${v.ema.toFixed(2)}); ${v.downDays} consecutive down days`,
       target1: +v.ema.toFixed(2),                                                        // exit 50% on EMA recovery
@@ -1142,7 +1153,7 @@ export async function runReactiveDipScan(strategyOverride?: Strategy): Promise<R
         priceSource: 'kite_live',
         dayChangePct: dayChgPct,
         action: 'BUY',
-        strategy: 'accumulator',
+        strategy: strategy?.id || 'accumulator',
         source: 'Reactive dip (intraday −3%+)',
         reason: `Intraday ${dayChgPct.toFixed(2)}% drop · ${Math.abs(dev).toFixed(1)}% below 20-EMA (₹${ema.toFixed(2)}) · ${downDays} consecutive down days (today counted)`,
         target1: +ema.toFixed(2),

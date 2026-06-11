@@ -76,6 +76,15 @@ Dinesh has been trading Indian equities since **FY2020** across **4 family accou
 - **EOD behaviour** (added 28 May): `exitSameDayOnPositive` and `squareOffEOD` flags control what happens from `exitSameDayTime` onward (default 15:10)
 - **Handoff:** after `deliveryHandoffDays` (default 15) → Accumulator takes over
 
+### Strategy 3 — Pivotal (Breakout)
+
+- Type: `pivotal`
+- Uses a dedicated Pivotal list store, not the generic watchlist store
+- Each script carries `breakoutTriggerPrice`, `t1Pct`, `t2Pct`, `executionMode` (`normal` or `dayEnd`), optional `stopLossPrice`, and notes
+- Strategy params add consolidation, volume-surge, confirmation-candle, close-time, and handoff controls
+- `normal` mode buys on confirmed intraday breakout; `dayEnd` mode buys only if the breakout sustains into the configured close window
+- Exits respect script stop-loss, then T1/T2, then hand off to `accumulator`
+
 ### Market Boom (example third strategy)
 
 - `squareOffEOD=true`, `exitSameDayOnPositive=true`, `deliveryHandoffDays=0`
@@ -126,6 +135,7 @@ Dinesh has been trading Indian equities since **FY2020** across **4 family accou
 | Dashboard | `/dashboard` | Morning briefing, global indices, GIFT Nifty |
 | Watchlist | `/watchlist` | Read-only dynamic tabs per list, live LTP colour coding |
 | Manage Lists | `/manage-lists` | Create/rename/delete watchlists |
+| Pivotal Lists | `/pivotal-lists` | Create/rename/delete Pivotal script lists and edit trigger/target/SL fields |
 | Trading Engine | `/engine` | Recommendations, scan tiles, Execute, pending orders |
 | Current Holdings | `/holdings` | Holdings + T0 positions merged, Buy/Sell (B/S) buttons |
 | Today's Positions | `/positions` | Broker-style open positions for today, live P&L, Square Off |
@@ -144,7 +154,7 @@ Dinesh has been trading Indian equities since **FY2020** across **4 family accou
 
 ### Cron Architecture
 
-- **Core 5-min tick** (`*/5 9-15 * * 1-5`): SELL monitors (S1 + S2), EOD square-off, manual-sell reconciliation, reactive dip scan
+- **Core 5-min tick** (`*/5 9-15 * * 1-5`): SELL monitors (S1 + S2 + Pivotal), EOD square-off, manual-sell reconciliation, reactive dip scan
 - **Per-strategy BUY scan tasks**: each active strategy gets its own cron at `scanIntervalMin` — independent of the 5-min tick
 - **15:35 IST**: daily retrospective email
 - **Settings → Strategies UI**: fixed rules moved out of General into the Strategies tab as a read-only accordion; Shared Capital is now its own accordion; each strategy remains its own collapsible card; top-level `Export to CSV` downloads the current draft as `Strategy name, Parameter, Parameter description, Value`
