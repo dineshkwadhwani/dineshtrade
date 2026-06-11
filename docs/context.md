@@ -77,8 +77,10 @@ The original "two strategies" model evolved on 21 May into a **multi-strategy fr
   - Volume > prorated 10-day average
   - LTP within ±3% of 20-day EMA
   - Scan window: 9:30–14:30 IST
-- **Exit T1:** entry × 1.015 → SELL 50% immediately
-- **Exit T2:** entry × 1.020 → SELL remainder
+- **Exit T1:** each open lot sells 50% at that lot's own entry × 1.015
+- **Exit T2:** that same lot sells the remainder at its own entry × 1.020
+- **Live target-touch fallback:** if the latest completed 5-minute candle high touched T1/T2 but current LTP has retraced, Catalyst can still fire the exit immediately so cron ticks do not miss a valid touch. Quote day-high is not used.
+- **No-loss guard:** that fallback does not bypass the no-loss rider when the current sell price is below the lot's own entry.
 - **Handoff:** if `firstBuyAt` age ≥ `deliveryHandoffDays` (default 15) the position's `strategyId` is re-stamped to `accumulator` — accumulator's EMA-based exits take over.
 - **When used:** "Catalyst mode" (positive/flat days)
 
@@ -202,12 +204,12 @@ Each strategy carries a `watchlist: string[]` of internal keys it scans. Setting
 - AI provider abstraction (Anthropic / Gemini / Groq / OpenAI) — flip via `AI_PROVIDER` env
 - Morning market briefing on Dashboard (cached, USE_MOCK_MARKET toggle for dev)
 - Strategy 1 (oscillator) — full EMA computation, two-tranche SELL monitor, persistent `strategy1.json` registry
-- Strategy 2 (catalyst) — momentum signal with 3-rising-candle + volume + EMA filters; intraday SELL monitor; 15:00 IST handoff to Strategy 1
+- Strategy 2 (catalyst) — momentum signal with 3-rising-candle + volume + EMA filters; lot-specific intraday SELL monitor; optional rolling EOD positive exit from `exitSameDayTime`; 15-day handoff to `accumulator`
 - Cron orchestration via `node-cron` (Asia/Kolkata, gated by `CRON_ENABLED=true`):
   - Tick every 5 min, 9:15–15:30 IST weekdays — runs S1 + S2 monitors; first dip-mode tick of the day runs the BUY scan
   - 15:35 IST — daily retrospective email + monthly rollup on last trading day
 - 8 preflight gates including live-held-qty `noShort` with auto-clamp
-- Watchlist live LTPs via batched `/quote`, red/green colouring
+- Watchlist live LTPs via batched `/quote`, red/green colouring, read-only by design
 - Manual Buy/Sell modal on Holdings and Positions — bypasses rate-limit gates, tagged `dt-manual`
 - OOS (Out Of System) badge on Holdings — pre-existing positions never auto-managed
 
@@ -225,8 +227,8 @@ Each strategy carries a `watchlist: string[]` of internal keys it scans. Setting
 - Cron retrospective at 15:35 IST with three skip rules: not a market day, SMTP unconfigured, no activity (zero trades AND zero signals).
 - New in-app `/trades` page — tabbed: "Today's Orders" (existing live Kite order log) and "Retrospective" (date-picker dropdown of all journal dates, renders the same `DailyReport` payload the email uses).
 - New API: `GET /api/journal/dates` and `GET /api/journal/[date]`.
-- New `/positions` page — joins Kite `/portfolio/positions` with today's `/orders` to enrich each row with a strategy tag (S1 / S2 / Manual / OOS / Mixed). Header strip: Open Positions · Capital · Unrealized · Day P&L. Each row: Symbol + tag pill + product (CNC/MIS) + qty + avg + LTP (with % change) + stacked P&L (unrealized + realized) + **Square Off** action button.
-- Square Off — opens OrderModal pre-filled with SELL · held qty · matching product (MIS/CNC) · MARKET · LTP. Manual override of auto: after fill, S1 monitor's noShort gate removes the symbol from `strategy1.json`; S2 monitor's `qty <= 0` branch skips. Same `dt-manual` tag path.
+- New `/positions` page — broker-style view of today's still-open day positions only. Header strip: Open Positions · Capital · Unrealized · Day P&L. Each row shows Symbol + product (CNC/MIS) + qty + avg + live LTP + live P&L + **Square Off** action button. Lot/tranche detail and strategy pills are intentionally hidden on this page for clarity.
+- Square Off — opens OrderModal pre-filled with SELL · held qty · matching product (MIS/CNC) · MARKET · LTP. It uses the same `dt-manual` order path; SELL journaling preserves the tracked owning strategy even though the source is manual.
 - "Today's Positions" nav item added between Holdings and Today's Orders.
 
 ### Phase 5 — built on 20–21 May 2026
@@ -238,7 +240,7 @@ Each strategy carries a `watchlist: string[]` of internal keys it scans. Setting
 - **`accumulator` is the universal parking lot** — every momentum strategy hands off here when `deliveryHandoffDays` elapses; deactivating / deleting any other strategy migrates its open positions to accumulator via `migrateStrategyId(from, 'accumulator')`. Settings UI protects accumulator's Active toggle + Delete button; API refuses payloads where accumulator is missing or inactive.
 - **Strategy rename** — `oscillator` → `accumulator` across config seed, code literals, type unions, journal `StrategyTag`. Runtime migration in `lib/strategyConfigStore.ts:getRuntimeStrategyConfig()` rewrites legacy `data/strategy.json` entries on first read.
 - **Tile-BUY tag scheme** — Engine page tile BUY (and rec-card Execute) tags Kite orders as `dt-${strategy.id}` instead of legacy `dt-s1` / `dt-s2`. `/api/zerodha` parses the tag → `strategyId` and routes to `positions.recordBuy()`. Legacy tags still understood for back-compat.
-- **Positions page tag pill** — `PositionTag` shape is now `{ kind, strategyId?, label, color }`. Rendered from each strategy's display name + color (driven by the store's `strategyId`, falling back to order-tag inference for legacy / OOS rows).
+- **Positions page simplification** — strategy ownership and lot state stay in the unified store for automation, reporting, and holdings splits, but the current `/positions` UI deliberately hides tag pills and per-lot blocks to stay close to the broker view of what is still open today.
 
 #### New preflight gates
 
@@ -291,8 +293,14 @@ Each strategy carries a `watchlist: string[]` of internal keys it scans. Setting
 
 - Three new params per momentum strategy: `exitSameDayTime` (default `"15:10"`), `exitSameDayOnPositive`, `squareOffEOD`. Visible/editable in Settings → Strategies → "End of Day Behaviour" section.
 - `squareOffEOD=true` sells all positions at EOD regardless of P&L — bypasses no-loss gate via new `bypassNoLossSell` flag in `runPreflight()`.
-- `exitSameDayOnPositive=true` now checks estimated net P&L after charges, not just raw gross profit.
+- `exitSameDayOnPositive=true` now checks estimated net P&L after charges, not just raw gross profit, and keeps re-checking on every later 5-minute tick from `exitSameDayTime` onward.
 - Market Boom strategy ships with both flags true + `deliveryHandoffDays=0`.
+
+#### Catalyst exit hardening (10–11 Jun 2026)
+
+- Target-touch exits now use live LTP plus the latest completed 5-minute candle high, not quote day-high.
+- The completed-candle fallback only applies when that candle is not older than the lot being evaluated.
+- A touched-then-retraced target exit no longer bypasses no-loss when the current sell price is below that lot's own entry.
 
 #### CNC holdings bug fix
 

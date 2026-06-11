@@ -93,10 +93,10 @@ This spec documents the *user-visible* behaviour: what the app does, when, and w
 - Funds + no-short + market-open gates still apply.
 - On SELL with partial holdings, auto-clamps to held qty.
 
-### F3.4 — Positions page lot visibility
+### F3.4 — Positions page simplification
 
-- The Positions page still keeps one broker-shaped action row per symbol, but strategy-tracked rows can now show an inline **Open Lots** block beneath that row.
-- Each lot line shows the original buy timestamp, entry price, current open qty versus original qty, tranche-1 status, and live P&L from the current LTP. This lets repeated Accumulator or Catalyst buys remain visible as separate tranches without splitting the main square-off row.
+- The Positions page shows only today's still-open broker positions, one action row per symbol.
+- It intentionally does not expose lot/tranche detail or strategy-tag pills. Those remain internal for automation, Holdings splits, and reporting, but the Positions page stays close to the broker view so the user sees only what is currently open and actionable.
 
 ### Holdings Nuances
 
@@ -157,7 +157,7 @@ Strategy 1 has **two trigger paths** — a once-per-day morning scan and a react
   3. Volume > prorated 10-day average
   4. LTP within **±3% of 20-day EMA** (not a runaway)
   5. Within the 9:30–14:30 IST scan window
-- **Tranche exits (replaced 19 May):** T1 = entry × (1 + `t1Pct`/100), T2 = entry × (1 + `t2Pct`/100). T1 fires first, sells 50%. T2 fires later, sells remainder. Defaults: T1 = 1.5%, T2 = 2.0%. Both anchored to **first BUY price** (pyramid-aware).
+- **Tranche exits (replaced 19 May):** T1 = lot entry × (1 + `t1Pct`/100), T2 = lot entry × (1 + `t2Pct`/100). T1 fires first, sells 50% of that lot. T2 fires later, sells that lot's remainder. Defaults: T1 = 1.5%, T2 = 2.0%.
 - When the user explicitly executes an additional BUY from the Engine on an already-open momentum position for the same strategy, that BUY becomes a new lot with its own T1/T2 targets. It must not overwrite or merge into the older lot's exit ladder. Summary views may show one combined position with weighted-average cost, but monitoring and sells remain lot-specific.
 - On every cron tick, the Strategy 2 exit monitor checks both live LTP and the most recent completed 5-minute candle. If that candle's high already touched T1 or T2 but the current price has fallen back below the target, the matching sell still fires immediately at market so intraday target touches are not missed between cron runs. The candle fallback only applies when that completed candle is not older than the lot being evaluated, and it does not bypass the no-loss gate when the current sell price is below that lot's own entry.
 - **Multi-day handoff (replaced the old 3:00 PM cutoff):** Strategy 2 keeps trying its T1/T2 every day until `firstBuyAt` age ≥ `deliveryHandoffDays` (default **15 calendar days**, per-strategy configurable). At handoff the position's `strategyId` is re-stamped to `accumulator` in the unified position store — accumulator's monitor takes over with EMA-based exits, no time limit.
@@ -500,44 +500,27 @@ Fires on the last trading day of the month (after the daily report). Shows: tota
 - Multi-account tabs (one per connected account)
 - Header strip: Open Positions count · Capital Deployed · Unrealized · Day P&L (incl. closed)
 - **Desktop layout** — 12-column table:
-  - Symbol + strategy tag pill (S1 gold / S2 blue / Manual purple / OOS gray / Mixed amber) + product chip (CNC / MIS)
-  - Qty, Avg, LTP (with intraday %), stacked P&L (unrealized + realized today), Square Off button
+  - Symbol + product chip (CNC / MIS)
+  - Qty, Avg, live LTP (with intraday %), stacked P&L (unrealized + realized today), Square Off button
 - **Mobile layout (< sm breakpoint)** — Kite-style two-column 3-line card:
-  - Left column: symbol (big) + tag pills, Avg ₹X, Qty N
+  - Left column: symbol (big) + product chip, Avg ₹X, Qty N
   - Right column: P&L (big, coloured), LTP ₹X + today %, **× SQ** button
   - Header row hidden on mobile (cells carry inline labels)
-- Closed-today rows are kept in the list but dimmed (so you can see what fired earlier today)
+- Only non-flat day positions are shown; fully closed rows are omitted
 - Square Off button is always visible; disabled outside market hours per CB5
+- Strategy attribution is intentionally hidden on this page even when the position is strategy-owned
 
-### F8.2 — Strategy tag derivation
+### F8.2 — Data sourcing
 
-*Updated 2 June 2026 — driven by the unified position store's `strategyId`, with accumulator intake for broker-held positions that would previously have rendered as OOS.*
-
-The `PositionTag` shape returned by `GET /api/positions` is now:
-
-```ts
-
-{ kind: 'strategy' | 'manual' | 'pre' | 'mixed', strategyId?: string, label: string, color: string }
-
-```
-
-Resolution order:
-
-1. If `data/positions.json` has a row for `(account, symbol)` → `kind: 'strategy'`, `label` = strategy's display name (truncated), `color` = strategy's configured color
-2. Else infer from today's filled-order tags for the symbol:
-
-- Single `dt-<strategyId>` (or legacy `dt-s1*` / `dt-s2*`) → `strategy` pill using that strategy's display name + color
-- Only `dt-manual` → `manual` (purple `MANUAL` pill)
-- No app tags → `strategy` pill for `accumulator` (broker-held position absorbed into system ownership)
-- Multiple distinct strategies → `mixed` (amber `MIXED` pill)
-
-The pill carries a tooltip naming the strategy id ("Owned by strategy: quickwin") so the user can quickly trace which strategy will manage the exit.
+- `GET /api/positions` is a broker-style day-positions endpoint, not a strategy-debug endpoint.
+- It joins Kite day positions with today's complete orders and live `/quote` prices so each row uses a live LTP plus internally consistent realized/unrealized/day P&L numbers.
+- Strategy ownership and lot state remain in the unified position store, but that metadata is not returned to the Positions page UI.
 
 ### F8.3 — Square Off action
 
 - Click opens OrderModal pre-filled with: SELL · held qty · matching product (MIS or CNC) · MARKET · current LTP
 - User can edit qty (partial close), switch to LIMIT, or change anything else before placing
-- Fires the same `dt-manual` order path → tagged Manual in the journal
+- Fires the same `dt-manual` order path; SELL journaling preserves the tracked owning strategy from the position store while marking the source as manual
 - On success, the row auto-refreshes (modal closes, positions reload)
 
 ### Positions Nuances
@@ -737,7 +720,7 @@ The status column shows a single glyph instead of the raw Kite enum, with a tool
 
 - **Why accumulator is structurally permanent:** every momentum strategy hands off to it. If it could disappear, half the runtime invariants break.
 - **Why we don't allow per-strategy handoff targets:** invites chained handoffs (`quickwin → deep_dip → accumulator`) that loop or surprise. One config target = one mental model.
-- **Manual orders never migrate to accumulator:** they don't have a `strategyId` in the store. The position store only records auto and Engine-Execute BUYs (which both carry a strategy tag).
+- **Manual BUYs are absorbed into accumulator:** `dt-manual` BUYs are recorded into the unified store with `strategyId: 'accumulator'`, while manual SELLs preserve the tracked owning strategy for attribution.
 
 ---
 
@@ -958,7 +941,7 @@ All Buy and Sell action buttons use single-letter labels ("B" / "S") universally
 
 ## Epic 19 — Today's Orders — Strategy Tag *(added 29 May 2026)*
 
-The Today's Orders table now shows a coloured strategy badge inline next to the symbol name (same visual pattern as Holdings and Positions pages). The badge is derived from the Kite order `tag` field:
+The Today's Orders table now shows a coloured strategy badge inline next to the symbol name (same visual pattern as Holdings and other strategy-aware surfaces). The badge is derived from the Kite order `tag` field:
 
 | Kite tag | Badge |
 | --- | --- |

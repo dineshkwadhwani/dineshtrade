@@ -1,7 +1,7 @@
 # DineshTrade — Project Context
 
-**Last Updated:** 07 Jun 2026
-**Version:** 2.3
+**Last Updated:** 11 Jun 2026
+**Version:** 2.4
 **Purpose:** This file gives Claude (or any AI assistant) full context of everything discussed so far about this project. Start any new conversation by uploading this file.
 
 ---
@@ -70,8 +70,10 @@ Dinesh has been trading Indian equities since **FY2020** across **4 family accou
 - Internal id: `catalyst`
 - **Signal:** Day gain +0.5–1.5%, 3+ rising 5-min candles, volume > 10-day avg, LTP within ±3% of EMA
 - **Scan window:** 09:30–14:30 IST, every configured `scanIntervalMin` (default 3 min via per-strategy cron task)
-- **Exit T1 = +1.5%, T2 = +2.0%** (both anchored to firstBuyPrice)
-- **EOD behaviour** (added 28 May): `exitSameDayOnPositive` and `squareOffEOD` flags control what happens at `exitSameDayTime` (default 15:10)
+- **Exit T1 = +1.5%, T2 = +2.0%** per open lot, anchored to that lot's own entry price
+- **Live exit monitor:** checks both current LTP and the latest completed 5-minute candle high so cron ticks do not miss valid intraday target touches; quote day-high is not used for exits
+- **No-loss rider stays in force:** a touched-then-retraced exit stays blocked if the current sell price is below that lot's own entry
+- **EOD behaviour** (added 28 May): `exitSameDayOnPositive` and `squareOffEOD` flags control what happens from `exitSameDayTime` onward (default 15:10)
 - **Handoff:** after `deliveryHandoffDays` (default 15) → Accumulator takes over
 
 ### Market Boom (example third strategy)
@@ -122,11 +124,11 @@ Dinesh has been trading Indian equities since **FY2020** across **4 family accou
 | --- | --- | --- |
 | Login | `/login` | Time-based password auth |
 | Dashboard | `/dashboard` | Morning briefing, global indices, GIFT Nifty |
-| Watchlist | `/watchlist` | Dynamic tabs per list, LTP colour coding |
+| Watchlist | `/watchlist` | Read-only dynamic tabs per list, live LTP colour coding |
 | Manage Lists | `/manage-lists` | Create/rename/delete watchlists |
 | Trading Engine | `/engine` | Recommendations, scan tiles, Execute, pending orders |
 | Current Holdings | `/holdings` | Holdings + T0 positions merged, Buy/Sell (B/S) buttons |
-| Today's Positions | `/positions` | Intraday P&L, Square Off |
+| Today's Positions | `/positions` | Broker-style open positions for today, live P&L, Square Off |
 | Today's Orders | `/trades` | Order log + Retrospective tab |
 | Trade Report | `/trade-report` | Date-range P&L from journal |
 | Settings | `/settings` | Accounts, accordion-based strategies editor, backtest, Reset |
@@ -138,7 +140,7 @@ Dinesh has been trading Indian equities since **FY2020** across **4 family accou
 
 ---
 
-## 7. KEY FEATURES BUILT (as of 01 Jun 2026)
+## 7. KEY FEATURES BUILT (as of 11 Jun 2026)
 
 ### Cron Architecture
 
@@ -152,7 +154,7 @@ Dinesh has been trading Indian equities since **FY2020** across **4 family accou
 - Momentum strategy params: `exitSameDayTime` (default "15:10"), `exitSameDayOnPositive`, `squareOffEOD`
 - Visible and editable in Settings → Strategies → "End of Day Behaviour" section
 - `squareOffEOD=true` bypasses the no-loss sell gate (via `bypassNoLossSell` in preflight)
-- `exitSameDayOnPositive=true` now sells only when the estimated net P&L remains positive after Zerodha-style charges
+- `exitSameDayOnPositive=true` now sells only when the estimated net P&L remains positive after Zerodha-style charges, and re-checks on every later 5-minute tick until exit or market close
 - Configurable per-strategy, not global
 
 ### Position Tracking — Holdings Bug Fix (28 May 2026)
@@ -175,6 +177,13 @@ Dinesh has been trading Indian equities since **FY2020** across **4 family accou
 - Root cause found from a BAJFINANCE Catalyst miss: a manually closed momentum position could leave an old `firstBuyPrice` in `positions.json`
 - A later re-buy of the same symbol was then treated as a pyramid add, so Catalyst exits used the stale anchor instead of the fresh entry
 - Fix: manual-sell reconciliation now removes the closed tracked row after journaling, and EOD positive exits compare against net-after-charges profitability
+- Follow-up hardening: Catalyst target-touch exits now use only live LTP plus the latest completed 5-minute candle high for the same lot window, and retracement exits no longer bypass no-loss when the current sell price is below that lot's entry
+
+### UI + Execution Refinements (10–11 Jun 2026)
+
+- Watchlist is now strictly read-only. It remains a monitoring and list-management surface; it never originates Buy or Sell orders.
+- Today's Positions is now intentionally broker-simple: only still-open day positions are shown, with live LTP/P&L and Square Off. Lot/tranche detail stays internal.
+- Engine-page BUY actions continue to preserve the owning strategy via `dt-${strategy.id}` tags, while generic manual BUYs are absorbed into `accumulator` ownership.
 
 ### T+1 Settlement Fix (01 Jun 2026)
 
@@ -383,7 +392,7 @@ Type check only (no build): `npx tsc --noEmit`
 
 ---
 
-## 12. OPEN ISSUES / KNOWN BUGS (as of 01 Jun 2026)
+## 12. OPEN ISSUES / KNOWN BUGS (as of 11 Jun 2026)
 
 - **Login with Kite button**: clicking navigates to `/api/zerodha/login` which should redirect to Kite OAuth. If it "refreshes" instead, check `ZERODHA_ENVIRONMENT` and `PROD_ZERODHA_API_KEY_DINESH` env vars on EC2.
 - **Light mode**: attribute selector overrides apply after React hydration. SSR-rendered pages may flash before light mode applies.
