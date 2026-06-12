@@ -10,6 +10,11 @@ export interface LiveTradeReportOptions {
   toDate: string
   account?: string
   strategyId?: string
+  symbol?: string
+}
+
+export interface LiveTradeReportResult extends StrategyBacktestResult {
+  availableSymbols: string[]
 }
 
 interface SellEvent {
@@ -441,11 +446,12 @@ async function reconcileLiveOpenTrades(
   return reconciled
 }
 
-export async function buildLiveTradeReport(options: LiveTradeReportOptions): Promise<StrategyBacktestResult> {
+export async function buildLiveTradeReport(options: LiveTradeReportOptions): Promise<LiveTradeReportResult> {
   const fromDate = options.fromDate
   const toDate = options.toDate
   const accountFilter = (options.account || '').trim().toUpperCase()
   const strategyFilter = (options.strategyId || '').trim()
+  const symbolFilter = (options.symbol || '').trim().toUpperCase()
   assertYmd(fromDate, 'From date')
   assertYmd(toDate, 'To date')
   if (fromDate > toDate) throw new Error('From date must be on or before To date')
@@ -582,7 +588,7 @@ export async function buildLiveTradeReport(options: LiveTradeReportOptions): Pro
     }
   }
 
-  let includedTrades = allTrades.filter(trade => {
+  let scopedTrades = allTrades.filter(trade => {
     trade.activeInRange = trade.activeInRange || hasActivityInRange(trade, fromDate, toDate)
     if (!trade.activeInRange) return false
     if (accountFilter && trade.account !== accountFilter) return false
@@ -591,13 +597,18 @@ export async function buildLiveTradeReport(options: LiveTradeReportOptions): Pro
     return true
   })
 
-  includedTrades = await reconcileLiveOpenTrades(
-    includedTrades,
+  scopedTrades = await reconcileLiveOpenTrades(
+    scopedTrades,
     selectedAccounts,
     toDate,
     strategyFilter,
     multiAccount,
   )
+
+  const availableSymbols = Array.from(new Set(scopedTrades.map(trade => trade.symbol))).sort((left, right) => left.localeCompare(right))
+  let includedTrades = symbolFilter
+    ? scopedTrades.filter(trade => trade.symbol === symbolFilter)
+    : scopedTrades
 
   const symbols = Array.from(new Set(includedTrades.map(trade => trade.symbol)))
   const closeSeries = await loadDailyCloses(symbols, fromDate, toDate)
@@ -704,6 +715,7 @@ export async function buildLiveTradeReport(options: LiveTradeReportOptions): Pro
   })
 
   return {
+    availableSymbols,
     summary: {
       strategyId: 'real-trades',
       strategyName: `Real Trades · ${fromDate} to ${toDate}`,

@@ -419,7 +419,7 @@ Centralised wrappers — every caller goes through these. Never make raw HTTP ca
 
 ### 5.6 `lib/tradeReport.ts` *(new 23 May 2026)*
 
-- `buildLiveTradeReport({ fromDate, toDate })` → `StrategyBacktestResult`
+- `buildLiveTradeReport({ fromDate, toDate, account?, strategyId?, symbol? })` → `StrategyBacktestResult` plus `availableSymbols[]` for the current report scope
 - Source of truth is journaled `type: 'order'` records, not Kite's session-scoped `/orders` endpoint.
 - Replay model:
   - reads order legs up to `toDate`
@@ -428,8 +428,8 @@ Centralised wrappers — every caller goes through these. Never make raw HTTP ca
   - filters the final report to rows with actual activity inside the selected range
   - uses daily historical candles only to mark still-open positions at the selected `toDate`
   - estimated net fields come from the shared Zerodha-style charge model; historical actual per-leg broker charges are not stored in the journal
-- HTTP surface: `POST /api/trade-report` (authenticated)
-- Current frontend surface: top-level `/trade-report` page with From / To date pickers, broker-truth executed trade rows, open-position marks at the selected `toDate`, and estimated net/charge overlays. The UI intentionally omits synthetic equity-curve and drawdown sections so Trade Report does not present backtest-style capital-path analytics as broker truth.
+- HTTP surface: `POST /api/trade-report` (authenticated). Filters now accept optional `account`, `strategyId`, and `symbol`.
+- Current frontend surface: top-level `/trade-report` page with From / To date pickers, account / strategy / script filters, broker-truth executed trade rows, open-position marks at the selected `toDate`, and estimated net/charge overlays. The script dropdown is populated from unique traded symbols in the current report scope and sorted alphabetically. The UI intentionally omits synthetic equity-curve and drawdown sections so Trade Report does not present backtest-style capital-path analytics as broker truth.
 
 ### 5.6 `lib/positions.ts` *(new 21 May 2026)*
 

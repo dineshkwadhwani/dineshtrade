@@ -3,6 +3,10 @@
 import { useEffect, useState } from 'react'
 import type { StrategyBacktestResult } from '@/lib/backtest'
 
+interface LiveTradeReportResult extends StrategyBacktestResult {
+  availableSymbols?: string[]
+}
+
 interface AccountDisplay {
   name: string
   displayName: string
@@ -24,13 +28,15 @@ export default function TradeReportPage() {
   const [toDate, setToDate] = useState(() => shiftDays(0))
   const [accounts, setAccounts] = useState<AccountDisplay[]>([])
   const [strategies, setStrategies] = useState<StrategyOption[]>([])
+  const [symbolOptions, setSymbolOptions] = useState<string[]>([])
   const [accountFilter, setAccountFilter] = useState('')
   const [strategyFilter, setStrategyFilter] = useState('')
+  const [symbolFilter, setSymbolFilter] = useState('')
   const [loading, setLoading] = useState(false)
   const [loaded, setLoaded] = useState(false)
   const [error, setError] = useState('')
   const [info, setInfo] = useState('')
-  const [result, setResult] = useState<StrategyBacktestResult | null>(null)
+  const [result, setResult] = useState<LiveTradeReportResult | null>(null)
 
   useEffect(() => {
     Promise.all([
@@ -44,10 +50,10 @@ export default function TradeReportPage() {
       setStrategies(nextStrategies)
     }).catch(() => {})
 
-    runReport(fromDate, toDate, accountFilter, strategyFilter)
+    runReport(fromDate, toDate, accountFilter, strategyFilter, symbolFilter)
   }, [])
 
-  async function runReport(nextFrom = fromDate, nextTo = toDate, nextAccount = accountFilter, nextStrategy = strategyFilter) {
+  async function runReport(nextFrom = fromDate, nextTo = toDate, nextAccount = accountFilter, nextStrategy = strategyFilter, nextSymbol = symbolFilter) {
     setLoading(true)
     setError('')
     setInfo('')
@@ -55,22 +61,27 @@ export default function TradeReportPage() {
       const res = await fetch('/api/trade-report', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ fromDate: nextFrom, toDate: nextTo, account: nextAccount, strategyId: nextStrategy }),
+        body: JSON.stringify({ fromDate: nextFrom, toDate: nextTo, account: nextAccount, strategyId: nextStrategy, symbol: nextSymbol }),
       })
       const data = await res.json()
       if (!res.ok) {
         setResult(null)
+        setSymbolOptions([])
         setError(data.error || `Trade report failed (HTTP ${res.status})`)
         return
       }
-      setResult(data.result || null)
+      const nextResult = (data.result || null) as LiveTradeReportResult | null
+      setResult(nextResult)
+      setSymbolOptions(Array.isArray(nextResult?.availableSymbols) ? nextResult.availableSymbols : [])
       const filters = [
         nextAccount ? `Account: ${nextAccount}` : 'All accounts',
         nextStrategy ? `Strategy: ${nextStrategy === 'manual' ? 'Manual' : (strategies.find(strategy => strategy.id === nextStrategy)?.name || nextStrategy)}` : 'All strategies',
+        nextSymbol ? `Script: ${nextSymbol}` : 'All scripts',
       ]
       setInfo(`Loaded real trades from ${nextFrom} to ${nextTo} · ${filters.join(' · ')}`)
     } catch {
       setResult(null)
+      setSymbolOptions([])
       setError('Network error while loading trade report')
     } finally {
       setLoading(false)
@@ -103,7 +114,7 @@ export default function TradeReportPage() {
           </button>
         </div>
 
-        <div className="grid grid-cols-1 md:grid-cols-2 xl:grid-cols-4 gap-4 mt-5">
+        <div className="grid grid-cols-1 md:grid-cols-2 xl:grid-cols-5 gap-4 mt-5">
           <div>
             <label className="block text-[10px] tracking-widest uppercase mb-1.5" style={{ color:'rgba(201,168,76,0.55)', fontFamily:'JetBrains Mono, monospace' }}>
               From Date
@@ -178,6 +189,30 @@ export default function TradeReportPage() {
               <option value="manual">Manual</option>
               {strategies.map(strategy => (
                 <option key={strategy.id} value={strategy.id}>{strategy.name}</option>
+              ))}
+            </select>
+          </div>
+          <div>
+            <label className="block text-[10px] tracking-widest uppercase mb-1.5" style={{ color:'rgba(201,168,76,0.55)', fontFamily:'JetBrains Mono, monospace' }}>
+              Script
+            </label>
+            <select
+              value={symbolFilter}
+              onChange={e => {
+                const nextSymbol = e.target.value
+                setSymbolFilter(nextSymbol)
+                setResult(null)
+                setError('')
+                setInfo('')
+                if (loaded && fromDate && toDate) {
+                  void runReport(fromDate, toDate, accountFilter, strategyFilter, nextSymbol)
+                }
+              }}
+              className="w-full px-3 py-2.5 rounded-lg text-[12px] outline-none"
+              style={{ background:'rgba(255,255,255,0.04)', border:'1px solid rgba(201,168,76,0.25)', color:'#c9a84c', fontFamily:'JetBrains Mono, monospace' }}>
+              <option value="">All scripts</option>
+              {symbolOptions.map(symbol => (
+                <option key={symbol} value={symbol}>{symbol}</option>
               ))}
             </select>
           </div>
