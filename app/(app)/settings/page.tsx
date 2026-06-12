@@ -2939,25 +2939,34 @@ function StrategyCard({ s, expanded, onToggle, watchlistOptions, pivotalListOpti
             </div>
             <ColorField label="Color" value={s.color} onChange={v => onPatch({ color: v })} disabled={locked} />
             <NumField  label="Scan Interval (min)" value={s.scanIntervalMin} onChange={v => onPatch({ scanIntervalMin: Math.max(1, Math.round(v)) })} desc="Cron fires every N minutes during market hours." disabled={locked} />
-            <div>
-              <p className="text-[10px] mb-1.5 dt-text-secondary">Watchlist (select one or more)</p>
-              <div className="flex gap-2 flex-wrap">
-                {watchlistOptions.map(opt => {
-                  const on = s.watchlist.includes(opt.key)
-                  return (
-                    <button key={opt.key} onClick={() => !locked && toggleListKey(opt.key)} disabled={locked}
-                      title={opt.key}
-                      className="px-2.5 py-1 rounded-md text-[10px] disabled:opacity-50"
-                      style={{
-                        background: on ? `${s.color}22` : 'rgba(255,255,255,0.03)',
-                        border: `1px solid ${on ? s.color + '66' : 'rgba(255,255,255,0.1)'}`,
-                        color: on ? s.color : 'rgba(255,255,255,0.5)',
-                        fontFamily:'JetBrains Mono, monospace',
-                      }}>{on ? '✓ ' : ''}{opt.name}</button>
-                  )
-                })}
+            {s.type !== 'pivotal' ? (
+              <div>
+                <p className="text-[10px] mb-1.5 dt-text-secondary">Watchlist (select one or more)</p>
+                <div className="flex gap-2 flex-wrap">
+                  {watchlistOptions.map(opt => {
+                    const on = s.watchlist.includes(opt.key)
+                    return (
+                      <button key={opt.key} onClick={() => !locked && toggleListKey(opt.key)} disabled={locked}
+                        title={opt.key}
+                        className="px-2.5 py-1 rounded-md text-[10px] disabled:opacity-50"
+                        style={{
+                          background: on ? `${s.color}22` : 'rgba(255,255,255,0.03)',
+                          border: `1px solid ${on ? s.color + '66' : 'rgba(255,255,255,0.1)'}`,
+                          color: on ? s.color : 'rgba(255,255,255,0.5)',
+                          fontFamily:'JetBrains Mono, monospace',
+                        }}>{on ? '✓ ' : ''}{opt.name}</button>
+                    )
+                  })}
+                </div>
               </div>
-            </div>
+            ) : (
+              <div className="rounded-lg p-3 dt-surface">
+                <p className="text-[10px] mb-1 dt-text-secondary">Watchlist</p>
+                <p className="text-[11px] dt-text-muted">
+                  Not used for Pivotal execution. This strategy scans only the selected Pivotal List below.
+                </p>
+              </div>
+            )}
             {s.type === 'pivotal' && (
               <div>
                 <p className="text-[10px] mb-1.5 dt-text-secondary">Pivotal List</p>

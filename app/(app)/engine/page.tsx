@@ -72,6 +72,35 @@ interface KiteOrder {
   tag?: string
 }
 
+interface StrategySummary {
+  id: string
+  name: string
+  color: string
+  type: string
+  active?: boolean
+  scanIntervalMin?: number
+}
+
+function strategyTags(id: string): string[] {
+  if (id === 'accumulator') return ['dt-accumulator', 'dt-s1']
+  if (id === 'catalyst') return ['dt-catalyst', 'dt-s2']
+  return [`dt-${id}`]
+}
+
+function strategyTypeLabel(type: string): string {
+  if (type === 'momentum') return 'Momentum'
+  if (type === 'dip') return 'Accumulator'
+  if (type === 'pivotal') return 'Pivotal'
+  return type
+}
+
+function strategyBadgeLabel(strategyId: string, strategyType?: string, strategyName?: string): string {
+  if (strategyId === 'catalyst') return '⚡ Catalyst'
+  if (strategyId === 'accumulator') return '📊 EMA Dip'
+  if (strategyType === 'pivotal') return `🔶 ${strategyName || 'Pivotal'}`
+  return strategyName || strategyId
+}
+
 export default function EnginePage() {
   const [accounts, setAccounts] = useState<AccountDisplay[]>([])
   const [connected, setConnected] = useState<string[]>([])
@@ -84,6 +113,7 @@ export default function EnginePage() {
   const [cronStatus, setCronStatus] = useState<CronStatusResponse | null>(null)
   const [quotaCaps, setQuotaCaps] = useState<{ buyCap: number; sellCap: number }>({ buyCap: 0, sellCap: 0 })
   const [activeStrategyIntervals, setActiveStrategyIntervals] = useState<{ name: string; intervalMin: number }[]>([])
+  const [strategySummaries, setStrategySummaries] = useState<StrategySummary[]>([])
 
   useEffect(() => {
     Promise.all([
@@ -101,6 +131,18 @@ export default function EnginePage() {
         sellCap: typeof capital?.maxSellsPerDay === 'number' ? capital.maxSellsPerDay : 0,
       })
       if (Array.isArray(strategiesRes?.strategies)) {
+        setStrategySummaries(
+          strategiesRes.strategies
+            .filter((s: any) => s.active)
+            .map((s: any) => ({
+              id: s.id as string,
+              name: s.name as string,
+              color: s.color as string,
+              type: s.type as string,
+              active: !!s.active,
+              scanIntervalMin: s.scanIntervalMin as number,
+            }))
+        )
         setActiveStrategyIntervals(
           strategiesRes.strategies
             .filter((s: any) => s.active)
@@ -215,12 +257,20 @@ export default function EnginePage() {
     return { accountResults: results }
   }
 
-  const modeColors: Record<string, string> = { catalyst:'#c9a84c', dip:'#52b788', circuit:'#e05a5e' }
+  const modeColors: Record<string, string> = { catalyst:'#c9a84c', dip:'#52b788', pivotal:'#f97316', circuit:'#e05a5e' }
   const modeLabels: Record<string, string> = {
     catalyst:"⚡ Catalyst Mode — Strategy 2 (Momentum) · scans 09:30–14:30 IST",
     dip:'📊 Dip Mode — Strategy 1 (Accumulator/EMA)',
+    pivotal:'🔶 Pivotal Mode — breakout scan using trigger, consolidation, volume, and close-hold rules',
     circuit:'🚨 Circuit Breaker — No Trades Today',
   }
+
+  const renderedStrategies = strategySummaries.length > 0
+    ? strategySummaries
+    : [
+        { id: 'accumulator', name: 'Accumulator', color: '#52b788', type: 'dip' },
+        { id: 'catalyst', name: 'Catalyst', color: '#c9a84c', type: 'momentum' },
+      ]
 
   return (
     <div className="space-y-5 pb-4">
@@ -375,29 +425,23 @@ export default function EnginePage() {
         onCancelled={loadTodayOrders}
       />
 
-      {/* Two strategy sections — always visible after a scan (or when there are
-          today's orders even without a fresh scan). Each shows new recs +
-          today's executed orders for that strategy. */}
-      <StrategySection
-        title="Strategy 1 — Accumulator"
-        accent="#52b788"
-        recs={(scan?.recommendations || []).filter(r => r.strategy === 'accumulator')}
-        ordersToday={todayOrders.filter(o => (o.tag || '').startsWith('dt-s1'))}
-        tradeMode={tradeMode}
-        onExecute={executeRec}
-        accountCount={selected.length}
-        scanRan={!!scan}
-      />
-      <StrategySection
-        title="Strategy 2 — Catalyst (Momentum)"
-        accent="#c9a84c"
-        recs={(scan?.recommendations || []).filter(r => r.strategy === 'catalyst')}
-        ordersToday={todayOrders.filter(o => (o.tag || '').startsWith('dt-s2'))}
-        tradeMode={tradeMode}
-        onExecute={executeRec}
-        accountCount={selected.length}
-        scanRan={!!scan}
-      />
+      {/* Strategy sections — one per active strategy, with recommendations and
+          today's executed orders grouped by owning strategy id. */}
+      {renderedStrategies.map(strategy => (
+        <StrategySection
+          key={strategy.id}
+          title={`${strategy.name} — ${strategyTypeLabel(strategy.type)}`}
+          accent={strategy.color}
+          recs={(scan?.recommendations || []).filter(r => r.strategy === strategy.id)}
+          ordersToday={todayOrders.filter(o => strategyTags(strategy.id).includes(o.tag || ''))}
+          tradeMode={tradeMode}
+          onExecute={executeRec}
+          accountCount={selected.length}
+          scanRan={!!scan}
+          strategyType={strategy.type}
+          strategyName={strategy.name}
+        />
+      ))}
 
       {/* ── FULL SCAN TILES — every List A stock with per-rule pass/fail ── */}
       <EngineTilesSection
@@ -611,7 +655,7 @@ function fmtRupees(n: number): string {
 // recs yet" explicitly) and shows two parts: today's executed orders +
 // new recommendations from the latest scan.
 
-function StrategySection({ title, accent, recs, ordersToday, tradeMode, onExecute, accountCount, scanRan }: {
+function StrategySection({ title, accent, recs, ordersToday, tradeMode, onExecute, accountCount, scanRan, strategyType, strategyName }: {
   title: string
   accent: string
   recs: Recommendation[]
@@ -620,6 +664,8 @@ function StrategySection({ title, accent, recs, ordersToday, tradeMode, onExecut
   onExecute: (r: Recommendation) => Promise<{ accountResults: { account: string; ok: boolean; msg: string }[] }>
   accountCount: number
   scanRan: boolean
+  strategyType?: string
+  strategyName?: string
 }) {
   const completed = ordersToday.filter(o => o.status === 'COMPLETE')
   // Don't render before any scan has run and there are no orders — keeps the
@@ -667,7 +713,7 @@ function StrategySection({ title, accent, recs, ordersToday, tradeMode, onExecut
 
       {/* New recommendations */}
       {recs.length > 0 && recs.map((rec, i) => (
-        <RecCard key={i} rec={rec} tradeMode={tradeMode} onExecute={onExecute} accountCount={accountCount} />
+        <RecCard key={i} rec={rec} tradeMode={tradeMode} onExecute={onExecute} accountCount={accountCount} strategyType={strategyType} strategyName={strategyName} />
       ))}
 
       {/* Post-scan empty state — compact, no box */}
@@ -693,11 +739,13 @@ function formatLastRun(lastRunAt: string | null, minutesSinceLastRun: number | n
   return `${time} IST (${minutesSinceLastRun}m ago)`
 }
 
-function RecCard({ rec, tradeMode, onExecute, accountCount }: {
+function RecCard({ rec, tradeMode, onExecute, accountCount, strategyType, strategyName }: {
   rec: Recommendation
   tradeMode: TradeMode
   onExecute: (r: Recommendation) => Promise<{ accountResults: { account: string; ok: boolean; msg: string }[] }>
   accountCount: number
+  strategyType?: string
+  strategyName?: string
 }) {
   const [executing, setExecuting] = useState(false)
   const [results, setResults] = useState<{ account: string; ok: boolean; msg: string }[] | null>(null)
@@ -724,7 +772,7 @@ function RecCard({ rec, tradeMode, onExecute, accountCount }: {
             <span className="font-bold text-base text-white" style={{ fontFamily:'JetBrains Mono, monospace' }}>{rec.symbol}</span>
             {rec.confidence === 'high' && <span className="text-[9px] px-1.5 py-0.5 rounded" style={{ background:'rgba(201,168,76,0.2)', color:'#c9a84c' }}>HIGH CONF</span>}
             <span className="text-[9px] px-1.5 py-0.5 rounded" style={{ background:'rgba(82,183,136,0.15)', color:'#52b788' }}>
-              {rec.strategy === 'catalyst' ? '⚡ Catalyst' : '📊 EMA Dip'}
+              {strategyBadgeLabel(rec.strategy, strategyType, strategyName)}
             </span>
           </div>
           <p className="dt-text-muted text-[11px] mt-0.5">{rec.name} · {rec.source}</p>
@@ -937,7 +985,7 @@ function EngineTilesSection({ firstAccount, accounts, connected, tradeMode }: {
             Full <span className="gold-text">Scan</span>
           </h2>
           <p className="dt-text-muted text-[10px] mt-0.5" style={{ fontFamily:'JetBrains Mono, monospace' }}>
-            Every {listAName} stock · per-rule pass/fail · sell monitor every 5 min · buy scans per strategy interval
+            List A for Dip/Momentum · Pivotal List for Pivotal tabs · per-rule pass/fail · sell monitor every 5 min · buy scans per strategy interval
             {data?.fetchedAt && ` · fetched ${new Date(data.fetchedAt).toLocaleTimeString('en-IN', { hour12: false, timeZone: 'Asia/Kolkata' })}`}
           </p>
         </div>

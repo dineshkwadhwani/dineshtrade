@@ -5,7 +5,7 @@
 
 import { getWatchlist } from './watchlistStore'
 import strategyCfg from '@/config/strategy.json'
-import { getStrategyById, getActiveStrategies, getCapital, checkGiftNiftyGate, type Strategy } from './strategyConfig'
+import { getStrategyById, getActiveStrategies, getCapital, checkGiftNiftyGate, asPivotalParams, type Strategy } from './strategyConfig'
 import { getMarketBriefing } from './marketBriefing'
 import { getState } from './state'
 import {
@@ -15,6 +15,7 @@ import { getInstrumentTokens } from './instruments'
 import { loadAndRefreshCloses } from './dailyCloses'
 import { computeEMA, consecutiveDownDays, deviationPct } from './ema'
 import { scanPivotalStrategy } from './pivotal'
+import { getPivotalLists } from './pivotalListStore'
 
 // ──────── DAILY-AGGREGATE CACHE (Strategy 2 momentum) ────────
 // Cache EMA + 10-day avg volume per symbol, keyed by IST date. Reset each day.
@@ -496,10 +497,35 @@ export async function evaluateAllForTiles(): Promise<TileEvalResult> {
   const creds = await firstConnectedCreds()
   if (!creds) return { ...empty, message: 'No Kite account connected — Login with Kite in Settings.' }
 
-  const listA: WatchlistStock[] = (await getWatchlist()).lists.listA || []
-  if (listA.length === 0) return { ...empty, message: 'List A is empty.' }
-  const symbols = listA.map(s => s.nse.toUpperCase())
-  const nameBySymbol = new Map(listA.map(s => [s.nse.toUpperCase(), s.name || s.nse]))
+  const watchlist = await getWatchlist()
+  const listA: WatchlistStock[] = watchlist.lists.listA || []
+  const pivotalLists = await getPivotalLists()
+  const pivotalStrategies = active.filter(s => s.type === 'pivotal')
+  const pivotalScriptsByStrategy = new Map<string, ReturnType<typeof Array.prototype.filter>>()
+  const pivotalSymbols = new Set<string>()
+  const nameBySymbol = new Map<string, string>()
+
+  for (const item of listA) {
+    const symbol = item.nse.toUpperCase()
+    nameBySymbol.set(symbol, item.name || item.nse)
+  }
+
+  for (const strategy of pivotalStrategies) {
+    const params = asPivotalParams(strategy)
+    const scripts = (pivotalLists.lists[params.pivotalListId] || []).filter(entry => entry.enabled)
+    pivotalScriptsByStrategy.set(strategy.id, scripts)
+    for (const script of scripts) {
+      const symbol = script.nse.toUpperCase()
+      pivotalSymbols.add(symbol)
+      if (!nameBySymbol.has(symbol)) nameBySymbol.set(symbol, script.name || script.nse)
+    }
+  }
+
+  const symbols = Array.from(new Set([
+    ...listA.map(s => s.nse.toUpperCase()),
+    ...Array.from(pivotalSymbols),
+  ]))
+  if (symbols.length === 0) return { ...empty, message: 'No List A or Pivotal scripts configured.' }
 
   // Market mode → recommended tab
   let giftChangePct = 0
@@ -551,6 +577,7 @@ export async function evaluateAllForTiles(): Promise<TileEvalResult> {
   const maxVolumeAvgDays = Math.max(catCfgDefault.volumeAvgDays, ...allMomentumCfgs.map(c => c.volumeAvgDays))
   await ensureDailyAggregates(creds, symbols, maxVolumeAvgDays)
   const quotes = await getQuotes(creds, symbols).catch(() => ({} as Awaited<ReturnType<typeof getQuotes>>))
+  const symbolTokens = await getInstrumentTokens(creds, symbols).catch(() => ({} as Record<string, number>))
 
   // Scan window status (Strategy 2 only — uses scanStartHHMM/scanEndHHMM)
   const nowMin = istMinutesSinceMidnight()
@@ -589,14 +616,13 @@ export async function evaluateAllForTiles(): Promise<TileEvalResult> {
   // close array (not a boolean) lets one strategy check 3 candles while another
   // checks 2 from the same fetch.
   const candleClosesBySymbol = new Map<string, number[]>()
-  const { getInstrumentToken } = await import('./instruments')
   const today = istDateString()
   const fromTs = `${today} 09:15:00`
   const toTs = `${today} 15:30:00`
   let logged = false
   await mapWithLimit(symbols, 5, async (symbol) => {
     try {
-      const token = await getInstrumentToken(creds, symbol)
+      const token = symbolTokens[symbol]
       if (!token) { candleClosesBySymbol.set(symbol, []); return }
       const shouldLog = !logged
       if (shouldLog) logged = true
@@ -610,6 +636,34 @@ export async function evaluateAllForTiles(): Promise<TileEvalResult> {
       candleClosesBySymbol.set(symbol, [])
     }
   })
+
+  const allPivotalParams = pivotalStrategies.map(asPivotalParams)
+  const maxPivotalLookbackDays = allPivotalParams.length > 0
+    ? Math.max(...allPivotalParams.map(p => Math.max(p.consolidationDays, p.volumeAvgDays)))
+    : 0
+  const pivotalDailyBySymbol = new Map<string, Array<{ date: string; high: number; low: number; volume: number }>>()
+  if (pivotalSymbols.size > 0 && maxPivotalLookbackDays > 0) {
+    const pivotalFrom = (() => {
+      const ist = new Date(new Date().toLocaleString('en-US', { timeZone: 'Asia/Kolkata' }))
+      ist.setDate(ist.getDate() - maxPivotalLookbackDays - 5)
+      return `${ist.getFullYear()}-${String(ist.getMonth() + 1).padStart(2, '0')}-${String(ist.getDate()).padStart(2, '0')}`
+    })()
+    await mapWithLimit(Array.from(pivotalSymbols), 4, async symbol => {
+      try {
+        const token = symbolTokens[symbol]
+        if (!token) { pivotalDailyBySymbol.set(symbol, []); return }
+        const candles = await getHistoricalCandles(creds, token, pivotalFrom, today, 'day')
+        pivotalDailyBySymbol.set(symbol, candles.map(candle => ({
+          date: candle.date.slice(0, 10),
+          high: candle.high,
+          low: candle.low,
+          volume: candle.volume,
+        })))
+      } catch {
+        pivotalDailyBySymbol.set(symbol, [])
+      }
+    })
+  }
 
   // Per-strategy rule builders. Each takes a strategy, derives its OWN cfg,
   // and returns a Tile[] using ONLY that strategy's params — no cross-strategy
@@ -781,6 +835,141 @@ export async function evaluateAllForTiles(): Promise<TileEvalResult> {
     return tiles
   }
 
+  function buildPivotalTilesFor(s: Strategy): Tile[] {
+    const params = asPivotalParams(s)
+    const scripts = pivotalScriptsByStrategy.get(s.id) || []
+    const scanStartMin = hhmmToMinutes(params.scanStartHHMM)
+    const scanEndMin = hhmmToMinutes(params.scanEndHHMM)
+    const dayEndMin = hhmmToMinutes(params.dayEndExecutionTime)
+    const projectedCheckMin = hhmmToMinutes(params.minProjectedVolumeCheckHHMM)
+    const scanOpen = nowMin >= scanStartMin && nowMin <= scanEndMin
+    const projectedVolumeOpen = nowMin >= projectedCheckMin
+    const closeDecisionOpen = nowMin >= dayEndMin
+
+    return scripts.map(script => {
+      const symbol = script.nse.toUpperCase()
+      const d = dataBySymbol.get(symbol) || {
+        ltp: 0, volume: 0, prevClose: 0, ema20: 0, avgVol10d: 0, hasQuote: false, hasAgg: false,
+      }
+      const dayGainPct = d.prevClose > 0 ? ((d.ltp - d.prevClose) / d.prevClose) * 100 : 0
+      const priorDaily = (pivotalDailyBySymbol.get(symbol) || []).filter(candle => candle.date < today)
+      const consolidationWindow = priorDaily.slice(-params.consolidationDays)
+      const volumeWindow = priorDaily.slice(-params.volumeAvgDays)
+      const hasConsolidationWindow = consolidationWindow.length >= params.consolidationDays
+      const hasVolumeWindow = volumeWindow.length >= params.volumeAvgDays
+      const consolidationHigh = hasConsolidationWindow ? Math.max(...consolidationWindow.map(candle => candle.high)) : null
+      const consolidationLow = hasConsolidationWindow ? Math.min(...consolidationWindow.map(candle => candle.low)) : null
+      const midpoint = consolidationHigh !== null && consolidationLow !== null ? (consolidationHigh + consolidationLow) / 2 : 0
+      const consolidationRangePct = midpoint > 0 && consolidationHigh !== null && consolidationLow !== null
+        ? ((consolidationHigh - consolidationLow) / midpoint) * 100
+        : null
+      const avgVolume = hasVolumeWindow
+        ? volumeWindow.reduce((sum, candle) => sum + candle.volume, 0) / volumeWindow.length
+        : null
+      const projectedDayVolume = d.volume > 0 ? d.volume / (elapsedMin / SESSION_MINUTES) : 0
+      const volumeRatio = avgVolume && avgVolume > 0
+        ? ((script.executionMode === 'dayEnd' ? d.volume : projectedDayVolume) / avgVolume)
+        : null
+      const closes = candleClosesBySymbol.get(symbol) || []
+      const lastN = closes.slice(-params.breakoutConfirmCandles)
+      let rising = lastN.length >= params.breakoutConfirmCandles
+      if (rising) {
+        for (let idx = 1; idx < lastN.length; idx++) {
+          if (lastN[idx] <= lastN[idx - 1]) { rising = false; break }
+        }
+      }
+
+      const rules: RuleEval[] = []
+      rules.push({
+        id: 'trigger',
+        label: `LTP above trigger ₹${script.breakoutTriggerPrice.toFixed(2)}`,
+        passed: d.hasQuote && d.ltp > script.breakoutTriggerPrice,
+        actual: d.hasQuote ? `LTP ₹${d.ltp.toFixed(2)}` : 'no quote',
+        threshold: `> ₹${script.breakoutTriggerPrice.toFixed(2)}`,
+      })
+      rules.push({
+        id: 'gain_min',
+        label: `Day gain ≥ +${params.minDayGainPct}%`,
+        passed: d.hasQuote && d.prevClose > 0 && dayGainPct >= params.minDayGainPct,
+        actual: d.hasQuote && d.prevClose > 0 ? fmtPct(dayGainPct) : '—',
+        threshold: `≥ +${params.minDayGainPct}%`,
+      })
+      rules.push({
+        id: 'gain_max',
+        label: `Day gain ≤ +${params.maxDayGainPct}%`,
+        passed: d.hasQuote && d.prevClose > 0 && dayGainPct <= params.maxDayGainPct,
+        actual: d.hasQuote && d.prevClose > 0 ? fmtPct(dayGainPct) : '—',
+        threshold: `≤ +${params.maxDayGainPct}%`,
+      })
+      rules.push({
+        id: 'consolidation_window',
+        label: `Have ${params.consolidationDays} prior daily candles`,
+        passed: hasConsolidationWindow,
+        actual: `${consolidationWindow.length}/${params.consolidationDays} candles`,
+      })
+      rules.push({
+        id: 'consolidation_range',
+        label: `Consolidation range ≤ ${params.consolidationMaxRangePct}%`,
+        passed: consolidationRangePct !== null && consolidationRangePct <= params.consolidationMaxRangePct,
+        actual: consolidationRangePct !== null ? `${consolidationRangePct.toFixed(2)}%` : 'not enough history',
+        threshold: `≤ ${params.consolidationMaxRangePct}%`,
+      })
+      rules.push({
+        id: 'trigger_above_range',
+        label: 'Trigger at/above consolidation high',
+        passed: consolidationHigh !== null && script.breakoutTriggerPrice >= consolidationHigh,
+        actual: consolidationHigh !== null
+          ? `trigger ₹${script.breakoutTriggerPrice.toFixed(2)} vs high ₹${consolidationHigh.toFixed(2)}`
+          : `trigger ₹${script.breakoutTriggerPrice.toFixed(2)}`,
+      })
+      rules.push({
+        id: 'volume',
+        label: `${script.executionMode === 'dayEnd' ? 'Realized' : 'Projected'} volume ≥ ${params.minVolumeSurgeRatio.toFixed(2)}× avg`,
+        passed: volumeRatio !== null && volumeRatio >= params.minVolumeSurgeRatio,
+        actual: volumeRatio !== null ? `${volumeRatio.toFixed(2)}× avg` : 'not enough history',
+        threshold: `≥ ${params.minVolumeSurgeRatio.toFixed(2)}×`,
+      })
+      rules.push({
+        id: 'time_gate',
+        label: script.executionMode === 'dayEnd'
+          ? `Near-close check after ${params.dayEndExecutionTime}`
+          : `Within ${params.scanStartHHMM}–${params.scanEndHHMM} and after ${params.minProjectedVolumeCheckHHMM}`,
+        passed: script.executionMode === 'dayEnd'
+          ? closeDecisionOpen
+          : scanOpen && projectedVolumeOpen,
+        actual: script.executionMode === 'dayEnd'
+          ? (closeDecisionOpen ? 'near-close window open' : 'before close window')
+          : (!scanOpen ? 'outside scan window' : projectedVolumeOpen ? 'scan window open' : 'waiting for volume-check time'),
+      })
+      rules.push({
+        id: 'confirmation',
+        label: script.executionMode === 'dayEnd'
+          ? 'Holding above trigger into close'
+          : `${params.breakoutConfirmCandles}+ rising 5-min candles`,
+        passed: script.executionMode === 'dayEnd'
+          ? closeDecisionOpen && d.hasQuote && d.ltp > script.breakoutTriggerPrice
+          : rising && lastN[lastN.length - 1] > script.breakoutTriggerPrice,
+        actual: script.executionMode === 'dayEnd'
+          ? (d.hasQuote ? `LTP ₹${d.ltp.toFixed(2)} vs trigger ₹${script.breakoutTriggerPrice.toFixed(2)}` : 'no quote')
+          : (lastN.length > 0 ? lastN.map(v => `₹${v.toFixed(2)}`).join(' → ') : 'no intraday candles'),
+        threshold: script.executionMode === 'dayEnd'
+          ? `hold > ₹${script.breakoutTriggerPrice.toFixed(2)}`
+          : `${params.breakoutConfirmCandles} rising closes`,
+      })
+
+      return {
+        symbol,
+        name: nameBySymbol.get(symbol) || script.name || symbol,
+        ltp: d.ltp,
+        prevClose: d.prevClose,
+        dayChangePct: dayGainPct,
+        rules,
+        score: rules.filter(rule => rule.passed).length,
+        total: rules.length,
+      }
+    })
+  }
+
   // Sort: highest score first; within same score, by day-change desc, then symbol.
   const byScore = (a: Tile, b: Tile) =>
     b.score - a.score ||
@@ -793,6 +982,7 @@ export async function evaluateAllForTiles(): Promise<TileEvalResult> {
     let tiles: Tile[] = []
     if (s.type === 'momentum') tiles = buildMomentumTilesFor(s)
     else if (s.type === 'dip') tiles = buildDipTilesFor(s)
+    else if (s.type === 'pivotal') tiles = buildPivotalTilesFor(s)
     tiles.sort(byScore)
     tilesByStrategy[s.id] = tiles
   }
