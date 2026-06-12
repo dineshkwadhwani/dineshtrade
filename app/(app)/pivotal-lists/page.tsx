@@ -51,6 +51,8 @@ export default function PivotalListsPage() {
   const [query, setQuery] = useState('')
   const [results, setResults] = useState<SearchResult[]>([])
   const [searching, setSearching] = useState(false)
+  const [searchOpen, setSearchOpen] = useState(false)
+  const [activeResultIndex, setActiveResultIndex] = useState(0)
   const [addTarget, setAddTarget] = useState('pivotalA')
   const [draftEntry, setDraftEntry] = useState(DEFAULTS)
 
@@ -67,15 +69,24 @@ export default function PivotalListsPage() {
   }
 
   useEffect(() => {
-    if (!query || query.length < 2) { setResults([]); return }
+    if (!query || query.length < 2) {
+      setResults([])
+      setSearchOpen(false)
+      setActiveResultIndex(0)
+      return
+    }
     const timer = setTimeout(async () => {
       setSearching(true)
       try {
         const res = await fetch(`/api/watchlist/search?q=${encodeURIComponent(query)}`)
         const next = await res.json()
-        setResults(res.ok ? (next.results || []) : [])
+        const nextResults = res.ok ? (next.results || []) : []
+        setResults(nextResults)
+        setSearchOpen(nextResults.length > 0)
+        setActiveResultIndex(0)
       } catch {
         setResults([])
+        setSearchOpen(false)
       } finally {
         setSearching(false)
       }
@@ -143,6 +154,33 @@ export default function PivotalListsPage() {
     setDirty(true)
     setQuery('')
     setResults([])
+    setSearchOpen(false)
+    setActiveResultIndex(0)
+  }
+
+  function handleQueryKeyDown(event: React.KeyboardEvent<HTMLInputElement>) {
+    if (!searchOpen || results.length === 0) return
+    if (event.key === 'ArrowDown') {
+      event.preventDefault()
+      setActiveResultIndex(index => Math.min(index + 1, results.length - 1))
+      return
+    }
+    if (event.key === 'ArrowUp') {
+      event.preventDefault()
+      setActiveResultIndex(index => Math.max(index - 1, 0))
+      return
+    }
+    if (event.key === 'Enter') {
+      event.preventDefault()
+      const active = results[activeResultIndex]
+      if (active) addSymbol(addTarget, active)
+      return
+    }
+    if (event.key === 'Escape') {
+      event.preventDefault()
+      setSearchOpen(false)
+      setActiveResultIndex(0)
+    }
   }
 
   function removeSymbol(listKey: string, symbol: string) {
@@ -265,7 +303,14 @@ export default function PivotalListsPage() {
       <div className="rounded-xl p-4 dt-card-gold space-y-3">
         <p className="text-[10px] tracking-widest uppercase" style={{ color:'rgba(201,168,76,0.6)', fontFamily:'JetBrains Mono, monospace' }}>Add new script</p>
         <div className="grid grid-cols-1 lg:grid-cols-[1.5fr_0.8fr_repeat(5,minmax(0,1fr))] gap-2">
-          <input value={query} onChange={e => setQuery(e.target.value)} placeholder="Type symbol or company name…"
+          <input value={query} onChange={e => {
+            setQuery(e.target.value)
+            setSearchOpen(e.target.value.trim().length >= 2)
+          }} onFocus={() => {
+            if (results.length > 0) setSearchOpen(true)
+          }} onBlur={() => {
+            setTimeout(() => setSearchOpen(false), 120)
+          }} onKeyDown={handleQueryKeyDown} placeholder="Type symbol or company name (e.g. BAJFINANCE, Reliance, HDFC)…"
             className="px-3 py-2 rounded-lg text-[13px] outline-none dt-card dt-text-primary" />
           <select value={addTarget} onChange={e => setAddTarget(e.target.value)} className="px-3 py-2 rounded-lg text-[12px] dt-card" style={{ color:'#c9a84c', fontFamily:'JetBrains Mono, monospace' }}>
             {orderedKeys.map(key => <option key={key} value={key}>{data.meta[key]?.name || key}</option>)}
@@ -284,21 +329,52 @@ export default function PivotalListsPage() {
           <input value={draftEntry.stopLossPrice} onChange={e => setDraftEntry({ ...draftEntry, stopLossPrice: e.target.value })} placeholder="Stop loss"
             className="px-3 py-2 rounded-lg text-[12px] outline-none dt-card dt-text-primary" />
         </div>
+        <p className="text-[10px] dt-text-muted">
+          Search and pick the script from Kite lookup results before adding. Free text by itself is not saved as a symbol.
+        </p>
         {searching && <p className="text-[10px] dt-text-secondary">↻ Searching Kite…</p>}
-        {results.length > 0 && (
+        {searchOpen && results.length > 0 && (
           <div className="rounded-lg overflow-hidden dt-card">
-            {results.map(result => (
-              <div key={result.token} className="grid items-center px-3 py-2.5 dt-table-row" style={{ gridTemplateColumns: '1fr 2fr 0.8fr' }}>
-                <span className="dt-text-primary" style={{ fontFamily:'JetBrains Mono, monospace', fontWeight: 600 }}>{result.symbol}</span>
-                <span className="text-[12px] dt-text-secondary truncate">{result.name}</span>
-                <div className="text-right">
-                  <button onClick={() => addSymbol(addTarget, result)} className="px-3 py-1 rounded text-[10px] font-semibold tracking-wider dt-card-gold" style={{ color:'#c9a84c', fontFamily:'JetBrains Mono, monospace' }}>
-                    + Add
-                  </button>
+            {results.map((result, index) => {
+              const inTarget = (data.lists[addTarget] || []).some(entry => entry.nse === result.symbol)
+              const otherLists = orderedKeys
+                .filter(key => key !== addTarget && data.lists[key]?.some(entry => entry.nse === result.symbol))
+                .map(key => data.meta[key]?.name || key)
+              return (
+                <div key={result.token} className="grid items-center px-3 py-2.5 dt-table-row"
+                  style={{
+                    gridTemplateColumns: '1fr 2fr 0.8fr',
+                    background: index === activeResultIndex
+                      ? 'rgba(201,168,76,0.10)'
+                      : inTarget
+                        ? 'rgba(82,183,136,0.04)'
+                        : 'transparent',
+                  }}>
+                  <span className="dt-text-primary" style={{ fontFamily:'JetBrains Mono, monospace', fontWeight: 600 }}>{result.symbol}</span>
+                  <span className="text-[12px] min-w-0 dt-text-secondary">
+                    <span className="truncate block">{result.name}</span>
+                    {otherLists.length > 0 && (
+                      <span className="text-[10px]" style={{ color:'rgba(96,165,250,0.7)' }}>
+                        also in: {otherLists.join(', ')}
+                      </span>
+                    )}
+                  </span>
+                  <div className="text-right">
+                    {inTarget ? (
+                      <span className="text-[10px]" style={{ color:'#52b788' }}>✓ in {data.meta[addTarget]?.name || addTarget}</span>
+                    ) : (
+                      <button onMouseEnter={() => setActiveResultIndex(index)} onClick={() => addSymbol(addTarget, result)} className="px-3 py-1 rounded text-[10px] font-semibold tracking-wider dt-card-gold" style={{ color:'#c9a84c', fontFamily:'JetBrains Mono, monospace' }}>
+                        + Add
+                      </button>
+                    )}
+                  </div>
                 </div>
-              </div>
-            ))}
+              )
+            })}
           </div>
+        )}
+        {!searching && query.trim().length >= 2 && searchOpen && results.length === 0 && (
+          <p className="text-[10px] dt-text-secondary">No matching NSE scripts found. Refine the company name or symbol and pick from the lookup results.</p>
         )}
       </div>
 
