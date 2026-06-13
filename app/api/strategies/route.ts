@@ -79,6 +79,7 @@ export async function POST(req: Request) {
     if (!(capital.perTrade > 0))            errors.push('Per-trade amount must be > 0')
     if (!(capital.maxBuysPerDay >= 0))       errors.push('Max BUYs/day must be ≥ 0')
     if (!(capital.maxSellsPerDay >= 0))      errors.push('Max SELLs/day must be ≥ 0')
+    if (!(capital.deliveryDpCharge >= 0))    errors.push('Delivery DP charge must be ≥ 0')
     if (!(capital.maxDeployPct > 0 && capital.maxDeployPct <= 100)) errors.push('Max Deploy % must be between 1 and 100')
     if (capital.circuitBreakerPct > 0)       errors.push('Circuit breaker % must be 0 or negative')
 

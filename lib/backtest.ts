@@ -465,6 +465,7 @@ async function loadHistoricalBenchmark(
 }
 
 export function estimateBacktestCharges(mode: 'intraday' | 'delivery', buyValue: number, sellValue: number, deliverySellDays: number): number {
+  const capital = getCapital()
   const turnover = buyValue + sellValue
   const brokerage = mode === 'intraday'
     ? Math.min(20, buyValue * 0.0003) + (sellValue > 0 ? Math.min(20, sellValue * 0.0003) : 0)
@@ -476,7 +477,7 @@ export function estimateBacktestCharges(mode: 'intraday' | 'delivery', buyValue:
   const sebi = turnover * 0.000001
   const gst = (brokerage + exchange + sebi) * 0.18
   const stamp = buyValue * (mode === 'intraday' ? 0.00003 : 0.00015)
-  const dp = mode === 'delivery' && sellValue > 0 ? deliverySellDays * 15.93 : 0
+  const dp = mode === 'delivery' && sellValue > 0 ? deliverySellDays * capital.deliveryDpCharge : 0
   return round2(brokerage + stt + exchange + sebi + gst + stamp + dp)
 }
 

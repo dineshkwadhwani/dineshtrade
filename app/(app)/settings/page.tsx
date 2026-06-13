@@ -337,6 +337,7 @@ interface CapitalConfig {
   perTrade: number
   maxBuysPerDay: number
   maxSellsPerDay: number
+  deliveryDpCharge: number
   circuitBreakerPct: number
   intradayCircuitTripPct?: number
   intradayCircuitResumePct?: number
@@ -548,6 +549,7 @@ const CAPITAL_FIELD_LABELS: Record<string, string> = {
   perTrade: 'Per Trade Amount',
   maxBuysPerDay: 'Max Buys / Day',
   maxSellsPerDay: 'Max Sells / Day',
+  deliveryDpCharge: 'Delivery DP Charge',
   circuitBreakerPct: 'Circuit Breaker %',
   intradayCircuitTripPct: 'Intraday Circuit Trip %',
   intradayCircuitResumePct: 'Intraday Circuit Resume %',
@@ -611,6 +613,7 @@ const CAPITAL_DESCRIPTIONS: Record<string, string> = {
   perTrade: 'Maximum ₹ per individual trade in Auto mode. Manual orders bypass this cap.',
   maxBuysPerDay: 'Maximum BUYs per account per day, shared across all active strategies.',
   maxSellsPerDay: 'Maximum SELLs per account per day, shared across all active strategies.',
+  deliveryDpCharge: 'Depository participant charge applied once per delivery SELL day. Used in exitSameDayOnPositive, trade report, and backtest net P&L.',
   circuitBreakerPct: 'GIFT Nifty pre-market drop that blocks new auto-BUYs all day (e.g. -5 = -5%). Open SELL monitors keep running; manual orders unaffected.',
   intradayCircuitTripPct: 'Live NIFTY 50 drop from today\'s open that trips the intraday circuit (e.g. -3). Blocks new auto-BUYs until Nifty recovers. SELL monitors + manual unaffected. Set to 0 to disable.',
   intradayCircuitResumePct: 'NIFTY 50 level at which the intraday circuit resumes auto-BUYs (e.g. -2). Must be greater than the trip threshold to provide hysteresis. Set to 0 to disable.',
@@ -1172,6 +1175,7 @@ function StrategiesTab({ autoModeOn }: { autoModeOn: boolean }) {
           <NumField label="Per Trade Amount"  value={draft.capital.perTrade}        onChange={v => patchCapital({ perTrade: v })}        desc={CAPITAL_DESCRIPTIONS.perTrade}     prefix="₹"  disabled={locked} />
           <NumField label="Max Buys / Day"     value={draft.capital.maxBuysPerDay}   onChange={v => patchCapital({ maxBuysPerDay: v })}   desc={CAPITAL_DESCRIPTIONS.maxBuysPerDay}            disabled={locked} />
           <NumField label="Max Sells / Day"    value={draft.capital.maxSellsPerDay}  onChange={v => patchCapital({ maxSellsPerDay: v })}  desc={CAPITAL_DESCRIPTIONS.maxSellsPerDay}           disabled={locked} />
+          <NumField label="Delivery DP Charge" value={draft.capital.deliveryDpCharge} onChange={v => patchCapital({ deliveryDpCharge: Math.max(0, v) })} desc={CAPITAL_DESCRIPTIONS.deliveryDpCharge} prefix="₹" disabled={locked} />
           <NumField label="Circuit Breaker % (GIFT Nifty, pre-market)" value={draft.capital.circuitBreakerPct} onChange={v => patchCapital({ circuitBreakerPct: v })} desc={CAPITAL_DESCRIPTIONS.circuitBreakerPct} suffix="%" disabled={locked} />
           <NumField label="Intraday Circuit Trip % (NIFTY 50 live)"    value={draft.capital.intradayCircuitTripPct ?? 0} onChange={v => patchCapital({ intradayCircuitTripPct: v })} desc={CAPITAL_DESCRIPTIONS.intradayCircuitTripPct} suffix="%" disabled={locked} />
           <NumField label="Intraday Circuit Resume %"                  value={draft.capital.intradayCircuitResumePct ?? 0} onChange={v => patchCapital({ intradayCircuitResumePct: v })} desc={CAPITAL_DESCRIPTIONS.intradayCircuitResumePct} suffix="%" disabled={locked} />

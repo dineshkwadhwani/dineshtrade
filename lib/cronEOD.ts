@@ -7,7 +7,7 @@ import { sendDailyReport, sendMonthlyReport, isEmailConfigured } from './email'
 import { getActiveStrategies, asMomentumParams } from './strategyConfig'
 import { resolveAccountCreds, placeKiteOrder, getQuotes } from './kite'
 import { runPreflight, markPlaced } from './preflight'
-import { istDateString } from './journal'
+import { istDateString, journalOrder } from './journal'
 import { buildDailyReport, buildMonthlyReport, isLastWeekdayOfMonth } from './retrospective'
 import { listPositions, removePosition } from './positions'
 import { sendEmail } from './email'
@@ -107,6 +107,17 @@ export async function runEODSquareOff(): Promise<void> {
         const placed = await placeKiteOrder(creds, { symbol: pos.symbol, side: 'SELL', quantity: sellQty, tag: `dt-eod-${strategy.id}` })
         if (placed.ok && placed.data?.data?.order_id) {
           await markPlaced(account, pos.symbol, 'SELL')
+          await journalOrder({
+            account,
+            symbol: pos.symbol,
+            side: 'SELL',
+            qty: sellQty,
+            price: ltp,
+            tag: `dt-eod-${strategy.id}`,
+            strategyId: strategy.id,
+            orderId: placed.data.data.order_id,
+            source: 'auto',
+          }).catch(err => console.error('[cron eod] journalOrder failed:', err))
           await removePosition(account, pos.symbol)
           recordExecuted({ time: t, account, symbol: pos.symbol, side: 'SELL', quantity: sellQty, price: ltp, orderId: placed.data.data.order_id, reason: squareOffEOD ? 'EOD square-off' : 'EOD exit on positive' })
           sendEmail('trade_executed', {

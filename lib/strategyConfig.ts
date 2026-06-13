@@ -13,6 +13,7 @@ export interface CapitalConfig {
   perTrade: number            // ₹ per trade (auto-mode cap)
   maxBuysPerDay: number       // shared quota across all active strategies
   maxSellsPerDay: number      // shared quota
+  deliveryDpCharge: number    // DP charge applied per delivery SELL day
   circuitBreakerPct: number   // GIFT Nifty pre-market drop that blocks new auto-BUYs (e.g. -5). Exits + manual unaffected.
   // Intraday circuit — live NIFTY 50 vs today's open. Trips when drop ≤ tripPct,
   // resumes when drop ≥ resumePct (hysteresis prevents flapping). Both ≤ 0.
@@ -139,6 +140,7 @@ export function getCapital(): CapitalConfig {
     perTrade: typeof c.perTrade === 'number' ? c.perTrade : 5000,
     maxBuysPerDay: typeof c.maxBuysPerDay === 'number' ? c.maxBuysPerDay : 3,
     maxSellsPerDay: typeof c.maxSellsPerDay === 'number' ? c.maxSellsPerDay : 3,
+    deliveryDpCharge: typeof c.deliveryDpCharge === 'number' ? c.deliveryDpCharge : 15.34,
     circuitBreakerPct: typeof c.circuitBreakerPct === 'number' ? c.circuitBreakerPct : -5,
     intradayCircuitTripPct: typeof c.intradayCircuitTripPct === 'number' ? c.intradayCircuitTripPct : 0,
     intradayCircuitResumePct: typeof c.intradayCircuitResumePct === 'number' ? c.intradayCircuitResumePct : 0,

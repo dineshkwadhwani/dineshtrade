@@ -30,6 +30,11 @@ interface InternalTrade extends BacktestTrade {
   activeInRange: boolean
 }
 
+interface LiveOpenSnapshot {
+  trades: InternalTrade[]
+  openQtyByKey: Map<string, number>
+}
+
 const YMD = /^\d{4}-\d{2}-\d{2}$/
 
 function assertYmd(value: string, label: string): void {
@@ -309,9 +314,11 @@ async function reconcileLiveOpenTrades(
   toDate: string,
   strategyFilter: string,
   multiAccount: boolean,
-): Promise<InternalTrade[]> {
+): Promise<LiveOpenSnapshot> {
   const today = new Date().toISOString().slice(0, 10)
-  if (toDate !== today || accounts.length === 0) return trades
+  if (toDate !== today || accounts.length === 0) {
+    return { trades, openQtyByKey: new Map() }
+  }
 
   const [{ listPositions }, liveQtyByAccount] = await Promise.all([
     import('./positions'),
@@ -329,11 +336,22 @@ async function reconcileLiveOpenTrades(
 
   const liveQtyByAccountMap = new Map(liveQtyByAccount)
   const reconciled = [...trades]
+  const openQtyByKey = new Map<string, number>()
 
   for (const account of accounts) {
     const tracked = await listPositions({ account })
     const trackedBySymbol = new Map(tracked.map(position => [position.symbol.toUpperCase(), position]))
     const liveQtyBySymbol = liveQtyByAccountMap.get(account) || new Map<string, number>()
+
+    for (const symbol of Array.from(new Set([
+      ...Array.from(liveQtyBySymbol.keys()),
+      ...Array.from(trackedBySymbol.keys()),
+      ...reconciled.filter(trade => trade.account === account).map(trade => trade.symbol),
+    ]))) {
+      const brokerQty = liveQtyBySymbol.get(symbol) || 0
+      const trackedQty = Math.max(0, trackedBySymbol.get(symbol)?.remainingQty || 0)
+      openQtyByKey.set(`${account}:${symbol}`, Math.max(brokerQty, trackedQty))
+    }
 
     for (const [symbol, brokerQty] of Array.from(liveQtyBySymbol.entries())) {
       if (brokerQty <= 0) continue
@@ -442,8 +460,44 @@ async function reconcileLiveOpenTrades(
       })
     }
   }
+  return { trades: reconciled, openQtyByKey }
+}
 
-  return reconciled
+function closeStaleOpenTrades(trades: InternalTrade[], openQtyByKey: Map<string, number>, toDate: string): void {
+  const syntheticTs = `${toDate}T15:30:00.000Z`
+  const byKey = new Map<string, InternalTrade[]>()
+
+  for (const trade of trades) {
+    if (trade.remainingQty <= 0) continue
+    const key = `${trade.account}:${trade.symbol}`
+    const bucket = byKey.get(key) || []
+    bucket.push(trade)
+    byKey.set(key, bucket)
+  }
+
+  for (const [key, openTrades] of Array.from(byKey.entries())) {
+    const desiredOpenQty = openQtyByKey.get(key) || 0
+    const existingOpenQty = openTrades.reduce((sum, trade) => sum + trade.remainingQty, 0)
+    let excessQty = Math.max(0, existingOpenQty - desiredOpenQty)
+    if (excessQty <= 0) continue
+
+    const restorable = [...openTrades].sort((a, b) => {
+      if (a.entryDate !== b.entryDate) return a.entryDate.localeCompare(b.entryDate)
+      return a.buyNumber - b.buyNumber
+    })
+
+    for (const trade of restorable) {
+      if (excessQty <= 0) break
+      if (trade.remainingQty <= 0) continue
+      const closeQty = Math.min(trade.remainingQty, excessQty)
+      trade.sellEvents.push({ date: toDate, ts: syntheticTs, qty: closeQty, price: trade.markPrice })
+      trade.remainingQty -= closeQty
+      trade.exitDate = toDate
+      trade.activeInRange = true
+      if (trade.remainingQty === 0) trade.status = 'closed'
+      excessQty -= closeQty
+    }
+  }
 }
 
 export async function buildLiveTradeReport(options: LiveTradeReportOptions): Promise<LiveTradeReportResult> {
@@ -597,13 +651,14 @@ export async function buildLiveTradeReport(options: LiveTradeReportOptions): Pro
     return true
   })
 
-  scopedTrades = await reconcileLiveOpenTrades(
+  const liveOpenSnapshot = await reconcileLiveOpenTrades(
     scopedTrades,
     selectedAccounts,
     toDate,
     strategyFilter,
     multiAccount,
   )
+  scopedTrades = liveOpenSnapshot.trades
 
   const availableSymbols = Array.from(new Set(scopedTrades.map(trade => trade.symbol))).sort((left, right) => left.localeCompare(right))
   let includedTrades = symbolFilter
@@ -634,6 +689,20 @@ export async function buildLiveTradeReport(options: LiveTradeReportOptions): Pro
     trade.markPrice = markPrice
     trade.markValue = clampMoney(trade.remainingQty * markPrice)
     trade.unrealizedPnl = clampMoney(trade.remainingQty * (markPrice - trade.entryPrice))
+    trade.holdDays = dayDiff(trade.entryDate, trade.exitDate || toDate)
+  }
+
+  closeStaleOpenTrades(includedTrades, liveOpenSnapshot.openQtyByKey, toDate)
+
+  for (const trade of includedTrades) {
+    const soldQty = trade.sellEvents.reduce((sum, event) => sum + event.qty, 0)
+    trade.exitValue = clampMoney(trade.sellEvents.reduce((sum, event) => sum + (event.qty * event.price), 0))
+    trade.realizedPnl = clampMoney(trade.sellEvents.reduce((sum, event) => sum + (event.qty * (event.price - trade.entryPrice)), 0))
+    trade.realizedPct = trade.entryValue > 0 ? Number(((trade.realizedPnl / trade.entryValue) * 100).toFixed(2)) : 0
+    trade.exitPrice = soldQty > 0 ? clampMoney((trade.exitValue || 0) / soldQty) : undefined
+    trade.markValue = clampMoney(trade.remainingQty * trade.markPrice)
+    trade.unrealizedPnl = clampMoney(trade.remainingQty * (trade.markPrice - trade.entryPrice))
+    trade.status = trade.remainingQty === 0 ? 'closed' : 'open'
     trade.holdDays = dayDiff(trade.entryDate, trade.exitDate || toDate)
   }
 
