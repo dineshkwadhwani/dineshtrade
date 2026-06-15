@@ -2,9 +2,10 @@
 // ~/dineshtrade/data/journal-YYYY-MM.jsonl. Files are never overwritten by
 // deployments — they live alongside state.json and strategy1.json.
 //
-// Two record types:
+// Core record types:
 //   - trade           : completed trade (BUY entry + SELL exit pair)
 //   - signal_skipped  : Auto-mode cron tried to BUY a rec but preflight blocked
+//   - exit_monitor    : Auto-mode SELL monitor wanted to exit/checked an exit but was blocked or failed
 
 import { promises as fs } from 'fs'
 import * as path from 'path'
@@ -47,6 +48,19 @@ export interface SignalSkippedRecord {
   reasonSkipped: string         // gate name + human reason
 }
 
+export interface ExitMonitorRecord {
+  type: 'exit_monitor'
+  date: string
+  ts: string                    // ISO timestamp
+  account: string
+  symbol: string
+  strategyId?: string
+  status: 'skipped' | 'failed'
+  quantity: number
+  price: number
+  reason: string
+}
+
 // One record per strategy scan tick. Lets the retrospective answer:
 //   "When did strategy X last produce a signal?"
 //   "How many scans did X run today / in the last 30 days?"
@@ -83,7 +97,7 @@ export interface OrderRecord {
   orderId?: string
 }
 
-export type JournalRecord = TradeRecord | SignalSkippedRecord | StrategyScanRecord | OrderRecord
+export type JournalRecord = TradeRecord | SignalSkippedRecord | ExitMonitorRecord | StrategyScanRecord | OrderRecord
 
 // Storage is anchored to the same dir as state.json. Local dev (cookie state)
 // keeps it in memory only — fine since cron won't run there anyway.
@@ -237,6 +251,29 @@ export async function journalOrder(opts: {
     strategyId,
     source,
     orderId: opts.orderId,
+  })
+}
+
+export async function journalExitMonitor(opts: {
+  account: string
+  symbol: string
+  quantity: number
+  price: number
+  reason: string
+  status: 'skipped' | 'failed'
+  strategyId?: string
+}): Promise<void> {
+  await appendJournal({
+    type: 'exit_monitor',
+    date: istDateString(),
+    ts: new Date().toISOString(),
+    account: opts.account.toUpperCase(),
+    symbol: opts.symbol.toUpperCase(),
+    strategyId: opts.strategyId,
+    status: opts.status,
+    quantity: opts.quantity,
+    price: opts.price,
+    reason: opts.reason,
   })
 }
 

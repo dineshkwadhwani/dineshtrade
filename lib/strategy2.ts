@@ -23,7 +23,7 @@ import { runPreflight, markPlaced } from './preflight'
 import { sendEmail } from './email'
 import { getAccountList } from './accounts'
 import { ensureStrategy1Tracking } from './strategy1'
-import { appendJournal, journalOrder, istDateString, istHHMM, classifyVerdict, readJournalRange } from './journal'
+import { appendJournal, journalOrder, journalExitMonitor, istDateString, istHHMM, classifyVerdict, readJournalRange } from './journal'
 import { getStrategyById, getStrategies, asMomentumParams } from './strategyConfig'
 import {
   listStrategy2Positions, removeStrategy2Position, markTranche1Sold,
@@ -285,13 +285,23 @@ export async function monitorAccount(account: string): Promise<MonitorResult> {
 
       const pre = await runPreflight({ account, symbol, side: 'SELL', quantity: sellQty, pricePerShare: ltp, bypassNoLossSell })
       if (!pre.ok) {
+        const skipReason = pre.gate === 'noShort'
+          ? 'Position no longer held in Kite (manually closed?) — skipping'
+          : `Preflight ${pre.gate}: ${pre.reason}`
         entries.push({
           account, accountDisplayName: displayName, symbol,
           action: 'skipped', quantity: sellQty, entryPrice: lot.entryPrice, ltp, gainPct: lotGainPct,
-          reason: pre.gate === 'noShort'
-            ? 'Position no longer held in Kite (manually closed?) — skipping'
-            : `Preflight ${pre.gate}: ${pre.reason}`,
+          reason: skipReason,
         })
+        journalExitMonitor({
+          account,
+          symbol,
+          quantity: sellQty,
+          price: ltp,
+          reason: `Lot ${lotLabel}: ${skipReason}`,
+          status: 'skipped',
+          strategyId: pos.strategyId,
+        }).catch(err => console.error('[strategy2] exit monitor journal write failed:', err))
         continue
       }
 
@@ -348,6 +358,15 @@ export async function monitorAccount(account: string): Promise<MonitorResult> {
           action: 'sold_failed', quantity: actualQty, entryPrice: lot.entryPrice, ltp, gainPct: lotGainPct,
           reason: errMsg,
         })
+        journalExitMonitor({
+          account,
+          symbol,
+          quantity: actualQty,
+          price: ltp,
+          reason: `Lot ${lotLabel}: Kite SELL failed — ${errMsg}`,
+          status: 'failed',
+          strategyId: pos.strategyId,
+        }).catch(err => console.error('[strategy2] exit monitor journal write failed:', err))
         sendEmail('trade_failed', {
           account, accountDisplayName: displayName, symbol,
           side: 'SELL', quantity: actualQty, price: ltp,
