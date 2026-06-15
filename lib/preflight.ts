@@ -282,11 +282,14 @@ export async function runPreflight(input: PreflightInput): Promise<PreflightResu
     const eq = (s: any) => String(s).toUpperCase() === sym
     const holding = (holdingsJson?.data || []).find((h: any) => eq(h.tradingsymbol))
     const dayPos  = (positionsJson?.data?.day || []).find((p: any) => eq(p.tradingsymbol))
-    // Include T+1 settlement qty — stocks bought today have quantity=0 but
-    // t1_quantity>0 until next trading day. Summing both gives the true held qty.
+    // Holdings already reflect the REMAINING delivery quantity after any same-day
+    // CNC sells. Day positions can simultaneously show a negative quantity for the
+    // sold leg; subtracting that from holdings turns a real remaining holding into
+    // a phantom zero and blocks the second exit leg. Only positive day qty adds
+    // extra sellable stock beyond holdings (e.g. same-day T0 long buys).
     const heldQty = Number(holding?.quantity || 0) + Number(holding?.t1_quantity || 0)
     const dayQty  = Number(dayPos?.quantity || 0)
-    const available = heldQty + dayQty
+    const available = heldQty + Math.max(0, dayQty)
 
     if (available <= 0) {
       return {
