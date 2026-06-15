@@ -269,19 +269,28 @@ async function writeAll(p: PositionsMap): Promise<void> {
 // ─── Public API ────────────────────────────────────────────────────────────
 
 // Pyramid-aware BUY recorder. If a position exists for (account, symbol):
-//   - keep firstBuyAt + firstBuyPrice + strategyId (anchored to original entry)
-//   - add qty to totalQty + remainingQty
+//   - keep the existing strategy owner on the row
+//   - preserve the incoming fill as its own lot whenever the row is tracked
+// This matters when a symbol was re-tagged (for example catalyst -> accumulator)
+// and later receives another BUY. Aggregating into the old anchor price would
+// erase lot-level exits; we need the new fill to remain independently sellable.
 // Otherwise create fresh entry with the given strategyId.
 export async function recordBuy(strategyId: string, account: string, symbol: string, qty: number, price: number): Promise<void> {
   const positions = await readAll()
   const k = makeKey(account, symbol)
   const existing = positions[k]
   if (existing) {
-    if (existing.strategyId === strategyId && await isTrackedStrategyId(strategyId)) {
+    const existingTracked = await isTrackedStrategyId(existing.strategyId)
+    const incomingTracked = await isTrackedStrategyId(strategyId)
+    if (existingTracked || incomingTracked) {
       const lots = ensureMomentumLots(existing)
       lots.push(makeLot(qty, price))
       summarizeMomentumPosition(existing)
-      console.log(`[positions] lot BUY ${k} +${qty} @ ₹${price} (lots ${lots.length}; avg ₹${existing.firstBuyPrice}, remaining ${existing.remainingQty}, strategyId=${existing.strategyId})`)
+      if (existing.strategyId !== strategyId) {
+        console.log(`[positions] lot BUY ${k} +${qty} @ ₹${price} (owner stays ${existing.strategyId}; source strategy ${strategyId}; lots ${lots.length}; avg ₹${existing.firstBuyPrice}, remaining ${existing.remainingQty})`)
+      } else {
+        console.log(`[positions] lot BUY ${k} +${qty} @ ₹${price} (lots ${lots.length}; avg ₹${existing.firstBuyPrice}, remaining ${existing.remainingQty}, strategyId=${existing.strategyId})`)
+      }
     } else {
       existing.totalQty += qty
       existing.remainingQty += qty
