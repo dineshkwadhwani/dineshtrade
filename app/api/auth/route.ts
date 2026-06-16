@@ -1,5 +1,6 @@
 import { NextRequest, NextResponse } from 'next/server'
 import { getExpectedPassword, createSession } from '@/lib/auth'
+import { ensureCronStarted } from '@/lib/cron'
 
 export async function POST(req: NextRequest) {
   const { password } = await req.json()
@@ -8,6 +9,8 @@ export async function POST(req: NextRequest) {
   if (password !== expected) {
     return NextResponse.json({ error: 'Invalid access code' }, { status: 401 })
   }
+
+  ensureCronStarted()
 
   const token = await createSession()
 
