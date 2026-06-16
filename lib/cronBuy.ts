@@ -1,7 +1,7 @@
 // Auto-buy engine for the cron subsystem.
 // Handles the per-recommendation BUY placement and per-strategy scan task body.
 
-import { getState } from './state'
+import { getBackendInfo, getState } from './state'
 import { isMarketOpen } from './market'
 import { getAccountList } from './accounts'
 import { sendEmail, type EODLineItem } from './email'
@@ -181,12 +181,15 @@ export async function autoBuyOnAccount(account: string, accountDisplayName: stri
 // strategies (one BUY per symbol per account per day).
 export async function runStrategyTaskBody(strategy: Strategy): Promise<void> {
   maybeRollDay()
+  const backend = getBackendInfo()
+  console.log(`[cron strategy:${strategy.id}] entered task body · backend=${backend.backend}${backend.path ? ` path=${backend.path}` : ''}`)
   const market = isMarketOpen()
   if (!market.open) {
     console.log(`[cron strategy:${strategy.id}] skipped — market closed (${market.status})`)
     return
   }
   const state = await getState()
+  console.log(`[cron strategy:${strategy.id}] loaded state · mode=${state.mode} · selected=${state.selectedAccounts.length} · tokens=${Object.keys(state.kiteTokens).length}`)
   if (state.mode !== 'auto') {
     console.log(`[cron strategy:${strategy.id}] skipped — mode=${state.mode}`)
     return
