@@ -385,7 +385,7 @@ Pivotal scripts live in their own seed/runtime pair: `config/pivotalLists.json` 
 - **Vercel dropped** mid-Phase 2 — EC2-only now (state needs filesystem persistence, cron needs long-lived process).
 - **EC2:** Ubuntu, PM2 keeps Node alive. Elastic IP `3.111.255.172`. Domain: `dineshtrade.online`.
 - State + journal lives at `~/dineshtrade/data/` — file mode `0o600`, never wiped by deploys.
-- Cron starts from `server.ts`, so the PM2-owned Node process is the sole scheduler owner. `instrumentation.ts` remains a no-op compatibility hook.
+- Cron starts from `server.js`, which loads a build-time bundled `dist/cron-runtime.cjs`, so the PM2-owned Node process is the sole scheduler owner without any runtime TS loader hooks. `instrumentation.ts` remains a no-op compatibility hook.
 
 See `docs/technical-specification.md` for the full deploy runbook.
 

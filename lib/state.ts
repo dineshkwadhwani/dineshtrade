@@ -9,7 +9,6 @@
 // Otherwise the cookie backend is used.
 
 import { SignJWT, jwtVerify } from 'jose'
-import { cookies } from 'next/headers'
 import { promises as fs } from 'fs'
 import * as path from 'path'
 import { getAccountList, isAccountConfigured } from './accounts'
@@ -171,6 +170,7 @@ async function deleteFile(): Promise<void> {
 // ──────── COOKIE BACKEND ────────
 
 async function readCookie(): Promise<SessionState> {
+  const { cookies } = await import('next/headers')
   const token = cookies().get(COOKIE)?.value
   if (!token) return normalize(null)
   try {
@@ -182,6 +182,7 @@ async function readCookie(): Promise<SessionState> {
 }
 
 async function writeCookie(state: SessionState): Promise<void> {
+  const { cookies } = await import('next/headers')
   const expires = midnightIST()
   const expiresSec = Math.max(60, Math.floor((expires.getTime() - Date.now()) / 1000))
   const token = await new SignJWT({ state })
@@ -199,6 +200,7 @@ async function writeCookie(state: SessionState): Promise<void> {
 }
 
 async function deleteCookie(): Promise<void> {
+  const { cookies } = await import('next/headers')
   cookies().delete(COOKIE)
 }
 

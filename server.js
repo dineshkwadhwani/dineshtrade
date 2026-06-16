@@ -1,9 +1,8 @@
 const { createServer } = require('http')
 const next = require('next')
 const { parse } = require('url')
-const { require: tsxRequire } = require('tsx/cjs/api')
 
-const { startCron } = tsxRequire('./lib/cron.ts', __filename)
+const { startCron } = require('./dist/cron-runtime.cjs')
 
 const dev = process.env.NODE_ENV !== 'production'
 const hostname = process.env.HOST || '0.0.0.0'

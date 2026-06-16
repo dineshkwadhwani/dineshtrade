@@ -12,7 +12,7 @@ This document covers the *how* — architecture, stack choices, infrastructure, 
 
 | Layer | Choice | Version | Why |
 | --- | --- | --- | --- |
-| Framework | Next.js | 14.2.3 (App Router) | File-based routing, edge middleware, custom `server.ts` entrypoint for stable cron ownership |
+| Framework | Next.js | 14.2.3 (App Router) | File-based routing, edge middleware, custom `server.js` entrypoint for stable cron ownership |
 | Language | TypeScript | 5.x | Trade-side bugs are too expensive to debug at runtime |
 | UI | React | 18 | Default with Next |
 | Styling | Tailwind CSS | 3.4 | Inline utility classes — no extra build step, mobile-first |
@@ -30,7 +30,7 @@ This document covers the *how* — architecture, stack choices, infrastructure, 
 
 ### 1.3 Why these choices
 
-- **Next.js over Express:** the app needs a UI *and* server logic. App Router gives both in one project, and a thin custom `server.ts` keeps cron attached to the single PM2-owned Node process instead of transient request/runtime contexts.
+- **Next.js over Express:** the app needs a UI *and* server logic. App Router gives both in one project, and a thin custom `server.js` plus a build-time bundled cron runtime keeps cron attached to the single PM2-owned Node process instead of transient request/runtime contexts.
 - **Cookie + file state, no DB:** trade state is small (<100 KB), single-writer, and benefits more from append-only durability than from query power. Adding Postgres would 10× the deploy complexity for zero new capability today. Migrate when query needs justify it.
 - **node-cron, not external schedulers:** the cron must trade against the same authenticated session. An external scheduler would either need to call an HTTP endpoint (extra surface area) or hold its own Kite token (duplicate state).
 - **Multi-provider AI:** Anthropic was burning cost during dev; Gemini's free tier covers the morning briefing comfortably. Provider switch is one env var change.
@@ -120,7 +120,8 @@ This document covers the *how* — architecture, stack choices, infrastructure, 
 ├── middleware.ts                   # Edge auth check
 ├── next.config.js
 ├── package.json
-├── server.ts                       # Custom Next server + single-owner cron bootstrap
+├── server.js                       # Custom Next server + single-owner cron bootstrap
+├── dist/cron-runtime.cjs           # Build-time bundled cron runtime loaded by server.js
 ├── tailwind.config.ts
 ├── tsconfig.json
 └── docs/
@@ -151,7 +152,7 @@ Single Node.js process managed by PM2. Inside:
 │  └──────────────────────────────────────────────────────────┘  │
 │                                                                │
 │  ┌──────────────────────────────────────────────────────────┐  │
-│  │  node-cron (started by server.ts after app.prepare())    │  │
+│  │  node-cron (started by server.js via dist/cron-runtime.cjs) │  │
 │  │   tick     */5 9-15 * * 1-5  (Asia/Kolkata)             │  │
 │  │   retro    35 15    * * 1-5                              │  │
 │  └──────────────────────────────────────────────────────────┘  │
