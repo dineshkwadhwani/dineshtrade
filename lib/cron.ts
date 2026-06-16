@@ -19,7 +19,7 @@ import { isMarketOpen } from './market'
 import { getAccountList } from './accounts'
 import { type EODLineItem } from './email'
 import { runReactiveDipScan } from './strategyEngine'
-import { getActiveStrategies, type Strategy } from './strategyConfig'
+import { getActiveStrategies, getStrategyById, type Strategy } from './strategyConfig'
 import strategyCfg from '@/config/strategy.json'
 import { monitorAllConnected } from './strategy2'
 import { monitorAllAccountsStrategy1 } from './strategy1'
@@ -233,11 +233,22 @@ function registerStrategyTask(strategy: Strategy): void {
   const expr = `*/${interval} 9-15 * * 1-5`
   const task = cron.schedule(expr, () => {
     console.log(`[cron strategy:${strategy.id}] callback fired (${expr})`)
-    // Always re-resolve the strategy by id each tick — picks up any post-save
-    // params/watchlist/exits without needing to restart the cron task.
-    const fresh = require('./strategyConfig').getStrategyById(strategy.id) as Strategy | null
-    if (!fresh || !fresh.active) return
-    runStrategyTaskBody(fresh).catch(err => console.error(`[cron strategy:${strategy.id}] error:`, err))
+    try {
+      // Always re-resolve the strategy by id each tick — picks up any post-save
+      // params/watchlist/exits without needing to restart the cron task.
+      const fresh = getStrategyById(strategy.id)
+      if (!fresh) {
+        console.log(`[cron strategy:${strategy.id}] skipped — strategy missing in runtime config`)
+        return
+      }
+      if (!fresh.active) {
+        console.log(`[cron strategy:${strategy.id}] skipped — strategy inactive in runtime config`)
+        return
+      }
+      runStrategyTaskBody(fresh).catch(err => console.error(`[cron strategy:${strategy.id}] error:`, err))
+    } catch (err) {
+      console.error(`[cron strategy:${strategy.id}] callback setup failed:`, err)
+    }
   }, { timezone: 'Asia/Kolkata' })
   task.start()
   strategyTasks.set(strategy.id, task)
