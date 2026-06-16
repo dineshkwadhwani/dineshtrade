@@ -14,7 +14,7 @@
 // Gated by CRON_ENABLED=true. Set CRON_ENABLED=false (or unset) for local dev.
 
 import cron, { ScheduledTask } from 'node-cron'
-import { getState } from './state'
+import { getBackendInfo, getState } from './state'
 import { isMarketOpen } from './market'
 import { getAccountList } from './accounts'
 import { type EODLineItem } from './email'
@@ -55,10 +55,19 @@ const strategyTasks = new Map<string, ScheduledTask>()
 async function tick(): Promise<void> {
   maybeRollDay()
   const market = isMarketOpen()
-  if (!market.open) return
+  if (!market.open) {
+    console.log(`[cron tick] skipped — market closed (${market.status})`)
+    return
+  }
   const state = await getState()
-  if (state.mode !== 'auto') return
-  if (Object.keys(state.kiteTokens).length === 0) return
+  if (state.mode !== 'auto') {
+    console.log(`[cron tick] skipped — mode=${state.mode}`)
+    return
+  }
+  if (Object.keys(state.kiteTokens).length === 0) {
+    console.log('[cron tick] skipped — no Kite tokens in state')
+    return
+  }
 
   recordScan()
   recordCoreTickRun()
@@ -186,6 +195,8 @@ export function startCron(): void {
     return
   }
   started = true
+  const backend = getBackendInfo()
+  console.log(`[cron] state backend=${backend.backend}${backend.path ? ` path=${backend.path}` : ''}`)
 
   // Core 5-min tick: SELL monitors + reactive dip scan only. BUY scans live
   // on per-strategy schedules below.

@@ -182,10 +182,19 @@ export async function autoBuyOnAccount(account: string, accountDisplayName: stri
 export async function runStrategyTaskBody(strategy: Strategy): Promise<void> {
   maybeRollDay()
   const market = isMarketOpen()
-  if (!market.open) return
+  if (!market.open) {
+    console.log(`[cron strategy:${strategy.id}] skipped — market closed (${market.status})`)
+    return
+  }
   const state = await getState()
-  if (state.mode !== 'auto') return
-  if (Object.keys(state.kiteTokens).length === 0) return
+  if (state.mode !== 'auto') {
+    console.log(`[cron strategy:${strategy.id}] skipped — mode=${state.mode}`)
+    return
+  }
+  if (Object.keys(state.kiteTokens).length === 0) {
+    console.log(`[cron strategy:${strategy.id}] skipped — no Kite tokens in state`)
+    return
+  }
 
   const t = istHHMM()
   strategyLastRunAt[strategy.id] = new Date().toISOString()
