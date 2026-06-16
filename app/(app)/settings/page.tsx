@@ -135,8 +135,14 @@ export default function SettingsPage() {
     }).catch(() => {})
   }
 
+  const pageWidthClass = tab === 'backtest'
+    ? 'max-w-7xl'
+    : tab === 'general'
+      ? 'max-w-5xl'
+      : 'max-w-6xl'
+
   return (
-    <div className={`space-y-6 pb-4 ${tab === 'backtest' ? 'max-w-7xl' : 'max-w-2xl'}`}>
+    <div className={`space-y-6 pb-4 ${pageWidthClass}`}>
       <div className="flex items-center justify-between gap-3">
         <div className="flex items-center gap-3">
           <h1 className="text-[28px] font-semibold leading-none">
@@ -162,7 +168,7 @@ export default function SettingsPage() {
         )}
       </div>
 
-      <div className="flex gap-1 rounded-lg p-1 w-fit dt-card">
+      <div className="inline-flex max-w-full flex-wrap gap-1 rounded-lg p-1 dt-card">
         {([
           { id: 'general', label: 'General' },
           { id: 'strategies', label: 'Strategies' },
@@ -171,7 +177,7 @@ export default function SettingsPage() {
           const activeTab = tab === item.id
           return (
             <button key={item.id} onClick={() => setTab(item.id)}
-              className="px-4 py-1.5 rounded-md text-[11px] transition-all"
+              className="min-w-0 px-3 py-1.5 rounded-md text-[10px] sm:text-[11px] transition-all"
               style={{
                 background: activeTab ? 'rgba(201,168,76,0.12)' : 'transparent',
                 border: activeTab ? '1px solid rgba(201,168,76,0.3)' : '1px solid transparent',
