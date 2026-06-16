@@ -192,11 +192,13 @@ export function startCron(): void {
   tickTask = cron.schedule('*/5 9-15 * * 1-5', () => {
     tick().catch(err => console.error('[cron tick] error:', err))
   }, { timezone: 'Asia/Kolkata' })
+  tickTask.start()
 
   // Daily retrospective email
   eodTask = cron.schedule('35 15 * * 1-5', () => {
     dailyRetrospective().catch(err => console.error('[cron retro] error:', err))
   }, { timezone: 'Asia/Kolkata' })
+  eodTask.start()
 
   // Per-strategy BUY-scan tasks. Each active strategy registers its own cron
   // at its scanIntervalMin. Inactive strategies are skipped here; toggling
@@ -219,13 +221,16 @@ function registerStrategyTask(strategy: Strategy): void {
   const interval = Math.max(1, strategy.scanIntervalMin)
   const expr = `*/${interval} 9-15 * * 1-5`
   const task = cron.schedule(expr, () => {
+    console.log(`[cron strategy:${strategy.id}] callback fired (${expr})`)
     // Always re-resolve the strategy by id each tick — picks up any post-save
     // params/watchlist/exits without needing to restart the cron task.
     const fresh = require('./strategyConfig').getStrategyById(strategy.id) as Strategy | null
     if (!fresh || !fresh.active) return
     runStrategyTaskBody(fresh).catch(err => console.error(`[cron strategy:${strategy.id}] error:`, err))
   }, { timezone: 'Asia/Kolkata' })
+  task.start()
   strategyTasks.set(strategy.id, task)
+  console.log(`[cron strategy:${strategy.id}] scheduled ${expr} Asia/Kolkata`)
 }
 
 // HOT-RELOAD helpers used by POST /api/strategies. Compares the new active
