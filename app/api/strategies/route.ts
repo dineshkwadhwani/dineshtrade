@@ -10,12 +10,15 @@ import { getWatchlist } from '@/lib/watchlistStore'
 import { getPivotalLists } from '@/lib/pivotalListStore'
 import { getRuntimeStrategyConfig, saveRuntimeStrategyConfig } from '@/lib/strategyConfigStore'
 import { getState } from '@/lib/state'
+import { ensureCronStarted } from '@/lib/cron'
 
 export const dynamic = 'force-dynamic'
 
 export async function GET() {
   const t = cookies().get('dt_session')?.value
   if (!t || !(await verifySession(t))) return NextResponse.json({ error: 'Unauthorized' }, { status: 401 })
+
+  ensureCronStarted()
 
   // Watchlist keys + display names are derived dynamically so newly created
   // lists show up in the Strategies UI multi-select with no code change.

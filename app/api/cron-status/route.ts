@@ -2,6 +2,7 @@ import { NextResponse } from 'next/server'
 import { cookies } from 'next/headers'
 import { verifySession } from '@/lib/auth'
 import { getState } from '@/lib/state'
+import { ensureCronStarted } from '@/lib/cron'
 import { getStrategies } from '@/lib/strategyConfig'
 import { readJournalMonth, istDateString, type JournalRecord, type StrategyScanRecord } from '@/lib/journal'
 
@@ -18,6 +19,8 @@ export async function GET() {
   if (!session || !(await verifySession(session))) {
     return NextResponse.json({ error: 'Unauthorized' }, { status: 401 })
   }
+
+  ensureCronStarted()
 
   const state = await getState()
   const today = istDateString()

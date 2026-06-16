@@ -197,6 +197,10 @@ export function startCron(): void {
   console.log(`[cron] starting — core tick every 5 min · retro 15:35 IST · per-strategy: ${summary || 'none'}`)
 }
 
+export function ensureCronStarted(): void {
+  startCron()
+}
+
 function registerStrategyTask(strategy: Strategy): void {
   if (strategyTasks.has(strategy.id)) return
   const interval = Math.max(1, strategy.scanIntervalMin)
