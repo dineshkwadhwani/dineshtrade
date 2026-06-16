@@ -1,10 +1,9 @@
 const { createServer } = require('http')
 const next = require('next')
 const { parse } = require('url')
-const { register } = require('tsx/cjs/api')
+const { require: tsxRequire } = require('tsx/cjs/api')
 
-const tsxScope = register({ namespace: 'dineshtrade-server' })
-const { startCron } = tsxScope.require('./lib/cron.ts', __filename)
+const { startCron } = tsxRequire('./lib/cron.ts', __filename)
 
 const dev = process.env.NODE_ENV !== 'production'
 const hostname = process.env.HOST || '0.0.0.0'
