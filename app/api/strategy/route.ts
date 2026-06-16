@@ -7,8 +7,28 @@ import { cookies } from 'next/headers'
 import { verifySession } from '@/lib/auth'
 import { getCapital, getActiveStrategies } from '@/lib/strategyConfig'
 import { generateRecommendations, runReactiveDipScan, runStrategyScan } from '@/lib/strategyEngine'
+import { appendJournal, istDateString } from '@/lib/journal'
 
 export const dynamic = 'force-dynamic'
+
+async function journalManualStrategyScan(args: {
+  strategyId: string
+  strategyName: string
+  recommendations: Array<{ symbol: string }>
+  skipReason?: string
+}) {
+  await appendJournal({
+    type: 'strategy_scan',
+    date: istDateString(),
+    ts: new Date().toISOString(),
+    strategyId: args.strategyId,
+    strategyName: args.strategyName,
+    recs: args.recommendations.length,
+    executed: 0,
+    symbols: args.recommendations.length > 0 ? args.recommendations.map(rec => rec.symbol) : undefined,
+    skipReason: args.skipReason,
+  })
+}
 
 export async function POST() {
   const session = cookies().get('dt_session')?.value
@@ -32,7 +52,7 @@ export async function POST() {
   const pivotalStrategies = getActiveStrategies().filter(strategy => strategy.type === 'pivotal')
   const pivotalRuns = await Promise.all(pivotalStrategies.map(strategy => runStrategyScan(strategy).catch(err => {
     console.warn(`[/api/strategy] pivotal scan failed ${strategy.id}:`, String(err).slice(0, 200))
-    return { recommendations: [] }
+    return { recommendations: [], message: `Scan crashed: ${String(err).slice(0, 120)}` }
   })))
   const pivotalRecs = pivotalRuns.flatMap(run => run.recommendations || [])
 
@@ -45,6 +65,48 @@ export async function POST() {
     ...pivotalRecs.filter(r => !reactiveSymbols.has(r.symbol)),
     ...result.recommendations.filter(r => !reactiveSymbols.has(r.symbol) && !pivotalSymbols.has(r.symbol)),
   ]
+
+  const activeStrategies = getActiveStrategies()
+  const manualScanJournalWrites: Promise<void>[] = []
+
+  if (result.mode === 'dip') {
+    for (const strategy of activeStrategies.filter(strategy => strategy.type === 'dip')) {
+      manualScanJournalWrites.push(journalManualStrategyScan({
+        strategyId: strategy.id,
+        strategyName: strategy.name,
+        recommendations: result.recommendations,
+        skipReason: result.message,
+      }))
+    }
+  } else if (result.mode === 'catalyst') {
+    for (const strategy of activeStrategies.filter(strategy => strategy.type === 'momentum')) {
+      manualScanJournalWrites.push(journalManualStrategyScan({
+        strategyId: strategy.id,
+        strategyName: strategy.name,
+        recommendations: result.recommendations,
+        skipReason: result.message,
+      }))
+    }
+  }
+
+  for (let index = 0; index < pivotalStrategies.length; index++) {
+    const strategy = pivotalStrategies[index]
+    const run = pivotalRuns[index]
+    manualScanJournalWrites.push(journalManualStrategyScan({
+      strategyId: strategy.id,
+      strategyName: strategy.name,
+      recommendations: run.recommendations || [],
+      skipReason: run.message,
+    }))
+  }
+
+  Promise.allSettled(manualScanJournalWrites).then(results => {
+    for (const result of results) {
+      if (result.status === 'rejected') {
+        console.error('[/api/strategy] manual scan journal write failed:', result.reason)
+      }
+    }
+  })
 
   return NextResponse.json({
     ...result,
