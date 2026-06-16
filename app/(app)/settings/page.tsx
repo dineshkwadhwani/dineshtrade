@@ -366,6 +366,9 @@ function toneStyle(tone: StatusTone) {
     border: 'rgba(82,183,136,0.28)',
     text: '#52b788',
     dot: '#52b788',
+    pillBg: 'rgba(82,183,136,0.2)',
+    pillBorder: 'rgba(82,183,136,0.36)',
+    pillText: '#d7f5e6',
     label: 'Healthy',
   }
   if (tone === 'amber') return {
@@ -373,6 +376,9 @@ function toneStyle(tone: StatusTone) {
     border: 'rgba(201,168,76,0.28)',
     text: '#c9a84c',
     dot: '#c9a84c',
+    pillBg: 'rgba(201,168,76,0.22)',
+    pillBorder: 'rgba(201,168,76,0.36)',
+    pillText: '#fff1c6',
     label: 'Attention',
   }
   if (tone === 'red') return {
@@ -380,6 +386,9 @@ function toneStyle(tone: StatusTone) {
     border: 'rgba(224,90,94,0.28)',
     text: '#e05a5e',
     dot: '#e05a5e',
+    pillBg: 'rgba(224,90,94,0.22)',
+    pillBorder: 'rgba(224,90,94,0.38)',
+    pillText: '#ffd7dc',
     label: 'Blocked',
   }
   return {
@@ -387,6 +396,9 @@ function toneStyle(tone: StatusTone) {
     border: 'rgba(255,255,255,0.08)',
     text: 'rgba(255,255,255,0.5)',
     dot: 'rgba(255,255,255,0.4)',
+    pillBg: 'rgba(255,255,255,0.08)',
+    pillBorder: 'rgba(255,255,255,0.12)',
+    pillText: 'rgba(255,255,255,0.72)',
     label: 'N/A',
   }
 }
@@ -405,26 +417,32 @@ function fmtStatusTs(iso: string) {
 function StatusTile({ item }: { item: StatusItem }) {
   const tone = toneStyle(item.tone)
   return (
-    <div className="rounded-lg p-4"
+    <div className="rounded-lg p-4 min-h-[188px] flex flex-col"
       style={{
         background: tone.bg,
         border: `1px solid ${tone.border}`,
       }}>
-      <div className="flex items-center justify-between gap-3 mb-2">
+      <div className="mb-2">
         <p className="text-[11px] tracking-widest uppercase"
           style={{ color: tone.text, fontFamily: 'JetBrains Mono, monospace' }}>
           {item.label}
         </p>
-        <div className="flex items-center gap-2 px-2 py-1 rounded-full"
-          style={{ background: 'rgba(0,0,0,0.18)' }}>
+      </div>
+      <p className="text-[15px] leading-6 dt-text-primary">{item.summary}</p>
+      {item.detail && <p className="text-[11px] mt-2 dt-text-muted">{item.detail}</p>}
+      <div className="mt-auto pt-4">
+        <div className="inline-flex items-center gap-2 px-2.5 py-1.5 rounded-full"
+          style={{
+            background: tone.pillBg,
+            border: `1px solid ${tone.pillBorder}`,
+          }}>
           <span className="w-1.5 h-1.5 rounded-full" style={{ background: tone.dot }} />
-          <span className="text-[10px] tracking-widest uppercase" style={{ color: tone.text, fontFamily: 'JetBrains Mono, monospace' }}>
+          <span className="text-[10px] tracking-widest uppercase"
+            style={{ color: tone.pillText, fontFamily: 'JetBrains Mono, monospace' }}>
             {tone.label}
           </span>
         </div>
       </div>
-      <p className="text-[15px] leading-6 dt-text-primary">{item.summary}</p>
-      {item.detail && <p className="text-[11px] mt-2 dt-text-muted">{item.detail}</p>}
     </div>
   )
 }
