@@ -26,11 +26,12 @@ import { monitorAllAccountsStrategy1 } from './strategy1'
 import { monitorAllPivotalAccounts } from './pivotal'
 import {
   maybeRollDay, istHHMM, recordScan, recordExecuted, recordFailed,
-  recordDelivery, shouldRunReactiveDip, dayStats,
+  recordDelivery, shouldRunReactiveDip, dayStats, recordCoreTickRun,
 } from './cronState'
 import { autoBuyOnAccount, runStrategyTaskBody } from './cronBuy'
 import { runEODSquareOff, dailyRetrospective } from './cronEOD'
 import { reconcileManualSells } from './cronReconcile'
+import { journalMonitorHeartbeat } from './journal'
 
 // Re-export record functions and getDayStats so external callers that were
 // using @/lib/cron keep working without any import-path change.
@@ -60,14 +61,18 @@ async function tick(): Promise<void> {
   if (Object.keys(state.kiteTokens).length === 0) return
 
   recordScan()
+  recordCoreTickRun()
   const t = istHHMM()
   const accs = Object.keys(state.kiteTokens)
   console.log(`[cron tick] ${t} IST — scan #${dayStats.scans} · mode=auto · accounts=${accs.join(',')}`)
+
+  let monitorPositionsChecked = 0
 
   // 1a. SELL engine — Strategy 2 (intraday catalyst) monitor
   try {
     const s2Results = await monitorAllConnected()
     for (const r of s2Results) {
+      monitorPositionsChecked += r.positionsChecked || 0
       for (const e of r.entries) {
         const item: EODLineItem = {
           time: t, account: e.account, symbol: e.symbol, side: 'SELL',
@@ -86,6 +91,7 @@ async function tick(): Promise<void> {
   try {
     const s1Results = await monitorAllAccountsStrategy1()
     for (const r of s1Results) {
+      monitorPositionsChecked += r.positionsChecked || 0
       for (const e of r.entries) {
         const item: EODLineItem = {
           time: t, account: e.account, symbol: e.symbol, side: 'SELL',
@@ -103,6 +109,7 @@ async function tick(): Promise<void> {
   try {
     const pivotalResults = await monitorAllPivotalAccounts()
     for (const r of pivotalResults) {
+      monitorPositionsChecked += r.positionsChecked || 0
       for (const e of r.entries) {
         const item: EODLineItem = {
           time: t, account: e.account, symbol: e.symbol, side: 'SELL',
@@ -155,6 +162,12 @@ async function tick(): Promise<void> {
   } catch (err) {
     console.error('[cron tick] reactive dip scan failed:', err)
   }
+
+  journalMonitorHeartbeat({
+    source: 'cron',
+    accountsChecked: accs.length,
+    positionsChecked: monitorPositionsChecked,
+  }).catch(err => console.error('[cron tick] journal monitor heartbeat failed:', err))
 
   // BUY scans are now handled by per-strategy cron tasks (see strategyTasks
   // registry in startCron). The 5-min tick only handles SELL monitors + the

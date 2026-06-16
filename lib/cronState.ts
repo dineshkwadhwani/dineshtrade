@@ -8,6 +8,7 @@ import type { EODLineItem } from './email'
 
 export let currentDateKey = ''
 export let dipScanDoneDate = ''
+export let coreTickLastRunAt: string | null = null
 
 // Per-strategy last-run timestamps (ISO). Updated by runStrategyTaskBody each time
 // a strategy's cron task fires. Survives in-process; resets on PM2 restart.
@@ -126,4 +127,5 @@ export function recordPnl(account: string, pnl: number) {
   dayStats.realizedPnl[account] = (dayStats.realizedPnl[account] || 0) + pnl
 }
 export function recordScan() { maybeRollDay(); dayStats.scans++ }
+export function recordCoreTickRun() { maybeRollDay(); coreTickLastRunAt = new Date().toISOString() }
 export function getDayStats() { maybeRollDay(); return { date: currentDateKey, dipScanDoneDate, ...dayStats } }

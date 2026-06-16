@@ -12,6 +12,7 @@ import { verifySession } from '@/lib/auth'
 import { monitorAllConnected } from '@/lib/strategy2'
 import { monitorAllAccountsStrategy1 } from '@/lib/strategy1'
 import { monitorAllPivotalAccounts } from '@/lib/pivotal'
+import { journalMonitorHeartbeat } from '@/lib/journal'
 
 export async function POST() {
   const session = cookies().get('dt_session')?.value
@@ -24,10 +25,16 @@ export async function POST() {
     monitorAllPivotalAccounts(),
   ])
   const results = [...momentum, ...dip, ...pivotal]
+  const positionsChecked = results.reduce((sum, result) => sum + result.positionsChecked, 0)
+  journalMonitorHeartbeat({
+    source: 'manual',
+    accountsChecked: results.length,
+    positionsChecked,
+  }).catch(err => console.error('[/api/strategy/monitor] journal heartbeat failed:', err))
   return NextResponse.json({
     ranAt: new Date().toISOString(),
     accountsChecked: results.length,
-    totalPositions: results.reduce((s, r) => s + r.positionsChecked, 0),
+    totalPositions: positionsChecked,
     results,
   })
 }

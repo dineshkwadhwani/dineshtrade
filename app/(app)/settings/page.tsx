@@ -16,6 +16,34 @@ type Mode = 'auto' | 'manual'
 
 type SettingsTab = 'general' | 'strategies' | 'backtest'
 
+type StatusTone = 'green' | 'amber' | 'red' | 'gray'
+
+interface StatusItem {
+  key: string
+  label: string
+  tone: StatusTone
+  summary: string
+  detail?: string
+}
+
+interface SystemStatusResponse {
+  updatedAt: string
+  overall: {
+    tone: StatusTone
+    summary: string
+    critical: number
+    warning: number
+  }
+  summaryItems: StatusItem[]
+  groups: {
+    execution: StatusItem[]
+    broker: StatusItem[]
+    capital: StatusItem[]
+    persistence: StatusItem[]
+    strategies: StatusItem[]
+  }
+}
+
 export default function SettingsPage() {
   const [tab, setTab] = useState<SettingsTab>('general')
   const [accounts, setAccounts] = useState<AccountDisplay[]>([])
@@ -164,6 +192,8 @@ export default function SettingsPage() {
 
       {tab === 'general' && (
         <>
+      <SystemStatusSection />
+
       <div className="rounded-xl p-5 dt-card">
         <h2 className="text-[11px] tracking-widest uppercase mb-4"
           style={{ color:'rgba(201,168,76,0.6)', fontFamily:'JetBrains Mono, monospace' }}>
@@ -326,6 +356,171 @@ export default function SettingsPage() {
       <p className="text-[10px] text-center dt-text-muted">
         Settings persist until logout · Closing the browser does not log you out · Only Logout clears the session
       </p>
+    </div>
+  )
+}
+
+function toneStyle(tone: StatusTone) {
+  if (tone === 'green') return {
+    bg: 'rgba(82,183,136,0.12)',
+    border: 'rgba(82,183,136,0.28)',
+    text: '#52b788',
+    dot: '#52b788',
+    label: 'Healthy',
+  }
+  if (tone === 'amber') return {
+    bg: 'rgba(201,168,76,0.12)',
+    border: 'rgba(201,168,76,0.28)',
+    text: '#c9a84c',
+    dot: '#c9a84c',
+    label: 'Attention',
+  }
+  if (tone === 'red') return {
+    bg: 'rgba(224,90,94,0.12)',
+    border: 'rgba(224,90,94,0.28)',
+    text: '#e05a5e',
+    dot: '#e05a5e',
+    label: 'Blocked',
+  }
+  return {
+    bg: 'rgba(255,255,255,0.04)',
+    border: 'rgba(255,255,255,0.08)',
+    text: 'rgba(255,255,255,0.5)',
+    dot: 'rgba(255,255,255,0.4)',
+    label: 'N/A',
+  }
+}
+
+function fmtStatusTs(iso: string) {
+  const d = new Date(iso)
+  if (Number.isNaN(d.getTime())) return 'Unknown'
+  return d.toLocaleTimeString('en-IN', {
+    hour: '2-digit',
+    minute: '2-digit',
+    timeZone: 'Asia/Kolkata',
+    hour12: false,
+  }) + ' IST'
+}
+
+function StatusTile({ item }: { item: StatusItem }) {
+  const tone = toneStyle(item.tone)
+  return (
+    <div className="rounded-lg p-4"
+      style={{
+        background: tone.bg,
+        border: `1px solid ${tone.border}`,
+      }}>
+      <div className="flex items-center justify-between gap-3 mb-2">
+        <p className="text-[11px] tracking-widest uppercase"
+          style={{ color: tone.text, fontFamily: 'JetBrains Mono, monospace' }}>
+          {item.label}
+        </p>
+        <div className="flex items-center gap-2 px-2 py-1 rounded-full"
+          style={{ background: 'rgba(0,0,0,0.18)' }}>
+          <span className="w-1.5 h-1.5 rounded-full" style={{ background: tone.dot }} />
+          <span className="text-[10px] tracking-widest uppercase" style={{ color: tone.text, fontFamily: 'JetBrains Mono, monospace' }}>
+            {tone.label}
+          </span>
+        </div>
+      </div>
+      <p className="text-[15px] leading-6 dt-text-primary">{item.summary}</p>
+      {item.detail && <p className="text-[11px] mt-2 dt-text-muted">{item.detail}</p>}
+    </div>
+  )
+}
+
+function StatusGroup({ title, items }: { title: string; items: StatusItem[] }) {
+  if (items.length === 0) return null
+  return (
+    <div className="space-y-3">
+      <p className="text-[10px] tracking-widest uppercase"
+        style={{ color:'rgba(201,168,76,0.55)', fontFamily:'JetBrains Mono, monospace' }}>
+        {title}
+      </p>
+      <div className="grid gap-3 md:grid-cols-2">
+        {items.map(item => <StatusTile key={item.key} item={item} />)}
+      </div>
+    </div>
+  )
+}
+
+function SystemStatusSection() {
+  const [status, setStatus] = useState<SystemStatusResponse | null>(null)
+  const [error, setError] = useState('')
+  const [loading, setLoading] = useState(true)
+  const [refreshing, setRefreshing] = useState(false)
+
+  async function loadStatus(silent = false) {
+    if (!silent) setRefreshing(true)
+    try {
+      const res = await fetch('/api/system-status', { cache: 'no-store' })
+      const data = await res.json()
+      if (!res.ok || data.error) {
+        setError(data.error || `HTTP ${res.status}`)
+        return
+      }
+      setStatus(data)
+      setError('')
+    } catch {
+      setError('Failed to load system status')
+    } finally {
+      setLoading(false)
+      if (!silent) setRefreshing(false)
+    }
+  }
+
+  useEffect(() => {
+    loadStatus(true)
+    const id = setInterval(() => loadStatus(true), 60_000)
+    return () => clearInterval(id)
+  }, [])
+
+  const overallTone = toneStyle(status?.overall.tone || 'gray')
+
+  return (
+    <div className="rounded-xl p-5 dt-card space-y-5">
+      <div className="flex items-start justify-between gap-4 flex-wrap">
+        <div>
+          <h2 className="text-[11px] tracking-widest uppercase mb-2"
+            style={{ color:'rgba(201,168,76,0.6)', fontFamily:'JetBrains Mono, monospace' }}>
+            System Status
+          </h2>
+          <div className="flex items-center gap-2 mb-2">
+            <span className="w-2 h-2 rounded-full" style={{ background: overallTone.dot }} />
+            <p className="text-[16px] font-medium" style={{ color: overallTone.text }}>
+              {status?.overall.summary || (loading ? 'Loading system checks…' : 'System status unavailable')}
+            </p>
+          </div>
+          <p className="text-[11px] dt-text-muted">
+            {status ? `Updated ${fmtStatusTs(status.updatedAt)} · ${status.overall.critical} critical · ${status.overall.warning} warning` : 'Runs broker, automation, persistence, and strategy checks in one place.'}
+          </p>
+        </div>
+        <button onClick={() => loadStatus()} disabled={refreshing}
+          className="px-3 py-2 rounded-lg text-[10px] tracking-widest uppercase transition-all disabled:opacity-50 dt-card-gold"
+          style={{ color:'#c9a84c', fontFamily:'JetBrains Mono, monospace' }}>
+          {refreshing ? 'Refreshing…' : 'Refresh Status'}
+        </button>
+      </div>
+
+      {error && (
+        <div className="rounded-lg p-3 dt-banner-error">
+          <p className="text-[12px]" style={{ color:'rgba(224,90,94,0.9)' }}>{error}</p>
+        </div>
+      )}
+
+      {status && (
+        <>
+          <div className="grid gap-3 md:grid-cols-2 xl:grid-cols-3">
+            {status.summaryItems.map(item => <StatusTile key={item.key} item={item} />)}
+          </div>
+
+          <StatusGroup title="Execution" items={status.groups.execution} />
+          <StatusGroup title="Broker" items={status.groups.broker} />
+          <StatusGroup title="Capital" items={status.groups.capital} />
+          <StatusGroup title="Persistence" items={status.groups.persistence} />
+          <StatusGroup title="Strategies" items={status.groups.strategies} />
+        </>
+      )}
     </div>
   )
 }

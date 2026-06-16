@@ -61,6 +61,15 @@ export interface ExitMonitorRecord {
   reason: string
 }
 
+export interface MonitorHeartbeatRecord {
+  type: 'monitor_heartbeat'
+  date: string
+  ts: string
+  source: 'cron' | 'manual'
+  accountsChecked: number
+  positionsChecked: number
+}
+
 // One record per strategy scan tick. Lets the retrospective answer:
 //   "When did strategy X last produce a signal?"
 //   "How many scans did X run today / in the last 30 days?"
@@ -97,7 +106,7 @@ export interface OrderRecord {
   orderId?: string
 }
 
-export type JournalRecord = TradeRecord | SignalSkippedRecord | ExitMonitorRecord | StrategyScanRecord | OrderRecord
+export type JournalRecord = TradeRecord | SignalSkippedRecord | ExitMonitorRecord | MonitorHeartbeatRecord | StrategyScanRecord | OrderRecord
 
 // Storage is anchored to the same dir as state.json. Local dev (cookie state)
 // keeps it in memory only — fine since cron won't run there anyway.
@@ -274,6 +283,21 @@ export async function journalExitMonitor(opts: {
     quantity: opts.quantity,
     price: opts.price,
     reason: opts.reason,
+  })
+}
+
+export async function journalMonitorHeartbeat(opts: {
+  source: 'cron' | 'manual'
+  accountsChecked: number
+  positionsChecked: number
+}): Promise<void> {
+  await appendJournal({
+    type: 'monitor_heartbeat',
+    date: istDateString(),
+    ts: new Date().toISOString(),
+    source: opts.source,
+    accountsChecked: opts.accountsChecked,
+    positionsChecked: opts.positionsChecked,
   })
 }
 
