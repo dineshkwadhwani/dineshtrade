@@ -432,14 +432,20 @@ NOTIFY_TO=dinesh.k.wadhwani@gmail.com
 ### Production deploy (EC2)
 
 ```bash
-
 cd ~/dineshtrade
 git pull
-npm install
-npm run build
-pm2 reload dineshtrade
+rm -rf .next
+npm ci
+NODE_OPTIONS="--max-old-space-size=2048" npm run build
+pm2 restart dineshtrade --update-env
 
 ```
+
+Notes:
+
+- `rm -rf .next` avoids stale Next build artifacts such as missing compiled route modules.
+- `npm ci` keeps deploys reproducible from `package-lock.json`.
+- `pm2 restart dineshtrade --update-env` is the correct command for an existing app. Do not use `pm2 start npm --name dineshtrade -- start` on every deploy, or you can create duplicate PM2 entries.
 
 ### Type check only (safe while dev server is running)
 

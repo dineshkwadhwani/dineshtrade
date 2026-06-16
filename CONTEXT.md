@@ -345,12 +345,12 @@ NOTIFY_TO=dinesh.k.wadhwani@gmail.com
 ## 11. DEPLOY RUNBOOK
 
 ```bash
-
 cd ~/dineshtrade
 git pull
-npm install
-npm run build
-pm2 reload dineshtrade
+rm -rf .next
+npm ci
+NODE_OPTIONS="--max-old-space-size=2048" npm run build
+pm2 restart dineshtrade --update-env
 
 ```
 

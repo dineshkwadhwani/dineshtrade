@@ -12,7 +12,7 @@ This document covers the *how* — architecture, stack choices, infrastructure, 
 
 | Layer | Choice | Version | Why |
 | --- | --- | --- | --- |
-| Framework | Next.js | 14.2.3 (App Router) | File-based routing, edge middleware, instrumentation.ts hook for cron registration |
+| Framework | Next.js | 14.2.3 (App Router) | File-based routing, edge middleware, custom `server.ts` entrypoint for stable cron ownership |
 | Language | TypeScript | 5.x | Trade-side bugs are too expensive to debug at runtime |
 | UI | React | 18 | Default with Next |
 | Styling | Tailwind CSS | 3.4 | Inline utility classes — no extra build step, mobile-first |
@@ -30,7 +30,7 @@ This document covers the *how* — architecture, stack choices, infrastructure, 
 
 ### 1.3 Why these choices
 
-- **Next.js over Express:** the app needs a UI *and* server logic. App Router gives both in one project; instrumentation.ts is the cleanest way to register cron jobs that survive HMR in dev and PM2 restarts in prod.
+- **Next.js over Express:** the app needs a UI *and* server logic. App Router gives both in one project, and a thin custom `server.ts` keeps cron attached to the single PM2-owned Node process instead of transient request/runtime contexts.
 - **Cookie + file state, no DB:** trade state is small (<100 KB), single-writer, and benefits more from append-only durability than from query power. Adding Postgres would 10× the deploy complexity for zero new capability today. Migrate when query needs justify it.
 - **node-cron, not external schedulers:** the cron must trade against the same authenticated session. An external scheduler would either need to call an HTTP endpoint (extra surface area) or hold its own Kite token (duplicate state).
 - **Multi-provider AI:** Anthropic was burning cost during dev; Gemini's free tier covers the morning briefing comfortably. Provider switch is one env var change.
@@ -116,10 +116,11 @@ This document covers the *how* — architecture, stack choices, infrastructure, 
 │   ├── strategyEngine.ts           # Dispatcher (universe deduped across N selected lists)
 │   ├── backtest.ts                 # Historical Strategy 1 replay + equity curve
 │   └── watchlistStore.ts           # Named-list store: { meta, lists } with stable keys
-├── instrumentation.ts              # Cron registration entry point
+├── instrumentation.ts              # No-op compatibility hook; cron no longer starts here
 ├── middleware.ts                   # Edge auth check
 ├── next.config.js
 ├── package.json
+├── server.ts                       # Custom Next server + single-owner cron bootstrap
 ├── tailwind.config.ts
 ├── tsconfig.json
 └── docs/
@@ -150,7 +151,7 @@ Single Node.js process managed by PM2. Inside:
 │  └──────────────────────────────────────────────────────────┘  │
 │                                                                │
 │  ┌──────────────────────────────────────────────────────────┐  │
-│  │  node-cron (registered in instrumentation.ts)            │  │
+│  │  node-cron (started by server.ts after app.prepare())    │  │
 │  │   tick     */5 9-15 * * 1-5  (Asia/Kolkata)             │  │
 │  │   retro    35 15    * * 1-5                              │  │
 │  └──────────────────────────────────────────────────────────┘  │
@@ -775,21 +776,23 @@ sudo systemctl restart caddy
 ### 9.4 Subsequent deploys
 
 ```bash
-
 cd ~/dineshtrade
 git pull
-npm install                            # only re-runs if package-lock changed
-npm run build
-pm2 reload dineshtrade                 # graceful restart
+rm -rf .next                           # avoid stale compiled route artifacts
+npm ci
+NODE_OPTIONS="--max-old-space-size=2048" npm run build
+pm2 restart dineshtrade --update-env
 
 ```
 
 **Critical:** `~/dineshtrade/data/` must NOT be touched by any deploy step. If you ever script a deploy, hard-code an exclusion.
 
+Use `pm2 start npm --name dineshtrade -- start` only for first-time setup. That launches the custom `server.ts` entrypoint, which starts Next and cron in the same PM2-owned process. On later deploys, `restart` or `reload` the existing process instead of creating a new PM2 app entry.
+
 ### 9.5 Health check
 
 - `pm2 list` → `dineshtrade` should show `online`
-- `pm2 logs dineshtrade` → look for `[cron] starting — tick every 5 min during 9:15–15:30 IST`
+- `pm2 logs dineshtrade` → look for `[server] listening on ...` followed by a single `[cron] starting ...`
 - `curl https://dineshtrade.online/login` → 200
 - `ls -la ~/dineshtrade/data/` → state.json + journal-* present with mode `-rw-------`
 

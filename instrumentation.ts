@@ -1,10 +1,7 @@
-// Next.js instrumentation hook — runs ONCE per server startup.
-// We use it to register node-cron in the long-lived Node.js process.
-// (Edge runtime is skipped — no persistent process, no cron.)
+// Cron is started by server.ts so PM2 owns a single long-lived scheduler.
+// Keep the instrumentation hook as a no-op to avoid duplicate startup from
+// transient Next.js runtime contexts.
 
 export async function register() {
-  if (process.env.NEXT_RUNTIME === 'nodejs') {
-    const { startCron } = await import('@/lib/cron')
-    startCron()
-  }
+  return
 }

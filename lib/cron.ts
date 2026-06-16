@@ -198,7 +198,7 @@ export function startCron(): void {
 }
 
 export function ensureCronStarted(): void {
-  startCron()
+  if (process.env.CRON_ROUTE_BOOTSTRAP === 'true') startCron()
 }
 
 function registerStrategyTask(strategy: Strategy): void {
