@@ -2,9 +2,10 @@
 // Six gates per spec (CONTEXT.md): token, market-open, day-quota, open-positions,
 // funds-available, idempotency. Phase 2 will add a seed-from-Kite on cron startup.
 
-import { getState, recordIdempotency, makeIdempotencyKey, getBuyHistory, resetBuyHistoryForSymbol } from '@/lib/state'
+import { getState, recordIdempotency, makeIdempotencyKey, getBuyHistory, resetBuyHistoryForSymbol, recordBuyHistory } from '@/lib/state'
 import { getCapital, getStrategyById, asDipParams } from '@/lib/strategyConfig'
 import { getAccountSecrets } from '@/lib/accounts'
+import { istDateString, readJournalRange, type JournalRecord } from '@/lib/journal'
 import { isMarketOpen } from '@/lib/market'
 import { checkIntradayCircuit } from '@/lib/intradayCircuit'
 import { checkPanicSell } from '@/lib/panicSell'
@@ -25,6 +26,36 @@ async function kiteGet<T = any>(path: string, apiKey: string, accessToken: strin
   } catch {
     return null
   }
+}
+
+async function recoverBuyHistoryFromJournal(account: string, symbol: string, heldQty: number): Promise<Array<{ price: number; ts: string }>> {
+  if (heldQty <= 0) return []
+
+  const lookbackStart = new Date()
+  lookbackStart.setDate(lookbackStart.getDate() - 120)
+
+  const records = await readJournalRange(istDateString(lookbackStart), istDateString()).catch(() => [] as JournalRecord[])
+  const relevant = records
+    .filter((record): record is Extract<JournalRecord, { type: 'order' }> => record.type === 'order')
+    .filter(record => record.account.toUpperCase() === account.toUpperCase())
+    .filter(record => record.symbol.toUpperCase() === symbol.toUpperCase())
+    .sort((a, b) => a.ts.localeCompare(b.ts))
+
+  let qtyToExplain = heldQty
+  const recovered: Array<{ price: number; ts: string }> = []
+
+  for (let index = relevant.length - 1; index >= 0 && qtyToExplain > 0; index -= 1) {
+    const record = relevant[index]
+    if (record.side === 'SELL') {
+      qtyToExplain += record.qty
+      continue
+    }
+    if (record.source !== 'auto') continue
+    recovered.push({ price: record.price, ts: record.ts })
+    qtyToExplain -= record.qty
+  }
+
+  return qtyToExplain > 0 ? [] : recovered.reverse()
 }
 
 export interface PreflightInput {
@@ -153,7 +184,16 @@ export async function runPreflight(input: PreflightInput): Promise<PreflightResu
       await resetBuyHistoryForSymbol(account, symbol)
     } else {
       const fresh2 = await getState()
-      const history = getBuyHistory(fresh2, account, symbol)
+      let history = getBuyHistory(fresh2, account, symbol)
+      if (history.length === 0) {
+        const recovered = await recoverBuyHistoryFromJournal(account, symbol, heldQty)
+        if (recovered.length > 0) {
+          for (const entry of recovered) {
+            await recordBuyHistory(account, symbol, entry.price)
+          }
+          history = getBuyHistory(await getState(), account, symbol)
+        }
+      }
       if (history.length >= maxBuys) {
         return { ok: false, gate: 'pyramid', reason: `${account}: already ${history.length} BUYs of ${symbol} on the current position (cap ${maxBuys})` }
       }
@@ -342,7 +382,6 @@ export async function markPlaced(
   }
   if (side === 'BUY' && !opts?.manual && typeof opts?.price === 'number' && opts.price > 0) {
     try {
-      const { recordBuyHistory } = await import('@/lib/state')
       await recordBuyHistory(account, symbol, opts.price)
     } catch (err) {
       console.error(`[preflight] failed to record buy history for ${account} ${symbol}:`, err)

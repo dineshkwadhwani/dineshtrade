@@ -56,24 +56,29 @@ export async function GET(req: Request) {
   // so the same row shows live price + matching P&L, and stays in sync with
   // Watchlist's price. Without /quote the LTP would lag Watchlist on the same
   // symbol by ~20 rupees, which is what the user was seeing.
-  const allSymbols = Array.from(new Set(positions.day.map(p => p.tradingsymbol)))
+  const completedOrders = orders.filter(o => o.status === 'COMPLETE')
+  const allSymbols = Array.from(new Set([
+    ...positions.day.map(p => p.tradingsymbol.toUpperCase()),
+    ...completedOrders.map(o => o.tradingsymbol.toUpperCase()),
+  ]))
   const quotes = allSymbols.length > 0
     ? await getQuotes(creds, allSymbols).catch(() => ({} as Awaited<ReturnType<typeof getQuotes>>))
     : ({} as Awaited<ReturnType<typeof getQuotes>>)
 
   // Index today's filled orders by symbol → ids + buy/sell-side avgs.
   const orderIdsBySymbol = new Map<string, string[]>()
+  const lastOrderBySymbol = new Map<string, KiteOrder>()
   // For best-effort realized P&L: track per-symbol sum(qty × price) on each side
   // from today's COMPLETE orders. realized = sellNotional − buyNotional × (min sold qty).
   const buyAggBySymbol = new Map<string, { qty: number; notional: number }>()
   const sellAggBySymbol = new Map<string, { qty: number; notional: number }>()
 
-  for (const o of orders) {
-    if (o.status !== 'COMPLETE') continue
+  for (const o of completedOrders) {
     const sym = o.tradingsymbol.toUpperCase()
     const ids = orderIdsBySymbol.get(sym) || []
     ids.push(o.order_id)
     orderIdsBySymbol.set(sym, ids)
+    lastOrderBySymbol.set(sym, o)
     const filled = o.filled_quantity || o.quantity || 0
     const price = o.average_price || 0
     const bucket = o.transaction_type === 'BUY' ? buyAggBySymbol : sellAggBySymbol
@@ -83,7 +88,7 @@ export async function GET(req: Request) {
     bucket.set(sym, cur)
   }
 
-  const out: EnrichedPosition[] = positions.day.map(p => {
+  const openRows: EnrichedPosition[] = positions.day.map(p => {
     const sym = p.tradingsymbol.toUpperCase()
     const buyAgg = buyAggBySymbol.get(sym)
     const sellAgg = sellAggBySymbol.get(sym)
@@ -126,8 +131,49 @@ export async function GET(req: Request) {
     }
   })
 
-  // Show only non-flat day positions, matching the broker-style positions page.
-  const filtered = out.filter(p => p.qty !== 0)
+  const positionSymbols = new Set(openRows.map(row => row.symbol))
+  const closedOrderOnlyRows: EnrichedPosition[] = allSymbols
+    .filter(sym => !positionSymbols.has(sym))
+    .map(sym => {
+      const buyAgg = buyAggBySymbol.get(sym)
+      const sellAgg = sellAggBySymbol.get(sym)
+      if (!buyAgg && !sellAgg) return null
+
+      let realized = 0
+      if (buyAgg && sellAgg && buyAgg.qty > 0 && sellAgg.qty > 0) {
+        const closedQty = Math.min(buyAgg.qty, sellAgg.qty)
+        const buyVwap = buyAgg.notional / buyAgg.qty
+        const sellVwap = sellAgg.notional / sellAgg.qty
+        realized = closedQty * (sellVwap - buyVwap)
+      }
+
+      const quote = quotes[`NSE:${sym}`]
+      const liveLtp = Number(quote?.last_price) || 0
+      const prevClose = Number((quote as any)?.ohlc?.close) || 0
+      const dayChangePct = prevClose > 0 && liveLtp > 0 ? ((liveLtp - prevClose) / prevClose) * 100 : undefined
+      const lastOrder = lastOrderBySymbol.get(sym)
+      const buyVwap = buyAgg && buyAgg.qty > 0 ? buyAgg.notional / buyAgg.qty : 0
+
+      return {
+        symbol: sym,
+        exchange: lastOrder?.exchange || 'NSE',
+        product: lastOrder?.product || 'CNC',
+        qty: 0,
+        avgPrice: buyVwap,
+        ltp: liveLtp,
+        dayChangePct,
+        dayBuyQty: buyAgg?.qty || 0,
+        daySellQty: sellAgg?.qty || 0,
+        pnl: realized,
+        m2m: 0,
+        unrealized: 0,
+        realized,
+        orderIds: orderIdsBySymbol.get(sym) || [],
+      }
+    })
+    .filter((row): row is EnrichedPosition => !!row)
+
+  const filtered = [...openRows, ...closedOrderOnlyRows]
 
   filtered.sort((a, b) => a.symbol.localeCompare(b.symbol))
 
