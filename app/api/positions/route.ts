@@ -31,6 +31,14 @@ export interface EnrichedPosition {
   orderIds: string[]       // today's COMPLETE order ids for this symbol
 }
 
+export interface ClosedTodaySummary {
+  symbol: string
+  closedQty: number
+  buyVwap: number
+  sellVwap: number
+  realized: number
+}
+
 export async function GET(req: Request) {
   const session = cookies().get('dt_session')?.value
   if (!session || !(await verifySession(session))) {
@@ -173,10 +181,28 @@ export async function GET(req: Request) {
   }
 
   const filtered = [...openRows, ...closedOrderOnlyRows]
+  const closedToday: ClosedTodaySummary[] = []
+  for (const sym of allSymbols) {
+    const buyAgg = buyAggBySymbol.get(sym)
+    const sellAgg = sellAggBySymbol.get(sym)
+    if (!buyAgg || !sellAgg || buyAgg.qty <= 0 || sellAgg.qty <= 0) continue
+    const closedQty = Math.min(buyAgg.qty, sellAgg.qty)
+    if (closedQty <= 0) continue
+    const buyVwap = buyAgg.notional / buyAgg.qty
+    const sellVwap = sellAgg.notional / sellAgg.qty
+    closedToday.push({
+      symbol: sym,
+      closedQty,
+      buyVwap,
+      sellVwap,
+      realized: closedQty * (sellVwap - buyVwap),
+    })
+  }
 
   filtered.sort((a, b) => a.symbol.localeCompare(b.symbol))
+  closedToday.sort((a, b) => b.closedQty - a.closedQty || a.symbol.localeCompare(b.symbol))
 
-  return NextResponse.json({ positions: filtered, fetchedAt: new Date().toISOString() }, {
+  return NextResponse.json({ positions: filtered, closedToday, fetchedAt: new Date().toISOString() }, {
     headers: { 'Cache-Control': 'no-store, no-cache, must-revalidate' },
   })
 }

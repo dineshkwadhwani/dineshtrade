@@ -3,6 +3,7 @@ import { cookies } from 'next/headers'
 import { verifySession } from '@/lib/auth'
 import { getAccountSecrets, isAccountConfigured, getAccountList } from '@/lib/accounts'
 import { getState } from '@/lib/state'
+import { istDateString, readJournalDay, type OrderRecord } from '@/lib/journal'
 import { runPreflight, markPlaced } from '@/lib/preflight'
 import { recordStrategy1Buy, STRATEGY_1_BUY_TAG } from '@/lib/strategy1'
 import { sendEmail } from '@/lib/email'
@@ -78,6 +79,31 @@ export async function GET(req: NextRequest) {
   }
 
   const r = await kiteRequest(endpoint, creds.apiKey, creds.accessToken)
+  if (action === 'orders' && r.ok && Array.isArray(r.data?.data)) {
+    const dayJournal = await readJournalDay(istDateString()).catch(() => [])
+    const byOrderId = new Map<string, OrderRecord>()
+    for (const record of dayJournal) {
+      if (record.type !== 'order') continue
+      if (record.account.toUpperCase() !== account.toUpperCase()) continue
+      if (!record.orderId) continue
+      byOrderId.set(String(record.orderId), record)
+    }
+    const normalized = r.data.data.map((order: any) => {
+      const journal = byOrderId.get(String(order.order_id || ''))
+      if (!journal) return order
+      let displayTag = order.tag
+      if ((displayTag === 'dt-manual' || displayTag === 'manual') && journal.strategyId) {
+        displayTag = `dt-${journal.strategyId}`
+      }
+      return {
+        ...order,
+        tag: displayTag,
+        journalTag: journal.tag,
+        strategyId: journal.strategyId,
+      }
+    })
+    return NextResponse.json({ account, ...r.data, data: normalized }, { status: 200 })
+  }
   return NextResponse.json({ account, ...r.data }, { status: r.ok ? 200 : (r.status || 502) })
 }
 
@@ -179,6 +205,7 @@ export async function POST(req: NextRequest) {
 
   if (r.ok && r.data?.data?.order_id) {
     await markPlaced(account, symbolUpper, side, { price: pricePerShare, manual })
+    let journalTag = orderTag
     let journalStrategyId: string | undefined
     if (orderTag && orderTag.startsWith('dt-')) {
       journalStrategyId = orderTag === 'dt-manual' ? 'accumulator' : orderTag.slice(3)
@@ -188,8 +215,12 @@ export async function POST(req: NextRequest) {
     if (side === 'SELL' && orderTag === 'dt-manual') {
       const { getPosition } = await import('@/lib/positions')
       const tracked = await getPosition(account, symbolUpper).catch(() => null)
-      if (tracked?.strategyId) journalStrategyId = tracked.strategyId
+      if (tracked?.strategyId) {
+        journalStrategyId = tracked.strategyId
+        journalTag = `dt-${tracked.strategyId}`
+      }
     }
+    const journalSource: 'auto' | 'manual' = manual ? 'manual' : 'auto'
     // Journal EVERY successful Kite order — manual + auto, BUY + SELL.
     // The retrospective's "Activity Today" reads from journal for past dates
     // (Kite's /orders only returns the current session).
@@ -197,7 +228,7 @@ export async function POST(req: NextRequest) {
       const { journalOrder } = await import('@/lib/journal')
       journalOrder({
         account, symbol: symbolUpper, side, qty: actualQty,
-        price: pricePerShare, tag: orderTag, strategyId: journalStrategyId, orderId: r.data.data.order_id,
+        price: pricePerShare, tag: journalTag, strategyId: journalStrategyId, source: journalSource, orderId: r.data.data.order_id,
       }).catch(err => console.error('[zerodha route] journalOrder failed:', err))
     }
     // Persist BUYs into the unified position store. Strategy-tagged buys keep

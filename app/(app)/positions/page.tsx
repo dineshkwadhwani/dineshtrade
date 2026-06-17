@@ -1,7 +1,7 @@
 'use client'
 import { useEffect, useState } from 'react'
 import OrderModal, { type AccountDisplay } from '@/components/OrderModal'
-import type { EnrichedPosition } from '@/app/api/positions/route'
+import type { EnrichedPosition, ClosedTodaySummary } from '@/app/api/positions/route'
 import { isMarketOpen } from '@/lib/market'
 
 export default function PositionsPage() {
@@ -9,6 +9,7 @@ export default function PositionsPage() {
   const [connected, setConnected] = useState<string[]>([])
   const [activeTab, setActiveTab] = useState<string | null>(null)
   const [positions, setPositions] = useState<EnrichedPosition[]>([])
+  const [closedToday, setClosedToday] = useState<ClosedTodaySummary[]>([])
   const [loading, setLoading] = useState(false)
   const [error, setError] = useState('')
   const [loaded, setLoaded] = useState(false)
@@ -38,7 +39,7 @@ export default function PositionsPage() {
   const [fetchedAt, setFetchedAt] = useState<string>('')
 
   async function load(account: string) {
-    setLoading(true); setError(''); setPositions([])
+    setLoading(true); setError(''); setPositions([]); setClosedToday([])
     try {
       // cache-bust the browser fetch with a timestamp + no-store hint
       const res = await fetch(
@@ -47,6 +48,7 @@ export default function PositionsPage() {
       ).then(r => r.json())
       if (res.error) setError(res.error)
       else if (Array.isArray(res.positions)) setPositions(res.positions)
+      if (Array.isArray(res.closedToday)) setClosedToday(res.closedToday)
       if (res.fetchedAt) setFetchedAt(res.fetchedAt)
     } catch {
       setError('Failed to load positions')
@@ -147,6 +149,37 @@ export default function PositionsPage() {
                 <PositionRow key={p.symbol + i} p={p} last={i === positions.length - 1}
                   marketOpen={market.open} onSquareOff={() => setSquareOff(p)} />
               ))}
+            </div>
+          )}
+
+          {closedToday.length > 0 && (
+            <div className="rounded-xl overflow-hidden" style={{ border:'1px solid rgba(255,255,255,0.06)' }}>
+              <div className="px-4 py-2.5 text-[9px] tracking-widest uppercase dt-table-head"
+                style={{ fontFamily:'JetBrains Mono, monospace' }}>
+                Closed Today ({closedToday.length})
+              </div>
+              <div className="hidden sm:grid grid-cols-12 px-4 py-2.5 text-[9px] tracking-widest uppercase dt-table-head"
+                style={{ fontFamily:'JetBrains Mono, monospace', borderTop:'1px solid rgba(255,255,255,0.04)' }}>
+                <span className="col-span-4">Symbol</span>
+                <span className="col-span-2 text-right">Closed Qty</span>
+                <span className="col-span-2 text-right">Buy VWAP</span>
+                <span className="col-span-2 text-right">Sell VWAP</span>
+                <span className="col-span-2 text-right">Realized</span>
+              </div>
+              {closedToday.map((row, i) => {
+                const color = row.realized >= 0 ? '#52b788' : '#e05a5e'
+                return (
+                  <div key={`${row.symbol}-${i}`}
+                    className="grid grid-cols-12 px-4 py-3 items-center text-[12px]"
+                    style={{ borderTop:'1px solid rgba(255,255,255,0.04)' }}>
+                    <span className="col-span-4 font-semibold dt-text-primary" style={{ fontFamily:'JetBrains Mono, monospace' }}>{row.symbol}</span>
+                    <span className="col-span-2 text-right dt-text-secondary" style={{ fontFamily:'JetBrains Mono, monospace' }}>{row.closedQty}</span>
+                    <span className="col-span-2 text-right dt-text-secondary" style={{ fontFamily:'JetBrains Mono, monospace' }}>₹{row.buyVwap.toFixed(2)}</span>
+                    <span className="col-span-2 text-right dt-text-secondary" style={{ fontFamily:'JetBrains Mono, monospace' }}>₹{row.sellVwap.toFixed(2)}</span>
+                    <span className="col-span-2 text-right font-semibold" style={{ color, fontFamily:'JetBrains Mono, monospace' }}>{signedRupees(row.realized)}</span>
+                  </div>
+                )
+              })}
             </div>
           )}
 
