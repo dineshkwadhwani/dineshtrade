@@ -132,46 +132,45 @@ export async function GET(req: Request) {
   })
 
   const positionSymbols = new Set(openRows.map(row => row.symbol))
-  const closedOrderOnlyRows: EnrichedPosition[] = allSymbols
-    .filter(sym => !positionSymbols.has(sym))
-    .map(sym => {
-      const buyAgg = buyAggBySymbol.get(sym)
-      const sellAgg = sellAggBySymbol.get(sym)
-      if (!buyAgg && !sellAgg) return null
+  const closedOrderOnlyRows: EnrichedPosition[] = []
+  for (const sym of allSymbols) {
+    if (positionSymbols.has(sym)) continue
+    const buyAgg = buyAggBySymbol.get(sym)
+    const sellAgg = sellAggBySymbol.get(sym)
+    if (!buyAgg && !sellAgg) continue
 
-      let realized = 0
-      if (buyAgg && sellAgg && buyAgg.qty > 0 && sellAgg.qty > 0) {
-        const closedQty = Math.min(buyAgg.qty, sellAgg.qty)
-        const buyVwap = buyAgg.notional / buyAgg.qty
-        const sellVwap = sellAgg.notional / sellAgg.qty
-        realized = closedQty * (sellVwap - buyVwap)
-      }
+    let realized = 0
+    if (buyAgg && sellAgg && buyAgg.qty > 0 && sellAgg.qty > 0) {
+      const closedQty = Math.min(buyAgg.qty, sellAgg.qty)
+      const buyVwap = buyAgg.notional / buyAgg.qty
+      const sellVwap = sellAgg.notional / sellAgg.qty
+      realized = closedQty * (sellVwap - buyVwap)
+    }
 
-      const quote = quotes[`NSE:${sym}`]
-      const liveLtp = Number(quote?.last_price) || 0
-      const prevClose = Number((quote as any)?.ohlc?.close) || 0
-      const dayChangePct = prevClose > 0 && liveLtp > 0 ? ((liveLtp - prevClose) / prevClose) * 100 : undefined
-      const lastOrder = lastOrderBySymbol.get(sym)
-      const buyVwap = buyAgg && buyAgg.qty > 0 ? buyAgg.notional / buyAgg.qty : 0
+    const quote = quotes[`NSE:${sym}`]
+    const liveLtp = Number(quote?.last_price) || 0
+    const prevClose = Number((quote as any)?.ohlc?.close) || 0
+    const dayChangePct = prevClose > 0 && liveLtp > 0 ? ((liveLtp - prevClose) / prevClose) * 100 : undefined
+    const lastOrder = lastOrderBySymbol.get(sym)
+    const buyVwap = buyAgg && buyAgg.qty > 0 ? buyAgg.notional / buyAgg.qty : 0
 
-      return {
-        symbol: sym,
-        exchange: lastOrder?.exchange || 'NSE',
-        product: lastOrder?.product || 'CNC',
-        qty: 0,
-        avgPrice: buyVwap,
-        ltp: liveLtp,
-        dayChangePct,
-        dayBuyQty: buyAgg?.qty || 0,
-        daySellQty: sellAgg?.qty || 0,
-        pnl: realized,
-        m2m: 0,
-        unrealized: 0,
-        realized,
-        orderIds: orderIdsBySymbol.get(sym) || [],
-      }
+    closedOrderOnlyRows.push({
+      symbol: sym,
+      exchange: lastOrder?.exchange || 'NSE',
+      product: lastOrder?.product || 'CNC',
+      qty: 0,
+      avgPrice: buyVwap,
+      ltp: liveLtp,
+      dayChangePct,
+      dayBuyQty: buyAgg?.qty || 0,
+      daySellQty: sellAgg?.qty || 0,
+      pnl: realized,
+      m2m: 0,
+      unrealized: 0,
+      realized,
+      orderIds: orderIdsBySymbol.get(sym) || [],
     })
-    .filter((row): row is EnrichedPosition => !!row)
+  }
 
   const filtered = [...openRows, ...closedOrderOnlyRows]
 
