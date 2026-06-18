@@ -62,7 +62,19 @@ export default function SettingsPage() {
 
   // Compute callback URL on the client (where window is available)
   useEffect(() => {
-    setCallbackUrl(`${window.location.origin}/api/zerodha/callback`)
+    const configured = process.env.NEXT_PUBLIC_APP_URL
+    if (configured) {
+      try {
+        const base = new URL(configured)
+        setCallbackUrl(`${base.origin}/api/zerodha/callback`)
+        return
+      } catch {
+        // Fall back to runtime origin when env is malformed.
+      }
+    }
+    const base = new URL(window.location.origin)
+    if (base.hostname === '0.0.0.0') base.hostname = 'localhost'
+    setCallbackUrl(`${base.origin}/api/zerodha/callback`)
   }, [])
 
   // Initial load
