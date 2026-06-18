@@ -1,5 +1,5 @@
 'use client'
-import { useEffect, useMemo, useState } from 'react'
+import { useEffect, useMemo, useRef, useState } from 'react'
 
 interface PivotalEntry {
   nse: string
@@ -43,6 +43,7 @@ const DEFAULTS: DraftEntryState = {
 }
 
 export default function PivotalListsPage() {
+  const searchContainerRef = useRef<HTMLDivElement | null>(null)
   const [data, setData] = useState<PivotalLists | null>(null)
   const [dirty, setDirty] = useState(false)
   const [saving, setSaving] = useState(false)
@@ -93,6 +94,23 @@ export default function PivotalListsPage() {
     }, 300)
     return () => clearTimeout(timer)
   }, [query])
+
+  useEffect(() => {
+    function handleOutsidePointer(event: MouseEvent | TouchEvent) {
+      if (!searchContainerRef.current) return
+      const target = event.target as Node | null
+      if (target && !searchContainerRef.current.contains(target)) {
+        setSearchOpen(false)
+        setActiveResultIndex(0)
+      }
+    }
+    document.addEventListener('mousedown', handleOutsidePointer)
+    document.addEventListener('touchstart', handleOutsidePointer)
+    return () => {
+      document.removeEventListener('mousedown', handleOutsidePointer)
+      document.removeEventListener('touchstart', handleOutsidePointer)
+    }
+  }, [])
 
   const orderedKeys = useMemo(() => {
     if (!data) return [] as string[]
@@ -302,14 +320,12 @@ export default function PivotalListsPage() {
 
       <div className="rounded-xl p-4 dt-card-gold space-y-3">
         <p className="text-[10px] tracking-widest uppercase" style={{ color:'rgba(201,168,76,0.6)', fontFamily:'JetBrains Mono, monospace' }}>Add new script</p>
-        <div className="grid grid-cols-1 lg:grid-cols-[1.5fr_0.8fr_repeat(5,minmax(0,1fr))] gap-2">
+        <div ref={searchContainerRef} className="grid grid-cols-1 lg:grid-cols-[1.5fr_0.8fr_repeat(5,minmax(0,1fr))] gap-2 relative z-10">
           <input value={query} onChange={e => {
             setQuery(e.target.value)
             setSearchOpen(e.target.value.trim().length >= 2)
           }} onFocus={() => {
-            if (results.length > 0) setSearchOpen(true)
-          }} onBlur={() => {
-            setTimeout(() => setSearchOpen(false), 120)
+            if (query.trim().length >= 2 && results.length > 0) setSearchOpen(true)
           }} onKeyDown={handleQueryKeyDown} placeholder="Type symbol or company name (e.g. BAJFINANCE, Reliance, HDFC)…"
             className="px-3 py-2 rounded-lg text-[13px] outline-none dt-card dt-text-primary" />
           <select value={addTarget} onChange={e => setAddTarget(e.target.value)} className="px-3 py-2 rounded-lg text-[12px] dt-card" style={{ color:'#c9a84c', fontFamily:'JetBrains Mono, monospace' }}>
@@ -363,7 +379,14 @@ export default function PivotalListsPage() {
                     {inTarget ? (
                       <span className="text-[10px]" style={{ color:'#52b788' }}>✓ in {data.meta[addTarget]?.name || addTarget}</span>
                     ) : (
-                      <button onMouseEnter={() => setActiveResultIndex(index)} onClick={() => addSymbol(addTarget, result)} className="px-3 py-1 rounded text-[10px] font-semibold tracking-wider dt-card-gold" style={{ color:'#c9a84c', fontFamily:'JetBrains Mono, monospace' }}>
+                      <button
+                        onMouseEnter={() => setActiveResultIndex(index)}
+                        onPointerDown={event => {
+                          event.preventDefault()
+                          addSymbol(addTarget, result)
+                        }}
+                        className="px-3 py-1 rounded text-[10px] font-semibold tracking-wider dt-card-gold"
+                        style={{ color:'#c9a84c', fontFamily:'JetBrains Mono, monospace' }}>
                         + Add
                       </button>
                     )}
