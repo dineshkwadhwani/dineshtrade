@@ -193,7 +193,7 @@ function OrdersView() {
 
           {orders.length > 0 && (
             <div className="rounded-xl overflow-hidden dt-card">
-              <div className="grid grid-cols-12 gap-2 px-4 py-2 text-[9px] tracking-widest uppercase dt-table-head"
+              <div className="hidden sm:grid grid-cols-12 gap-2 px-4 py-2 text-[9px] tracking-widest uppercase dt-table-head"
                 style={{ fontFamily:'JetBrains Mono, monospace' }}>
                 <span className="col-span-2">Time</span>
                 <span className="col-span-5">Symbol</span>
@@ -206,39 +206,79 @@ function OrdersView() {
                 const strategyLabel = tagToStrategy(o.tag)
                 return (
                 <div key={o.order_id}
-                  className="grid grid-cols-12 gap-2 px-4 py-3 items-center text-[12px] transition-all hover:bg-white/5"
                   style={{ borderBottom: i < orders.length-1 ? '1px solid rgba(255,255,255,0.04)' : 'none' }}>
-                  <span className="col-span-2 dt-text-muted text-[10px]" style={{ fontFamily:'JetBrains Mono, monospace' }}>
-                    {fmtTime(o.order_timestamp)}
-                  </span>
-                  <span className="col-span-5 flex items-center gap-2 min-w-0">
-                    <span className="font-semibold dt-text-primary truncate" style={{ fontFamily:'JetBrains Mono, monospace' }}>{o.tradingsymbol}</span>
-                    {strategyLabel && (
-                      <span className="flex-shrink-0 text-[9px] px-1.5 py-0.5 rounded tracking-wider"
-                        style={{
-                          background: strategyLabel.bg,
-                          color: strategyLabel.color,
-                          border: `1px solid ${strategyLabel.border}`,
-                          fontFamily:'JetBrains Mono, monospace',
-                        }}>
-                        {strategyLabel.label}
+                  {/* Desktop: grid layout */}
+                  <div className="hidden sm:grid grid-cols-12 gap-2 px-4 py-3 items-center text-[12px] transition-all hover:bg-white/5"
+                    style={{ fontFamily:'JetBrains Mono, monospace' }}>
+                    <span className="col-span-2 dt-text-muted text-[10px]">
+                      {fmtTime(o.order_timestamp)}
+                    </span>
+                    <span className="col-span-5 flex items-center gap-2 min-w-0">
+                      <span className="font-semibold dt-text-primary truncate">{o.tradingsymbol}</span>
+                      {strategyLabel && (
+                        <span className="flex-shrink-0 text-[9px] px-1.5 py-0.5 rounded tracking-wider"
+                          style={{
+                            background: strategyLabel.bg,
+                            color: strategyLabel.color,
+                            border: `1px solid ${strategyLabel.border}`,
+                          }}>
+                          {strategyLabel.label}
+                        </span>
+                      )}
+                    </span>
+                    <span className="col-span-1 text-center font-semibold" style={{ color: o.transaction_type === 'BUY' ? '#52b788' : '#e05a5e' }}
+                      title={o.transaction_type}>
+                      {o.transaction_type === 'BUY' ? 'B' : 'S'}
+                    </span>
+                    <span className="col-span-1 text-right dt-text-secondary">
+                      {o.filled_quantity ?? o.quantity}{o.filled_quantity !== undefined && o.filled_quantity !== o.quantity ? `/${o.quantity}` : ''}
+                    </span>
+                    <span className="col-span-2 text-right dt-text-secondary whitespace-nowrap">
+                      {o.average_price ? `₹${o.average_price.toFixed(2)}` : '—'}
+                    </span>
+                    <span className="col-span-1 text-center text-[14px] font-semibold" style={{ color: statusColor(o.status) }}
+                      title={o.status_message || o.status}>
+                      {statusGlyph(o.status)}
+                    </span>
+                  </div>
+                  {/* Mobile: multiline layout */}
+                  <div className="sm:hidden px-4 py-3 text-[12px] space-y-2" style={{ fontFamily:'JetBrains Mono, monospace' }}>
+                    <div className="flex items-start justify-between gap-2">
+                      <div className="flex flex-col gap-1 min-w-0 flex-1">
+                        <span className="font-semibold dt-text-primary truncate">{o.tradingsymbol}</span>
+                        {strategyLabel && (
+                          <span className="text-[9px] px-1.5 py-0.5 rounded tracking-wider w-fit"
+                            style={{
+                              background: strategyLabel.bg,
+                              color: strategyLabel.color,
+                              border: `1px solid ${strategyLabel.border}`,
+                            }}>
+                            {strategyLabel.label}
+                          </span>
+                        )}
+                      </div>
+                      <span className="flex-shrink-0 text-[14px] font-semibold" style={{ color: statusColor(o.status) }}
+                        title={o.status_message || o.status}>
+                        {statusGlyph(o.status)}
                       </span>
-                    )}
-                  </span>
-                  <span className="col-span-1 text-center font-semibold" style={{ color: o.transaction_type === 'BUY' ? '#52b788' : '#e05a5e', fontFamily:'JetBrains Mono, monospace' }}
-                    title={o.transaction_type}>
-                    {o.transaction_type === 'BUY' ? 'B' : 'S'}
-                  </span>
-                  <span className="col-span-1 text-right dt-text-secondary" style={{ fontFamily:'JetBrains Mono, monospace' }}>
-                    {o.filled_quantity ?? o.quantity}{o.filled_quantity !== undefined && o.filled_quantity !== o.quantity ? `/${o.quantity}` : ''}
-                  </span>
-                  <span className="col-span-2 text-right dt-text-secondary whitespace-nowrap" style={{ fontFamily:'JetBrains Mono, monospace' }}>
-                    {o.average_price ? `₹${o.average_price.toFixed(2)}` : '—'}
-                  </span>
-                  <span className="col-span-1 text-center text-[14px] font-semibold" style={{ color: statusColor(o.status), fontFamily:'JetBrains Mono, monospace' }}
-                    title={o.status_message || o.status}>
-                    {statusGlyph(o.status)}
-                  </span>
+                    </div>
+                    <div className="flex justify-between gap-4 text-[11px]">
+                      <div>
+                        <span className="dt-text-muted">Time</span> <span className="dt-text-secondary">{fmtTime(o.order_timestamp)}</span>
+                      </div>
+                      <div>
+                        <span className="dt-text-muted">Type</span> <span className="font-semibold" style={{ color: o.transaction_type === 'BUY' ? '#52b788' : '#e05a5e' }}>{o.transaction_type === 'BUY' ? 'BUY' : 'SELL'}</span>
+                      </div>
+                    </div>
+                    <div className="flex justify-between gap-4 text-[11px]">
+                      <div>
+                        <span className="dt-text-muted">Qty</span> <span className="dt-text-secondary">{o.filled_quantity ?? o.quantity}{o.filled_quantity !== undefined && o.filled_quantity !== o.quantity ? `/${o.quantity}` : ''}</span>
+                      </div>
+                      <div>
+                        <span className="dt-text-muted">Price</span> <span className="dt-text-secondary">{o.average_price ? `₹${o.average_price.toFixed(2)}` : '—'}</span>
+                      </div>
+                    </div>
+                  </div>
                 </div>
                 )
               })}
@@ -625,24 +665,49 @@ function MissedRow({ m }: { m: EnrichedMissed }) {
   const oColor = m.outcome === 'missed_opportunity' ? '#f59e0b' : m.outcome === 'good_miss' ? '#52b788' : 'rgba(255,255,255,0.55)'
   const oLabel = m.outcome === 'missed_opportunity' ? 'MISSED OPPORTUNITY' : m.outcome === 'good_miss' ? 'GOOD MISS' : 'UNKNOWN'
   return (
-    <div className="grid grid-cols-12 px-4 py-3 items-start text-[11px] dt-table-row"
-      style={{ fontFamily:'JetBrains Mono, monospace' }}>
-      <span className="col-span-2 dt-text-secondary">
-        {m.count > 1 ? (
-          <>
-            <div>{m.firstTime}–{m.lastTime}</div>
-            <div className="text-[9px] mt-0.5 dt-text-muted">×{m.count} times</div>
-          </>
-        ) : m.firstTime}
-      </span>
-      <span className="col-span-2 font-semibold dt-text-primary">{m.symbol}</span>
-      <span className="col-span-5 text-[10px] dt-text-secondary">{m.reasonSkipped}</span>
-      <span className="col-span-3 text-right">
-        <span className="px-2 py-1 rounded text-[8px] font-semibold tracking-widest"
-          style={{ background:`${oColor}22`, color:oColor, border:`1px solid ${oColor}66` }}>
-          {oLabel}
+    <div style={{ fontFamily:'JetBrains Mono, monospace' }}>
+      {/* Desktop: grid layout */}
+      <div className="hidden sm:grid grid-cols-12 px-4 py-3 items-start text-[11px] dt-table-row">
+        <span className="col-span-2 dt-text-secondary">
+          {m.count > 1 ? (
+            <>
+              <div>{m.firstTime}–{m.lastTime}</div>
+              <div className="text-[9px] mt-0.5 dt-text-muted">×{m.count} times</div>
+            </>
+          ) : m.firstTime}
         </span>
-      </span>
+        <span className="col-span-2 font-semibold dt-text-primary">{m.symbol}</span>
+        <span className="col-span-5 text-[10px] dt-text-secondary">{m.reasonSkipped}</span>
+        <span className="col-span-3 text-right">
+          <span className="px-2 py-1 rounded text-[8px] font-semibold tracking-widest"
+            style={{ background:`${oColor}22`, color:oColor, border:`1px solid ${oColor}66` }}>
+            {oLabel}
+          </span>
+        </span>
+      </div>
+      {/* Mobile: stacked layout */}
+      <div className="sm:hidden px-4 py-3 text-[11px] dt-table-row space-y-2">
+        <div className="flex items-start justify-between gap-2">
+          <div className="flex flex-col gap-1 min-w-0 flex-1">
+            <span className="font-semibold dt-text-primary">{m.symbol}</span>
+            <span className="text-[10px] dt-text-secondary">
+              {m.count > 1 ? (
+                <>
+                  <div>{m.firstTime}–{m.lastTime}</div>
+                  <div className="text-[9px] mt-0.5 dt-text-muted">×{m.count} times</div>
+                </>
+              ) : m.firstTime}
+            </span>
+          </div>
+          <span className="flex-shrink-0 px-2 py-1 rounded text-[8px] font-semibold tracking-widest"
+            style={{ background:`${oColor}22`, color:oColor, border:`1px solid ${oColor}66` }}>
+            {oLabel}
+          </span>
+        </div>
+        <div className="text-[10px] dt-text-secondary break-words">
+          <span className="dt-text-muted">Reason: </span>{m.reasonSkipped}
+        </div>
+      </div>
     </div>
   )
 }

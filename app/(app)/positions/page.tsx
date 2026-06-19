@@ -170,13 +170,36 @@ export default function PositionsPage() {
                 const color = row.realized >= 0 ? '#52b788' : '#e05a5e'
                 return (
                   <div key={`${row.symbol}-${i}`}
-                    className="grid grid-cols-12 px-4 py-3 items-center text-[12px]"
                     style={{ borderTop:'1px solid rgba(255,255,255,0.04)' }}>
-                    <span className="col-span-4 font-semibold dt-text-primary" style={{ fontFamily:'JetBrains Mono, monospace' }}>{row.symbol}</span>
-                    <span className="col-span-2 text-right dt-text-secondary" style={{ fontFamily:'JetBrains Mono, monospace' }}>{row.closedQty}</span>
-                    <span className="col-span-2 text-right dt-text-secondary" style={{ fontFamily:'JetBrains Mono, monospace' }}>₹{row.buyVwap.toFixed(2)}</span>
-                    <span className="col-span-2 text-right dt-text-secondary" style={{ fontFamily:'JetBrains Mono, monospace' }}>₹{row.sellVwap.toFixed(2)}</span>
-                    <span className="col-span-2 text-right font-semibold" style={{ color, fontFamily:'JetBrains Mono, monospace' }}>{signedRupees(row.realized)}</span>
+                    {/* Desktop: grid layout */}
+                    <div className="hidden sm:grid grid-cols-12 px-4 py-3 items-center text-[12px]"
+                      style={{ fontFamily:'JetBrains Mono, monospace' }}>
+                      <span className="col-span-4 font-semibold dt-text-primary">{row.symbol}</span>
+                      <span className="col-span-2 text-right dt-text-secondary">{row.closedQty}</span>
+                      <span className="col-span-2 text-right dt-text-secondary">₹{row.buyVwap.toFixed(2)}</span>
+                      <span className="col-span-2 text-right dt-text-secondary">₹{row.sellVwap.toFixed(2)}</span>
+                      <span className="col-span-2 text-right font-semibold" style={{ color }}>{signedRupees(row.realized)}</span>
+                    </div>
+                    {/* Mobile: card layout */}
+                    <div className="sm:hidden px-4 py-3 text-[12px] space-y-2" style={{ fontFamily:'JetBrains Mono, monospace' }}>
+                      <div className="font-semibold dt-text-primary text-[14px]">{row.symbol}</div>
+                      <div className="flex justify-between gap-4 text-[11px]">
+                        <div>
+                          <span className="dt-text-muted">Qty</span> <span className="dt-text-secondary">{row.closedQty}</span>
+                        </div>
+                        <div>
+                          <span className="dt-text-muted">Buy VWAP</span> <span className="dt-text-secondary">₹{row.buyVwap.toFixed(2)}</span>
+                        </div>
+                      </div>
+                      <div className="flex justify-between gap-4 text-[11px]">
+                        <div>
+                          <span className="dt-text-muted">Sell VWAP</span> <span className="dt-text-secondary">₹{row.sellVwap.toFixed(2)}</span>
+                        </div>
+                        <div>
+                          <span className="dt-text-muted">Realized</span> <span className="font-semibold" style={{ color }}>{signedRupees(row.realized)}</span>
+                        </div>
+                      </div>
+                    </div>
                   </div>
                 )
               })}

@@ -8,7 +8,7 @@ import { verifySession } from '@/lib/auth'
 import { getCapital, getStrategies } from '@/lib/strategyConfig'
 import { getWatchlist } from '@/lib/watchlistStore'
 import { getPivotalLists } from '@/lib/pivotalListStore'
-import { getRuntimeStrategyConfig, saveRuntimeStrategyConfig } from '@/lib/strategyConfigStore'
+import { getRuntimeStrategyConfig, saveRuntimeStrategyConfig, invalidateStrategyConfigCache } from '@/lib/strategyConfigStore'
 import { getState } from '@/lib/state'
 import { ensureCronStarted } from '@/lib/cron'
 
@@ -206,6 +206,7 @@ export async function POST(req: Request) {
 
   try {
     await saveRuntimeStrategyConfig(next)
+    invalidateStrategyConfigCache()
   } catch (e) {
     return NextResponse.json({ error: 'Save failed: ' + String(e).slice(0, 200) }, { status: 500 })
   }
