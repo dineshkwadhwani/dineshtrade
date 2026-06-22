@@ -782,9 +782,11 @@ function tagToStrategy(tag?: string): { label: string; color: string; bg: string
   if (!tag) return null
   const t = tag.toLowerCase()
   if (t === 'dt-manual' || t === 'manual') return { label: 'MANUAL', color: '#a78bfa', bg: 'rgba(167,139,250,0.1)', border: 'rgba(167,139,250,0.3)' }
+  if (t === 'external') return { label: 'EXTERNAL', color: '#60a5fa', bg: 'rgba(96,165,250,0.12)', border: 'rgba(96,165,250,0.35)' }
   if (t.includes('accumulator') || t.includes('s1')) return { label: 'ACCUMULATOR', color: '#52b788', bg: 'rgba(82,183,136,0.1)', border: 'rgba(82,183,136,0.3)' }
   if (t.includes('catalyst') || t.includes('s2')) return { label: 'CATALYST', color: '#c9a84c', bg: 'rgba(201,168,76,0.1)', border: 'rgba(201,168,76,0.3)' }
   if (t.includes('eod')) return { label: 'EOD', color: '#60a5fa', bg: 'rgba(96,165,250,0.1)', border: 'rgba(96,165,250,0.3)' }
+  if (!t.startsWith('dt-')) return { label: 'EXTERNAL', color: '#60a5fa', bg: 'rgba(96,165,250,0.12)', border: 'rgba(96,165,250,0.35)' }
   // Generic dt-{strategyId} tag
   const match = tag.match(/^dt-(.+)$/)
   if (match) return { label: match[1].toUpperCase().slice(0, 12), color: '#c9a84c', bg: 'rgba(201,168,76,0.1)', border: 'rgba(201,168,76,0.3)' }

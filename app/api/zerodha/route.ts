@@ -90,8 +90,15 @@ export async function GET(req: NextRequest) {
     }
     const normalized = r.data.data.map((order: any) => {
       const journal = byOrderId.get(String(order.order_id || ''))
-      if (!journal) return order
       let displayTag = order.tag
+      if (!journal) {
+        // External/manual broker orders can carry arbitrary raw tags (for example
+        // "quick"). Those tags are not DineshTrade strategy ids and should not
+        // render as pseudo-strategy badges in the UI.
+        const raw = String(displayTag || '').toLowerCase()
+        if (raw && !raw.startsWith('dt-') && raw !== 'manual') displayTag = 'external'
+        return { ...order, tag: displayTag }
+      }
       if ((displayTag === 'dt-manual' || displayTag === 'manual') && journal.strategyId) {
         displayTag = `dt-${journal.strategyId}`
       }
