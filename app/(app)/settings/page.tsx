@@ -1344,7 +1344,7 @@ function StrategiesTab({ autoModeOn }: { autoModeOn: boolean }) {
   return (
     <div className="space-y-5">
       <div className="flex items-center justify-between gap-3 flex-wrap">
-        <p className="text-[11px] tracking-widest uppercase" style={{ color:'rgba(201,168,76,0.6)', fontFamily:'JetBrains Mono, monospace' }}>
+        <p className="text-[11px] tracking-widest uppercase font-bold" style={{ color:'rgba(201,168,76,0.6)', fontFamily:'JetBrains Mono, monospace' }}>
           Strategy Configuration
         </p>
         <div className="flex items-center gap-2 flex-wrap justify-end">
@@ -1432,7 +1432,7 @@ function StrategiesTab({ autoModeOn }: { autoModeOn: boolean }) {
 
       {/* STRATEGY CARDS */}
       <div className="space-y-3">
-        <p className="text-[11px] tracking-widest uppercase" style={{ color:'rgba(201,168,76,0.6)', fontFamily:'JetBrains Mono, monospace' }}>
+        <p className="text-[11px] tracking-widest uppercase font-bold" style={{ color:'rgba(201,168,76,0.6)', fontFamily:'JetBrains Mono, monospace' }}>
           Strategies ({draft.strategies.length})
         </p>
         {draft.strategies.map(s => (
@@ -3124,7 +3124,7 @@ function StrategyCard({ s, expanded, onToggle, watchlistOptions, pivotalListOpti
         <div className="p-4 space-y-4 dt-border-t">
           {/* Core editable */}
           <div className="space-y-2.5">
-            <p className="text-[10px] tracking-widest uppercase dt-text-muted" style={{ fontFamily:'JetBrains Mono, monospace' }}>Core</p>
+            <p className="text-[10px] tracking-widest uppercase font-bold dt-text-muted" style={{ fontFamily:'JetBrains Mono, monospace' }}>Core</p>
             <TextField label="Name"  value={s.name}  onChange={v => onPatch({ name: v })}  disabled={locked} />
             <TextField label="ID (immutable after save)" value={s.id}    onChange={v => onPatch({ id: v.toLowerCase().replace(/[^a-z0-9_]/g, '_') })} disabled={locked || canReset} desc={canReset ? 'ID locked once saved.' : 'Lowercase, underscores only.'} />
             {/* Type selector — changing replaces params + exits + GIFT gate
@@ -3229,7 +3229,7 @@ function StrategyCard({ s, expanded, onToggle, watchlistOptions, pivotalListOpti
 
           {/* Params editable */}
           <div className="space-y-2.5">
-            <p className="text-[10px] tracking-widest uppercase dt-text-muted" style={{ fontFamily:'JetBrains Mono, monospace' }}>Params</p>
+            <p className="text-[10px] tracking-widest uppercase font-bold dt-text-muted" style={{ fontFamily:'JetBrains Mono, monospace' }}>Params</p>
             {(() => {
               const EOD_PARAM_KEYS = new Set(['exitSameDayTime', 'exitSameDayOnPositive', 'squareOffEOD'])
               return Object.entries(s.params).filter(([k]) => !EOD_PARAM_KEYS.has(k)).map(([k, v]) => {
@@ -3243,7 +3243,7 @@ function StrategyCard({ s, expanded, onToggle, watchlistOptions, pivotalListOpti
           {/* End of Day Behaviour (momentum only) */}
           {s.type === 'momentum' && (
             <div className="space-y-2.5">
-              <p className="text-[10px] tracking-widest uppercase dt-text-muted" style={{ fontFamily:'JetBrains Mono, monospace' }}>End of Day Behaviour</p>
+              <p className="text-[10px] tracking-widest uppercase font-bold dt-text-muted" style={{ fontFamily:'JetBrains Mono, monospace' }}>End of Day Behaviour</p>
               <TextField label="exitSameDayTime" value={String((s.params as unknown as MomentumParams).exitSameDayTime ?? '15:10')} onChange={x => patchParam('exitSameDayTime', x)} desc={MOMENTUM_PARAM_DESCRIPTIONS.exitSameDayTime} disabled={locked} />
               <BoolField label="exitSameDayOnPositive" value={Boolean((s.params as unknown as MomentumParams).exitSameDayOnPositive)} onChange={x => patchParam('exitSameDayOnPositive', x)} desc={MOMENTUM_PARAM_DESCRIPTIONS.exitSameDayOnPositive} disabled={locked} />
               <BoolField label="squareOffEOD" value={Boolean((s.params as unknown as MomentumParams).squareOffEOD)} onChange={x => patchParam('squareOffEOD', x)} desc={MOMENTUM_PARAM_DESCRIPTIONS.squareOffEOD} disabled={locked} />
@@ -3253,7 +3253,7 @@ function StrategyCard({ s, expanded, onToggle, watchlistOptions, pivotalListOpti
           {/* Ceiling Filter (momentum only) */}
           {s.type === 'momentum' && (
             <div className="space-y-2.5">
-              <p className="text-[10px] tracking-widest uppercase dt-text-muted" style={{ fontFamily:'JetBrains Mono, monospace' }}>Ceiling Filter</p>
+              <p className="text-[10px] tracking-widest uppercase font-bold dt-text-muted" style={{ fontFamily:'JetBrains Mono, monospace' }}>Ceiling Filter</p>
               <NumField label="Recent High Days" value={(s.params as unknown as MomentumParams).recentHighDays ?? 20} onChange={x => patchParam('recentHighDays', Math.max(0, Math.round(x)))} desc={MOMENTUM_PARAM_DESCRIPTIONS.recentHighDays} disabled={locked} />
               <NumField label="Ceiling Buffer %" value={(s.params as unknown as MomentumParams).ceilingBufferPct ?? 2.0} onChange={x => patchParam('ceilingBufferPct', x)} suffix="%" desc={MOMENTUM_PARAM_DESCRIPTIONS.ceilingBufferPct} disabled={locked} />
             </div>
@@ -3261,7 +3261,7 @@ function StrategyCard({ s, expanded, onToggle, watchlistOptions, pivotalListOpti
 
           {/* Exits editable */}
           <div className="space-y-2.5">
-            <p className="text-[10px] tracking-widest uppercase dt-text-muted" style={{ fontFamily:'JetBrains Mono, monospace' }}>Exit Targets</p>
+            <p className="text-[10px] tracking-widest uppercase font-bold dt-text-muted" style={{ fontFamily:'JetBrains Mono, monospace' }}>Exit Targets</p>
             <NumField label="T1 % (first target)"  value={s.exits.t1Pct} onChange={v => onPatch({ exits: { ...s.exits, t1Pct: v } })} suffix="%" desc="First take-profit target as % gain from entry." disabled={locked} />
             <NumField label="T2 % (second target)" value={s.exits.t2Pct} onChange={v => onPatch({ exits: { ...s.exits, t2Pct: v } })} suffix="%" desc="Second take-profit target. For Strategy 1, T1 sells 50% and T2 sells the remaining." disabled={locked} />
           </div>
@@ -3305,7 +3305,7 @@ function AccordionSection({ title, subtitle, expanded, onToggle, children }: {
     <div className="rounded-xl overflow-hidden dt-card-gold">
       <button onClick={onToggle} className="w-full px-4 py-3 flex items-center justify-between gap-3 text-left">
         <div>
-          <p className="text-[11px] tracking-widest uppercase" style={{ color:'#c9a84c', fontFamily:'JetBrains Mono, monospace' }}>
+          <p className="text-[11px] tracking-widest uppercase font-bold" style={{ color:'#c9a84c', fontFamily:'JetBrains Mono, monospace' }}>
             {title}
           </p>
           {subtitle && <p className="text-[11px] mt-1 dt-text-muted">{subtitle}</p>}
