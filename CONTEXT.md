@@ -1,7 +1,7 @@
 # DineshTrade — Project Context
 
-**Last Updated:** 11 Jun 2026
-**Version:** 2.4
+**Last Updated:** 22 Jun 2026
+**Version:** 2.5
 **Purpose:** This file gives Claude (or any AI assistant) full context of everything discussed so far about this project. Start any new conversation by uploading this file.
 
 ---
@@ -399,6 +399,91 @@ Type check only (no build): `npx tsc --noEmit`
 - Values: bold `font-weight: 700`, `font-size: 12px`
 - Positive → green `#52b788`, Negative → red `#e05a5e`
 - API (`/api/market/indices`) now fetches all 9 symbols from Kite in a single `/quote` call
+
+### Phase 8 — built 22 Jun 2026
+
+#### Momentum ceiling filter (new params + runtime behavior)
+
+- Added Momentum params:
+  - `recentHighDays` (default `20`)
+  - `ceilingBufferPct` (default `2.0`)
+- Config wiring:
+  - schema/defaults/descriptions updated in `lib/strategyConfig.ts`
+  - production snapshot updated in `config/strategy.json` for momentum strategies
+- Daily bars extended to support ceiling math:
+  - `DailyClose` now supports `open`, `high`, `low` (optional for backward compatibility)
+  - fetch + cache now persist OHLC fields in `lib/dailyCloses.ts`
+  - fallback uses `high ?? close` when high is unavailable
+- Shared evaluator added in `lib/strategyEngine.ts`:
+  - `evaluateMomentumCeiling()` computes N-day high and threshold
+  - pass condition: `ltp < nDayHigh × (1 - ceilingBufferPct/100)`
+  - ramp-up grace: check is skipped until enough bars exist (70% of configured lookback)
+- Ceiling logic is now reused by both:
+  - momentum BUY scan path
+  - momentum tile/rule rendering path
+
+#### Strategy tiles and rule visibility improvements
+
+- Momentum tiles now include explicit rules for:
+  - scan window
+  - strategy GIFT gate (when enabled)
+  - day gain min/max
+  - rising candles
+  - volume condition
+  - EMA proximity
+  - ceiling filter (`Below X% buffer from N-day high`) with ramp-up skip display
+  - per-trade cap purchasability (`₹cap -> qty`)
+
+#### Settings page and CSV export hardening
+
+- Settings section headers (CORE, PARAMS, CEILING FILTERS, etc.) rendered bold for readability.
+- Momentum settings include a dedicated `Ceiling Filter` section with:
+  - `Recent High Days`
+  - `Ceiling Buffer %`
+- CSV export upgraded for strategy auditability:
+  - new column: `Section`
+  - header now: `Strategy name, Section, Parameter, Parameter description, Value`
+  - export now guarantees canonical parameter coverage across strategy types
+  - includes defaults/fallbacks for missing runtime keys
+  - includes GIFT gate fields consistently
+
+#### Lot handling decision (important behavioral clarification)
+
+- Investigated NTPC sell confusion (multiple lots with different entry prices).
+- Confirmed intended lot behavior:
+  - lots are evaluated independently against their own T1/T2 targets
+  - system sells only the quantity for the lot that meets condition
+  - FIFO is not forcibly applied as an override to independent lot exits
+
+#### Holdings price display + lot transparency
+
+- Holdings now refresh weighted average from currently open lots when positions are read.
+- Weighted display reflects remaining quantity basis, not stale anchor.
+- API now includes lot detail in strategy positions response so UI can show per-lot breakdown.
+- UI now shows:
+  - weighted average for current holding
+  - per-lot price/qty breakdown when multiple lots are open
+
+#### Strategy tag consistency and external broker tag handling
+
+- Fixed tag drift where changed strategy ownership could be overridden by fallback behavior.
+- Added duplicate/fallback safeguards in strategy positions tag assembly.
+- Outside-Zerodha orders can carry raw tags like `quick`; these are not DineshTrade strategies.
+- Normalization and UI now treat unknown non-`dt-` tags as `EXTERNAL`.
+- Current semantics:
+  - `dt-*` -> DineshTrade strategy context
+  - `dt-manual`/manual -> MANUAL
+  - non-`dt-` unknown broker tags -> EXTERNAL
+
+#### Universal footer (post-login and global layout)
+
+- Added universal footer component and wired in root layout.
+- Footer content:
+  - Created by: Dinesh Wadhwani
+  - email: dinesh.k.wadhwani@gmail.com
+  - Phone: 9767676738
+  - Version: server startup timestamp
+- Added `/api/version` endpoint returning process/module start time for footer version display.
 
 ---
 
