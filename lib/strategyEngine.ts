@@ -12,7 +12,7 @@ import {
   resolveAccountCreds, getQuotes, getHistoricalCandles, type KiteCreds,
 } from './kite'
 import { getInstrumentTokens } from './instruments'
-import { loadAndRefreshCloses } from './dailyCloses'
+import { loadAndRefreshCloses, type DailyClose } from './dailyCloses'
 import { computeEMA, consecutiveDownDays, deviationPct } from './ema'
 import { scanPivotalStrategy } from './pivotal'
 import { getPivotalLists } from './pivotalListStore'
@@ -39,6 +39,92 @@ function istMinutesSinceMidnight(): number {
 function hhmmToMinutes(hhmm: string): number {
   const [h, m] = hhmm.split(':').map(n => parseInt(n, 10))
   return h * 60 + m
+}
+
+interface MomentumRuntimeCfg {
+  minDayGainPct: number
+  maxDayGainPct: number
+  emaProximityPct: number
+  consecutiveCandles: number
+  scanStartHHMM: string
+  scanEndHHMM: string
+  volumeAvgDays: number
+  recentHighDays: number
+  ceilingBufferPct: number
+}
+
+interface MomentumCeilingEval {
+  enabled: boolean
+  passed: boolean
+  skipped: boolean
+  availableCount: number
+  requiredRatioCount: number
+  nDayHigh: number | null
+  threshold: number | null
+  actual: string
+}
+
+function resolveMomentumCfg(params: Record<string, unknown>, legacyS2: any): MomentumRuntimeCfg {
+  return {
+    minDayGainPct: typeof params.minDayGainPct === 'number' ? params.minDayGainPct : legacyS2.minDayGainPct,
+    maxDayGainPct: typeof params.maxDayGainPct === 'number' ? params.maxDayGainPct : legacyS2.maxDayGainPct,
+    emaProximityPct: typeof params.emaProximityPct === 'number' ? params.emaProximityPct : legacyS2.emaProximityPct,
+    consecutiveCandles: typeof params.consecutiveCandles === 'number' ? params.consecutiveCandles : legacyS2.consecutiveCandles,
+    scanStartHHMM: typeof params.scanStartHHMM === 'string' ? params.scanStartHHMM : legacyS2.scanStartHHMM,
+    scanEndHHMM: typeof params.scanEndHHMM === 'string' ? params.scanEndHHMM : legacyS2.scanEndHHMM,
+    volumeAvgDays: typeof params.volumeAvgDays === 'number' ? params.volumeAvgDays : legacyS2.volumeAvgDays,
+    recentHighDays: typeof params.recentHighDays === 'number' ? params.recentHighDays : 20,
+    ceilingBufferPct: typeof params.ceilingBufferPct === 'number' ? params.ceilingBufferPct : 2.0,
+  }
+}
+
+function evaluateMomentumCeiling(
+  bars: DailyClose[] | undefined,
+  ltp: number,
+  recentHighDays: number,
+  ceilingBufferPct: number,
+): MomentumCeilingEval {
+  if (recentHighDays === 0 || ceilingBufferPct === 0) {
+    return {
+      enabled: false,
+      passed: true,
+      skipped: true,
+      availableCount: 0,
+      requiredRatioCount: recentHighDays * 0.7,
+      nDayHigh: null,
+      threshold: null,
+      actual: 'disabled',
+    }
+  }
+
+  const recentBars = (bars || []).slice(-recentHighDays)
+  const availableCount = recentBars.length
+  const requiredRatioCount = recentHighDays * 0.7
+  if (availableCount < requiredRatioCount) {
+    return {
+      enabled: true,
+      passed: true,
+      skipped: true,
+      availableCount,
+      requiredRatioCount,
+      nDayHigh: null,
+      threshold: null,
+      actual: `only ${availableCount} of ${recentHighDays} days`,
+    }
+  }
+
+  const nDayHigh = recentBars.reduce((max, c) => Math.max(max, c.high ?? c.close), 0)
+  const threshold = nDayHigh * (1 - ceilingBufferPct / 100)
+  return {
+    enabled: true,
+    passed: ltp < threshold,
+    skipped: false,
+    availableCount,
+    requiredRatioCount,
+    nDayHigh,
+    threshold,
+    actual: `₹${ltp.toFixed(2)} vs high ₹${nDayHigh.toFixed(2)} (cutoff ₹${threshold.toFixed(2)})`,
+  }
 }
 
 interface WatchlistStock { nse: string; name?: string; trades?: number }
@@ -201,17 +287,7 @@ export async function generateRecommendations(): Promise<StrategyResult> {
 async function runStrategy2(now: string, giftChangePct: number, strategyOverride?: Strategy): Promise<StrategyResult> {
   const strategy = strategyOverride || getStrategyById('catalyst')
   const params = (strategy?.params || {}) as Record<string, any>
-  const cfg = {
-    minDayGainPct: params.minDayGainPct ?? strategyCfg.strategy2_momentum?.minDayGainPct ?? 0.5,
-    maxDayGainPct: params.maxDayGainPct ?? strategyCfg.strategy2_momentum?.maxDayGainPct ?? 1.5,
-    emaProximityPct: params.emaProximityPct ?? strategyCfg.strategy2_momentum?.emaProximityPct ?? 3.0,
-    consecutiveCandles: params.consecutiveCandles ?? strategyCfg.strategy2_momentum?.consecutiveCandles ?? 3,
-    scanStartHHMM: params.scanStartHHMM ?? strategyCfg.strategy2_momentum?.scanStartHHMM ?? '09:30',
-    scanEndHHMM: params.scanEndHHMM ?? strategyCfg.strategy2_momentum?.scanEndHHMM ?? '14:30',
-    volumeAvgDays: params.volumeAvgDays ?? strategyCfg.strategy2_momentum?.volumeAvgDays ?? 10,
-    recentHighDays: params.recentHighDays ?? 20,
-    ceilingBufferPct: params.ceilingBufferPct ?? 2.0,
-  }
+  const cfg = resolveMomentumCfg(params, strategyCfg.strategy2_momentum)
   const exitT1 = strategy?.exits?.t1Pct ?? strategyCfg.targets.intraday_t1_pct ?? 1.5
   const exitT2 = strategy?.exits?.t2Pct ?? strategyCfg.targets.intraday_t2_pct ?? 2.0
   const watchlistKeys = strategy?.watchlist || ['listA']
@@ -354,27 +430,13 @@ async function runStrategy2(now: string, giftChangePct: number, strategyOverride
 
   const afterCeiling = applyceiling ? survivors.filter(s => {
     const symbol = s.symbol
-    const bars = closesCache[symbol] || []
-    const requiredCount = Math.ceil(cfg.recentHighDays * 0.7)
-
-    // Step 2: Check if we have enough data
-    if (bars.length < requiredCount) {
-      console.log(`[${symbol}] ceiling check skipped — only ${bars.length} of ${cfg.recentHighDays} days available`)
-      return true  // Allow entry during ramp-up
+    const evalResult = evaluateMomentumCeiling(closesCache[symbol], s.ltp, cfg.recentHighDays, cfg.ceilingBufferPct)
+    if (evalResult.skipped) {
+      console.log(`[${symbol}] ceiling check skipped — only ${evalResult.availableCount} of ${cfg.recentHighDays} days available`)
+      return true
     }
-
-    // Step 1 & 3: Get last recentHighDays entries and compute nDayHigh
-    const lastN = bars.slice(-cfg.recentHighDays)
-    let nDayHigh = 0
-    for (const bar of lastN) {
-      const high = bar.high ?? bar.close  // fallback to close if high is missing
-      if (high > nDayHigh) nDayHigh = high
-    }
-
-    // Step 4: Compute threshold and check
-    const threshold = nDayHigh * (1 - cfg.ceilingBufferPct / 100)
-    if (s.ltp >= threshold) {
-      console.log(`[${symbol}] within ${cfg.ceilingBufferPct}% of ${cfg.recentHighDays}-day high of ₹${nDayHigh.toFixed(2)} — skipped`)
+    if (!evalResult.passed && evalResult.nDayHigh !== null) {
+      console.log(`[${symbol}] within ${cfg.ceilingBufferPct}% of ${cfg.recentHighDays}-day high of ₹${evalResult.nDayHigh.toFixed(2)} — skipped`)
       skippedCeiling++
       return false
     }
@@ -582,15 +644,7 @@ export async function evaluateAllForTiles(): Promise<TileEvalResult> {
   const legacyEma = strategyCfg.ema || { period: 20, entryBelowPct: 5, strongBuyBelowPct: 8, minDownDays: 3 }
   function momentumCfgFor(s: Strategy | undefined) {
     const p = (s?.params || {}) as Record<string, unknown>
-    return {
-      scanStartHHMM:     typeof p.scanStartHHMM === 'string'     ? p.scanStartHHMM     : legacyS2.scanStartHHMM,
-      scanEndHHMM:       typeof p.scanEndHHMM === 'string'       ? p.scanEndHHMM       : legacyS2.scanEndHHMM,
-      minDayGainPct:     typeof p.minDayGainPct === 'number'     ? p.minDayGainPct     : legacyS2.minDayGainPct,
-      maxDayGainPct:     typeof p.maxDayGainPct === 'number'     ? p.maxDayGainPct     : legacyS2.maxDayGainPct,
-      emaProximityPct:   typeof p.emaProximityPct === 'number'   ? p.emaProximityPct   : legacyS2.emaProximityPct,
-      consecutiveCandles:typeof p.consecutiveCandles === 'number'? p.consecutiveCandles: legacyS2.consecutiveCandles,
-      volumeAvgDays:     typeof p.volumeAvgDays === 'number'     ? p.volumeAvgDays     : legacyS2.volumeAvgDays,
-    }
+    return resolveMomentumCfg(p, legacyS2)
   }
   function dipCfgFor(s: Strategy | undefined) {
     const p = (s?.params || {}) as Record<string, unknown>
@@ -616,6 +670,7 @@ export async function evaluateAllForTiles(): Promise<TileEvalResult> {
   const allMomentumCfgs = active.filter(s => s.type === 'momentum').map(momentumCfgFor)
   const maxVolumeAvgDays = Math.max(catCfgDefault.volumeAvgDays, ...allMomentumCfgs.map(c => c.volumeAvgDays))
   await ensureDailyAggregates(creds, symbols, maxVolumeAvgDays)
+  const closesBySymbol = await loadAndRefreshCloses(creds, symbols)
   const quotes = await getQuotes(creds, symbols).catch(() => ({} as Awaited<ReturnType<typeof getQuotes>>))
   const symbolTokens = await getInstrumentTokens(creds, symbols).catch(() => ({} as Record<string, number>))
 
@@ -714,12 +769,15 @@ export async function evaluateAllForTiles(): Promise<TileEvalResult> {
     const startMin = hhmmToMinutes(cfg.scanStartHHMM)
     const endMin = hhmmToMinutes(cfg.scanEndHHMM)
     const scanOpen = nowMin >= startMin && nowMin <= endMin
+    const gate = checkGiftNiftyGate(s.giftNiftyGate, giftChangePct)
     const tiles: Tile[] = []
     for (const sym of symbols) {
       const d = dataBySymbol.get(sym)!
       const dayGainPct = d.prevClose > 0 ? ((d.ltp - d.prevClose) / d.prevClose) * 100 : 0
       const emaDev = d.ema20 > 0 ? ((d.ltp - d.ema20) / d.ema20) * 100 : 0
       const proratedAvgVol = d.avgVol10d * (elapsedMin / SESSION_MINUTES)
+      const qty = d.ltp > 0 ? Math.floor(capCfg.perTrade / d.ltp) : 0
+      const ceilingEval = evaluateMomentumCeiling(closesBySymbol[sym], d.ltp, cfg.recentHighDays, cfg.ceilingBufferPct)
 
       // Per-strategy rising check — slice last N from the shared closes array.
       // Different strategies can require different counts (e.g. catalyst=3, market_boom=2).
@@ -742,6 +800,14 @@ export async function evaluateAllForTiles(): Promise<TileEvalResult> {
         actual: scanOpen ? 'inside window' : 'outside window',
         threshold: `${cfg.scanStartHHMM}–${cfg.scanEndHHMM}`,
       })
+      if (s.giftNiftyGate?.enabled) {
+        rules.push({
+          id: 'gift_gate',
+          label: 'GIFT Nifty gate passes',
+          passed: gate.allowed,
+          actual: gate.allowed ? `GIFT ${fmtPct(giftChangePct)}` : gate.reason || `GIFT ${fmtPct(giftChangePct)}`,
+        })
+      }
       rules.push({
         id: 'gain_min',
         label: `Day gain ≥ ${cfg.minDayGainPct >= 0 ? '+' : ''}${cfg.minDayGainPct}%`,
@@ -779,6 +845,21 @@ export async function evaluateAllForTiles(): Promise<TileEvalResult> {
         threshold: `±${cfg.emaProximityPct}%`,
       })
       rules.push({
+        id: 'ceiling_filter',
+        label: cfg.recentHighDays === 0 || cfg.ceilingBufferPct === 0
+          ? 'Ceiling filter disabled'
+          : `Below ${cfg.ceilingBufferPct}% buffer from ${cfg.recentHighDays}-day high`,
+        passed: ceilingEval.passed,
+        actual: ceilingEval.enabled
+          ? ceilingEval.skipped
+            ? `${ceilingEval.actual} — skipped during ramp-up`
+            : ceilingEval.actual
+          : 'disabled',
+        threshold: ceilingEval.enabled && !ceilingEval.skipped && ceilingEval.threshold !== null
+          ? `< ₹${ceilingEval.threshold.toFixed(2)}`
+          : undefined,
+      })
+      rules.push({
         id: 'data',
         label: 'Live quote + 20-EMA available',
         passed: d.hasQuote && d.hasAgg,
@@ -786,10 +867,10 @@ export async function evaluateAllForTiles(): Promise<TileEvalResult> {
       })
       rules.push({
         id: 'funds',
-        label: 'Per-trade cap configured',
-        passed: capCfg.perTrade > 0,
-        actual: `₹${capCfg.perTrade.toLocaleString('en-IN')}`,
-        threshold: `> 0`,
+        label: 'Per-trade cap buys at least 1 share',
+        passed: qty >= 1,
+        actual: d.hasQuote ? `₹${capCfg.perTrade.toLocaleString('en-IN')} → qty ${qty}` : `₹${capCfg.perTrade.toLocaleString('en-IN')}`,
+        threshold: 'qty ≥ 1',
       })
 
       tiles.push({

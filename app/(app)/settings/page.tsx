@@ -1211,8 +1211,8 @@ function StrategiesTab({ autoModeOn }: { autoModeOn: boolean }) {
   function exportToCsv() {
     if (!draft) return
     const rows = buildStrategyCsvRows(draft)
-    const header = ['Strategy name', 'Parameter', 'Parameter description', 'Value']
-    const csv = [header, ...rows.map(row => [row.strategyName, row.parameter, row.description, row.value])]
+    const header = ['Strategy name', 'Section', 'Parameter', 'Parameter description', 'Value']
+    const csv = [header, ...rows.map(row => [row.strategyName, row.section, row.parameter, row.description, row.value])]
       .map(cols => cols.map(escapeCsvCell).join(','))
       .join('\n')
     const blob = new Blob([csv], { type: 'text/csv;charset=utf-8;' })
@@ -3318,15 +3318,16 @@ function AccordionSection({ title, subtitle, expanded, onToggle, children }: {
 }
 
 function buildStrategyCsvRows(draft: { capital: CapitalConfig; strategies: StrategyConfig[] }) {
-  const rows: Array<{ strategyName: string; parameter: string; description: string; value: string }> = []
+  const rows: Array<{ strategyName: string; section: string; parameter: string; description: string; value: string }> = []
 
   for (const rule of FIXED_RULES) {
-    rows.push({ strategyName: 'Fixed Rules', parameter: rule.parameter, description: rule.description, value: rule.value })
+    rows.push({ strategyName: 'Fixed Rules', section: 'Fixed Rules', parameter: rule.parameter, description: rule.description, value: rule.value })
   }
 
   for (const [key, value] of Object.entries(draft.capital)) {
     rows.push({
       strategyName: 'Shared Capital',
+      section: 'Shared Capital',
       parameter: CAPITAL_FIELD_LABELS[key] || getPreviewLabel(key),
       description: CAPITAL_DESCRIPTIONS[key] || '',
       value: formatStrategyCsvValue(value),
@@ -3345,41 +3346,73 @@ function buildStrategyCsvRows(draft: { capital: CapitalConfig; strategies: Strat
     for (const [key, value] of coreEntries) {
       rows.push({
         strategyName: strategy.name,
+        section: 'Core',
         parameter: STRATEGY_FIELD_LABELS[key] || getPreviewLabel(key),
         description: STRATEGY_FIELD_DESCRIPTIONS[key] || '',
         value: formatStrategyCsvValue(value),
       })
     }
-    for (const [key, value] of Object.entries(strategy.params)) {
-      const descriptions = getParamDescriptions(strategy.type)
+
+    const descriptions = getParamDescriptions(strategy.type)
+    const canonicalParamKeys = getCanonicalStrategyParamKeys(strategy)
+    for (const key of canonicalParamKeys) {
+      const value = strategy.params[key] ?? getDefaultStrategyParamValue(strategy.type, key)
       rows.push({
         strategyName: strategy.name,
+        section: getStrategyParamSection(strategy.type, key),
         parameter: getPreviewLabel(key),
         description: descriptions[key] || '',
         value: formatStrategyCsvValue(value),
       })
     }
+
     for (const [key, value] of Object.entries(strategy.exits)) {
       rows.push({
         strategyName: strategy.name,
+        section: 'Exit Targets',
         parameter: STRATEGY_FIELD_LABELS[key] || getPreviewLabel(key),
         description: EXIT_DESCRIPTIONS[key] || '',
         value: formatStrategyCsvValue(value),
       })
     }
-    if (strategy.giftNiftyGate) {
-      for (const [key, value] of Object.entries(strategy.giftNiftyGate)) {
-        rows.push({
-          strategyName: strategy.name,
-          parameter: STRATEGY_FIELD_LABELS[key] || getPreviewLabel(key),
-          description: GIFT_GATE_DESCRIPTIONS[key] || '',
-          value: formatStrategyCsvValue(value),
-        })
-      }
+
+    const gate = strategy.giftNiftyGate || { enabled: false, minPct: null, maxPct: null }
+    for (const key of ['enabled', 'minPct', 'maxPct'] as const) {
+      rows.push({
+        strategyName: strategy.name,
+        section: 'GIFT Nifty Gate',
+        parameter: STRATEGY_FIELD_LABELS[key] || getPreviewLabel(key),
+        description: GIFT_GATE_DESCRIPTIONS[key] || '',
+        value: formatStrategyCsvValue(gate[key]),
+      })
     }
   }
 
   return rows
+}
+
+function getCanonicalStrategyParamKeys(strategy: StrategyConfig): string[] {
+  const base = strategy.type === 'dip'
+    ? Object.keys(DEFAULT_DIP_PARAMS)
+    : strategy.type === 'pivotal'
+      ? Object.keys(DEFAULT_PIVOTAL_PARAMS)
+      : Object.keys(DEFAULT_MOMENTUM_PARAMS)
+  const extras = Object.keys(strategy.params).filter(k => !base.includes(k)).sort((a, b) => a.localeCompare(b))
+  return [...base, ...extras]
+}
+
+function getDefaultStrategyParamValue(type: StrategyConfig['type'], key: string): unknown {
+  if (type === 'dip') return (DEFAULT_DIP_PARAMS as Record<string, unknown>)[key]
+  if (type === 'pivotal') return (DEFAULT_PIVOTAL_PARAMS as Record<string, unknown>)[key]
+  return (DEFAULT_MOMENTUM_PARAMS as Record<string, unknown>)[key]
+}
+
+function getStrategyParamSection(type: StrategyConfig['type'], key: string): string {
+  if (type === 'momentum') {
+    if (['exitSameDayTime', 'exitSameDayOnPositive', 'squareOffEOD'].includes(key)) return 'End of Day Behaviour'
+    if (['recentHighDays', 'ceilingBufferPct'].includes(key)) return 'Ceiling Filter'
+  }
+  return 'Params'
 }
 
 function formatStrategyCsvValue(value: unknown): string {
