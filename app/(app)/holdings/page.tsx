@@ -24,6 +24,7 @@ interface Holding {
   day_change: number
   day_change_percentage: number
   source?: 'holding' | 't0'
+  lots?: Array<{ id: string; entryPrice: number; remainingQty: number; boughtAt: string }>
 }
 
 interface QuoteEntry {
@@ -54,6 +55,7 @@ function positionToHolding(position: EnrichedPosition): Holding {
     day_change: Number.isFinite(dayChange) ? dayChange : 0,
     day_change_percentage: dayChangePct,
     source: 't0',
+    lots: (position as any).lots,
   }
 }
 
@@ -79,7 +81,7 @@ export default function HoldingsPage() {
   const [holdings, setHoldings] = useState<Holding[]>([])
   // Maps "ACCOUNT:SYMBOL" → strategy info from the unified position store.
   // Holdings not in the store render as OOS (pre-existing / not auto-managed).
-  const [posTags, setPosTags] = useState<Map<string, { strategyId: string; strategyName: string; strategyColor: string; strategyType?: string }>>(new Map())
+  const [posTags, setPosTags] = useState<Map<string, { strategyId: string; strategyName: string; strategyColor: string; strategyType?: string; remainingQty?: number }>>(new Map())
   const [loaded, setLoaded] = useState(false)
   const [orderModal, setOrderModal] = useState<{
     open: boolean; symbol: string; name?: string; side: 'BUY' | 'SELL'; ltp?: number; initialQty?: number; dayChangePct?: number
@@ -279,13 +281,21 @@ export default function HoldingsPage() {
       // Strategy tag map — single source of truth is the positions store.
       // All rows (settled holdings AND same-day T0 positions) use the same map
       // so every page shows the same strategy for the same symbol consistently.
-      const tagMap = new Map<string, { strategyId: string; strategyName: string; strategyColor: string; strategyType?: string }>()
+      const tagMap = new Map<string, { strategyId: string; strategyName: string; strategyColor: string; strategyType?: string; remainingQty?: number }>()
       for (const p of (sRes?.positions || []) as any[]) {
-        tagMap.set(`${String(p.account).toUpperCase()}:${String(p.symbol).toUpperCase()}`, {
+        const key = `${String(p.account).toUpperCase()}:${String(p.symbol).toUpperCase()}`
+        const existing = tagMap.get(key)
+        // Prefer active positions (remainingQty > 0) over journal fallback entries (remainingQty = 0)
+        if (existing && existing.remainingQty !== undefined && p.remainingQty !== undefined && 
+            existing.remainingQty > 0 && p.remainingQty === 0) {
+          continue  // skip journal fallback if we already have an active position
+        }
+        tagMap.set(key, {
           strategyId: p.strategyId,
           strategyName: p.strategyName,
           strategyColor: p.strategyColor,
           strategyType: p.strategyType,
+          remainingQty: p.remainingQty,
         })
       }
       setPosTags(tagMap)
@@ -504,6 +514,17 @@ export default function HoldingsPage() {
                         <div className="text-[11px] dt-text-muted">
                           Avg <span style={{ color:'rgba(255,255,255,0.75)' }}>₹{h.average_price.toFixed(2)}</span>
                         </div>
+                        {h.lots && h.lots.length > 1 && (
+                          <div className="text-[9px] dt-text-muted mt-1 space-y-0.5">
+                            {h.lots.map(lot => (
+                              lot.remainingQty > 0 && (
+                                <div key={lot.id} style={{ color:'rgba(96,165,250,0.7)' }}>
+                                  ↳ {lot.remainingQty} @ ₹{lot.entryPrice.toFixed(2)}
+                                </div>
+                              )
+                            ))}
+                          </div>
+                        )}
                         <div className="text-[11px] dt-text-muted">
                           Qty <span style={{ color:'rgba(255,255,255,0.75)' }}>{qty}</span>
                         </div>
@@ -540,7 +561,20 @@ export default function HoldingsPage() {
                         {Badge}
                       </div>
                       <span className="col-span-1 text-right text-white/70" style={{ fontFamily:'JetBrains Mono, monospace' }}>{qty}</span>
-                      <span className="col-span-2 text-right text-white/60" style={{ fontFamily:'JetBrains Mono, monospace' }}>₹{h.average_price.toFixed(2)}</span>
+                      <div className="col-span-2 text-right">
+                        <div style={{ fontFamily:'JetBrains Mono, monospace', color:'rgba(255,255,255,0.6)' }}>₹{h.average_price.toFixed(2)}</div>
+                        {h.lots && h.lots.length > 1 && (
+                          <div className="text-[9px] mt-1 space-y-0.5">
+                            {h.lots.map(lot => (
+                              lot.remainingQty > 0 && (
+                                <div key={lot.id} style={{ color:'rgba(96,165,250,0.7)', fontFamily:'JetBrains Mono, monospace' }}>
+                                  {lot.remainingQty} @ ₹{lot.entryPrice.toFixed(2)}
+                                </div>
+                              )
+                            ))}
+                          </div>
+                        )}
+                      </div>
                       <div className="col-span-2 text-right" style={{ fontFamily:'JetBrains Mono, monospace' }}>
                         <div className="dt-text-primary">₹{h.last_price.toFixed(2)}</div>
                         <div className="text-[9px] mt-0.5" style={{ color: dayColor }}>{h.day_change_percentage >= 0 ? '▲' : '▼'} {Math.abs(h.day_change_percentage).toFixed(2)}%</div>

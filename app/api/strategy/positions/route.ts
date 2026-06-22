@@ -38,6 +38,7 @@ export async function GET() {
       remainingQty: p.remainingQty,
       tranche1At: p.tranche1At,
       tranche1SoldQty: p.tranche1SoldQty,
+      lots: p.lots,
     }
   })
 
@@ -56,7 +57,7 @@ export async function GET() {
       const sid = (r as any).strategyId as string | undefined
       if (!sid) continue
       const key = `${String((r as any).account).toUpperCase()}:${String((r as any).symbol).toUpperCase()}`
-      if (positionKeys.has(key)) continue   // already in positions store
+      if (positionKeys.has(key)) continue   // already in positions store — DO NOT add journal fallback
       const ts = (r as any).ts as string
       const prev = latestAutoBuy.get(key)
       if (!prev || ts > prev.ts) latestAutoBuy.set(key, { strategyId: sid, ts })
@@ -65,6 +66,9 @@ export async function GET() {
       const s = strategiesById.get(strategyId)
       if (!s) continue
       const [account, symbol] = key.split(':')
+      // Ensure we don't add a duplicate if it's somehow already in positions
+      const existingIdx = positions.findIndex(p => p.account === account && p.symbol === symbol)
+      if (existingIdx !== -1) continue
       positions.push({
         account,
         symbol,
@@ -78,6 +82,7 @@ export async function GET() {
         remainingQty: 0,
         tranche1At: undefined,
         tranche1SoldQty: undefined,
+        lots: undefined,
       })
     }
   } catch {

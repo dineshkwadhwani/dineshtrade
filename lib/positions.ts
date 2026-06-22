@@ -388,6 +388,10 @@ export async function listPositions(opts?: { account?: string; strategyId?: stri
   for (const v of Object.values(positions)) {
     if (opts?.account && v.account !== opts.account.toUpperCase()) continue
     if (opts?.strategyId && v.strategyId !== opts.strategyId) continue
+    // Refresh weighted average price for momentum strategies with lots
+    if (v.lots && v.lots.length > 0) {
+      summarizeMomentumPosition(v)
+    }
     out.push(v)
   }
   return out
