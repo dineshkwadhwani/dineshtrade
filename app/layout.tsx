@@ -1,5 +1,6 @@
 import type { Metadata, Viewport } from 'next'
 import './globals.css'
+import AppFooter from '@/components/layout/AppFooter'
 
 export const metadata: Metadata = {
   title: 'DineshTrade',
@@ -22,7 +23,10 @@ export default function RootLayout({ children }: { children: React.ReactNode }) 
         <meta name="apple-mobile-web-app-capable" content="yes" />
         <meta name="apple-mobile-web-app-status-bar-style" content="black-translucent" />
       </head>
-      <body className="min-h-screen bg-[#080604]">{children}</body>
+      <body className="flex flex-col min-h-screen bg-[#080604]">
+        <div className="flex-1">{children}</div>
+        <AppFooter />
+      </body>
     </html>
   )
 }
