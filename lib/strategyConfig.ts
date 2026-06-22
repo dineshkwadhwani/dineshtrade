@@ -98,6 +98,9 @@ export interface MomentumParams {
   exitSameDayTime?: string        // "HH:MM" IST, default "15:10"
   exitSameDayOnPositive?: boolean // sell at exitSameDayTime if LTP > firstBuyPrice
   squareOffEOD?: boolean          // sell all at exitSameDayTime regardless of P&L; overrides no-loss gate
+  // Ceiling filter — avoid buying at resistance. See strategyEngine for logic.
+  recentHighDays?: number         // number of days to look back for computing the high (default 20)
+  ceilingBufferPct?: number       // buffer percentage below the high (default 2.0)
 }
 
 export interface PivotalParams {

@@ -70,7 +70,9 @@
         "deliveryHandoffDays": 15,
         "exitSameDayTime": "15:10",
         "exitSameDayOnPositive": false,
-        "squareOffEOD": false
+        "squareOffEOD": false,
+        "recentHighDays": 20,
+        "ceilingBufferPct": 2.0
       },
       "exits": {
         "t1Pct": 1.5,
@@ -101,7 +103,9 @@
         "deliveryHandoffDays": 0,
         "exitSameDayTime": "15:10",
         "exitSameDayOnPositive": true,
-        "squareOffEOD": true
+        "squareOffEOD": true,
+        "recentHighDays": 20,
+        "ceilingBufferPct": 2.0
       },
       "exits": {
         "t1Pct": 2.0,

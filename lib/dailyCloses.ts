@@ -25,6 +25,9 @@ import { getInstrumentTokens } from './instruments'
 
 export interface DailyClose {
   date: string                    // YYYY-MM-DD
+  open?: number                   // optional; old cached entries may lack this
+  high?: number                   // optional; old cached entries may lack this
+  low?: number                    // optional; old cached entries may lack this
   close: number
   volume: number
 }
@@ -115,7 +118,14 @@ async function fetchSymbolBars(
   for (let attempt = 0; attempt < 2; attempt++) {
     try {
       const candles = await getHistoricalCandles(creds, token, from, to, 'day')
-      return candles.map(c => ({ date: ymdOnly(c.date), close: c.close, volume: c.volume }))
+      return candles.map(c => ({
+        date: ymdOnly(c.date),
+        open: c.open,
+        high: c.high,
+        low: c.low,
+        close: c.close,
+        volume: c.volume,
+      }))
     } catch (err) {
       if (attempt === 0) {
         await new Promise(res => setTimeout(res, RETRY_BACKOFF_MS))

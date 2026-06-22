@@ -209,6 +209,8 @@ async function runStrategy2(now: string, giftChangePct: number, strategyOverride
     scanStartHHMM: params.scanStartHHMM ?? strategyCfg.strategy2_momentum?.scanStartHHMM ?? '09:30',
     scanEndHHMM: params.scanEndHHMM ?? strategyCfg.strategy2_momentum?.scanEndHHMM ?? '14:30',
     volumeAvgDays: params.volumeAvgDays ?? strategyCfg.strategy2_momentum?.volumeAvgDays ?? 10,
+    recentHighDays: params.recentHighDays ?? 20,
+    ceilingBufferPct: params.ceilingBufferPct ?? 2.0,
   }
   const exitT1 = strategy?.exits?.t1Pct ?? strategyCfg.targets.intraday_t1_pct ?? 1.5
   const exitT2 = strategy?.exits?.t2Pct ?? strategyCfg.targets.intraday_t2_pct ?? 2.0
@@ -311,6 +313,7 @@ async function runStrategy2(now: string, giftChangePct: number, strategyOverride
   // 6. Expensive filter — fetch 5-min candles only for the few that passed cheap checks
   let skippedNoCandles = 0
   let skippedNotRising = 0
+  let skippedCeiling = 0
   const survivors: Array<{ symbol: string; ltp: number; agg: DailyAggregate; dayGainPct: number }> = []
 
   for (const c of cheapPassed) {
@@ -341,10 +344,47 @@ async function runStrategy2(now: string, giftChangePct: number, strategyOverride
     survivors.push({ symbol: c.symbol, ltp: c.ltp, agg: c.agg, dayGainPct })
   }
 
-  // 7. Build recommendations from survivors
+  // 7. Apply ceiling filter (optional, only for momentum strategies with params set)
+  // Skip ceiling check if recentHighDays = 0 or ceilingBufferPct = 0
+  const applyceiling = cfg.recentHighDays > 0 && cfg.ceilingBufferPct > 0
+  let closesCache: Record<string, any> = {}
+  if (applyceiling) {
+    closesCache = await loadAndRefreshCloses(creds, symbols)
+  }
+
+  const afterCeiling = applyceiling ? survivors.filter(s => {
+    const symbol = s.symbol
+    const bars = closesCache[symbol] || []
+    const requiredCount = Math.ceil(cfg.recentHighDays * 0.7)
+
+    // Step 2: Check if we have enough data
+    if (bars.length < requiredCount) {
+      console.log(`[${symbol}] ceiling check skipped — only ${bars.length} of ${cfg.recentHighDays} days available`)
+      return true  // Allow entry during ramp-up
+    }
+
+    // Step 1 & 3: Get last recentHighDays entries and compute nDayHigh
+    const lastN = bars.slice(-cfg.recentHighDays)
+    let nDayHigh = 0
+    for (const bar of lastN) {
+      const high = bar.high ?? bar.close  // fallback to close if high is missing
+      if (high > nDayHigh) nDayHigh = high
+    }
+
+    // Step 4: Compute threshold and check
+    const threshold = nDayHigh * (1 - cfg.ceilingBufferPct / 100)
+    if (s.ltp >= threshold) {
+      console.log(`[${symbol}] within ${cfg.ceilingBufferPct}% of ${cfg.recentHighDays}-day high of ₹${nDayHigh.toFixed(2)} — skipped`)
+      skippedCeiling++
+      return false
+    }
+    return true
+  }) : survivors
+
+  // 8. Build recommendations from survivors
   const recs: Recommendation[] = []
   const perTradeCap = getCapital().perTrade
-  for (const s of survivors) {
+  for (const s of afterCeiling) {
     const qty = Math.floor(perTradeCap / s.ltp)
     if (qty < 1) continue
 
@@ -381,7 +421,7 @@ async function runStrategy2(now: string, giftChangePct: number, strategyOverride
       skippedNoToken: skippedNoAgg,
       skippedNoHistorical: skippedNoCandles,
       skippedDownDays: skippedNotRising,        // reusing field — "not 3 rising candles"
-      skippedNotStretched: skippedGainOutOfRange + skippedEMAExtended + skippedVolumeWeak,
+      skippedNotStretched: skippedGainOutOfRange + skippedEMAExtended + skippedVolumeWeak + skippedCeiling,
       produced: recs.length,
     },
     priceSource: 'kite_live',

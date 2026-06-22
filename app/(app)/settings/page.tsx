@@ -884,6 +884,8 @@ const MOMENTUM_PARAM_DESCRIPTIONS: Record<string, string> = {
   exitSameDayTime: 'Time (IST HH:MM) to check EOD behaviour. Default 15:10.',
   exitSameDayOnPositive: 'Sell at end of day if position is in profit — frees capital for tomorrow.',
   squareOffEOD: 'Always square all positions at end of day regardless of profit or loss. Never takes delivery. Overrides the no-loss gate.',
+  recentHighDays: 'Number of trading days to look back for computing resistance high. Default 20. Skip entry if price is within ceilingBufferPct% of this high — avoids buying at resistance. Fully active after 20 trading days; gracefully disabled during ramp-up.',
+  ceilingBufferPct: 'Buffer percentage below the recent high above which entries are blocked. Default 2.0. Use 0 to disable ceiling filter entirely.',
 }
 
 const PIVOTAL_PARAM_DESCRIPTIONS: Record<string, string> = {
@@ -914,6 +916,7 @@ const DEFAULT_MOMENTUM_PARAMS = {
   volumeAvgDays: 10, scanStartHHMM: '09:30', scanEndHHMM: '14:30',
   deliveryHandoffDays: 15,
   exitSameDayTime: '15:10', exitSameDayOnPositive: false, squareOffEOD: false,
+  recentHighDays: 20, ceilingBufferPct: 2.0,
 }
 const DEFAULT_PIVOTAL_PARAMS = {
   consolidationDays: 10,
@@ -3244,6 +3247,15 @@ function StrategyCard({ s, expanded, onToggle, watchlistOptions, pivotalListOpti
               <TextField label="exitSameDayTime" value={String((s.params as unknown as MomentumParams).exitSameDayTime ?? '15:10')} onChange={x => patchParam('exitSameDayTime', x)} desc={MOMENTUM_PARAM_DESCRIPTIONS.exitSameDayTime} disabled={locked} />
               <BoolField label="exitSameDayOnPositive" value={Boolean((s.params as unknown as MomentumParams).exitSameDayOnPositive)} onChange={x => patchParam('exitSameDayOnPositive', x)} desc={MOMENTUM_PARAM_DESCRIPTIONS.exitSameDayOnPositive} disabled={locked} />
               <BoolField label="squareOffEOD" value={Boolean((s.params as unknown as MomentumParams).squareOffEOD)} onChange={x => patchParam('squareOffEOD', x)} desc={MOMENTUM_PARAM_DESCRIPTIONS.squareOffEOD} disabled={locked} />
+            </div>
+          )}
+
+          {/* Ceiling Filter (momentum only) */}
+          {s.type === 'momentum' && (
+            <div className="space-y-2.5">
+              <p className="text-[10px] tracking-widest uppercase dt-text-muted" style={{ fontFamily:'JetBrains Mono, monospace' }}>Ceiling Filter</p>
+              <NumField label="Recent High Days" value={(s.params as unknown as MomentumParams).recentHighDays ?? 20} onChange={x => patchParam('recentHighDays', Math.max(0, Math.round(x)))} desc={MOMENTUM_PARAM_DESCRIPTIONS.recentHighDays} disabled={locked} />
+              <NumField label="Ceiling Buffer %" value={(s.params as unknown as MomentumParams).ceilingBufferPct ?? 2.0} onChange={x => patchParam('ceilingBufferPct', x)} suffix="%" desc={MOMENTUM_PARAM_DESCRIPTIONS.ceilingBufferPct} disabled={locked} />
             </div>
           )}
 
