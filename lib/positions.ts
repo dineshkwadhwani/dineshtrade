@@ -338,6 +338,57 @@ export async function ensureTracked(strategyId: string, account: string, symbol:
   return true
 }
 
+// Seeds a missing position with an explicit BUY anchor (price + timestamp).
+// Used by monitor reseed paths so restart/rebuild flows do not reset anchors
+// to "now" and accidentally trigger exits from stale/incorrect prices.
+export async function seedMissingPosition(strategyId: string, account: string, symbol: string, qty: number, price: number, boughtAtIso: string): Promise<boolean> {
+  const positions = await readAll()
+  const k = makeKey(account, symbol)
+  if (positions[k]) return false
+
+  const safeBoughtAt = Number.isFinite(new Date(boughtAtIso).getTime()) ? boughtAtIso : new Date().toISOString()
+  const next: Position = {
+    strategyId,
+    account: account.toUpperCase(),
+    symbol: symbol.toUpperCase(),
+    firstBuyPrice: price,
+    firstBuyAt: safeBoughtAt,
+    totalQty: qty,
+    remainingQty: qty,
+    tranche1At: null,
+  }
+  if (await isTrackedStrategyId(strategyId)) {
+    next.lots = [makeLot(qty, price, safeBoughtAt)]
+    summarizeMomentumPosition(next)
+  }
+  positions[k] = next
+  await writeAll(positions)
+  return true
+}
+
+// Repairs an existing single-lot position anchor (price + timestamp).
+// Intended for self-healing old reseeded rows that were stamped with stale
+// prices and "now" timestamps after a restart.
+export async function realignPositionAnchor(account: string, symbol: string, price: number, boughtAtIso: string): Promise<boolean> {
+  const positions = await readAll()
+  const k = makeKey(account, symbol)
+  const p = positions[k]
+  if (!p) return false
+
+  const safeBoughtAt = Number.isFinite(new Date(boughtAtIso).getTime()) ? boughtAtIso : p.firstBuyAt
+  p.firstBuyPrice = price
+  p.firstBuyAt = safeBoughtAt
+
+  if (p.lots && p.lots.length === 1) {
+    p.lots[0].entryPrice = price
+    p.lots[0].boughtAt = safeBoughtAt
+  }
+
+  if (p.lots && p.lots.length > 0) summarizeMomentumPosition(p)
+  await writeAll(positions)
+  return true
+}
+
 export async function markTranche1Sold(account: string, symbol: string, soldQty: number): Promise<void> {
   const positions = await readAll()
   const k = makeKey(account, symbol)

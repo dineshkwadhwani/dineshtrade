@@ -29,7 +29,7 @@ import {
   listStrategy2Positions, removeStrategy2Position, markTranche1Sold,
   recordStrategy2Buy, ageInCalendarDays,
 } from './strategy2Positions'
-import { recordBuy as recordPositionBuy, listPositionLots, applyLotSell } from './positions'
+import { listPositionLots, applyLotSell, seedMissingPosition, realignPositionAnchor } from './positions'
 import { getInstrumentTokens } from './instruments'
 
 export const STRATEGY_2_BUY_TAG = 'dt-s2'
@@ -110,6 +110,33 @@ export async function monitorAccount(account: string): Promise<MonitorResult> {
     getOrders(creds),
   ])
   const liveQtyBySymbol = buildLiveQtyBySymbol([...day, ...net], holdings)
+  const liveAvgBySymbol = new Map<string, number>()
+  for (const h of holdings) {
+    const sym = h.tradingsymbol.toUpperCase()
+    const qty = (h.quantity || 0) + (h.t1_quantity || 0)
+    const avg = Number(h.average_price) || 0
+    if (qty > 0 && avg > 0) liveAvgBySymbol.set(sym, avg)
+  }
+
+  const momentumIds = new Set(getStrategies().filter(s => s.type === 'momentum').map(s => s.id))
+  const lookbackYmd = new Date(Date.now() - 180 * 24 * 3600 * 1000).toISOString().slice(0, 10)
+  const jRecords = await readJournalRange(lookbackYmd, istDateString()).catch(() => [])
+  const latestBuyBySymbol = new Map<string, { strategyId: string; price: number; ts: string }>()
+  for (const r of jRecords) {
+    if (r.type !== 'order' || r.side !== 'BUY' || r.source !== 'auto') continue
+    if (r.account.toUpperCase() !== account.toUpperCase()) continue
+    if (!r.strategyId || !momentumIds.has(r.strategyId)) continue
+    const sym = r.symbol.toUpperCase()
+    const prev = latestBuyBySymbol.get(sym)
+    if (!prev || r.ts > prev.ts) latestBuyBySymbol.set(sym, { strategyId: r.strategyId, price: r.price, ts: r.ts })
+  }
+  for (const p of [...net, ...day]) {
+    const sym = p.tradingsymbol.toUpperCase()
+    if (liveAvgBySymbol.has(sym)) continue
+    const qty = p.quantity || 0
+    const avg = Number(p.average_price) || 0
+    if (qty > 0 && avg > 0) liveAvgBySymbol.set(sym, avg)
+  }
 
   // Seed 1: today's Kite dt-s2 BUYs (legacy tag — keeps backward compatibility).
   const todaysS2Buys = orders.filter(o => o.tag === STRATEGY_2_BUY_TAG && o.transaction_type === 'BUY' && o.status === 'COMPLETE')
@@ -130,36 +157,49 @@ export async function monitorAccount(account: string): Promise<MonitorResult> {
   // Seed 2: journal BUYs — the journal is the permanent record of every auto-BUY
   // with its strategy tag. This catches positions bought on prior days that fell
   // out of the store (e.g. OOS after an overnight Kite positions→holdings move).
-  // Uses the earliest BUY record per symbol as the firstBuyPrice anchor, and the
-  // live Kite qty (actual shares still held) as remainingQty.
+  // Anchor price prefers broker live average cost (when available) so reseed
+  // aligns to currently held inventory instead of stale historical buys.
   {
-    const momentumIds = new Set(getStrategies().filter(s => s.type === 'momentum').map(s => s.id))
-    const lookbackYmd = new Date(Date.now() - 30 * 24 * 3600 * 1000).toISOString().slice(0, 10)
-    const jRecords = await readJournalRange(lookbackYmd, istDateString()).catch(() => [])
-    // Earliest auto-BUY per symbol for this account on a momentum strategy
-    const anchorBySymbol = new Map<string, { strategyId: string; price: number; ts: string }>()
-    for (const r of jRecords) {
-      if (r.type !== 'order' || r.side !== 'BUY' || r.source !== 'auto') continue
-      if (r.account.toUpperCase() !== account.toUpperCase()) continue
-      if (!r.strategyId || !momentumIds.has(r.strategyId)) continue
-      const sym = r.symbol.toUpperCase()
-      const prev = anchorBySymbol.get(sym)
-      if (!prev || r.ts < prev.ts) anchorBySymbol.set(sym, { strategyId: r.strategyId, price: r.price, ts: r.ts })
-    }
     // Re-read after Seed 1 to avoid double-seeding
     const afterSeed1 = await listStrategy2Positions()
     const knownAfter = new Set(afterSeed1.filter(p => p.account.toUpperCase() === account.toUpperCase()).map(p => p.symbol.toUpperCase()))
-    for (const [sym, anchor] of Array.from(anchorBySymbol)) {
+    for (const [sym, latestBuy] of Array.from(latestBuyBySymbol)) {
       if (knownAfter.has(sym)) continue
       const liveQty = liveQtyBySymbol.get(sym) ?? 0
       if (liveQty <= 0) continue
-      await recordPositionBuy(anchor.strategyId, account, sym, liveQty, anchor.price)
-      console.log(`[strategy2 monitor] reseeded ${account}:${sym} × ${liveQty} @ ₹${anchor.price} from journal (${anchor.strategyId})`)
+      const liveAvg = liveAvgBySymbol.get(sym)
+      const seedPrice = (typeof liveAvg === 'number' && liveAvg > 0) ? liveAvg : latestBuy.price
+      await seedMissingPosition(latestBuy.strategyId, account, sym, liveQty, seedPrice, latestBuy.ts)
+      console.log(`[strategy2 monitor] reseeded ${account}:${sym} × ${liveQty} @ ₹${seedPrice} from ${liveAvg ? 'broker avg' : 'journal'} (${latestBuy.strategyId}, buyTs=${latestBuy.ts})`)
     }
   }
 
   // Per-account positions from the store (after all seeding)
   const positions = (await listStrategy2Positions()).filter(p => p.account.toUpperCase() === account.toUpperCase())
+
+  // One-time self-heal for rows created by old reseed logic:
+  // if anchor timestamp is newer than latest BUY ts and broker avg differs,
+  // realign to latest BUY time + broker avg so exits fire from the held basis.
+  for (const pos of positions) {
+    const latestBuy = latestBuyBySymbol.get(pos.symbol.toUpperCase())
+    const liveAvg = liveAvgBySymbol.get(pos.symbol.toUpperCase())
+    const hasSingleLot = !!pos.lots && pos.lots.length === 1
+    const staleTimestamp = !!latestBuy && pos.firstBuyAt > latestBuy.ts
+    const priceDrift = typeof liveAvg === 'number' && liveAvg > 0 && Math.abs(pos.firstBuyPrice - liveAvg) > 0.1
+    if (latestBuy && hasSingleLot && staleTimestamp && priceDrift) {
+      const aligned = await realignPositionAnchor(account, pos.symbol, liveAvg!, latestBuy.ts)
+      if (aligned) {
+        pos.firstBuyPrice = liveAvg!
+        pos.firstBuyAt = latestBuy.ts
+        if (pos.lots && pos.lots.length === 1) {
+          pos.lots[0].entryPrice = liveAvg!
+          pos.lots[0].boughtAt = latestBuy.ts
+        }
+        console.log(`[strategy2 monitor] self-healed anchor ${account}:${pos.symbol} -> ₹${liveAvg} @ ${latestBuy.ts}`)
+      }
+    }
+  }
+
   if (positions.length === 0) {
     return { account, ranAt, positionsChecked: 0, entries: [] }
   }
