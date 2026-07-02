@@ -278,7 +278,6 @@ export async function monitorAccount(account: string): Promise<MonitorResult> {
       const lotGainPct = ((ltp - lot.entryPrice) / lot.entryPrice) * 100
       const lotTranche1Done = !!lot.tranche1At
       const lotLabel = `${new Date(lot.boughtAt).toLocaleDateString('en-IN', { timeZone: 'Asia/Kolkata' })} @ ₹${lot.entryPrice.toFixed(2)}`
-      const canBypassNoLossSell = ltp >= lot.entryPrice
       const lotBoughtAtMs = new Date(lot.boughtAt).getTime()
       const completedCandleMs = lastCompletedCandle ? new Date(lastCompletedCandle.date).getTime() : Number.NaN
       const recentCompletedHigh = Number.isFinite(completedCandleMs) && lotBoughtAtMs <= completedCandleMs
@@ -291,43 +290,47 @@ export async function monitorAccount(account: string): Promise<MonitorResult> {
 
       let sellQty = 0
       let sellReason = ''
-      let bypassNoLossSell = false
       let markTranche1 = false
       if (!lotTranche1Done && ltp >= lotT2Price) {
         sellQty = lot.remainingQty
         sellReason = `Lot ${lotLabel}: LTP ₹${ltp.toFixed(2)} ≥ T2 ₹${lotT2Price.toFixed(2)} (skipped past T1) — selling entire lot`
-        bypassNoLossSell = canBypassNoLossSell
       } else if (!lotTranche1Done && observedHigh >= lotT2Price && ltp < lotT2Price) {
         sellQty = lot.remainingQty
         sellReason = `Lot ${lotLabel}: T2 was hit intraday at ₹${observedHigh.toFixed(2)} but price retreated to ₹${ltp.toFixed(2)} — selling lot at market`
-        bypassNoLossSell = canBypassNoLossSell
       } else if (!lotTranche1Done && ltp >= lotT1Price) {
         sellQty = Math.max(1, Math.floor(lot.remainingQty / 2))
         sellReason = `Lot ${lotLabel}: LTP ₹${ltp.toFixed(2)} ≥ T1 ₹${lotT1Price.toFixed(2)} — tranche 1 sell (50% of ${lot.remainingQty})`
-        bypassNoLossSell = canBypassNoLossSell
         markTranche1 = true
       } else if (!lotTranche1Done && observedHigh >= lotT1Price && ltp < lotT1Price) {
         sellQty = Math.max(1, Math.floor(lot.remainingQty / 2))
         sellReason = `Lot ${lotLabel}: T1 was hit intraday at ₹${observedHigh.toFixed(2)} but price retreated to ₹${ltp.toFixed(2)} — selling lot at market`
-        bypassNoLossSell = canBypassNoLossSell
         markTranche1 = true
       } else if (lotTranche1Done && ltp >= lotT2Price) {
         sellQty = lot.remainingQty
         sellReason = `Lot ${lotLabel}: LTP ₹${ltp.toFixed(2)} ≥ T2 ₹${lotT2Price.toFixed(2)} — tranche 2 sell (remainder)`
-        bypassNoLossSell = canBypassNoLossSell
       } else if (lotTranche1Done && observedHigh >= lotT2Price && ltp < lotT2Price) {
         sellQty = lot.remainingQty
         sellReason = `Lot ${lotLabel}: T2 was hit intraday at ₹${observedHigh.toFixed(2)} but price retreated to ₹${ltp.toFixed(2)} — selling lot at market`
-        bypassNoLossSell = canBypassNoLossSell
       }
 
       if (sellQty === 0) continue
 
-      const pre = await runPreflight({ account, symbol, side: 'SELL', quantity: sellQty, pricePerShare: ltp, bypassNoLossSell })
+      const pre = await runPreflight({ account, symbol, side: 'SELL', quantity: sellQty, pricePerShare: ltp })
       if (!pre.ok) {
         const skipReason = pre.gate === 'noShort'
           ? 'Position no longer held in Kite (manually closed?) — skipping'
           : `Preflight ${pre.gate}: ${pre.reason}`
+        if (pre.gate === 'noLossSell') {
+          appendJournal({
+            type: 'signal_skipped',
+            date: istDateString(),
+            time: istHHMM(),
+            account,
+            symbol,
+            signalPrice: ltp,
+            reasonSkipped: `[noLossSell-exit] ${pre.reason || 'Auto mode blocked SELL at net loss'}`,
+          }).catch(err => console.error('[strategy2] noLossSell journal write failed:', err))
+        }
         entries.push({
           account, accountDisplayName: displayName, symbol,
           action: 'skipped', quantity: sellQty, entryPrice: lot.entryPrice, ltp, gainPct: lotGainPct,

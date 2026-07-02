@@ -20,7 +20,7 @@ import {
 } from './kite'
 import { runPreflight, markPlaced } from './preflight'
 import { sendEmail } from './email'
-import { appendJournal, journalOrder, istDateString } from './journal'
+import { appendJournal, journalOrder, istDateString, istHHMM } from './journal'
 import { getStrategyById, getStrategies } from './strategyConfig'
 import * as positions from './positions'
 import type { Position } from './positions'
@@ -160,6 +160,17 @@ export async function monitorAccountStrategy1(account: string): Promise<Strategy
         const intentQty = lot.remainingQty
         const pre = await runPreflight({ account, symbol, side: 'SELL', quantity: intentQty, pricePerShare: ltp })
         if (!pre.ok) {
+          if (pre.gate === 'noLossSell') {
+            appendJournal({
+              type: 'signal_skipped',
+              date: istDateString(),
+              time: istHHMM(),
+              account,
+              symbol,
+              signalPrice: ltp,
+              reasonSkipped: `[noLossSell-exit] ${pre.reason || 'Auto mode blocked SELL at net loss'}`,
+            }).catch(err => console.error('[strategy1] noLossSell journal write failed:', err))
+          }
           if (pre.gate === 'noShort') {
             await positions.removePosition(account, symbol)
             entries.push({ account, accountDisplayName: displayName, symbol, action: 'skipped', reason: 'Position no longer held in Kite — tracking cleared' })
@@ -217,6 +228,17 @@ export async function monitorAccountStrategy1(account: string): Promise<Strategy
         }
         const pre = await runPreflight({ account, symbol, side: 'SELL', quantity: intentQty, pricePerShare: ltp })
         if (!pre.ok) {
+          if (pre.gate === 'noLossSell') {
+            appendJournal({
+              type: 'signal_skipped',
+              date: istDateString(),
+              time: istHHMM(),
+              account,
+              symbol,
+              signalPrice: ltp,
+              reasonSkipped: `[noLossSell-exit] ${pre.reason || 'Auto mode blocked SELL at net loss'}`,
+            }).catch(err => console.error('[strategy1] noLossSell journal write failed:', err))
+          }
           if (pre.gate === 'noShort') {
             await positions.removePosition(account, symbol)
             entries.push({ account, accountDisplayName: displayName, symbol, action: 'skipped', reason: 'Position no longer held in Kite — Strategy 1 tracking cleared' })
@@ -272,6 +294,17 @@ export async function monitorAccountStrategy1(account: string): Promise<Strategy
         const intentQty = lot.remainingQty
         const pre = await runPreflight({ account, symbol, side: 'SELL', quantity: intentQty, pricePerShare: ltp })
         if (!pre.ok) {
+          if (pre.gate === 'noLossSell') {
+            appendJournal({
+              type: 'signal_skipped',
+              date: istDateString(),
+              time: istHHMM(),
+              account,
+              symbol,
+              signalPrice: ltp,
+              reasonSkipped: `[noLossSell-exit] ${pre.reason || 'Auto mode blocked SELL at net loss'}`,
+            }).catch(err => console.error('[strategy1] noLossSell journal write failed:', err))
+          }
           if (pre.gate === 'noShort') {
             await positions.removePosition(account, symbol)
             entries.push({ account, accountDisplayName: displayName, symbol, action: 'skipped', reason: 'Position no longer held in Kite — Strategy 1 tracking cleared' })

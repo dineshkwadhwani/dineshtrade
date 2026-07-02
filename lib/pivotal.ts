@@ -260,6 +260,17 @@ export async function monitorPivotalAccount(account: string): Promise<PivotalMon
         bypassNoLossSellReason,
       })
       if (!pre.ok) {
+        if (pre.gate === 'noLossSell') {
+          appendJournal({
+            type: 'signal_skipped',
+            date: istDateString(),
+            time: istHHMM(),
+            account,
+            symbol: pos.symbol,
+            signalPrice: ltp,
+            reasonSkipped: `[noLossSell-exit] ${pre.reason || 'Auto mode blocked SELL at net loss'}`,
+          }).catch(err => console.error('[pivotal] noLossSell journal write failed:', err))
+        }
         if (pre.gate === 'noShort') {
           await removePosition(account, pos.symbol)
           entries.push({ account, accountDisplayName: displayName, symbol: pos.symbol, action: 'skipped', reason: 'Position no longer held in Kite — tracking cleared' })

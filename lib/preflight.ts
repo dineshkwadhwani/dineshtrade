@@ -58,6 +58,27 @@ async function recoverBuyHistoryFromJournal(account: string, symbol: string, hel
   return qtyToExplain > 0 ? [] : recovered.reverse()
 }
 
+function round2(value: number): number {
+  return Number(value.toFixed(2))
+}
+
+function estimateExitCharges(mode: 'intraday' | 'delivery', buyValue: number, sellValue: number): number {
+  const cap = getCapital()
+  const turnover = buyValue + sellValue
+  const brokerage = mode === 'intraday'
+    ? Math.min(20, buyValue * 0.0003) + (sellValue > 0 ? Math.min(20, sellValue * 0.0003) : 0)
+    : 0
+  const stt = mode === 'intraday'
+    ? sellValue * 0.00025
+    : sellValue * 0.001
+  const exchange = turnover * 0.0000297
+  const sebi = turnover * 0.000001
+  const gst = (brokerage + exchange + sebi) * 0.18
+  const stamp = buyValue * (mode === 'intraday' ? 0.00003 : 0.00015)
+  const dp = mode === 'delivery' && sellValue > 0 ? cap.deliveryDpCharge : 0
+  return round2(brokerage + stt + exchange + sebi + gst + stamp + dp)
+}
+
 export interface PreflightInput {
   account: string
   symbol: string
@@ -342,12 +363,34 @@ export async function runPreflight(input: PreflightInput): Promise<PreflightResu
       console.warn(`[preflight] ${account} ${symbol}: clamping SELL ${quantity} → ${available} (live held)`)
     }
 
-    // GATE 9 — Auto-mode never sells at a loss. Manual mode lets you override.
+    // GATE 9 — Auto-mode never sells at a net loss after estimated charges.
+    // Manual mode lets you override.
     // Also skipped for explicit manual orders (user knows what they're doing).
     // Also skipped when bypassNoLossSell=true (used by squareOffEOD).
     if (state.mode === 'auto' && !manual && !input.bypassNoLossSell && !input.bypassNoLossSellReason) {
       const avg = Number(holding?.average_price ?? dayPos?.average_price ?? dayPos?.day_buy_price ?? 0)
       const ltp = Number(holding?.last_price ?? dayPos?.last_price ?? pricePerShare ?? 0)
+      const evalQty = Math.max(1, Math.floor(sellAdjustedQty ?? quantity))
+      if (avg > 0 && ltp > 0 && evalQty > 0) {
+        const model: 'intraday' | 'delivery' = heldQty > 0 ? 'delivery' : 'intraday'
+        const buyValue = avg * evalQty
+        const sellValue = ltp * evalQty
+        const grossPnl = sellValue - buyValue
+        const estimatedCharges = estimateExitCharges(model, buyValue, sellValue)
+        const netPnl = round2(grossPnl - estimatedCharges)
+        if (netPnl < 0) {
+          const lossPct = ((avg - ltp) / avg * 100).toFixed(2)
+          const netLoss = Math.abs(netPnl).toFixed(2)
+          const gross = round2(grossPnl).toFixed(2)
+          const charges = estimatedCharges.toFixed(2)
+          return {
+            ok: false,
+            gate: 'noLossSell',
+            reason: `${account}: ${symbol} at ₹${ltp.toFixed(2)} vs avg ₹${avg.toFixed(2)} (${lossPct.startsWith('-') ? '' : ltp >= avg ? '+' : '−'}${Math.abs(Number(lossPct)).toFixed(2)}%) — estimated ${model} net P&L is -₹${netLoss} (gross ₹${gross}, charges ₹${charges})`,
+          }
+        }
+      }
+
       if (avg > 0 && ltp > 0 && ltp < avg) {
         const lossPct = ((avg - ltp) / avg * 100).toFixed(2)
         return {
