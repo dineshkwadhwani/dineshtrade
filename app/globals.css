@@ -65,7 +65,8 @@ html.light body {
 html::before {
   content: '$';
   position: fixed;
-  inset: 0 auto auto 0;
+  top: 10vh;
+  left: 3vw;
   z-index: 0;
   pointer-events: none;
   font-family: 'JetBrains Mono', monospace;
@@ -73,7 +74,6 @@ html::before {
   font-weight: 600;
   white-space: pre;
   color: rgba(110, 255, 205, 0.08);
-  transform: translate(3vw, 10vh);
   animation: symbol-drift 40s linear infinite;
   text-shadow:
     88vw 2vh 0 rgba(110, 255, 205, 0.075),
@@ -82,7 +82,8 @@ html::before {
 html::after {
   content: '₹';
   position: fixed;
-  inset: 0 auto auto 0;
+  top: 8vh;
+  left: 92vw;
   z-index: 2;
   pointer-events: none;
   font-family: 'Noto Sans Symbols 2', 'Noto Sans', 'Arial Unicode MS', 'Segoe UI Symbol', system-ui, sans-serif;
@@ -90,11 +91,10 @@ html::after {
   font-weight: 600;
   white-space: pre;
   color: rgba(93, 201, 255, 0.2);
-  transform: translate(92vw, 8vh);
   animation: symbol-drift-2 46s linear infinite reverse;
   text-shadow:
-    -84vw 58vh 0 rgba(93, 201, 255, 0.17),
-    -10vw 66vh 0 rgba(93, 201, 255, 0.16);
+    -76vw 46vh 0 rgba(93, 201, 255, 0.17),
+    -14vw 64vh 0 rgba(93, 201, 255, 0.16);
 }
 body::before {
   content: 'AI   DIGITAL   ALGO   QUANT   SIGNAL   AI   MODELS   DATA   AI   DIGITAL   ALGO   EXECUTION';
@@ -157,8 +157,8 @@ html.light::before {
 html.light::after {
   color: rgba(35, 128, 196, 0.22);
   text-shadow:
-    -84vw 58vh 0 rgba(35, 128, 196, 0.18),
-    -10vw 66vh 0 rgba(35, 128, 196, 0.17);
+    -76vw 46vh 0 rgba(35, 128, 196, 0.18),
+    -14vw 64vh 0 rgba(35, 128, 196, 0.17);
 }
 body > * { position: relative; z-index: 1; }
 .accent-text{background:linear-gradient(135deg,#2b6ad1 0%,#5da9ff 30%,#9cd0ff 55%,#5da9ff 75%,#1e4f9a 100%);-webkit-background-clip:text;-webkit-text-fill-color:transparent;background-clip:text;}
