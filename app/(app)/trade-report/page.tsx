@@ -93,7 +93,7 @@ export default function TradeReportPage() {
     <div className="space-y-5 pb-4 max-w-7xl">
       <div className="flex items-center justify-between gap-3 flex-wrap">
         <h1 className="text-2xl font-light dt-text-primary" style={{ fontFamily:'Cormorant Garamond, serif' }}>
-          <span className="gold-text">Trade Report</span>
+          <span className="accent-text">Trade Report</span>
         </h1>
       </div>
 
@@ -241,7 +241,7 @@ export default function TradeReportPage() {
 
       {result && (
         <div className="space-y-5">
-          <div className="rounded-xl overflow-hidden dt-card-gold">
+          <div className="rounded-xl overflow-hidden dt-card-accent">
             <div className="px-4 py-2.5" style={{ borderBottom:'1px solid rgba(201,168,76,0.12)' }}>
               <p className="text-[11px] tracking-widest uppercase" style={{ color:'#c9a84c', fontFamily:'JetBrains Mono, monospace' }}>
                 Summary · {result.summary.strategyName}

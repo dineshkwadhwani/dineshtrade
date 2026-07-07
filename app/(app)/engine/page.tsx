@@ -277,7 +277,7 @@ export default function EnginePage() {
       {/* Header */}
       <div className="flex items-center justify-between flex-wrap gap-3">
         <h1 className="dt-text-primary text-2xl font-light" style={{ fontFamily:'Cormorant Garamond, serif' }}>
-          Trading <span className="gold-text">Engine</span>
+          Trading <span className="accent-text">Engine</span>
         </h1>
         <div className="flex items-center gap-3">
           <span className="text-[10px] tracking-widest uppercase px-2 py-1 rounded"
@@ -291,7 +291,7 @@ export default function EnginePage() {
           </span>
           <button onClick={runEngine} disabled={loading || selected.length === 0}
             className="px-5 py-2.5 rounded-xl text-[12px] font-semibold tracking-wider transition-all disabled:opacity-40"
-            style={{ background:'linear-gradient(135deg, #7a5510, #c9a84c)', color:'#080604' }}>
+            style={{ background:'linear-gradient(135deg, #2f9cff, #7fd1ff)', color:'#072749' }}>
             {loading ? '↻ Scanning…' : '↻ Refresh & Scan'}
           </button>
         </div>
@@ -405,7 +405,7 @@ export default function EnginePage() {
           </p>
           <button onClick={runEngine} disabled={loading || selected.length === 0}
             className="ml-2 px-4 py-1.5 rounded-lg text-[11px] font-semibold tracking-wider transition-all disabled:opacity-40 flex-shrink-0"
-            style={{ background:'linear-gradient(135deg, #7a5510, #c9a84c)', color:'#080604' }}>
+            style={{ background:'linear-gradient(135deg, #2f9cff, #7fd1ff)', color:'#072749' }}>
             ↻ Refresh & Scan
           </button>
         </div>
@@ -954,7 +954,7 @@ function EngineTilesSection({ firstAccount, accounts, connected, tradeMode }: {
 
   if (!firstAccount) {
     return (
-      <div className="dt-banner-gold rounded-xl p-5 text-center">
+      <div className="dt-banner-accent rounded-xl p-5 text-center">
         <p className="text-[12px]" style={{ color:'rgba(201,168,76,0.7)' }}>Connect a Kite account in Settings to see the full-scan tiles.</p>
       </div>
     )
@@ -982,7 +982,7 @@ function EngineTilesSection({ firstAccount, accounts, connected, tradeMode }: {
       <div className="flex items-center justify-between flex-wrap gap-3">
         <div>
           <h2 className="dt-text-primary text-xl font-light" style={{ fontFamily:'Cormorant Garamond, serif' }}>
-            Full <span className="gold-text">Scan</span>
+            Full <span className="accent-text">Scan</span>
           </h2>
           <p className="dt-text-muted text-[10px] mt-0.5" style={{ fontFamily:'JetBrains Mono, monospace' }}>
             List A for Dip/Momentum · Pivotal List for Pivotal tabs · per-rule pass/fail · sell monitor every 5 min · buy scans per strategy interval
@@ -1012,7 +1012,7 @@ function EngineTilesSection({ firstAccount, accounts, connected, tradeMode }: {
           </div>
           <button onClick={load} disabled={loading}
             className="px-3 py-1.5 rounded-lg text-[11px] font-medium transition-all"
-            style={{ background:'rgba(201,168,76,0.1)', border:'1px solid rgba(201,168,76,0.2)', color:'#c9a84c' }}>
+            style={{ background:'rgba(93,169,255,0.12)', border:'1px solid rgba(93,169,255,0.3)', color:'#7fd1ff' }}>
             {loading ? '↻ …' : '↻ Refresh'}
           </button>
         </div>

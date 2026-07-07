@@ -67,17 +67,17 @@ export default function LoginClient({ hint, market, datetime }: Props) {
   const doubled = [...TICKER_STOCKS, ...TICKER_STOCKS]
 
   return (
-    <div className="min-h-screen bg-[#080604] flex flex-col overflow-hidden relative">
+    <div className="min-h-screen flex flex-col overflow-hidden relative">
 
-      {/* Radial gold glow */}
+      {/* Radial blue glow */}
       <div className="absolute inset-0 pointer-events-none">
         <div className="absolute top-0 left-1/2 -translate-x-1/2 w-[600px] h-[400px] rounded-full"
-          style={{ background:'radial-gradient(ellipse, rgba(201,168,76,0.1) 0%, transparent 65%)' }} />
+          style={{ background:'radial-gradient(ellipse, rgba(93,169,255,0.16) 0%, transparent 65%)' }} />
         <div className="absolute bottom-0 right-0 w-[300px] h-[300px] rounded-full"
-          style={{ background:'radial-gradient(circle, rgba(201,168,76,0.04) 0%, transparent 65%)' }} />
+          style={{ background:'radial-gradient(circle, rgba(93,169,255,0.08) 0%, transparent 65%)' }} />
         {/* Dot pattern */}
         <div className="absolute inset-0 opacity-40"
-          style={{ backgroundImage:'radial-gradient(circle, rgba(201,168,76,0.07) 1px, transparent 1px)', backgroundSize:'28px 28px' }} />
+          style={{ backgroundImage:'radial-gradient(circle, rgba(125,190,255,0.08) 1px, transparent 1px)', backgroundSize:'28px 28px' }} />
       </div>
 
       {/* Main content */}
@@ -86,12 +86,12 @@ export default function LoginClient({ hint, market, datetime }: Props) {
         {/* Monogram */}
         <div className="mb-1 animate-fade-up">
           <div className="text-center">
-            <div className="font-serif text-[88px] leading-none tracking-tight gold-text select-none"
+            <div className="font-serif text-[88px] leading-none tracking-tight accent-text select-none"
               style={{ fontFamily:'Cormorant Garamond, Georgia, serif', fontWeight:300 }}>
               DW
             </div>
             <div className="text-[9px] tracking-[0.45em] uppercase mt-[-6px]"
-              style={{ color:'rgba(201,168,76,0.35)', fontFamily:'Outfit, sans-serif' }}>
+              style={{ color:'rgba(147,208,255,0.68)', fontFamily:'Outfit, sans-serif' }}>
               Dinesh Wadhwani
             </div>
           </div>
@@ -99,16 +99,16 @@ export default function LoginClient({ hint, market, datetime }: Props) {
 
         {/* Divider */}
         <div className="w-12 h-px my-4 animate-fade-up"
-          style={{ background:'linear-gradient(90deg, transparent, #c9a84c, transparent)', animationDelay:'0.1s' }} />
+          style={{ background:'linear-gradient(90deg, transparent, #7fd1ff, transparent)', animationDelay:'0.1s' }} />
 
         {/* Welcome */}
         <div className="text-center mb-1 animate-fade-up" style={{ animationDelay:'0.15s' }}>
           <p className="text-white/60 text-lg mb-[2px]"
             style={{ fontFamily:'Cormorant Garamond, Georgia, serif', fontWeight:300 }}>
-            Welcome, <span className="text-[#e8c97a]">Dinesh</span>
+            Welcome, <span className="text-[#b7e7ff]">Dinesh</span>
           </p>
           <p className="text-[10px] tracking-widest uppercase mt-1"
-            style={{ color:'rgba(201,168,76,0.5)', fontFamily:'JetBrains Mono, monospace' }}>
+            style={{ color:'rgba(127,209,255,0.72)', fontFamily:'JetBrains Mono, monospace' }}>
             {datetime.dayName} · {hint.date} · {currentTime}
           </p>
         </div>
@@ -125,7 +125,7 @@ export default function LoginClient({ hint, market, datetime }: Props) {
         {/* Login form */}
         <form onSubmit={handleLogin} className="w-full max-w-[360px] animate-fade-up" style={{ animationDelay:'0.25s' }}>
           <p className="text-[9px] tracking-widest uppercase text-center mb-2"
-            style={{ color:'rgba(201,168,76,0.4)', fontFamily:'JetBrains Mono, monospace' }}>
+            style={{ color:'rgba(127,209,255,0.68)', fontFamily:'JetBrains Mono, monospace' }}>
             Access Code
           </p>
 
@@ -136,8 +136,8 @@ export default function LoginClient({ hint, market, datetime }: Props) {
             placeholder="••••••••••"
             className="w-full text-center text-[22px] tracking-[0.2em] py-4 px-4 rounded-xl outline-none transition-all duration-200 mb-3"
             style={{
-              background:'rgba(201,168,76,0.04)',
-              border: error ? '1px solid rgba(224,90,94,0.5)' : '1px solid rgba(201,168,76,0.18)',
+              background:'rgba(127,209,255,0.06)',
+              border: error ? '1px solid rgba(224,90,94,0.5)' : '1px solid rgba(127,209,255,0.24)',
               fontFamily:'JetBrains Mono, monospace',
               color:'rgba(255,255,255,0.9)',
             }}
@@ -155,9 +155,9 @@ export default function LoginClient({ hint, market, datetime }: Props) {
             disabled={loading || password.length < 10}
             className="w-full py-[17px] rounded-xl font-bold tracking-[0.2em] uppercase text-[12px] transition-all duration-200 disabled:opacity-40"
             style={{
-              background: 'linear-gradient(135deg, #7a5510, #c9a84c, #e8d090, #c9a84c, #7a5510)',
+              background: 'linear-gradient(135deg, #3aa8ff, #7fd1ff, #cceeff, #7fd1ff, #3aa8ff)',
               backgroundSize: '300% 100%',
-              color: '#080604',
+              color: '#072749',
               fontFamily:'Syne, Outfit, sans-serif',
             }}>
             {loading ? 'Verifying…' : 'Enter Trading Desk →'}
@@ -167,7 +167,7 @@ export default function LoginClient({ hint, market, datetime }: Props) {
 
       {/* Ticker strip */}
       <div className="relative z-10 border-t py-3 overflow-hidden"
-        style={{ borderColor:'rgba(201,168,76,0.08)', background:'rgba(0,0,0,0.4)' }}>
+        style={{ borderColor:'rgba(127,209,255,0.18)', background:'rgba(8,35,70,0.44)' }}>
         <div className="flex animate-ticker whitespace-nowrap" style={{ width:'max-content' }}>
           {doubled.map((s, i) => (
             <span key={i} className="flex items-center gap-2 mx-4">

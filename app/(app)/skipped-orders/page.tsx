@@ -64,7 +64,7 @@ export default function SkippedOrdersPage() {
     <div className="space-y-5 pb-4 max-w-7xl">
       <div className="flex items-center justify-between gap-3 flex-wrap">
         <h1 className="text-2xl font-light dt-text-primary" style={{ fontFamily:'Cormorant Garamond, serif' }}>
-          <span className="gold-text">Skipped Orders</span>
+          <span className="accent-text">Skipped Orders</span>
         </h1>
       </div>
 
@@ -178,7 +178,7 @@ export default function SkippedOrdersPage() {
 
 function MiniStat({ label, value, color, sub }: { label: string; value: string; color: string; sub: string }) {
   return (
-    <div className="rounded-xl p-4 dt-card-gold">
+    <div className="rounded-xl p-4 dt-card-accent">
       <p className="text-[9px] tracking-widest uppercase mb-2 dt-text-muted" style={{ fontFamily:'JetBrains Mono, monospace' }}>{label}</p>
       <p className="text-xl font-semibold" style={{ color, fontFamily:'JetBrains Mono, monospace' }}>{value}</p>
       <p className="text-[9px] mt-1 dt-text-muted" style={{ fontFamily:'JetBrains Mono, monospace' }}>{sub}</p>

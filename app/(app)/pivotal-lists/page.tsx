@@ -298,7 +298,7 @@ export default function PivotalListsPage() {
       <div className="flex items-center justify-between flex-wrap gap-3">
         <div>
           <h1 className="text-2xl font-light dt-text-primary" style={{ fontFamily:'Cormorant Garamond, serif' }}>
-            Pivotal <span className="gold-text">Lists</span>
+            Pivotal <span className="accent-text">Lists</span>
           </h1>
           <p className="text-[10px] mt-1 dt-text-muted" style={{ fontFamily:'JetBrains Mono, monospace' }}>
             Script-level breakout setups for the Pivotal strategy · trigger, targets, execution mode, stop-loss
@@ -318,7 +318,7 @@ export default function PivotalListsPage() {
       {error && <div className="rounded-lg p-3 dt-banner-error"><p className="text-[12px]" style={{ color:'rgba(224,90,94,0.9)' }}>✗ {error}</p></div>}
       {okMsg && <div className="rounded-lg p-3 dt-banner-green"><p className="text-[12px]" style={{ color:'#52b788' }}>✓ {okMsg}</p></div>}
 
-      <div className="rounded-xl p-4 dt-card-gold space-y-3">
+      <div className="rounded-xl p-4 dt-card-accent space-y-3">
         <p className="text-[10px] tracking-widest uppercase" style={{ color:'rgba(201,168,76,0.6)', fontFamily:'JetBrains Mono, monospace' }}>Add new script</p>
         <div ref={searchContainerRef} className="grid grid-cols-1 lg:grid-cols-[1.5fr_0.8fr_repeat(5,minmax(0,1fr))] gap-2 relative z-10">
           <input value={query} onChange={e => {
@@ -385,7 +385,7 @@ export default function PivotalListsPage() {
                           event.preventDefault()
                           addSymbol(addTarget, result)
                         }}
-                        className="px-3 py-1 rounded text-[10px] font-semibold tracking-wider dt-card-gold"
+                        className="px-3 py-1 rounded text-[10px] font-semibold tracking-wider dt-card-accent"
                         style={{ color:'#c9a84c', fontFamily:'JetBrains Mono, monospace' }}>
                         + Add
                       </button>
@@ -454,7 +454,7 @@ function PivotalListPanel({ listKey, meta, entries, onRename, onDelete, onRemove
           {editing ? (
             <input autoFocus value={draftName} onChange={e => setDraftName(e.target.value)} onBlur={commitName}
               onKeyDown={e => { if (e.key === 'Enter') commitName(); if (e.key === 'Escape') { setEditing(false); setDraftName(meta?.name || listKey) } }}
-              className="text-[11px] tracking-widest uppercase px-2 py-1 rounded outline-none w-full dt-card-gold"
+              className="text-[11px] tracking-widest uppercase px-2 py-1 rounded outline-none w-full dt-card-accent"
               style={{ color:'#c9a84c', fontFamily:'JetBrains Mono, monospace' }} />
           ) : (
             <button onClick={() => setEditing(true)} className="text-[11px] tracking-widest uppercase text-left hover:underline truncate block w-full" style={{ color:'#c9a84c', fontFamily:'JetBrains Mono, monospace' }}>
@@ -543,14 +543,14 @@ function InlineSelect({ label, value, options, onChange }: { label: string; valu
 function NewPivotalListCard({ onCreate }: { onCreate: (name: string) => void }) {
   const [name, setName] = useState('')
   return (
-    <div className="rounded-xl p-4 flex flex-col items-center justify-center gap-3 min-h-[180px] dt-card-gold">
+    <div className="rounded-xl p-4 flex flex-col items-center justify-center gap-3 min-h-[180px] dt-card-accent">
       <p className="text-[11px] tracking-widest uppercase" style={{ color:'rgba(201,168,76,0.6)', fontFamily:'JetBrains Mono, monospace' }}>
         + new pivotal list
       </p>
       <input value={name} onChange={e => setName(e.target.value)} placeholder="List name"
         className="w-full px-3 py-2 rounded-lg text-[12px] outline-none text-center dt-card dt-text-primary" />
       <button onClick={() => { if (name.trim()) { onCreate(name); setName('') } }} disabled={!name.trim()}
-        className="px-4 py-1.5 rounded text-[11px] font-semibold tracking-wider transition-all disabled:opacity-30 dt-card-gold"
+        className="px-4 py-1.5 rounded text-[11px] font-semibold tracking-wider transition-all disabled:opacity-30 dt-card-accent"
         style={{ color:'#c9a84c', fontFamily:'JetBrains Mono, monospace' }}>
         + Create
       </button>

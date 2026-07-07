@@ -160,7 +160,7 @@ export default function WatchlistPage() {
     <div className="space-y-5 pb-4">
       <div className="flex items-center justify-between flex-wrap gap-3">
         <h1 className="text-2xl font-light dt-text-primary" style={{ fontFamily:'Cormorant Garamond, serif' }}>
-          Watch<span className="gold-text">list</span>
+          Watch<span className="accent-text">list</span>
         </h1>
         <div className="flex items-center gap-3">
           <p className="text-[10px] dt-text-muted" style={{ fontFamily:'JetBrains Mono, monospace' }}>
@@ -168,8 +168,8 @@ export default function WatchlistPage() {
           </p>
           {activeAccount && (
             <button onClick={() => loadQuotes(activeAccount)} disabled={quotesLoading}
-              className="px-3 py-1.5 rounded-lg text-[11px] font-medium transition-all dt-card-gold"
-              style={{ color:'#c9a84c' }}>
+              className="px-3 py-1.5 rounded-lg text-[11px] font-medium transition-all dt-card-accent"
+              style={{ color:'#7fd1ff' }}>
               {quotesLoading ? '↻ Loading…' : '↻ Refresh'}
             </button>
           )}
@@ -188,7 +188,7 @@ export default function WatchlistPage() {
       )}
 
       {invalidSymbols.length > 0 && (
-        <div className="rounded-xl p-3 dt-banner-gold">
+        <div className="rounded-xl p-3 dt-banner-accent">
           <p className="text-[12px]" style={{ color:'rgba(245,158,11,0.95)', fontFamily:'JetBrains Mono, monospace' }}>
             ⚠ {invalidSymbols.length} entries in <span style={{ color:'#f59e0b' }}>watchlist.json</span> look like company names, not NSE tradingsymbols — Kite can't quote them.
           </p>

@@ -108,12 +108,12 @@ export default function AppShell({ children }: { children: React.ReactNode }) {
         <div className="max-w-7xl mx-auto px-4 h-14 flex items-center justify-between">
 
           <Link href="/dashboard" className="flex items-center gap-2">
-            <span className="gold-text text-2xl leading-none select-none"
+            <span className="accent-text text-2xl leading-none select-none"
               style={{ fontFamily: 'Cormorant Garamond, Georgia, serif', fontWeight: 300 }}>
               DW
             </span>
             <span className="text-[11px] tracking-[0.2em] uppercase hidden sm:block"
-              style={{ color: 'var(--dt-gold-display)', fontFamily: 'JetBrains Mono, monospace', opacity: 0.7 }}>
+              style={{ color: 'var(--dt-accent-display)', fontFamily: 'JetBrains Mono, monospace', opacity: 0.7 }}>
               DineshTrade
             </span>
           </Link>
@@ -125,9 +125,9 @@ export default function AppShell({ children }: { children: React.ReactNode }) {
               aria-expanded={menuOpen}
               className="w-9 h-9 rounded-full flex items-center justify-center text-[13px] font-bold border transition-all"
               style={{
-                background: menuOpen ? 'rgba(201,168,76,0.2)' : 'rgba(201,168,76,0.1)',
-                borderColor: 'rgba(201,168,76,0.3)',
-                color: '#c9a84c',
+                background: menuOpen ? 'rgba(93,169,255,0.2)' : 'rgba(93,169,255,0.1)',
+                borderColor: 'rgba(93,169,255,0.32)',
+                color: '#5da9ff',
                 fontFamily: 'Cormorant Garamond, serif',
               }}>
               DW
@@ -136,7 +136,7 @@ export default function AppShell({ children }: { children: React.ReactNode }) {
             {menuOpen && (
               <div role="menu"
                 className="absolute right-0 top-11 z-50 w-[min(16.75rem,calc(100vw-1rem))] max-h-[calc(100vh-4.5rem)] overflow-y-auto rounded-xl shadow-2xl"
-                style={{ background: 'var(--dt-bg-card)', border: '1px solid var(--dt-border-gold)' }}>
+                style={{ background: 'var(--dt-bg-card)', border: '1px solid var(--dt-border-accent)' }}>
 
                 {/* Identity */}
                 <div className="px-3 py-2 border-b" style={{ borderColor: 'var(--dt-border)' }}>
@@ -144,7 +144,7 @@ export default function AppShell({ children }: { children: React.ReactNode }) {
                     <span>Dinesh Wadhwani</span>
                     <span
                       className="text-[8px] tracking-[0.18em] uppercase"
-                      style={{ color: 'var(--dt-gold-display)', fontFamily: 'JetBrains Mono, monospace', opacity: 0.7 }}>
+                      style={{ color: 'var(--dt-accent-display)', fontFamily: 'JetBrains Mono, monospace', opacity: 0.7 }}>
                       Trader
                     </span>
                   </p>
@@ -163,11 +163,11 @@ export default function AppShell({ children }: { children: React.ReactNode }) {
                   <button onClick={toggleLight}
                     className="relative w-10 h-5 rounded-full transition-all"
                     style={{
-                      background: light ? 'rgba(201,168,76,0.35)' : 'rgba(255,255,255,0.12)',
-                      border: `1px solid ${light ? 'rgba(201,168,76,0.55)' : 'rgba(255,255,255,0.22)'}`,
+                      background: light ? 'rgba(93,169,255,0.32)' : 'rgba(255,255,255,0.12)',
+                      border: `1px solid ${light ? 'rgba(93,169,255,0.55)' : 'rgba(255,255,255,0.22)'}`,
                     }}>
                     <span className="absolute top-0.5 w-4 h-4 rounded-full transition-all"
-                      style={{ background: light ? '#c9a84c' : 'rgba(255,255,255,0.5)', left: light ? '1.25rem' : '0.125rem' }} />
+                      style={{ background: light ? '#5da9ff' : 'rgba(255,255,255,0.5)', left: light ? '1.25rem' : '0.125rem' }} />
                   </button>
                 </div>
 
@@ -176,7 +176,7 @@ export default function AppShell({ children }: { children: React.ReactNode }) {
                   {NAV_GROUPS.map(group => (
                     <div key={group.title} className="px-1 pb-0.5 last:pb-0">
                       <p className="px-2 pb-0.5 text-[8px] tracking-[0.2em] uppercase"
-                        style={{ color: 'var(--dt-gold-display)', fontFamily: 'JetBrains Mono, monospace', opacity: 0.65 }}>
+                        style={{ color: 'var(--dt-accent-display)', fontFamily: 'JetBrains Mono, monospace', opacity: 0.65 }}>
                         {group.title}
                       </p>
                       <div className="rounded-lg overflow-hidden"
@@ -187,15 +187,15 @@ export default function AppShell({ children }: { children: React.ReactNode }) {
                             <Link key={item.href} href={item.href} role="menuitem"
                               className="flex items-center justify-between gap-1.5 px-2.5 py-1.5 text-[11px] transition-all"
                               style={{
-                                background: active ? 'rgba(201,168,76,0.1)' : 'transparent',
-                                color: active ? '#c9a84c' : 'var(--dt-text-secondary)',
+                                background: active ? 'rgba(93,169,255,0.12)' : 'transparent',
+                                color: active ? '#5da9ff' : 'var(--dt-text-secondary)',
                               }}>
                               <span className="flex min-w-0 items-center gap-1.5">
                                 <span className="text-[13px] leading-none opacity-80" style={{ width: '1em', textAlign: 'center' }}>{item.icon}</span>
                                 <span className="truncate">{item.label}</span>
                               </span>
                               {active && (
-                                <span className="h-1.5 w-1.5 rounded-full flex-shrink-0" style={{ background: '#c9a84c' }} />
+                                <span className="h-1.5 w-1.5 rounded-full flex-shrink-0" style={{ background: '#5da9ff' }} />
                               )}
                             </Link>
                           )

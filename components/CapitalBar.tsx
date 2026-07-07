@@ -51,7 +51,7 @@ export default function CapitalBar({ account }: { account: string | null }) {
     : undefined
 
   return (
-    <div className="rounded-xl overflow-hidden" style={{ background:'rgba(201,168,76,0.04)', border:'1px solid var(--dt-border-gold)' }}>
+    <div className="rounded-xl overflow-hidden" style={{ background:'rgba(201,168,76,0.04)', border:'1px solid var(--dt-border-accent)' }}>
       {/* Header */}
       <div className="px-4 py-2.5 flex items-center justify-between"
         style={{ background:'rgba(201,168,76,0.06)', borderBottom:'1px solid rgba(201,168,76,0.12)' }}>

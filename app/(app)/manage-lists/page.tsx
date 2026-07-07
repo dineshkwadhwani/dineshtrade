@@ -199,7 +199,7 @@ export default function ManageListsPage() {
       <div className="flex items-center justify-between flex-wrap gap-3">
         <div>
           <h1 className="text-2xl font-light dt-text-primary" style={{ fontFamily:'Cormorant Garamond, serif' }}>
-            Manage <span className="gold-text">Lists</span>
+            Manage <span className="accent-text">Lists</span>
           </h1>
           <p className="text-[10px] mt-1 dt-text-muted" style={{ fontFamily:'JetBrains Mono, monospace' }}>
             Strategies pick which lists they scan · saves take effect immediately
@@ -235,7 +235,7 @@ export default function ManageListsPage() {
       )}
 
       {/* SEARCH BAR */}
-      <div className="rounded-xl p-4 dt-card-gold">
+      <div className="rounded-xl p-4 dt-card-accent">
         <p className="text-[10px] tracking-widest uppercase mb-2"
           style={{ color:'rgba(201,168,76,0.6)', fontFamily:'JetBrains Mono, monospace' }}>
           Add new symbol
@@ -289,7 +289,7 @@ export default function ManageListsPage() {
                       <span className="text-[10px]" style={{ color:'#52b788' }}>✓ in {wl?.meta[addTarget]?.name || addTarget}</span>
                     ) : (
                       <button onClick={() => add(addTarget, r)}
-                        className="px-3 py-1 rounded text-[10px] font-semibold tracking-wider dt-card-gold"
+                        className="px-3 py-1 rounded text-[10px] font-semibold tracking-wider dt-card-accent"
                         style={{ color:'#c9a84c', fontFamily:'JetBrains Mono, monospace' }}>
                         + Add
                       </button>
@@ -360,7 +360,7 @@ function ListPanel({ listKey, meta, entries, onRemove, onRename, onDelete, heldS
               onBlur={commitName}
               onKeyDown={e => { if (e.key === 'Enter') commitName(); if (e.key === 'Escape') { setEditing(false); setDraftName(meta?.name || listKey) } }}
               maxLength={40}
-              className="text-[11px] tracking-widest uppercase px-2 py-1 rounded outline-none w-full dt-card-gold"
+              className="text-[11px] tracking-widest uppercase px-2 py-1 rounded outline-none w-full dt-card-accent"
               style={{ color:'#c9a84c', fontFamily:'JetBrains Mono, monospace' }} />
           ) : (
             <button onClick={() => setEditing(true)}
@@ -424,7 +424,7 @@ function ListPanel({ listKey, meta, entries, onRemove, onRename, onDelete, heldS
 function NewListCard({ onCreate }: { onCreate: (name: string) => void }) {
   const [name, setName] = useState('')
   return (
-    <div className="rounded-xl p-4 flex flex-col items-center justify-center gap-3 min-h-[180px] dt-card-gold">
+    <div className="rounded-xl p-4 flex flex-col items-center justify-center gap-3 min-h-[180px] dt-card-accent">
       <p className="text-[11px] tracking-widest uppercase" style={{ color:'rgba(201,168,76,0.6)', fontFamily:'JetBrains Mono, monospace' }}>
         + new list
       </p>
@@ -435,7 +435,7 @@ function NewListCard({ onCreate }: { onCreate: (name: string) => void }) {
         className="w-full px-3 py-2 rounded-lg text-[12px] outline-none text-center dt-card dt-text-primary" />
       <button onClick={() => { if (name.trim()) { onCreate(name); setName('') } }}
         disabled={!name.trim()}
-        className="px-4 py-1.5 rounded text-[11px] font-semibold tracking-wider transition-all disabled:opacity-30 dt-card-gold"
+        className="px-4 py-1.5 rounded text-[11px] font-semibold tracking-wider transition-all disabled:opacity-30 dt-card-accent"
         style={{ color:'#c9a84c', fontFamily:'JetBrains Mono, monospace' }}>
         + Create
       </button>

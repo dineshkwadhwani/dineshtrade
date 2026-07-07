@@ -158,7 +158,7 @@ export default function SettingsPage() {
       <div className="flex items-center justify-between gap-3">
         <div className="flex items-center gap-3">
           <h1 className="text-[28px] font-semibold leading-none">
-            <span className="gold-text">Settings</span>
+            <span className="accent-text">Settings</span>
           </h1>
           {environment && (
             <span className="text-[10px] tracking-widest uppercase px-2 py-1 rounded"
@@ -246,7 +246,7 @@ export default function SettingsPage() {
 
       {/* ── KITE CONNECT SETUP HINT ── */}
       {callbackUrl && (
-        <div className="rounded-lg p-4 dt-card-gold">
+        <div className="rounded-lg p-4 dt-card-accent">
           <p className="text-[10px] tracking-widest uppercase mb-2"
             style={{ color:'rgba(201,168,76,0.5)', fontFamily:'JetBrains Mono, monospace' }}>
             One-time setup
@@ -260,7 +260,7 @@ export default function SettingsPage() {
               {callbackUrl}
             </code>
             <button onClick={copyCallbackUrl}
-              className="px-3 py-2 rounded text-[10px] tracking-wider uppercase dt-card-gold"
+              className="px-3 py-2 rounded text-[10px] tracking-wider uppercase dt-card-accent"
               style={{ color:'#c9a84c' }}>
               Copy
             </button>
@@ -351,7 +351,7 @@ export default function SettingsPage() {
               Switching between accounts? Kite reuses your browser session — log out of the current Kite user first:
             </p>
             <a href="https://kite.zerodha.com/logout" target="_blank" rel="noopener noreferrer"
-              className="inline-block px-3 py-1.5 rounded-lg text-[11px] font-medium tracking-wider transition-all dt-card-gold"
+              className="inline-block px-3 py-1.5 rounded-lg text-[11px] font-medium tracking-wider transition-all dt-card-accent"
               style={{ color:'#c9a84c' }}>
               ↗ Logout of Zerodha (new tab)
             </a>
@@ -532,8 +532,8 @@ function SystemStatusSection() {
           </p>
         </div>
         <button onClick={() => loadStatus()} disabled={refreshing}
-          className="px-3 py-2 rounded-lg text-[10px] tracking-widest uppercase transition-all disabled:opacity-50 dt-card-gold"
-          style={{ color:'#c9a84c', fontFamily:'JetBrains Mono, monospace' }}>
+          className="px-3 py-2 rounded-lg text-[10px] tracking-widest uppercase transition-all disabled:opacity-50 dt-card-accent"
+          style={{ color:'#7fd1ff', fontFamily:'JetBrains Mono, monospace' }}>
           {refreshing ? 'Refreshing…' : 'Refresh Status'}
         </button>
       </div>
@@ -1005,7 +1005,7 @@ function FixAttributionSection() {
   }
 
   return (
-    <div className="rounded-xl p-5 mt-4 dt-card-gold">
+    <div className="rounded-xl p-5 mt-4 dt-card-accent">
       <h2 className="text-[11px] tracking-widest uppercase mb-1" style={{ color: 'rgba(201,168,76,0.7)', ...mono }}>Journal Maintenance</h2>
       <p className="text-[11px] mb-4 dt-text-muted">
         Fixes manual sell entries that are missing strategy attribution — e.g. positions sold via the S button before this fix was deployed.
@@ -1364,7 +1364,7 @@ function StrategiesTab({ autoModeOn }: { autoModeOn: boolean }) {
             + New Pivotal Strategy
           </button>
           <button onClick={exportToCsv}
-            className="px-4 py-2 rounded-lg text-[11px] font-semibold tracking-wider transition-all dt-card-gold"
+            className="px-4 py-2 rounded-lg text-[11px] font-semibold tracking-wider transition-all dt-card-accent"
             style={{ color:'#c9a84c' }}>
             Export to CSV
           </button>
@@ -1459,7 +1459,7 @@ function StrategiesTab({ autoModeOn }: { autoModeOn: boolean }) {
 
       {/* SAVE BAR */}
       {dirty && (
-        <div className="rounded-xl p-3 flex items-center justify-between sticky bottom-2 dt-banner-gold"
+        <div className="rounded-xl p-3 flex items-center justify-between sticky bottom-2 dt-banner-accent"
           style={{ backdropFilter: 'blur(8px)' }}>
           <p className="text-[12px]" style={{ color:'#c9a84c' }}>
             ● {diffLines.length} change{diffLines.length === 1 ? '' : 's'} pending
@@ -2109,7 +2109,7 @@ function BacktestTab({ active }: { active: boolean }) {
                     ))}
                     <td className="px-3 py-3 sticky right-0 z-10 text-right align-middle dt-card-inner" style={{ minWidth:110 }}>
                       <button onClick={() => openHistoryPreview(entry)}
-                        className="px-3 py-1.5 rounded-lg text-[11px] font-semibold tracking-wider dt-card-gold"
+                        className="px-3 py-1.5 rounded-lg text-[11px] font-semibold tracking-wider dt-card-accent"
                         style={{ color:'#c9a84c' }}>
                         Load
                       </button>
@@ -2132,7 +2132,7 @@ function BacktestTab({ active }: { active: boolean }) {
 
       {workspaceTab === 'run' && result && (
         <div className="space-y-5">
-          <div className="rounded-xl overflow-hidden dt-card-gold">
+          <div className="rounded-xl overflow-hidden dt-card-accent">
             <div className="px-4 py-2.5" style={{ borderBottom:'1px solid rgba(201,168,76,0.12)' }}>
               <p className="text-[11px] tracking-widest uppercase" style={{ color:'#c9a84c', fontFamily:'JetBrains Mono, monospace' }}>
                 Summary · {result.summary.strategyName}
@@ -3302,7 +3302,7 @@ function AccordionSection({ title, subtitle, expanded, onToggle, children }: {
   children: React.ReactNode
 }) {
   return (
-    <div className="rounded-xl overflow-hidden dt-card-gold">
+    <div className="rounded-xl overflow-hidden dt-card-accent">
       <button onClick={onToggle} className="w-full px-4 py-3 flex items-center justify-between gap-3 text-left">
         <div>
           <p className="text-[11px] tracking-widest uppercase font-bold" style={{ color:'#c9a84c', fontFamily:'JetBrains Mono, monospace' }}>

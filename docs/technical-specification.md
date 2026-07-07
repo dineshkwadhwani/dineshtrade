@@ -929,24 +929,24 @@ Calls `cancelKiteOrder(creds, orderId)` → Kite `DELETE /orders/regular/{orderI
 
 | Token | Dark | Light |
 | --- | --- | --- |
-| `--dt-bg` | `#080604` | `#f5f4f2` |
-| `--dt-bg-card` | `#100e0a` | `#ffffff` |
-| `--dt-text-primary` | `rgba(255,255,255,0.95)` | `#111110` |
-| `--dt-text-secondary` | `rgba(255,255,255,0.75)` | `#3a3935` |
-| `--dt-text-muted` | `rgba(255,255,255,0.52)` | `#6b6864` |
-| `--dt-border` | `rgba(255,255,255,0.12)` | `rgba(0,0,0,0.13)` |
-| `--dt-gold-display` | `#c9a84c` | `#6b4c08` |
+| `--dt-bg` | `#0a2d56` | `#eef6ff` |
+| `--dt-bg-card` | `#0e396d` | `#f9fcff` |
+| `--dt-text-primary` | `rgba(255,255,255,0.95)` | `#10233d` |
+| `--dt-text-secondary` | `rgba(255,255,255,0.75)` | `#26486f` |
+| `--dt-text-muted` | `rgba(255,255,255,0.52)` | `#4f7298` |
+| `--dt-border` | `rgba(255,255,255,0.12)` | `rgba(33,85,145,0.20)` |
+| `--dt-accent-display` | `#5da9ff` | `#2f7fe3` |
 
 **Semantic CSS classes** (all pages converted from inline styles):
 
 | Class | Use |
 | --- | --- |
 | `dt-card` | Card container with `var(--dt-bg-card)` background + `var(--dt-border)` border |
-| `dt-card-gold` | Gold-tinted card (sections, hints) |
+| `dt-card-accent` | Accent-tinted card (sections, hints) |
 | `dt-card-inner` | Nested/inner card (cells, sub-panels) |
 | `dt-table-head` | Table header row |
 | `dt-table-row` | Table data row with hover |
-| `dt-banner-error/gold/green/blue` | Status banners |
+| `dt-banner-error/accent/green/blue` | Status banners |
 | `dt-border-t/b` | Single-side border dividers |
 | `dt-text-primary/secondary/muted` | Text colour utilities |
 
@@ -960,7 +960,7 @@ html.light main * { color: var(--dt-text-primary) !important; }
 /* Semantic restores (higher specificity via attribute selector) */
 html.light [style*="rgb(82, 183, 136"] { color: #0a6e3f !important; }   /* green */
 html.light [style*="rgb(224, 90, 94"]  { color: #a91818 !important; }   /* red */
-html.light [style*="rgb(201, 168, 76"] { color: var(--dt-gold-display) !important; } /* gold */
+html.light [style*="rgb(201, 168, 76"] { color: var(--dt-accent-display) !important; } /* legacy accent */
 /* ...blue, amber */
 
 ```

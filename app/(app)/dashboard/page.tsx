@@ -103,17 +103,17 @@ export default function DashboardPage() {
       <div className="flex items-center justify-between">
         <div>
           <h1 className="dt-text-primary text-2xl font-light" style={{ fontFamily:'Cormorant Garamond, serif' }}>
-            Morning <span className="gold-text">Briefing</span>
+            Morning <span className="accent-text">Briefing</span>
           </h1>
           {lastUpdated && (
-            <p className="text-[10px] mt-1" style={{ color:'rgba(201,168,76,0.4)', fontFamily:'JetBrains Mono, monospace' }}>
+            <p className="text-[10px] mt-1" style={{ color:'rgba(147,208,255,0.78)', fontFamily:'JetBrains Mono, monospace' }}>
               Updated {lastUpdated} IST{fromCache ? ' · cached' : ''}
             </p>
           )}
         </div>
         <button onClick={() => fetchMarket({ force: true })} disabled={loading}
-          className="dt-banner-gold px-4 py-2 rounded-lg text-[11px] font-medium tracking-wider transition-all disabled:opacity-40"
-          style={{ color:'#c9a84c' }}>
+          className="dt-banner-accent px-4 py-2 rounded-lg text-[11px] font-medium tracking-wider transition-all disabled:opacity-40"
+          style={{ color:'#7fd1ff' }}>
           {loading ? '↻ Loading…' : '↻ Refresh'}
         </button>
       </div>
@@ -124,7 +124,7 @@ export default function DashboardPage() {
         <div className="flex items-center justify-center py-16">
           <div className="text-center">
             <div className="text-3xl mb-3 animate-spin">↻</div>
-            <p className="text-[12px]" style={{ color:'rgba(201,168,76,0.5)', fontFamily:'JetBrains Mono, monospace' }}>Fetching live market data…</p>
+            <p className="text-[12px]" style={{ color:'rgba(147,208,255,0.78)', fontFamily:'JetBrains Mono, monospace' }}>Fetching live market data…</p>
           </div>
         </div>
       )}
@@ -132,11 +132,11 @@ export default function DashboardPage() {
       {market && (
         <>
           <h2 className="text-[11px] tracking-widest uppercase pt-2"
-            style={{ color:'rgba(201,168,76,0.5)', fontFamily:'JetBrains Mono, monospace' }}>
+            style={{ color:'rgba(127,209,255,0.82)', fontFamily:'JetBrains Mono, monospace' }}>
             Morning Briefing
           </h2>
           {/* Headline */}
-          <div className="dt-card-gold rounded-xl px-4 py-3">
+          <div className="dt-card-accent rounded-xl px-4 py-3">
             <p className="dt-text-secondary text-sm" style={{ fontFamily:'Cormorant Garamond, serif', fontSize:'16px', fontStyle:'italic' }}>
               {market.headline}
             </p>
@@ -159,7 +159,7 @@ export default function DashboardPage() {
 
             <div className="dt-card rounded-xl p-4 col-span-2 sm:col-span-1">
               <p className="dt-text-muted text-[10px] tracking-widest uppercase mb-2" style={{ fontFamily:'JetBrains Mono, monospace' }}>India Outlook</p>
-              <p className="text-lg font-medium mb-1" style={{ color:'#e8c97a', textTransform:'capitalize' }}>{market.indiaOutlook.bias}</p>
+              <p className="text-lg font-medium mb-1" style={{ color:'#b7e7ff', textTransform:'capitalize' }}>{market.indiaOutlook.bias}</p>
               <p className="dt-text-secondary text-[11px] mb-2" style={{ fontFamily:'JetBrains Mono, monospace' }}>Range: {market.indiaOutlook.expectedRange}</p>
               <div className="flex gap-3 text-[10px]" style={{ fontFamily:'JetBrains Mono, monospace' }}>
                 <span style={{ color:'#52b788' }}>S: {market.indiaOutlook.support}</span>
@@ -170,7 +170,7 @@ export default function DashboardPage() {
 
           {/* Global Indices */}
           <div>
-            <h2 className="text-[11px] tracking-widest uppercase mb-3" style={{ color:'rgba(201,168,76,0.5)', fontFamily:'JetBrains Mono, monospace' }}>Global Indices</h2>
+            <h2 className="text-[11px] tracking-widest uppercase mb-3" style={{ color:'rgba(127,209,255,0.82)', fontFamily:'JetBrains Mono, monospace' }}>Global Indices</h2>
             <div className="grid grid-cols-3 gap-2 sm:grid-cols-4 lg:grid-cols-5">
               {market.globalIndices.map((idx, i) => (
                 <div key={i} className="dt-surface rounded-lg p-3"
@@ -186,15 +186,15 @@ export default function DashboardPage() {
           </div>
 
           {/* Strategy */}
-          <div className="dt-card-gold rounded-xl p-4">
-            <p className="text-[10px] tracking-widest uppercase mb-2" style={{ color:'rgba(201,168,76,0.4)', fontFamily:'JetBrains Mono, monospace' }}>Today's Strategy</p>
+          <div className="dt-card-accent rounded-xl p-4">
+            <p className="text-[10px] tracking-widest uppercase mb-2" style={{ color:'rgba(127,209,255,0.78)', fontFamily:'JetBrains Mono, monospace' }}>Today's Strategy</p>
             <p className="dt-text-secondary text-sm">{market.indiaOutlook.strategy}</p>
           </div>
 
           {/* Top Recommendations */}
           {market.topRecommendations?.length > 0 && (
             <div>
-              <h2 className="text-[11px] tracking-widest uppercase mb-3" style={{ color:'rgba(201,168,76,0.5)', fontFamily:'JetBrains Mono, monospace' }}>Broker Picks Today</h2>
+              <h2 className="text-[11px] tracking-widest uppercase mb-3" style={{ color:'rgba(127,209,255,0.82)', fontFamily:'JetBrains Mono, monospace' }}>Broker Picks Today</h2>
               <div className="space-y-2">
                 {market.topRecommendations.map((rec, i) => (
                   <div key={i} className="dt-surface rounded-lg px-4 py-3 flex items-center justify-between"
@@ -274,7 +274,7 @@ function AccountSummary() {
     <div className="space-y-3 pt-1">
       <div className="flex items-center justify-between gap-3 flex-wrap">
         <h2 className="text-[11px] tracking-widest uppercase"
-          style={{ color:'rgba(201,168,76,0.5)', fontFamily:'JetBrains Mono, monospace' }}>
+          style={{ color:'rgba(127,209,255,0.82)', fontFamily:'JetBrains Mono, monospace' }}>
           Portfolio Snapshot
         </h2>
         {connectedAccounts.length > 1 && (
@@ -317,7 +317,7 @@ function AccountSummary() {
       </div>
 
       <Link href="/holdings" className="inline-block text-[11px] mt-1 hover:underline"
-        style={{ color:'rgba(201,168,76,0.6)', fontFamily:'JetBrains Mono, monospace' }}>
+        style={{ color:'rgba(127,209,255,0.88)', fontFamily:'JetBrains Mono, monospace' }}>
         View all holdings →
       </Link>
     </div>

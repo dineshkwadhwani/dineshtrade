@@ -9,7 +9,7 @@ export const metadata: Metadata = {
 }
 
 export const viewport: Viewport = {
-  themeColor: '#080604',
+  themeColor: '#061426',
   width: 'device-width',
   initialScale: 1,
   maximumScale: 1,
@@ -23,7 +23,7 @@ export default function RootLayout({ children }: { children: React.ReactNode }) 
         <meta name="apple-mobile-web-app-capable" content="yes" />
         <meta name="apple-mobile-web-app-status-bar-style" content="black-translucent" />
       </head>
-      <body className="flex flex-col min-h-screen bg-[#080604]">
+      <body className="flex flex-col min-h-screen bg-[#061426]">
         <div className="flex-1">{children}</div>
         <AppFooter />
       </body>

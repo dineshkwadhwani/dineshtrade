@@ -77,7 +77,7 @@ export default function PositionsPage() {
     <div className="space-y-5 pb-4">
       <div className="flex items-center justify-between flex-wrap gap-3">
         <h1 className="text-2xl font-light" style={{ fontFamily:'Cormorant Garamond, serif', color:'rgba(255,255,255,0.9)' }}>
-          Today's <span className="gold-text">Positions</span>
+          Today's <span className="accent-text">Positions</span>
         </h1>
         {activeTab && (
           <div className="flex items-center gap-3">
@@ -93,7 +93,7 @@ export default function PositionsPage() {
             )}
             <button onClick={() => load(activeTab)} disabled={loading}
               className="px-4 py-2 rounded-lg text-[11px] font-medium transition-all"
-              style={{ background:'rgba(201,168,76,0.1)', border:'1px solid rgba(201,168,76,0.2)', color:'#c9a84c' }}>
+              style={{ background:'rgba(93,169,255,0.12)', border:'1px solid rgba(93,169,255,0.3)', color:'#7fd1ff' }}>
               {loading ? '↻ Loading…' : '↻ Refresh'}
             </button>
           </div>
@@ -103,7 +103,7 @@ export default function PositionsPage() {
       <AccountTabs accounts={accounts} connected={connected} active={activeTab} onSelect={setActiveTab} loaded={loaded} />
 
       {loaded && connected.length === 0 && (
-        <div className="rounded-xl p-6 text-center dt-banner-gold">
+        <div className="rounded-xl p-6 text-center dt-banner-accent">
           <p className="text-4xl mb-3 opacity-20">⚙</p>
           <p className="text-sm mb-1" style={{ color:'rgba(201,168,76,0.7)' }}>No accounts connected</p>
           <p className="text-[12px] dt-text-muted">Go to Settings, paste today's Kite access token, and Connect.</p>

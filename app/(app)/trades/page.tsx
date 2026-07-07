@@ -48,8 +48,8 @@ export default function TradesPage() {
       <div className="flex items-center justify-between flex-wrap gap-3">
         <h1 className="text-2xl font-light dt-text-primary" style={{ fontFamily:'Cormorant Garamond, serif' }}>
           {view === 'orders'
-            ? <>Today's <span className="gold-text">Orders</span></>
-            : <span className="gold-text">Retrospective</span>}
+            ? <>Today's <span className="accent-text">Orders</span></>
+            : <span className="accent-text">Retrospective</span>}
         </h1>
         <div className="flex gap-1 rounded-lg p-1 dt-card">
           {[
@@ -151,7 +151,7 @@ function OrdersView() {
       <div className="flex items-center justify-end">
         {activeTab && (
           <button onClick={() => load(activeTab)} disabled={loading}
-            className="px-4 py-2 rounded-lg text-[11px] font-medium transition-all dt-card-gold">
+            className="px-4 py-2 rounded-lg text-[11px] font-medium transition-all dt-card-accent">
             {loading ? '↻ Loading…' : '↻ Refresh'}
           </button>
         )}
@@ -162,7 +162,7 @@ function OrdersView() {
       {activeTab && <FundsCard account={activeTab} />}
 
       {loaded && connected.length === 0 && (
-        <div className="rounded-xl p-6 text-center dt-banner-gold">
+        <div className="rounded-xl p-6 text-center dt-banner-accent">
           <p className="text-4xl mb-3 opacity-20">⚙</p>
           <p className="text-sm mb-1" style={{ color:'rgba(201,168,76,0.7)' }}>No accounts connected</p>
           <p className="text-[12px] dt-text-muted">Go to Settings, paste today's Kite access token, and Connect.</p>
@@ -372,7 +372,7 @@ function RetrospectiveView() {
 
   if (dates.length === 0 && !error) {
     return (
-      <div className="rounded-xl p-6 text-center dt-banner-gold">
+      <div className="rounded-xl p-6 text-center dt-banner-accent">
         <p className="text-4xl mb-3 opacity-20">≡</p>
         <p className="text-sm mb-1" style={{ color:'rgba(201,168,76,0.7)' }}>No journal entries yet</p>
         <p className="text-[12px] dt-text-muted">
@@ -569,7 +569,7 @@ function ReportBody({ r }: { r: DailyReport }) {
 
 function StatCardSub({ label, value, sub, color }: { label: string; value: string; sub: string; color: string }) {
   return (
-    <div className="rounded-xl p-4 dt-card-gold">
+    <div className="rounded-xl p-4 dt-card-accent">
       <p className="text-[9px] tracking-widest uppercase mb-2 dt-text-muted" style={{ fontFamily:'JetBrains Mono, monospace' }}>{label}</p>
       <p className="text-xl font-semibold" style={{ color, fontFamily:'JetBrains Mono, monospace' }}>{value}</p>
       <p className="text-[9px] mt-1 dt-text-muted" style={{ fontFamily:'JetBrains Mono, monospace' }}>{sub}</p>
@@ -617,7 +617,7 @@ function Section({ title, children }: { title: string; children: React.ReactNode
 
 function StatCard({ label, value, color }: { label: string; value: string; color: string }) {
   return (
-    <div className="rounded-xl p-4 dt-card-gold">
+    <div className="rounded-xl p-4 dt-card-accent">
       <p className="text-[9px] tracking-widest uppercase mb-2 dt-text-muted" style={{ fontFamily:'JetBrains Mono, monospace' }}>{label}</p>
       <p className="text-xl font-semibold" style={{ color, fontFamily:'JetBrains Mono, monospace' }}>{value}</p>
     </div>
