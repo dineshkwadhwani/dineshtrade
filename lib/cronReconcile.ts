@@ -19,6 +19,16 @@ import { istDateString, readJournalRange, journalOrder, type OrderRecord } from 
 import { listPositions, recordBuy, removePosition } from './positions'
 import { istHHMM } from './cronState'
 
+function strategyFromTag(tag?: string): string | null {
+  const t = (tag || '').toLowerCase()
+  if (!t.startsWith('dt-')) return null
+  const sid = t.slice(3).replace(/-(t1|t2|exit)$/,'')
+  if (!sid || sid === 'manual') return null
+  if (sid === 's1') return 'accumulator'
+  if (sid === 's2') return 'catalyst'
+  return sid
+}
+
 function buildLiveInventory(
   holdings: Awaited<ReturnType<typeof getHoldings>>,
   positions: Awaited<ReturnType<typeof getPositions>>,
@@ -78,17 +88,29 @@ export async function reconcileManualSells(): Promise<void> {
 
     for (const [symbol, live] of Array.from(liveInventory.entries())) {
       if (trackedSymbols.has(symbol)) continue
-      await recordBuy('accumulator', account, symbol, live.qty, live.avgPrice)
+
+      const latestCompletedBuy = kiteOrders
+        .filter(o => o.transaction_type === 'BUY' && o.status === 'COMPLETE' && o.tradingsymbol.toUpperCase() === symbol)
+        .sort((a, b) => {
+          const ta = Date.parse(a.order_timestamp || '') || 0
+          const tb = Date.parse(b.order_timestamp || '') || 0
+          return tb - ta
+        })[0]
+
+      const inferredStrategy = strategyFromTag(latestCompletedBuy?.tag) || 'accumulator'
+      const inferredTag = latestCompletedBuy?.tag || `dt-${inferredStrategy}`
+
+      await recordBuy(inferredStrategy, account, symbol, live.qty, live.avgPrice)
       await journalOrder({
         account,
         symbol,
         side: 'BUY',
         qty: live.qty,
         price: live.avgPrice,
-        tag: 'dt-accumulator',
-        strategyId: 'accumulator',
+        tag: inferredTag,
+        strategyId: inferredStrategy,
       }).catch(err => console.error(`[reconcile] accumulator intake journal failed ${account} ${symbol}:`, err))
-      console.log(`[reconcile] ${account} ${symbol}: absorbed live broker position into accumulator @ ₹${live.avgPrice}`)
+      console.log(`[reconcile] ${account} ${symbol}: absorbed live broker position into ${inferredStrategy} @ ₹${live.avgPrice}`)
     }
 
     const trackedPositions = await listPositions({ account })

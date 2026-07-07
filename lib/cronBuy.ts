@@ -139,16 +139,17 @@ export async function autoBuyOnAccount(account: string, accountDisplayName: stri
       await markPlaced(account, rec.symbol, 'BUY', { price: rec.price, manual: false })
       // Single store, single call — strategyId on the row drives monitor ownership.
       const { recordBuy } = await import('./positions')
-      recordBuy(rec.strategy, account, rec.symbol, rec.suggestedQty, rec.price)
-        .catch(err => console.error('[cron autoBuy] position record failed:', err))
+      // Must be awaited: reconcileManualSells can run in the same tick and may
+      // incorrectly absorb this symbol into accumulator if the row is not yet persisted.
+      await recordBuy(rec.strategy, account, rec.symbol, rec.suggestedQty, rec.price)
       // Journal the order so historical retrospectives can show today's auto BUYs
       // without depending on Kite's session-scoped /orders endpoint.
       const { journalOrder } = await import('./journal')
-      journalOrder({
+      await journalOrder({
         account, symbol: rec.symbol, side: 'BUY',
         qty: rec.suggestedQty, price: rec.price,
         tag, orderId: placed.data.data.order_id,
-      }).catch(err => console.error('[cron autoBuy] journalOrder failed:', err))
+      })
       recordExecuted({
         time: istHHMM(), account, symbol: rec.symbol, side: 'BUY',
         quantity: rec.suggestedQty, price: rec.price, orderId: placed.data.data.order_id,

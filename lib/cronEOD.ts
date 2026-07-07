@@ -7,7 +7,7 @@ import { sendDailyReport, sendMonthlyReport, isEmailConfigured } from './email'
 import { getActiveStrategies, asMomentumParams } from './strategyConfig'
 import { resolveAccountCreds, placeKiteOrder, getQuotes } from './kite'
 import { runPreflight, markPlaced } from './preflight'
-import { istDateString, journalOrder } from './journal'
+import { istDateString, journalOrder, readJournalDay, type OrderRecord } from './journal'
 import { buildDailyReport, buildMonthlyReport, isLastWeekdayOfMonth } from './retrospective'
 import { listPositions, removePosition } from './positions'
 import { sendEmail } from './email'
@@ -44,8 +44,15 @@ function estimateExitNetPnl(firstBuyAt: string, entryPrice: number, exitPrice: n
 export async function runEODSquareOff(): Promise<void> {
   const t = istHHMM()
   const today = istDateKey()
+  const todayYmd = istDateString()
   const state = await getState()
   if (state.mode !== 'auto') return
+
+  // Used to recover momentum-owned intent when a same-day BUY on the same
+  // symbol was later stamped under a different owner in the unified store.
+  // We only consider today's BUY orders, so long-held accumulator positions
+  // are unaffected.
+  const todayJournal = await readJournalDay(todayYmd).catch(() => [])
 
   const strategies = getActiveStrategies().filter(s => s.type === 'momentum')
   for (const strategy of strategies) {
@@ -73,7 +80,26 @@ export async function runEODSquareOff(): Promise<void> {
         continue
       }
 
-      const positions = await listPositions({ account, strategyId: strategy.id })
+      const strategyPositions = await listPositions({ account, strategyId: strategy.id })
+      const accountPositions = await listPositions({ account })
+
+      const seen = new Set(strategyPositions.map(p => p.symbol.toUpperCase()))
+      const momentumBoughtToday = new Set(
+        (todayJournal as Array<any>)
+          .filter((r): r is OrderRecord => r?.type === 'order')
+          .filter(r => r.account.toUpperCase() === account.toUpperCase())
+          .filter(r => r.side === 'BUY' && r.strategyId === strategy.id)
+          .map(r => r.symbol.toUpperCase())
+      )
+
+      const recovered = accountPositions.filter(p => {
+        const sym = p.symbol.toUpperCase()
+        if (seen.has(sym)) return false
+        if (!momentumBoughtToday.has(sym)) return false
+        return p.remainingQty > 0
+      })
+
+      const positions = [...strategyPositions, ...recovered]
       if (positions.length === 0) continue
 
       const symbols = positions.map(p => p.symbol.toUpperCase())  // getQuotes adds NSE: internally
