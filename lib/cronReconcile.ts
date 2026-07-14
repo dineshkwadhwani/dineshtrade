@@ -13,7 +13,7 @@
 // Runs inside the 5-min tick (catches same-day closes in near-real-time) and
 // again at 15:35 EOD for a final sweep with closing prices.
 
-import { getState } from './state'
+import { getState, setBuyHistoryForSymbol } from './state'
 import { resolveAccountCreds, getPositions, getHoldings, getOrders, getQuotes, buildLiveQtyBySymbol } from './kite'
 import { istDateString, readJournalRange, journalOrder, type OrderRecord } from './journal'
 import { listPositions, recordBuy, removePosition } from './positions'
@@ -101,6 +101,7 @@ export async function reconcileManualSells(): Promise<void> {
       const inferredTag = latestCompletedBuy?.tag || `dt-${inferredStrategy}`
 
       await recordBuy(inferredStrategy, account, symbol, live.qty, live.avgPrice)
+      await setBuyHistoryForSymbol(account, symbol, [{ price: live.avgPrice }])
       await journalOrder({
         account,
         symbol,

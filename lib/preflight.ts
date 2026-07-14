@@ -2,7 +2,7 @@
 // Six gates per spec (CONTEXT.md): token, market-open, day-quota, open-positions,
 // funds-available, idempotency. Phase 2 will add a seed-from-Kite on cron startup.
 
-import { getState, recordIdempotency, makeIdempotencyKey, getBuyHistory, resetBuyHistoryForSymbol, recordBuyHistory } from '@/lib/state'
+import { getState, recordIdempotency, makeIdempotencyKey, getBuyHistory, resetBuyHistoryForSymbol, recordBuyHistory, setBuyHistoryForSymbol } from '@/lib/state'
 import { getCapital, getStrategyById, asDipParams } from '@/lib/strategyConfig'
 import { getAccountSecrets } from '@/lib/accounts'
 import { istDateString, readJournalRange, type JournalRecord } from '@/lib/journal'
@@ -206,6 +206,37 @@ export async function runPreflight(input: PreflightInput): Promise<PreflightResu
     } else {
       const fresh2 = await getState()
       let history = getBuyHistory(fresh2, account, symbol)
+      try {
+        // Keep pyramid history aligned with the tagged open position. This
+        // avoids stale anchors when a symbol is re-seeded/re-tagged (for
+        // example after manual lifecycle transitions).
+        const { getPosition, listPositionLots } = await import('@/lib/positions')
+        const pos = await getPosition(account, symbol)
+        if (pos) {
+          let canonical: Array<{ price: number; ts: string }> = []
+          const lots = await listPositionLots(pos).catch(() => [])
+          const openLots = lots
+            .filter(lot => (lot.remainingQty || 0) > 0)
+            .sort((a, b) => a.boughtAt.localeCompare(b.boughtAt))
+          if (openLots.length > 0) {
+            canonical = openLots.map(lot => ({ price: lot.entryPrice, ts: lot.boughtAt }))
+          } else if (pos.firstBuyPrice > 0) {
+            canonical = [{ price: pos.firstBuyPrice, ts: pos.firstBuyAt || new Date().toISOString() }]
+          }
+
+          const sameAsCanonical =
+            canonical.length === history.length &&
+            canonical.every((entry, i) => Math.abs((history[i]?.price || 0) - entry.price) < 0.0001)
+
+          if (canonical.length > 0 && !sameAsCanonical) {
+            await setBuyHistoryForSymbol(account, symbol, canonical)
+            history = getBuyHistory(await getState(), account, symbol)
+          }
+        }
+      } catch {
+        // Non-fatal; fall back to existing history/journal recovery path.
+      }
+
       if (history.length === 0) {
         const recovered = await recoverBuyHistoryFromJournal(account, symbol, heldQty)
         if (recovered.length > 0) {

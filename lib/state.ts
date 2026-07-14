@@ -266,6 +266,31 @@ export function getBuyHistory(state: SessionState, account: string, symbol: stri
   return state.buyHistory[buyHistoryKey(account, symbol)] || []
 }
 
+// Replace buy history for a symbol with an explicit sequence. Used by
+// reconciliation/sync paths to keep pyramid history aligned with the tagged
+// open-position cycle.
+export async function setBuyHistoryForSymbol(
+  account: string,
+  symbol: string,
+  entries: Array<{ price: number; ts?: string }>,
+): Promise<void> {
+  const current = await getState()
+  const key = buyHistoryKey(account, symbol)
+  const cleaned = entries
+    .map(entry => ({
+      price: Number(entry.price),
+      ts: entry.ts || new Date().toISOString(),
+    }))
+    .filter(entry => Number.isFinite(entry.price) && entry.price > 0)
+  const next = { ...current.buyHistory }
+  if (cleaned.length === 0) {
+    delete next[key]
+  } else {
+    next[key] = cleaned
+  }
+  await saveState({ buyHistory: next })
+}
+
 // ──────── PANIC-SELL SKIP LIST ────────
 // Symbol-level, market-wide (not per-account) — a stock in panic is in panic for
 // every account. Sticky for the calendar day; cleared at start of new IST day by
