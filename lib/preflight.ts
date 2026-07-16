@@ -399,9 +399,22 @@ export async function runPreflight(input: PreflightInput): Promise<PreflightResu
     // Also skipped for explicit manual orders (user knows what they're doing).
     // Also skipped when bypassNoLossSell=true (used by squareOffEOD).
     if (state.mode === 'auto' && !manual && !input.bypassNoLossSell && !input.bypassNoLossSellReason) {
-      const avg = Number(holding?.average_price ?? dayPos?.average_price ?? dayPos?.day_buy_price ?? 0)
-      const ltp = Number(holding?.last_price ?? dayPos?.last_price ?? pricePerShare ?? 0)
+      const avgCandidates = [holding?.average_price, dayPos?.average_price, dayPos?.day_buy_price]
+        .map(v => Number(v))
+        .filter(v => Number.isFinite(v) && v > 0)
+      const ltpCandidates = [holding?.last_price, dayPos?.last_price, pricePerShare]
+        .map(v => Number(v))
+        .filter(v => Number.isFinite(v) && v > 0)
+      const avg = avgCandidates[0] ?? 0
+      const ltp = ltpCandidates[0] ?? 0
       const evalQty = Math.max(1, Math.floor(sellAdjustedQty ?? quantity))
+      if (avg <= 0 || ltp <= 0) {
+        return {
+          ok: false,
+          gate: 'noLossSell',
+          reason: `${account}: ${symbol} — unable to verify no-loss exit (avg=${avg}, ltp=${ltp}); blocking auto SELL`,
+        }
+      }
       if (avg > 0 && ltp > 0 && evalQty > 0) {
         const model: 'intraday' | 'delivery' = heldQty > 0 ? 'delivery' : 'intraday'
         const buyValue = avg * evalQty
