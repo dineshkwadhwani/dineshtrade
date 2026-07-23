@@ -24,12 +24,21 @@ export async function GET() {
   const all = await listPositions()
   const strategiesById = new Map(getStrategies().map(s => [s.id, s]))
   const positions = all.map(p => {
-    const s = strategiesById.get(p.strategyId)
+    // Determine display strategy: use most recent lot's strategy if available
+    // (when multiple strategies own different lots of the same symbol)
+    let displayStrategyId = p.strategyId
+    if (p.lots && p.lots.length > 0) {
+      const mostRecentLot = [...p.lots].sort((a, b) => b.boughtAt.localeCompare(a.boughtAt))[0]
+      if (mostRecentLot?.strategyId && mostRecentLot.strategyId !== p.strategyId) {
+        displayStrategyId = mostRecentLot.strategyId
+      }
+    }
+    const s = strategiesById.get(displayStrategyId)
     return {
       account: p.account,
       symbol: p.symbol,
-      strategyId: p.strategyId,
-      strategyName: s?.name || p.strategyId,
+      strategyId: displayStrategyId,
+      strategyName: s?.name || displayStrategyId,
       strategyColor: s?.color || '#c9a84c',
       strategyType: s?.type,
       firstBuyPrice: p.firstBuyPrice,

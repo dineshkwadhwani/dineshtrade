@@ -23,6 +23,7 @@ export interface PositionLot {
   remainingQty: number
   tranche1At?: string | null
   tranche1SoldQty?: number
+  strategyId?: string       // source strategy that bought this lot (optional for backward compat)
 }
 
 export interface Position {
@@ -70,7 +71,7 @@ function makeLotId(): string {
   return `${Date.now()}-${Math.random().toString(36).slice(2, 8)}`
 }
 
-function makeLot(qty: number, price: number, boughtAt = new Date().toISOString()): PositionLot {
+function makeLot(qty: number, price: number, boughtAt = new Date().toISOString(), strategyId?: string): PositionLot {
   return {
     id: makeLotId(),
     boughtAt,
@@ -78,6 +79,7 @@ function makeLot(qty: number, price: number, boughtAt = new Date().toISOString()
     originalQty: qty,
     remainingQty: qty,
     tranche1At: null,
+    strategyId,
   }
 }
 
@@ -103,6 +105,7 @@ function synthesizeLegacyLot(position: Position): PositionLot {
     remainingQty: position.remainingQty,
     tranche1At: position.tranche1At ?? null,
     tranche1SoldQty: position.tranche1SoldQty,
+    strategyId: position.strategyId,  // legacy lot inherits position's strategy
   }
 }
 
@@ -284,7 +287,7 @@ export async function recordBuy(strategyId: string, account: string, symbol: str
     const incomingTracked = await isTrackedStrategyId(strategyId)
     if (existingTracked || incomingTracked) {
       const lots = ensureMomentumLots(existing)
-      lots.push(makeLot(qty, price))
+      lots.push(makeLot(qty, price, new Date().toISOString(), strategyId))
       summarizeMomentumPosition(existing)
       if (existing.strategyId !== strategyId) {
         console.log(`[positions] lot BUY ${k} +${qty} @ ₹${price} (owner stays ${existing.strategyId}; source strategy ${strategyId}; lots ${lots.length}; avg ₹${existing.firstBuyPrice}, remaining ${existing.remainingQty})`)
@@ -308,7 +311,7 @@ export async function recordBuy(strategyId: string, account: string, symbol: str
       tranche1At: null,
     }
     if (await isTrackedStrategyId(strategyId)) {
-      next.lots = [makeLot(qty, price, next.firstBuyAt)]
+      next.lots = [makeLot(qty, price, next.firstBuyAt, strategyId)]
       summarizeMomentumPosition(next)
     }
     positions[k] = next
@@ -358,7 +361,7 @@ export async function seedMissingPosition(strategyId: string, account: string, s
     tranche1At: null,
   }
   if (await isTrackedStrategyId(strategyId)) {
-    next.lots = [makeLot(qty, price, safeBoughtAt)]
+    next.lots = [makeLot(qty, price, safeBoughtAt, strategyId)]
     summarizeMomentumPosition(next)
   }
   positions[k] = next
