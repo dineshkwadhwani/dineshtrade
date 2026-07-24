@@ -200,7 +200,10 @@ export async function dailyRetrospective(): Promise<void> {
     // a "daily diary": shows open positions, capital status, strategy health,
     // and confirms the engine ran (or that you stayed in manual mode all day).
     console.log(`[cron retro] ${today} — sending daily report: ${report.tradesCount} trades, ${report.missedSignals.length} missed signals`)
-    await sendDailyReport(report)
+    const emailResult = await sendDailyReport(report)
+    if (!emailResult.ok) {
+      console.error(`[cron retro] daily report email failed: ${emailResult.error || (emailResult.skipped ? 'SMTP not configured — check SMTP_USER/SMTP_PASS env vars' : 'unknown')}`)
+    }
   } catch (err) {
     console.error('[cron retro] daily report failed:', err)
   }

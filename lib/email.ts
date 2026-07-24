@@ -137,6 +137,7 @@ async function deliver(subject: string, text: string, html?: string): Promise<Em
   const tx = getTransport()
   if (!tx) {
     console.warn('[email] SMTP not configured — skipping:', subject)
+    console.warn('[email] ensure SMTP_USER and SMTP_PASS are set in the server environment')
     return { ok: false, skipped: true, error: 'SMTP not configured' }
   }
   const from = process.env.SMTP_USER!
@@ -148,6 +149,12 @@ async function deliver(subject: string, text: string, html?: string): Promise<Em
   } catch (e) {
     const msg = String(e).slice(0, 300)
     console.error('[email] send failed:', msg)
+    // Reset the cached transport on auth failures so the next call retries
+    // with fresh credentials (e.g. after a Gmail App Password is regenerated).
+    if (/invalid login|authentication|EAUTH|535/i.test(msg)) {
+      console.error('[email] SMTP auth failure detected — clearing cached transport. Regenerate the Gmail App Password and update SMTP_PASS.')
+      cached = null
+    }
     return { ok: false, error: msg }
   }
 }
