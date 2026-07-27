@@ -251,10 +251,9 @@ function PositionRow({ p, last, marketOpen, onSquareOff }: {
   const strategyLabel = p.strategyName
     ? p.strategyName.trim()
     : (p.strategyId ? p.strategyId.replace(/[_-]+/g, ' ').trim() : null)
-  const strategyInitial = strategyLabel
-    ? (strategyLabel.match(/[A-Za-z0-9]/)?.[0] || '').toUpperCase()
-    : ''
+  const strategyText = (strategyLabel || 'MANUAL').toUpperCase()
   const strategyColor = p.strategyColor || '#c9a84c'
+  const strategyBadgeColor = strategyLabel ? strategyColor : 'rgba(148,163,184,0.95)'
 
   const SquareOffBtn = isOpen ? (
     <button onClick={onSquareOff} disabled={!marketOpen}
@@ -286,19 +285,11 @@ function PositionRow({ p, last, marketOpen, onSquareOff }: {
               <span className="text-[8px] tracking-widest uppercase px-1.5 py-0.5 rounded"
                 style={{ background:'rgba(255,255,255,0.06)', color:'rgba(255,255,255,0.4)' }}>CLOSED</span>
             )}
-            {strategyInitial && (
-              <span
-                className="w-4 h-4 rounded-full flex items-center justify-center text-[8px] font-semibold"
-                title={strategyLabel || undefined}
-                style={{
-                  background: `${strategyColor}26`,
-                  color: strategyColor,
-                  border: `1px solid ${strategyColor}59`,
-                }}
-              >
-                {strategyInitial}
-              </span>
-            )}
+            <span className="text-[8px] tracking-wider uppercase px-1.5 py-0.5 rounded"
+              title={strategyText}
+              style={{ background: `${strategyBadgeColor}26`, color: strategyBadgeColor, border: `1px solid ${strategyBadgeColor}59` }}>
+              {strategyText}
+            </span>
           </div>
           <div className="text-[11px] dt-text-muted">
             Avg <span style={{ color:'rgba(255,255,255,0.75)' }}>{p.avgPrice > 0 ? `₹${p.avgPrice.toFixed(2)}` : '—'}</span>
@@ -339,20 +330,11 @@ function PositionRow({ p, last, marketOpen, onSquareOff }: {
             <span className="text-[8px] tracking-widest uppercase px-1.5 py-0.5 rounded"
               style={{ background:'rgba(255,255,255,0.06)', color:'rgba(255,255,255,0.4)', fontFamily:'JetBrains Mono, monospace' }}>CLOSED</span>
           )}
-          {strategyInitial && (
-            <span
-              className="w-[18px] h-[18px] rounded-full flex items-center justify-center text-[8px] font-semibold"
-              title={strategyLabel || undefined}
-              style={{
-                background: `${strategyColor}26`,
-                color: strategyColor,
-                border: `1px solid ${strategyColor}59`,
-                fontFamily:'JetBrains Mono, monospace',
-              }}
-            >
-              {strategyInitial}
-            </span>
-          )}
+          <span className="text-[8px] tracking-wider uppercase px-1.5 py-0.5 rounded"
+            title={strategyText}
+            style={{ background: `${strategyBadgeColor}26`, color: strategyBadgeColor, border: `1px solid ${strategyBadgeColor}59`, fontFamily:'JetBrains Mono, monospace' }}>
+            {strategyText}
+          </span>
         </div>
         <span className="col-span-1 text-right text-white/70" style={{ fontFamily:'JetBrains Mono, monospace' }}>{p.qty}</span>
         <span className="col-span-2 text-right text-white/70" style={{ fontFamily:'JetBrains Mono, monospace' }}>
