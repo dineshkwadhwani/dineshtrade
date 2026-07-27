@@ -251,7 +251,7 @@ function PositionRow({ p, last, marketOpen, onSquareOff }: {
   const strategyLabel = p.strategyName
     ? p.strategyName.trim()
     : (p.strategyId ? p.strategyId.replace(/[_-]+/g, ' ').trim() : null)
-  const strategyText = (strategyLabel || 'MANUAL').toUpperCase()
+  const strategyText = (strategyLabel || 'ACCUMULATOR').toUpperCase()
   const strategyColor = p.strategyColor || '#c9a84c'
   const strategyBadgeColor = strategyLabel ? strategyColor : 'rgba(148,163,184,0.95)'
 

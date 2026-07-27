@@ -44,12 +44,13 @@ export interface ClosedTodaySummary {
 }
 
 function strategyIdFromTag(tag?: string): string | undefined {
-  if (!tag || !tag.startsWith('dt-')) return undefined
-  if (tag === 'dt-manual') return undefined
+  if (!tag) return 'accumulator'
+  if (tag === 'dt-manual' || tag === 'manual') return 'accumulator'
+  if (!tag.startsWith('dt-')) return 'accumulator'
   let sid = tag.slice(3).replace(/-(t1|t2|exit)$/, '')
   if (sid === 's1') sid = 'accumulator'
   else if (sid === 's2') sid = 'catalyst'
-  return sid || undefined
+  return sid || 'accumulator'
 }
 
 export async function GET(req: Request) {
@@ -117,7 +118,11 @@ export async function GET(req: Request) {
 
   const openRows: EnrichedPosition[] = positions.day.map(p => {
     const sym = p.tradingsymbol.toUpperCase()
-    const strategyId = strategyIdFromTag(latestBuyOrderBySymbol.get(sym)?.tag)
+    // Prefer latest BUY tag for long attribution, but for short positions (or
+    // symbols without a BUY today) fall back to the latest completed order tag.
+    const strategyId = strategyIdFromTag(
+      latestBuyOrderBySymbol.get(sym)?.tag || lastOrderBySymbol.get(sym)?.tag,
+    )
     const strategyMeta = strategyId ? strategiesById.get(strategyId) : undefined
     const buyAgg = buyAggBySymbol.get(sym)
     const sellAgg = sellAggBySymbol.get(sym)
@@ -185,7 +190,9 @@ export async function GET(req: Request) {
     const dayChangePct = prevClose > 0 && liveLtp > 0 ? ((liveLtp - prevClose) / prevClose) * 100 : undefined
     const lastOrder = lastOrderBySymbol.get(sym)
     const buyVwap = buyAgg && buyAgg.qty > 0 ? buyAgg.notional / buyAgg.qty : 0
-    const strategyId = strategyIdFromTag(latestBuyOrderBySymbol.get(sym)?.tag)
+    const strategyId = strategyIdFromTag(
+      latestBuyOrderBySymbol.get(sym)?.tag || lastOrderBySymbol.get(sym)?.tag,
+    )
     const strategyMeta = strategyId ? strategiesById.get(strategyId) : undefined
 
     closedOrderOnlyRows.push({
