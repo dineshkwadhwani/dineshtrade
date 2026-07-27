@@ -90,13 +90,17 @@ This spec documents the *user-visible* behaviour: what the app does, when, and w
 
 - Fields: account, side (BUY/SELL), quantity, product (CNC/MIS), order type (MARKET/LIMIT), limit price.
 - Sends `manual: true` + `tag: 'dt-manual'` → bypasses rate-limit gates (per-trade cap, idempotency, day quota).
+- Strategy attribution policy for manual path:
+  - Manual BUY defaults to `accumulator` ownership unless a strategy-specific tag is explicitly sent.
+  - Manual SELL keeps `source: 'manual'`, but strategy ownership is preserved from the tracked position.
 - Funds + no-short + market-open gates still apply.
 - On SELL with partial holdings, auto-clamps to held qty.
 
 ### F3.4 — Positions page simplification
 
 - The Positions page shows only today's still-open broker positions, one action row per symbol.
-- It intentionally does not expose lot/tranche detail or strategy-tag pills. Those remain internal for automation, Holdings splits, and reporting, but the Positions page stays close to the broker view so the user sees only what is currently open and actionable.
+- It intentionally does not expose lot/tranche detail.
+- It does show a compact full-name strategy badge per row (for consistency with other surfaces), while keeping the row broker-simple and mobile-friendly.
 
 ### Holdings Nuances
 

@@ -386,7 +386,7 @@ Centralised wrappers — every caller goes through these. Never make raw HTTP ca
 ### 5.3 `lib/journal.ts`
 
 - `appendJournal(record)` — atomic JSONL append, creates dir + file on first write
-- `journalOrder({ account, symbol, side, qty, price, tag?, orderId? })` — derives `strategyId` from tag, writes `order` record. Called from every Kite-order success path.
+- `journalOrder({ account, symbol, side, qty, price, tag?, orderId? })` — derives `strategyId` from tag (manual defaults to accumulator in attribution), writes `order` record. Called from every Kite-order success path.
 - `readJournalDay(ymd)` / `readJournalMonth(ym)` / `readJournalRange(start, end)`
 - `listJournalDates()` — returns the UNION of (trading-day calendar, last 60 days) + (every dated journal record). Today appears even with zero journal records.
 - `classifyVerdict(opts)` — produces `correct_exit | early_exit | delivery | manual`
@@ -417,7 +417,7 @@ Centralised wrappers — every caller goes through these. Never make raw HTTP ca
 - HTTP surface: `POST /api/strategy/backtest` (authenticated)
 - `POST /api/strategy/backtest` now also performs a best-effort single-run AI analysis after the replay completes. AI failure must not fail the backtest itself; the route returns `analysisError` separately when recommendation generation fails.
 - Current frontend surface: Settings → Backtest tab. It fetches saved strategies from `GET /api/strategies`, lets the user pick a strategy + day window, renders summary/trades/equity inline for both dip and momentum strategies, and persists every completed run into server-side Backtest History. The summary hero uses net-after-charges values, the trade table includes a per-row `Charges` column plus net profit display, the run result now includes a skipped-orders table plus an AI recommendation card, and the history area is split into a run tab plus a Backtest History tab. The history overview and AI analysis use realized profit / return for comparisons, while unrealized MTM remains a separate exposure metric for open positions.
-- Current Positions page surface: `/api/positions` returns broker-style still-open day-position rows only. Each row uses live `/quote` LTP plus best-effort realized/unrealized P&L derived from today's completed orders, and the UI renders a simple symbol / product / qty / avg / LTP / P&L / square-off view. Strategy ownership and per-lot state remain in the unified position store but are intentionally not exposed on this page.
+- Current Positions page surface: `/api/positions` returns broker-style still-open day-position rows only. Each row uses live `/quote` LTP plus best-effort realized/unrealized P&L derived from today's completed orders, and the UI renders a simple symbol / qty / avg / LTP / P&L / square-off view with a compact full-name strategy badge. Strategy attribution is resolved by positions-store ownership first, then order-tag inference, with manual/untagged fallback to accumulator.
 
 ### 5.6 `lib/tradeReport.ts` *(new 23 May 2026)*
 

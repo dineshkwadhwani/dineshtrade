@@ -59,13 +59,13 @@ This is not a SaaS product. It is a private, single-owner trading system managin
 | `strategy2Positions.ts` | Catalyst position store helpers — seed, read, remove Catalyst entries |
 | `strategyConfig.ts` | Strategy schema: `DipParams`, `MomentumParams`, `Strategy` types, `asDipParams()` / `asMomentumParams()` helpers |
 | `strategyEngine.ts` | Generates BUY recommendations: `generateRecommendations()`, `runStrategyScan()`, `runReactiveDipScan()` |
-| `strategyTag.ts` | `resolvePositionTag()` — unified tag resolution (positions store → journal fallback → MANUAL → OOS) |
+| `strategyTag.ts` | `resolvePositionTag()` helpers used by strategy surfaces; positions ownership remains anchored to `positions.json` |
 
 ### Key `/app/api/` routes
 
 | Route | Method | Description |
 | --- | --- | --- |
-| `/api/positions` | GET | Today's Kite positions enriched with strategy tags from positions store + journal fallback |
+| `/api/positions` | GET | Today's Kite positions enriched with strategy ownership (positions store first, then order-tag inference, defaulting unknown/manual to accumulator) |
 | `/api/strategy/positions` | GET | Unified position store entries + journal fallback for tag resolution |
 | `/api/journal/fix-attribution` | POST | Retroactively patches old `dt-manual` SELL entries missing `strategyId` |
 | `/api/settings/reset` | POST | Per-account wipe + re-seed from Kite holdings |
@@ -110,23 +110,23 @@ This is the most complex part of the codebase. Read carefully.
 
 `positions.json` is the **single source of truth** for which strategy owns a holding. Every auto-BUY writes an entry to this store via `recordBuy()` in `lib/positions.ts`.
 
-### Tag Resolution Flow (`lib/strategyTag.ts` — `resolvePositionTag()`)
+### Positions Strategy Attribution (current policy)
 
 ```text
 
 1. positions store has entry for account:symbol?
-   → YES: use its strategyId (ACCUMULATOR, CATALYST, etc.)
-   → NO: continue
+  → YES: use its strategyId
+  → NO: continue
 
-2. Journal fallback (getJournalStrategyFallback in lib/journal.ts):
-   Read last 30 days of journal auto-BUY records for this account.
-   Find most recent BUY for this symbol → use that strategyId.
-   → FOUND: use journal strategyId
-   → NOT FOUND: continue
+2. infer from today's completed orders:
+  - latest BUY tag for symbol, else latest completed order tag (BUY/SELL)
 
-3. Kite order tag is 'dt-manual'?
-   → YES: tag = MANUAL
-   → NO: tag = OOS (out of system — bought outside DineshTrade)
+3. normalize tag to strategyId:
+  - dt-manual / manual / untagged / non-dt tags -> accumulator
+  - dt-s1 -> accumulator
+  - dt-s2 -> catalyst
+
+4. if still unresolved, default to accumulator (no MANUAL/OOS label on Positions rows)
 
 ```
 

@@ -1,4 +1,5 @@
 # DineshTrade v2 — VS Code Claude Handoff Document
+
 **Version:** 2.0  
 **Date:** June 2026  
 **Purpose:** Briefing document for VS Code Claude starting the v2 SaaS rebuild  
@@ -13,6 +14,7 @@ You are building **DineshTrade v2** — a SaaS-ready algorithmic trading platfor
 The existing v1 codebase (`dineshtrade-copy/`) is your starting point. You will create a new repository that starts from this code and evolves it into a multi-tenant SaaS application. **Do not modify the v1 application.** It remains live and operational.
 
 The three major changes from v1 to v2:
+
 1. **Broker:** Zerodha Kite Connect → Angel One SmartAPI
 2. **Database:** JSON files on disk → Supabase PostgreSQL
 3. **Architecture:** Single user → Multi-tenant SaaS
@@ -25,7 +27,7 @@ Everything else — all strategy logic, all trading rules, all entry/exit condit
 
 ### Repository Structure
 
-```
+```text
 dineshtrade-copy/
 ├── app/                    Next.js 14 App Router pages + API routes
 │   ├── (app)/              Authenticated app pages
@@ -99,7 +101,7 @@ dineshtrade-copy/
 
 ### Tech Stack (v1)
 
-```
+```text
 Framework:      Next.js 14, App Router, TypeScript
 Styling:        Tailwind CSS
 Server:         Custom Node.js server (server.js) wraps Next.js + starts node-cron
@@ -116,6 +118,7 @@ Deployment:     AWS EC2, Ubuntu, PM2 process manager
 
 **1. Runtime Strategy Overlay**
 Strategy config exists in two places:
+
 - `config/strategy.json` — bundled defaults (on disk, in repo)
 - `data/strategy.json` — runtime overlay (user edits via Settings UI, NOT in repo)
 
@@ -130,15 +133,31 @@ Each position has a `lots` array tracking individual BUY entries. Pyramid BUYs a
 **4. Strategy Tags**
 Every order is tagged (e.g. `dt-s1`, `dt-catalyst`, `dt-eod-market_boom`). Tags link orders to strategies in the journal and Kite order book.
 
+Current attribution policy (27 Jul 2026):
+
+- Primary ownership source: `data/positions.json` (`account:symbol` -> `strategyId`).
+- Positions API strategy resolution order:
+  1. tracked strategy from positions store
+  2. latest completed BUY tag for the symbol (today)
+  3. latest completed order tag (BUY/SELL) for the symbol (today)
+  4. fallback to `accumulator` for manual/untagged/non-`dt-*` tags
+- Tag normalization:
+  - `dt-manual` / `manual` -> `accumulator`
+  - `dt-s1` -> `accumulator`
+  - `dt-s2` -> `catalyst`
+- Manual SELL attribution keeps `source: 'manual'` while preserving the owning strategy from the tracked position.
+
 **5. Reconciliation**
 `cronReconcile.ts` runs at 15:35 to detect positions that were sold manually in Kite (outside the app). It closes them in the local positions store and journals the manual sell.
 
 **6. Account Credentials**
 In v1, credentials are in environment variables:
-```
+
+```text
 DW_API_KEY=xxx        (Zerodha API key for account DW)
 DW_API_SECRET=xxx     (Zerodha API secret for account DW)
 ```
+
 Access tokens are pasted daily via Settings UI and stored in `data/state.json`.
 
 In v2, credentials move to Supabase `accounts` table (encrypted).
@@ -150,7 +169,7 @@ In v2, credentials move to Supabase `accounts` table (encrypted).
 ### What Changes
 
 | Component | v1 | v2 |
-|---|---|---|
+| --- | --- | --- |
 | `lib/kite.ts` | Zerodha Kite Connect | Angel One SmartAPI adapter |
 | `lib/accounts.ts` | Reads env vars + accounts.json | Reads from Supabase |
 | `lib/state.ts` | Reads/writes state.json | Reads/writes Supabase account_state |
@@ -220,7 +239,7 @@ Replace all `resolveAccountCreds()` + `kiteRequest()` calls in preflight and str
 ## Angel One SmartAPI — Key Differences from Kite
 
 | Feature | Zerodha Kite | Angel One SmartAPI |
-|---|---|---|
+| --- | --- | --- |
 | Base URL | `https://api.kite.trade` | `https://apiconnect.angelone.in` |
 | Auth header | `Authorization: token {apiKey}:{accessToken}` | `Authorization: Bearer {jwtToken}` + `X-PrivateKey: {apiKey}` |
 | Session endpoint | `POST /session/token` | `POST /rest/auth/angelbroking/user/v1/loginByPassword` |
@@ -400,6 +419,7 @@ export async function runBuyScans(): Promise<void> {
 ## Phase-by-Phase Build Plan
 
 ### Phase 1 — Foundation (Week 1–2)
+
 **Goal:** Database + auth working, no trading yet
 
 1. Setup Supabase project (dev + prod)
@@ -415,6 +435,7 @@ export async function runBuyScans(): Promise<void> {
 ---
 
 ### Phase 2 — Angel One Adapter (Week 2–3)
+
 **Goal:** Angel One trading working for your personal account
 
 1. Build `IBroker` interface (lib/broker/IBroker.ts)
@@ -430,6 +451,7 @@ export async function runBuyScans(): Promise<void> {
 ---
 
 ### Phase 3 — Strategy Engine Migration (Week 3–4)
+
 **Goal:** All automated trading working via Supabase + Angel One
 
 1. Replace lib/state.ts file I/O with Supabase account_state
@@ -445,6 +467,7 @@ export async function runBuyScans(): Promise<void> {
 ---
 
 ### Phase 4 — SaaS Layer (Week 5–6)
+
 **Goal:** Second user can register and run their own strategies
 
 1. User registration + onboarding flow
@@ -459,6 +482,7 @@ export async function runBuyScans(): Promise<void> {
 ---
 
 ### Phase 5 — Broker Manager Role (Week 7–8)
+
 **Goal:** Manager can manage multiple client accounts
 
 1. Manager role implementation
@@ -503,6 +527,7 @@ Do not write code before reading these three documents.
 ## How to Update Context
 
 After completing each significant task, update `CONTEXT.md` with:
+
 - What was built
 - Key decisions made
 - Any deviations from the spec and why
@@ -512,4 +537,4 @@ This maintains continuity across sessions.
 
 ---
 
-*End of Handoff Document*
+## End of Handoff Document

@@ -224,7 +224,7 @@ Pivotal scripts live in their own seed/runtime pair: `config/pivotalLists.json` 
   - 15:35 IST — daily retrospective email + monthly rollup on last trading day
 - 8 preflight gates including live-held-qty `noShort` with auto-clamp
 - Watchlist live LTPs via batched `/quote`, red/green colouring, read-only by design
-- Manual Buy/Sell modal on Holdings and Positions — bypasses rate-limit gates, tagged `dt-manual`
+- Manual Buy/Sell modal on Holdings and Positions — bypasses rate-limit gates, sends `dt-manual`; attribution defaults to `accumulator` for BUY while manual SELL keeps the tracked owning strategy
 - OOS (Out Of System) badge on Holdings — pre-existing positions never auto-managed
 
 ### Phase 3 — built on 18–19 May 2026 (this thread)

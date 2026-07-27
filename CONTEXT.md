@@ -214,11 +214,19 @@ Dinesh has been trading Indian equities since **FY2020** across **4 family accou
 - Previously showed Kite's `position.average_price` which is the sell execution price (confusing and incorrect for P&L display)
 - `holdingAvgBySymbol` is built from ALL `rawHoldings` including `quantity = 0` entries to ensure no closed position falls through
 
-### Journal Strategy Fallback (01 Jun 2026)
+### Strategy Tagging Policy (updated 27 Jul 2026)
 
-- `/api/positions` and `/api/strategy/positions` both fall back to `getJournalStrategyFallback()` in `lib/journal.ts` when a symbol is not found in the positions store
-- `getJournalStrategyFallback(account)` reads last 30 days of journal auto-BUY records and returns a `Map<SYMBOL, strategyId>` for use as a read-only fallback tag source
-- Prevents OOS false positives after positions store cleanup (e.g. after Settings Reset or between re-buys)
+- `positions.json` is the primary source of strategy ownership for open symbols.
+- `/api/positions` resolves row strategy in this order:
+  1. tracked strategy from `positions.json` for `account:symbol`
+  2. latest completed BUY order tag for the symbol (today)
+  3. latest completed order tag (BUY/SELL) for the symbol (today)
+  4. default to `accumulator` when tag is manual/untagged/non-`dt-`
+- Tag normalization rules:
+  - `dt-manual` / `manual` -> `accumulator`
+  - `dt-s1` -> `accumulator`
+  - `dt-s2` -> `catalyst`
+- Positions UI now shows the full strategy name badge (not CNC, not MANUAL fallback labels).
 
 ### Codebase Refactor (01 Jun 2026)
 
