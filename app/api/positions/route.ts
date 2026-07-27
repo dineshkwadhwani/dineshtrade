@@ -9,6 +9,7 @@ import { NextResponse } from 'next/server'
 import { cookies } from 'next/headers'
 import { verifySession } from '@/lib/auth'
 import { resolveAccountCreds, getPositions, getOrders, getQuotes, type KiteOrder } from '@/lib/kite'
+import { listPositions } from '@/lib/positions'
 import { getStrategies } from '@/lib/strategyConfig'
 
 // Live broker data — every request must hit Kite fresh, never serve from cache.
@@ -69,6 +70,10 @@ export async function GET(req: Request) {
     getPositions(creds).catch(() => ({ day: [], net: [] })),
     getOrders(creds).catch(() => [] as KiteOrder[]),
   ])
+  const trackedPositions = await listPositions({ account }).catch(() => [])
+  const trackedStrategyBySymbol = new Map(
+    trackedPositions.map(p => [p.symbol.toUpperCase(), p.strategyId]),
+  )
   const strategiesById = new Map(getStrategies().map(s => [s.id, s]))
 
   // Kite's two endpoints disagree on price:
@@ -118,9 +123,10 @@ export async function GET(req: Request) {
 
   const openRows: EnrichedPosition[] = positions.day.map(p => {
     const sym = p.tradingsymbol.toUpperCase()
+    const trackedStrategyId = trackedStrategyBySymbol.get(sym)
     // Prefer latest BUY tag for long attribution, but for short positions (or
     // symbols without a BUY today) fall back to the latest completed order tag.
-    const strategyId = strategyIdFromTag(
+    const strategyId = trackedStrategyId || strategyIdFromTag(
       latestBuyOrderBySymbol.get(sym)?.tag || lastOrderBySymbol.get(sym)?.tag,
     )
     const strategyMeta = strategyId ? strategiesById.get(strategyId) : undefined
@@ -190,7 +196,8 @@ export async function GET(req: Request) {
     const dayChangePct = prevClose > 0 && liveLtp > 0 ? ((liveLtp - prevClose) / prevClose) * 100 : undefined
     const lastOrder = lastOrderBySymbol.get(sym)
     const buyVwap = buyAgg && buyAgg.qty > 0 ? buyAgg.notional / buyAgg.qty : 0
-    const strategyId = strategyIdFromTag(
+    const trackedStrategyId = trackedStrategyBySymbol.get(sym)
+    const strategyId = trackedStrategyId || strategyIdFromTag(
       latestBuyOrderBySymbol.get(sym)?.tag || lastOrderBySymbol.get(sym)?.tag,
     )
     const strategyMeta = strategyId ? strategiesById.get(strategyId) : undefined
