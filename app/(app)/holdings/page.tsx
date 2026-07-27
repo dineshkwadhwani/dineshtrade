@@ -24,7 +24,7 @@ interface Holding {
   day_change: number
   day_change_percentage: number
   source?: 'holding' | 't0'
-  lots?: Array<{ id: string; entryPrice: number; remainingQty: number; boughtAt: string }>
+  lots?: Array<{ id: string; entryPrice: number; remainingQty: number; boughtAt: string; strategyId?: string }>
 }
 
 interface QuoteEntry {
@@ -95,6 +95,8 @@ export default function HoldingsPage() {
     busy: boolean
     error: string
   }>({ open: false, symbol: '', currentStrategyId: '', currentStrategyName: '', selectedStrategyId: '', busy: false, error: '' })
+
+  const strategyById = new Map(activeStrategies.map(strategy => [strategy.id, strategy]))
 
   const [market, setMarket] = useState(() => isMarketOpen())
   useEffect(() => {
@@ -437,7 +439,26 @@ export default function HoldingsPage() {
                 // Positions store is the single source of truth for strategy tags.
                 // Both settled holdings and T0 same-day positions use the same lookup
                 // so strategy attribution is consistent across all pages.
-                const tag = posTags.get(`${(activeTab || '').toUpperCase()}:${h.tradingsymbol.toUpperCase()}`)
+                const baseTag = posTags.get(`${(activeTab || '').toUpperCase()}:${h.tradingsymbol.toUpperCase()}`)
+                // Mixed-lot symbols can have settled holdings under one strategy and
+                // a same-day T0 lot under another. Only T0 rows should reflect the
+                // latest lot strategy; settled rows stay with owner strategy.
+                let tag = baseTag
+                if (isT0Position && h.lots && h.lots.length > 0) {
+                  const latestLot = [...h.lots]
+                    .sort((a, b) => b.boughtAt.localeCompare(a.boughtAt))[0]
+                  const lotStrategyId = latestLot?.strategyId
+                  if (lotStrategyId && lotStrategyId !== baseTag?.strategyId) {
+                    const s = strategyById.get(lotStrategyId)
+                    tag = {
+                      strategyId: lotStrategyId,
+                      strategyName: s?.name || lotStrategyId,
+                      strategyColor: s?.color || baseTag?.strategyColor || '#c9a84c',
+                      strategyType: s?.type || baseTag?.strategyType,
+                      remainingQty: baseTag?.remainingQty,
+                    }
+                  }
+                }
                 const isManaged = !!tag
                 const canSwitchStrategy = isManaged && activeStrategies.some(strategy => strategy.id !== tag!.strategyId)
                 const badgeLabel = isManaged ? tag!.strategyName.toUpperCase().slice(0, 14) : 'OOS'

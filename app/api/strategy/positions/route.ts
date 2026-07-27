@@ -24,21 +24,14 @@ export async function GET() {
   const all = await listPositions()
   const strategiesById = new Map(getStrategies().map(s => [s.id, s]))
   const positions = all.map(p => {
-    // Determine display strategy: use most recent lot's strategy if available
-    // (when multiple strategies own different lots of the same symbol)
-    let displayStrategyId = p.strategyId
-    if (p.lots && p.lots.length > 0) {
-      const mostRecentLot = [...p.lots].sort((a, b) => b.boughtAt.localeCompare(a.boughtAt))[0]
-      if (mostRecentLot?.strategyId && mostRecentLot.strategyId !== p.strategyId) {
-        displayStrategyId = mostRecentLot.strategyId
-      }
-    }
-    const s = strategiesById.get(displayStrategyId)
+    // Display/store owner strategy at symbol level. Mixed-lot rows are handled
+    // by the holdings page for T0 entries where lot-level strategy is relevant.
+    const s = strategiesById.get(p.strategyId)
     return {
       account: p.account,
       symbol: p.symbol,
-      strategyId: displayStrategyId,
-      strategyName: s?.name || displayStrategyId,
+      strategyId: p.strategyId,
+      strategyName: s?.name || p.strategyId,
       strategyColor: s?.color || '#c9a84c',
       strategyType: s?.type,
       firstBuyPrice: p.firstBuyPrice,
