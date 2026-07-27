@@ -16,6 +16,9 @@ import { getPosition, listPositions, setStrategyId } from '@/lib/positions'
 import { getStrategies, getStrategyById } from '@/lib/strategyConfig'
 import { readJournalRange, istDateString } from '@/lib/journal'
 
+export const dynamic = 'force-dynamic'
+export const revalidate = 0
+
 export async function GET() {
   const session = cookies().get('dt_session')?.value
   if (!session || !(await verifySession(session))) {
@@ -91,7 +94,9 @@ export async function GET() {
     // Journal read failure is non-fatal — fall back to positions-store-only tags
   }
 
-  return NextResponse.json({ positions })
+  return NextResponse.json({ positions }, {
+    headers: { 'Cache-Control': 'no-store, no-cache, must-revalidate' },
+  })
 }
 
 export async function POST(req: Request) {

@@ -179,7 +179,7 @@ export default function HoldingsPage() {
       const [mRes, hRes, sRes, pRes] = await Promise.all([
         fetch(`/api/zerodha?account=${encodeURIComponent(account)}&action=margins`).then(r => r.json()),
         fetch(`/api/zerodha?account=${encodeURIComponent(account)}&action=holdings`).then(r => r.json()),
-        fetch('/api/strategy/positions').then(r => r.json()).catch(() => ({ positions: [] })),
+        fetch(`/api/strategy/positions?_t=${Date.now()}`, { cache: 'no-store' }).then(r => r.json()).catch(() => ({ positions: [] })),
         fetch(`/api/positions?account=${encodeURIComponent(account)}&_t=${Date.now()}`, { cache: 'no-store' }).then(r => r.json()).catch(() => ({ positions: [] })),
       ])
       if (mRes.error) {
