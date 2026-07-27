@@ -249,8 +249,11 @@ function PositionRow({ p, last, marketOpen, onSquareOff }: {
     ? ((p.ltp - p.avgPrice) / p.avgPrice) * 100
     : null
   const strategyLabel = p.strategyName
-    ? p.strategyName.toUpperCase().slice(0, 14)
-    : (p.strategyId ? p.strategyId.replace(/[_-]+/g, ' ').toUpperCase().slice(0, 14) : null)
+    ? p.strategyName.trim()
+    : (p.strategyId ? p.strategyId.replace(/[_-]+/g, ' ').trim() : null)
+  const strategyInitial = strategyLabel
+    ? (strategyLabel.match(/[A-Za-z0-9]/)?.[0] || '').toUpperCase()
+    : ''
   const strategyColor = p.strategyColor || '#c9a84c'
 
   const SquareOffBtn = isOpen ? (
@@ -283,14 +286,19 @@ function PositionRow({ p, last, marketOpen, onSquareOff }: {
               <span className="text-[8px] tracking-widest uppercase px-1.5 py-0.5 rounded"
                 style={{ background:'rgba(255,255,255,0.06)', color:'rgba(255,255,255,0.4)' }}>CLOSED</span>
             )}
-            {strategyLabel && (
-              <span className="text-[8px] tracking-wider uppercase px-1.5 py-0.5 rounded"
-                style={{ background: `${strategyColor}26`, color: strategyColor, border: `1px solid ${strategyColor}59` }}>
-                {strategyLabel}
+            {strategyInitial && (
+              <span
+                className="w-4 h-4 rounded-full flex items-center justify-center text-[8px] font-semibold"
+                title={strategyLabel || undefined}
+                style={{
+                  background: `${strategyColor}26`,
+                  color: strategyColor,
+                  border: `1px solid ${strategyColor}59`,
+                }}
+              >
+                {strategyInitial}
               </span>
             )}
-            <span className="text-[8px] tracking-widest uppercase px-1.5 py-0.5 rounded"
-              style={{ background:'rgba(255,255,255,0.04)', color:'rgba(255,255,255,0.4)' }}>{p.product}</span>
           </div>
           <div className="text-[11px] dt-text-muted">
             Avg <span style={{ color:'rgba(255,255,255,0.75)' }}>{p.avgPrice > 0 ? `₹${p.avgPrice.toFixed(2)}` : '—'}</span>
@@ -331,14 +339,20 @@ function PositionRow({ p, last, marketOpen, onSquareOff }: {
             <span className="text-[8px] tracking-widest uppercase px-1.5 py-0.5 rounded"
               style={{ background:'rgba(255,255,255,0.06)', color:'rgba(255,255,255,0.4)', fontFamily:'JetBrains Mono, monospace' }}>CLOSED</span>
           )}
-          {strategyLabel && (
-            <span className="text-[8px] tracking-wider uppercase px-1.5 py-0.5 rounded"
-              style={{ background: `${strategyColor}26`, color: strategyColor, border: `1px solid ${strategyColor}59`, fontFamily:'JetBrains Mono, monospace' }}>
-              {strategyLabel}
+          {strategyInitial && (
+            <span
+              className="w-[18px] h-[18px] rounded-full flex items-center justify-center text-[8px] font-semibold"
+              title={strategyLabel || undefined}
+              style={{
+                background: `${strategyColor}26`,
+                color: strategyColor,
+                border: `1px solid ${strategyColor}59`,
+                fontFamily:'JetBrains Mono, monospace',
+              }}
+            >
+              {strategyInitial}
             </span>
           )}
-          <span className="text-[8px] tracking-widest uppercase px-1.5 py-0.5 rounded"
-            style={{ background:'rgba(255,255,255,0.04)', color:'rgba(255,255,255,0.4)', fontFamily:'JetBrains Mono, monospace' }}>{p.product}</span>
         </div>
         <span className="col-span-1 text-right text-white/70" style={{ fontFamily:'JetBrains Mono, monospace' }}>{p.qty}</span>
         <span className="col-span-2 text-right text-white/70" style={{ fontFamily:'JetBrains Mono, monospace' }}>
