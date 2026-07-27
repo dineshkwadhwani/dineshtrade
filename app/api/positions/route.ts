@@ -9,6 +9,7 @@ import { NextResponse } from 'next/server'
 import { cookies } from 'next/headers'
 import { verifySession } from '@/lib/auth'
 import { resolveAccountCreds, getPositions, getOrders, getQuotes, type KiteOrder } from '@/lib/kite'
+import { getStrategies } from '@/lib/strategyConfig'
 
 // Live broker data — every request must hit Kite fresh, never serve from cache.
 export const dynamic = 'force-dynamic'
@@ -19,6 +20,8 @@ export interface EnrichedPosition {
   exchange: string
   product: string
   strategyId?: string      // inferred from latest today's BUY tag (dt-*)
+  strategyName?: string
+  strategyColor?: string
   qty: number
   avgPrice: number
   ltp: number
@@ -65,6 +68,7 @@ export async function GET(req: Request) {
     getPositions(creds).catch(() => ({ day: [], net: [] })),
     getOrders(creds).catch(() => [] as KiteOrder[]),
   ])
+  const strategiesById = new Map(getStrategies().map(s => [s.id, s]))
 
   // Kite's two endpoints disagree on price:
   //   - /portfolio/positions returns p.last_price that's updated when the
@@ -114,6 +118,7 @@ export async function GET(req: Request) {
   const openRows: EnrichedPosition[] = positions.day.map(p => {
     const sym = p.tradingsymbol.toUpperCase()
     const strategyId = strategyIdFromTag(latestBuyOrderBySymbol.get(sym)?.tag)
+    const strategyMeta = strategyId ? strategiesById.get(strategyId) : undefined
     const buyAgg = buyAggBySymbol.get(sym)
     const sellAgg = sellAggBySymbol.get(sym)
     // Closed-leg qty = min of buys and sells filled today. Their VWAP-of-VWAPs gives
@@ -142,6 +147,8 @@ export async function GET(req: Request) {
       exchange: p.exchange,
       product: p.product,
       strategyId,
+      strategyName: strategyMeta?.name,
+      strategyColor: strategyMeta?.color,
       qty: p.quantity,
       avgPrice: p.average_price || 0,
       ltp: liveLtp,
@@ -179,12 +186,15 @@ export async function GET(req: Request) {
     const lastOrder = lastOrderBySymbol.get(sym)
     const buyVwap = buyAgg && buyAgg.qty > 0 ? buyAgg.notional / buyAgg.qty : 0
     const strategyId = strategyIdFromTag(latestBuyOrderBySymbol.get(sym)?.tag)
+    const strategyMeta = strategyId ? strategiesById.get(strategyId) : undefined
 
     closedOrderOnlyRows.push({
       symbol: sym,
       exchange: lastOrder?.exchange || 'NSE',
       product: lastOrder?.product || 'CNC',
       strategyId,
+      strategyName: strategyMeta?.name,
+      strategyColor: strategyMeta?.color,
       qty: 0,
       avgPrice: buyVwap,
       ltp: liveLtp,

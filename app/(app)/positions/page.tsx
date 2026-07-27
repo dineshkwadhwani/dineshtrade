@@ -248,6 +248,10 @@ function PositionRow({ p, last, marketOpen, onSquareOff }: {
   const unrealizedPct = isOpen && p.avgPrice > 0 && p.ltp > 0
     ? ((p.ltp - p.avgPrice) / p.avgPrice) * 100
     : null
+  const strategyLabel = p.strategyName
+    ? p.strategyName.toUpperCase().slice(0, 14)
+    : (p.strategyId ? p.strategyId.replace(/[_-]+/g, ' ').toUpperCase().slice(0, 14) : null)
+  const strategyColor = p.strategyColor || '#c9a84c'
 
   const SquareOffBtn = isOpen ? (
     <button onClick={onSquareOff} disabled={!marketOpen}
@@ -278,6 +282,12 @@ function PositionRow({ p, last, marketOpen, onSquareOff }: {
             {!isOpen && (
               <span className="text-[8px] tracking-widest uppercase px-1.5 py-0.5 rounded"
                 style={{ background:'rgba(255,255,255,0.06)', color:'rgba(255,255,255,0.4)' }}>CLOSED</span>
+            )}
+            {strategyLabel && (
+              <span className="text-[8px] tracking-wider uppercase px-1.5 py-0.5 rounded"
+                style={{ background: `${strategyColor}26`, color: strategyColor, border: `1px solid ${strategyColor}59` }}>
+                {strategyLabel}
+              </span>
             )}
             <span className="text-[8px] tracking-widest uppercase px-1.5 py-0.5 rounded"
               style={{ background:'rgba(255,255,255,0.04)', color:'rgba(255,255,255,0.4)' }}>{p.product}</span>
@@ -320,6 +330,12 @@ function PositionRow({ p, last, marketOpen, onSquareOff }: {
           {!isOpen && (
             <span className="text-[8px] tracking-widest uppercase px-1.5 py-0.5 rounded"
               style={{ background:'rgba(255,255,255,0.06)', color:'rgba(255,255,255,0.4)', fontFamily:'JetBrains Mono, monospace' }}>CLOSED</span>
+          )}
+          {strategyLabel && (
+            <span className="text-[8px] tracking-wider uppercase px-1.5 py-0.5 rounded"
+              style={{ background: `${strategyColor}26`, color: strategyColor, border: `1px solid ${strategyColor}59`, fontFamily:'JetBrains Mono, monospace' }}>
+              {strategyLabel}
+            </span>
           )}
           <span className="text-[8px] tracking-widest uppercase px-1.5 py-0.5 rounded"
             style={{ background:'rgba(255,255,255,0.04)', color:'rgba(255,255,255,0.4)', fontFamily:'JetBrains Mono, monospace' }}>{p.product}</span>
