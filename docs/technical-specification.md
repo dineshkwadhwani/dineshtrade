@@ -790,12 +790,124 @@ pm2 restart dineshtrade --update-env
 
 Use `pm2 start npm --name dineshtrade -- start` only for first-time setup. That launches the custom `server.ts` entrypoint, which starts Next and cron in the same PM2-owned process. On later deploys, `restart` or `reload` the existing process instead of creating a new PM2 app entry.
 
-### 9.5 Health check
+### 9.5 Server health check
 
 - `pm2 list` → `dineshtrade` should show `online`
 - `pm2 logs dineshtrade` → look for `[server] listening on ...` followed by a single `[cron] starting ...`
 - `curl https://dineshtrade.online/login` → 200
 - `ls -la ~/dineshtrade/data/` → state.json + journal-* present with mode `-rw-------`
+
+### 9.6 Integration health page (`/health`)
+
+Purpose: a single UI to validate external integrations without reading PM2 logs.
+
+- Page route: `/health` (inside authenticated app layout)
+- API route: `GET /api/health?test=zerodha|ai|email`
+- Auth: same `dt_session` cookie check used by other app routes; unauthenticated calls return `401`
+
+#### 9.6.1 UI behavior
+
+- The page shows 3 cards and buttons:
+  - `Zerodha`
+  - `AI Provider`
+  - `Email (SMTP)`
+- Each test card supports:
+  - `Test` (runs one integration)
+  - status badge (`Not tested`, `Testing…`, `OK`, `Failed`)
+  - in-page logs with levels (`info`, `ok`, `warn`, `error`)
+- `Test All` runs all three tests in parallel from the browser.
+
+#### 9.6.2 API contract
+
+Request:
+
+```http
+GET /api/health?test=zerodha
+GET /api/health?test=ai
+GET /api/health?test=email
+```
+
+Success response shape:
+
+```json
+{
+  "ok": true,
+  "logs": [
+    { "level": "info", "msg": "..." },
+    { "level": "ok", "msg": "..." }
+  ]
+}
+```
+
+Failure behavior:
+
+- Invalid `test` query value → `400` with `{ "error": "Invalid test..." }`
+- Missing/invalid session → `401` with `{ "error": "Unauthorized" }`
+- Integration-specific issues are returned in `logs` (`level: "error"`) and reflected by `ok: false`
+
+#### 9.6.3 Zerodha test (`test=zerodha`)
+
+What it checks:
+
+1. Accounts exist in `config/accounts.json`
+2. At least one access token exists in `state.kiteTokens`
+3. Credentials resolve via `resolveAccountCreds(account)`
+4. Kite connectivity works by calling `/user/profile`
+
+Key log outputs:
+
+- Account discovery and token presence
+- Per-account credential resolution
+- Successful profile fetch (`user_name`, `email`, `broker`) or token/API failure reason
+
+#### 9.6.4 AI test (`test=ai`)
+
+What it checks:
+
+1. Active provider from `AI_PROVIDER`
+2. Provider model selection
+3. Required API key env var exists (`<PROVIDER>_AI_API_KEY`)
+4. Round-trip inference works via `callAI(...)`
+
+Test prompt:
+
+- `Reply with exactly: "DineshTrade health check OK"`
+
+Key log outputs:
+
+- Provider and model in use
+- API key presence check
+- Request duration and returned text
+
+#### 9.6.5 Email test (`test=email`)
+
+What it checks:
+
+1. SMTP env visibility (`SMTP_HOST`, `SMTP_PORT`, `SMTP_USER`, `SMTP_PASS`, `NOTIFY_TO`)
+2. Config completeness (`isEmailConfigured()`)
+3. Actual send via `sendTestEmail()`
+
+Key log outputs:
+
+- Effective SMTP target and config status
+- Success with `messageId`
+- Failure detail (including explicit auth hint for Gmail `535` / invalid login)
+
+#### 9.6.6 Caching and freshness
+
+- `/api/health` is dynamic (`force-dynamic`) and intended for live checks.
+- The Holdings tag feed (`/api/strategy/positions`) also uses `no-store` cache headers so strategy badges reflect latest data after fixes.
+
+#### 9.6.7 Operational usage
+
+Recommended run order after deploy:
+
+1. Open `/health`
+2. Run `Zerodha`
+3. Run `AI Provider`
+4. Run `Email (SMTP)`
+
+All three must be green before market-open automation is considered healthy.
 
 ---
 

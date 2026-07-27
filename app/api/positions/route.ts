@@ -18,6 +18,7 @@ export interface EnrichedPosition {
   symbol: string
   exchange: string
   product: string
+  strategyId?: string      // inferred from latest today's BUY tag (dt-*)
   qty: number
   avgPrice: number
   ltp: number
@@ -37,6 +38,15 @@ export interface ClosedTodaySummary {
   buyVwap: number
   sellVwap: number
   realized: number
+}
+
+function strategyIdFromTag(tag?: string): string | undefined {
+  if (!tag || !tag.startsWith('dt-')) return undefined
+  if (tag === 'dt-manual') return undefined
+  let sid = tag.slice(3).replace(/-(t1|t2|exit)$/, '')
+  if (sid === 's1') sid = 'accumulator'
+  else if (sid === 's2') sid = 'catalyst'
+  return sid || undefined
 }
 
 export async function GET(req: Request) {
@@ -76,6 +86,7 @@ export async function GET(req: Request) {
   // Index today's filled orders by symbol → ids + buy/sell-side avgs.
   const orderIdsBySymbol = new Map<string, string[]>()
   const lastOrderBySymbol = new Map<string, KiteOrder>()
+  const latestBuyOrderBySymbol = new Map<string, KiteOrder>()
   // For best-effort realized P&L: track per-symbol sum(qty × price) on each side
   // from today's COMPLETE orders. realized = sellNotional − buyNotional × (min sold qty).
   const buyAggBySymbol = new Map<string, { qty: number; notional: number }>()
@@ -89,6 +100,10 @@ export async function GET(req: Request) {
     lastOrderBySymbol.set(sym, o)
     const filled = o.filled_quantity || o.quantity || 0
     const price = o.average_price || 0
+    if (o.transaction_type === 'BUY') {
+      const prev = latestBuyOrderBySymbol.get(sym)
+      if (!prev || o.order_timestamp > prev.order_timestamp) latestBuyOrderBySymbol.set(sym, o)
+    }
     const bucket = o.transaction_type === 'BUY' ? buyAggBySymbol : sellAggBySymbol
     const cur = bucket.get(sym) || { qty: 0, notional: 0 }
     cur.qty += filled
@@ -98,6 +113,7 @@ export async function GET(req: Request) {
 
   const openRows: EnrichedPosition[] = positions.day.map(p => {
     const sym = p.tradingsymbol.toUpperCase()
+    const strategyId = strategyIdFromTag(latestBuyOrderBySymbol.get(sym)?.tag)
     const buyAgg = buyAggBySymbol.get(sym)
     const sellAgg = sellAggBySymbol.get(sym)
     // Closed-leg qty = min of buys and sells filled today. Their VWAP-of-VWAPs gives
@@ -125,6 +141,7 @@ export async function GET(req: Request) {
       symbol: sym,
       exchange: p.exchange,
       product: p.product,
+      strategyId,
       qty: p.quantity,
       avgPrice: p.average_price || 0,
       ltp: liveLtp,
@@ -161,11 +178,13 @@ export async function GET(req: Request) {
     const dayChangePct = prevClose > 0 && liveLtp > 0 ? ((liveLtp - prevClose) / prevClose) * 100 : undefined
     const lastOrder = lastOrderBySymbol.get(sym)
     const buyVwap = buyAgg && buyAgg.qty > 0 ? buyAgg.notional / buyAgg.qty : 0
+    const strategyId = strategyIdFromTag(latestBuyOrderBySymbol.get(sym)?.tag)
 
     closedOrderOnlyRows.push({
       symbol: sym,
       exchange: lastOrder?.exchange || 'NSE',
       product: lastOrder?.product || 'CNC',
+      strategyId,
       qty: 0,
       avgPrice: buyVwap,
       ltp: liveLtp,

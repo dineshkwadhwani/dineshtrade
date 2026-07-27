@@ -24,6 +24,7 @@ interface Holding {
   day_change: number
   day_change_percentage: number
   source?: 'holding' | 't0'
+  t0StrategyId?: string
   lots?: Array<{ id: string; entryPrice: number; remainingQty: number; boughtAt: string; strategyId?: string }>
 }
 
@@ -55,6 +56,7 @@ function positionToHolding(position: EnrichedPosition): Holding {
     day_change: Number.isFinite(dayChange) ? dayChange : 0,
     day_change_percentage: dayChangePct,
     source: 't0',
+    t0StrategyId: (position as any).strategyId,
     lots: (position as any).lots,
   }
 }
@@ -444,10 +446,8 @@ export default function HoldingsPage() {
                 // a same-day T0 lot under another. Only T0 rows should reflect the
                 // latest lot strategy; settled rows stay with owner strategy.
                 let tag = baseTag
-                if (isT0Position && h.lots && h.lots.length > 0) {
-                  const latestLot = [...h.lots]
-                    .sort((a, b) => b.boughtAt.localeCompare(a.boughtAt))[0]
-                  const lotStrategyId = latestLot?.strategyId
+                if (isT0Position) {
+                  const lotStrategyId = h.t0StrategyId || ([...(h.lots || [])].sort((a, b) => b.boughtAt.localeCompare(a.boughtAt))[0]?.strategyId)
                   if (lotStrategyId && lotStrategyId !== baseTag?.strategyId) {
                     const s = strategyById.get(lotStrategyId)
                     tag = {
