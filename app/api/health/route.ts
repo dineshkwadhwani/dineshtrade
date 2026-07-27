@@ -49,7 +49,7 @@ async function testZerodha(): Promise<LogLine[]> {
     }
     log(lines, 'ok', `[${account}] API key resolved — calling Kite /user/profile...`)
     try {
-      const res = await kiteRequest<{ data?: { user_name?: string; email?: string; broker?: string } }>(
+      const res = await kiteRequest<{ user_name?: string; email?: string; broker?: string }>(
         '/user/profile', creds
       )
       if (res?.data) {
