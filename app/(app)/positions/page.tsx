@@ -220,8 +220,8 @@ export default function PositionsPage() {
           isOpen={true}
           onClose={() => setSquareOff(null)}
           symbol={squareOff.symbol}
-          initialSide="SELL"
-          initialQty={squareOff.qty}
+          initialSide={squareOff.qty > 0 ? 'SELL' : 'BUY'}
+          initialQty={Math.abs(squareOff.qty)}
           initialProduct={squareOff.product === 'MIS' ? 'MIS' : 'CNC'}
           ltp={squareOff.ltp}
           dayChangePct={squareOff.dayChangePct}

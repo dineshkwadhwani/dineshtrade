@@ -294,21 +294,21 @@ export async function monitorAccount(account: string): Promise<MonitorResult> {
       if (!lotTranche1Done && ltp >= lotT2Price) {
         sellQty = lot.remainingQty
         sellReason = `Lot ${lotLabel}: LTP ₹${ltp.toFixed(2)} ≥ T2 ₹${lotT2Price.toFixed(2)} (skipped past T1) — selling entire lot`
-      } else if (!lotTranche1Done && observedHigh >= lotT2Price && ltp < lotT2Price) {
+      } else if (!lotTranche1Done && observedHigh >= lotT2Price && ltp < lotT2Price && ltp > lot.entryPrice) {
         sellQty = lot.remainingQty
         sellReason = `Lot ${lotLabel}: T2 was hit intraday at ₹${observedHigh.toFixed(2)} but price retreated to ₹${ltp.toFixed(2)} — selling lot at market`
       } else if (!lotTranche1Done && ltp >= lotT1Price) {
         sellQty = Math.max(1, Math.floor(lot.remainingQty / 2))
         sellReason = `Lot ${lotLabel}: LTP ₹${ltp.toFixed(2)} ≥ T1 ₹${lotT1Price.toFixed(2)} — tranche 1 sell (50% of ${lot.remainingQty})`
         markTranche1 = true
-      } else if (!lotTranche1Done && observedHigh >= lotT1Price && ltp < lotT1Price) {
+      } else if (!lotTranche1Done && observedHigh >= lotT1Price && ltp < lotT1Price && ltp > lot.entryPrice) {
         sellQty = Math.max(1, Math.floor(lot.remainingQty / 2))
         sellReason = `Lot ${lotLabel}: T1 was hit intraday at ₹${observedHigh.toFixed(2)} but price retreated to ₹${ltp.toFixed(2)} — selling lot at market`
         markTranche1 = true
       } else if (lotTranche1Done && ltp >= lotT2Price) {
         sellQty = lot.remainingQty
         sellReason = `Lot ${lotLabel}: LTP ₹${ltp.toFixed(2)} ≥ T2 ₹${lotT2Price.toFixed(2)} — tranche 2 sell (remainder)`
-      } else if (lotTranche1Done && observedHigh >= lotT2Price && ltp < lotT2Price) {
+      } else if (lotTranche1Done && observedHigh >= lotT2Price && ltp < lotT2Price && ltp > lot.entryPrice) {
         sellQty = lot.remainingQty
         sellReason = `Lot ${lotLabel}: T2 was hit intraday at ₹${observedHigh.toFixed(2)} but price retreated to ₹${ltp.toFixed(2)} — selling lot at market`
       }
