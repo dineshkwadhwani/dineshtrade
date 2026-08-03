@@ -321,14 +321,14 @@ const flattenedHoldings = [
             activeLots = (storeLots || []).filter((lot: any) => (lot.remainingQty || lot.originalQty || 0) > 0)
           }
 
-          if (activeLots.length <= 1) return [h]
+          if (activeLots.length === 0) return [h]
 
           return activeLots.map((lot: any) => ({
             ...h,
-            quantity: lot.remainingQty || lot.originalQty || 0,
+            quantity: lot.remainingQty || 0,
             average_price: lot.entryPrice,
             displayEntryPrice: lot.entryPrice,
-            pnl: (lot.remainingQty || lot.originalQty || 0) * ((h.last_price || 0) - lot.entryPrice),
+            pnl: (lot.remainingQty || 0) * ((h.last_price || 0) - lot.entryPrice),
             lotId: lot.id,
             lots: [lot],
           }))
@@ -499,21 +499,20 @@ const flattenedHoldings = [
                 // Both settled holdings and T0 same-day positions use the same lookup
                 // so strategy attribution is consistent across all pages.
                 const baseTag = posTags.get(`${(activeTab || '').toUpperCase()}:${h.tradingsymbol.toUpperCase()}`)
-                // Mixed-lot symbols can have settled holdings under one strategy and
-                // a same-day T0 lot under another. Only T0 rows should reflect the
-                // latest lot strategy; settled rows stay with owner strategy.
+                const lotStrategyId = h.lots?.[0]?.strategyId || h.t0StrategyId || ([...(h.lots || [])].sort((a, b) => b.boughtAt.localeCompare(a.boughtAt))[0]?.strategyId)
+                // Mixed-lot symbols may render individual lot rows from either the
+                // settled holdings side or the same-day positions side. Prefer the
+                // lot's own strategy when present so the badge/select action updates
+                // that specific lot rather than the symbol-level fallback.
                 let tag = baseTag
-                if (isT0Position) {
-                  const lotStrategyId = h.t0StrategyId || ([...(h.lots || [])].sort((a, b) => b.boughtAt.localeCompare(a.boughtAt))[0]?.strategyId)
-                  if (lotStrategyId && lotStrategyId !== baseTag?.strategyId) {
-                    const s = strategyById.get(lotStrategyId)
-                    tag = {
-                      strategyId: lotStrategyId,
-                      strategyName: s?.name || lotStrategyId,
-                      strategyColor: s?.color || baseTag?.strategyColor || '#c9a84c',
-                      strategyType: s?.type || baseTag?.strategyType,
-                      remainingQty: baseTag?.remainingQty,
-                    }
+                if (lotStrategyId && lotStrategyId !== baseTag?.strategyId) {
+                  const s = strategyById.get(lotStrategyId)
+                  tag = {
+                    strategyId: lotStrategyId,
+                    strategyName: s?.name || lotStrategyId,
+                    strategyColor: s?.color || baseTag?.strategyColor || '#c9a84c',
+                    strategyType: s?.type || baseTag?.strategyType,
+                    remainingQty: baseTag?.remainingQty,
                   }
                 }
                 const isManaged = !!tag
