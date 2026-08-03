@@ -276,16 +276,23 @@ export default function HoldingsPage() {
           return t0Price === undefined || Math.abs(t0Price - h.average_price) > 0.01
         })
 
+        const positionEntryPriceBySymbol = new Map<string, number>()
+        for (const p of Array.isArray(sRes?.positions) ? (sRes.positions as any[]) : []) {
+          if (typeof p.symbol === 'string' && typeof p.firstBuyPrice === 'number' && p.firstBuyPrice > 0) {
+            positionEntryPriceBySymbol.set(p.symbol.toUpperCase(), p.firstBuyPrice)
+          }
+        }
+
         const holdingsWithEntry = dedupedHoldings.map(item => ({
           ...item,
           source: 'holding' as const,
-          displayEntryPrice: item.average_price,
+          displayEntryPrice: positionEntryPriceBySymbol.get(item.tradingsymbol.toUpperCase()) ?? item.average_price,
         }))
 
         const t0Holdings: Holding[] = t0Rows.map(r => ({
           ...r,
           source: 't0',
-          displayEntryPrice: r.average_price,
+          displayEntryPrice: positionEntryPriceBySymbol.get(r.tradingsymbol.toUpperCase()) ?? r.average_price,
         }))
 
         setHoldings(
