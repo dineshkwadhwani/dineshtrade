@@ -26,6 +26,7 @@ interface Holding {
   source?: 'holding' | 't0'
   t0StrategyId?: string
   displayEntryPrice?: number
+  lotId?: string
   lots?: Array<{ id: string; entryPrice: number; remainingQty: number; boughtAt: string; strategyId?: string }>
 }
 
@@ -295,12 +296,27 @@ export default function HoldingsPage() {
           displayEntryPrice: positionEntryPriceBySymbol.get(r.tradingsymbol.toUpperCase()) ?? r.average_price,
         }))
 
-        setHoldings(
-          [
-            ...holdingsWithEntry,
-            ...t0Holdings,
-          ].sort((left, right) => left.tradingsymbol.localeCompare(right.tradingsymbol))
-        )
+        const flattenedHoldings = [
+          ...holdingsWithEntry,
+          ...t0Holdings,
+        ].flatMap(h => {
+          const activeLots = (h.lots || []).filter(lot => lot.remainingQty > 0)
+          if (activeLots.length <= 1) return [h]
+          return activeLots.map(lot => ({
+            ...h,
+            quantity: lot.remainingQty,
+            average_price: lot.entryPrice,
+            displayEntryPrice: lot.entryPrice,
+            pnl: lot.remainingQty * ((h.last_price || 0) - lot.entryPrice),
+            lotId: lot.id,
+            lots: [lot],
+          }))
+        })
+
+        setHoldings(flattenedHoldings.sort((left, right) => {
+          if (left.tradingsymbol !== right.tradingsymbol) return left.tradingsymbol.localeCompare(right.tradingsymbol)
+          return (left.lotId || '').localeCompare(right.lotId || '')
+        }))
       }
       // Strategy tag map — single source of truth is the positions store.
       // All rows (settled holdings AND same-day T0 positions) use the same map
@@ -450,7 +466,7 @@ export default function HoldingsPage() {
                 style={{ fontFamily:'JetBrains Mono, monospace' }}>
                 <span className="col-span-3">Symbol</span>
                 <span className="col-span-1 text-right">Qty</span>
-                <span className="col-span-2 text-right">Avg</span>
+                <span className="col-span-2 text-right">Entry</span>
                 <span className="col-span-2 text-right">LTP</span>
                 <span className="col-span-2 text-right">P&L</span>
                 <span className="col-span-2 text-right">Action</span>
@@ -495,8 +511,7 @@ export default function HoldingsPage() {
                 const isShortPosition = qty < 0
                 const actionQty = Math.abs(qty)
                 const pnlPct = h.displayEntryPrice && h.displayEntryPrice > 0 ? ((h.last_price - h.displayEntryPrice) / h.displayEntryPrice) * 100 : 0
-                const activeLots = (h.lots || []).filter(lot => lot.remainingQty > 0).sort((a, b) => a.boughtAt.localeCompare(b.boughtAt))
-                const displayEntryPrice = h.displayEntryPrice ?? activeLots[0]?.entryPrice ?? h.average_price
+                const displayEntryPrice = h.displayEntryPrice ?? h.average_price
 
                 const badgeStyle = {
                   background: isManaged ? `${badgeColor}26` : 'rgba(255,255,255,0.05)',
@@ -557,15 +572,6 @@ export default function HoldingsPage() {
                         <div className="text-[11px] dt-text-muted">
                           Entry <span style={{ color:'rgba(255,255,255,0.75)' }}>₹{displayEntryPrice.toFixed(2)}</span>
                         </div>
-                        {activeLots.length > 0 && (
-                          <div className="text-[9px] dt-text-muted mt-1 space-y-0.5">
-                            {activeLots.map(lot => (
-                              <div key={lot.id} style={{ color:'rgba(96,165,250,0.7)' }}>
-                                ↳ {lot.remainingQty} @ ₹{lot.entryPrice.toFixed(2)}
-                              </div>
-                            ))}
-                          </div>
-                        )}
                         <div className="text-[11px] dt-text-muted">
                           Qty <span style={{ color:'rgba(255,255,255,0.75)' }}>{qty}</span>
                         </div>
@@ -604,15 +610,6 @@ export default function HoldingsPage() {
                       <span className="col-span-1 text-right text-white/70" style={{ fontFamily:'JetBrains Mono, monospace' }}>{qty}</span>
                       <div className="col-span-2 text-right">
                         <div style={{ fontFamily:'JetBrains Mono, monospace', color:'rgba(255,255,255,0.6)' }}>₹{displayEntryPrice.toFixed(2)}</div>
-                        {activeLots.length > 0 && (
-                          <div className="text-[9px] mt-1 space-y-0.5">
-                            {activeLots.map(lot => (
-                              <div key={lot.id} style={{ color:'rgba(96,165,250,0.7)', fontFamily:'JetBrains Mono, monospace' }}>
-                                {lot.remainingQty} @ ₹{lot.entryPrice.toFixed(2)}
-                              </div>
-                            ))}
-                          </div>
-                        )}
                       </div>
                       <div className="col-span-2 text-right" style={{ fontFamily:'JetBrains Mono, monospace' }}>
                         <div className="dt-text-primary">₹{h.last_price.toFixed(2)}</div>
