@@ -283,6 +283,14 @@ export default function HoldingsPage() {
             positionEntryPriceBySymbol.set(p.symbol.toUpperCase(), p.firstBuyPrice)
           }
         }
+        // Map symbol -> lots from the unified positions store. Use these when
+        // Kite's holdings endpoint doesn't include per-lot details (common).
+        const positionLotsBySymbol = new Map<string, Array<any>>()
+        for (const p of Array.isArray(sRes?.positions) ? (sRes.positions as any[]) : []) {
+          if (typeof p.symbol === 'string' && Array.isArray(p.lots) && p.lots.length > 0) {
+            positionLotsBySymbol.set(p.symbol.toUpperCase(), p.lots)
+          }
+        }
 
         const holdingsWithEntry = dedupedHoldings.map(item => ({
           ...item,
@@ -300,14 +308,20 @@ export default function HoldingsPage() {
           ...holdingsWithEntry,
           ...t0Holdings,
         ].flatMap(h => {
-          const activeLots = (h.lots || []).filter(lot => lot.remainingQty > 0)
+          // Prefer lots already present on the holding; otherwise fall back to
+          // the unified positions store lots for this symbol.
+          let activeLots = (h.lots || []).filter(lot => lot.remainingQty > 0)
+          if (activeLots.length === 0) {
+            const storeLots = positionLotsBySymbol.get((h.tradingsymbol || '').toUpperCase()) || []
+            activeLots = (storeLots || []).filter((lot: any) => (lot.remainingQty || lot.originalQty || 0) > 0)
+          }
           if (activeLots.length <= 1) return [h]
-          return activeLots.map(lot => ({
+          return activeLots.map((lot: any) => ({
             ...h,
-            quantity: lot.remainingQty,
+            quantity: lot.remainingQty || lot.originalQty || 0,
             average_price: lot.entryPrice,
             displayEntryPrice: lot.entryPrice,
-            pnl: lot.remainingQty * ((h.last_price || 0) - lot.entryPrice),
+            pnl: (lot.remainingQty || lot.originalQty || 0) * ((h.last_price || 0) - lot.entryPrice),
             lotId: lot.id,
             lots: [lot],
           }))
