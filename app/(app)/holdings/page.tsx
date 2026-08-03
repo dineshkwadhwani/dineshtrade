@@ -475,6 +475,8 @@ export default function HoldingsPage() {
                 const isShortPosition = qty < 0
                 const actionQty = Math.abs(qty)
                 const pnlPct = h.average_price > 0 ? ((h.last_price - h.average_price) / h.average_price) * 100 : 0
+                const activeLots = (h.lots || []).filter(lot => lot.remainingQty > 0).sort((a, b) => a.boughtAt.localeCompare(b.boughtAt))
+                const displayEntryPrice = activeLots[0]?.entryPrice ?? h.average_price
 
                 const badgeStyle = {
                   background: isManaged ? `${badgeColor}26` : 'rgba(255,255,255,0.05)',
@@ -533,16 +535,14 @@ export default function HoldingsPage() {
                           {Badge}
                         </div>
                         <div className="text-[11px] dt-text-muted">
-                          Avg <span style={{ color:'rgba(255,255,255,0.75)' }}>₹{h.average_price.toFixed(2)}</span>
+                          Entry <span style={{ color:'rgba(255,255,255,0.75)' }}>₹{displayEntryPrice.toFixed(2)}</span>
                         </div>
-                        {h.lots && h.lots.length > 1 && (
+                        {activeLots.length > 0 && (
                           <div className="text-[9px] dt-text-muted mt-1 space-y-0.5">
-                            {h.lots.map(lot => (
-                              lot.remainingQty > 0 && (
-                                <div key={lot.id} style={{ color:'rgba(96,165,250,0.7)' }}>
-                                  ↳ {lot.remainingQty} @ ₹{lot.entryPrice.toFixed(2)}
-                                </div>
-                              )
+                            {activeLots.map(lot => (
+                              <div key={lot.id} style={{ color:'rgba(96,165,250,0.7)' }}>
+                                ↳ {lot.remainingQty} @ ₹{lot.entryPrice.toFixed(2)}
+                              </div>
                             ))}
                           </div>
                         )}
@@ -583,15 +583,13 @@ export default function HoldingsPage() {
                       </div>
                       <span className="col-span-1 text-right text-white/70" style={{ fontFamily:'JetBrains Mono, monospace' }}>{qty}</span>
                       <div className="col-span-2 text-right">
-                        <div style={{ fontFamily:'JetBrains Mono, monospace', color:'rgba(255,255,255,0.6)' }}>₹{h.average_price.toFixed(2)}</div>
-                        {h.lots && h.lots.length > 1 && (
+                        <div style={{ fontFamily:'JetBrains Mono, monospace', color:'rgba(255,255,255,0.6)' }}>₹{displayEntryPrice.toFixed(2)}</div>
+                        {activeLots.length > 0 && (
                           <div className="text-[9px] mt-1 space-y-0.5">
-                            {h.lots.map(lot => (
-                              lot.remainingQty > 0 && (
-                                <div key={lot.id} style={{ color:'rgba(96,165,250,0.7)', fontFamily:'JetBrains Mono, monospace' }}>
-                                  {lot.remainingQty} @ ₹{lot.entryPrice.toFixed(2)}
-                                </div>
-                              )
+                            {activeLots.map(lot => (
+                              <div key={lot.id} style={{ color:'rgba(96,165,250,0.7)', fontFamily:'JetBrains Mono, monospace' }}>
+                                {lot.remainingQty} @ ₹{lot.entryPrice.toFixed(2)}
+                              </div>
                             ))}
                           </div>
                         )}
