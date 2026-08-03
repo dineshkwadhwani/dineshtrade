@@ -28,8 +28,6 @@ interface Holding {
   displayEntryPrice?: number
   lotId?: string
   lots?: Array<{ id: string; entryPrice: number; remainingQty: number; boughtAt: string; strategyId?: string }>
-  aggregated?: boolean
-  aggregatedLotsCount?: number
 }
 
 interface QuoteEntry {
@@ -89,7 +87,6 @@ export default function HoldingsPage() {
   // Holdings not in the store render as OOS (pre-existing / not auto-managed).
   const [posTags, setPosTags] = useState<Map<string, { strategyId: string; strategyName: string; strategyColor: string; strategyType?: string; remainingQty?: number }>>(new Map())
   const [loaded, setLoaded] = useState(false)
-  const [expandedLots, setExpandedLots] = useState<Record<string, boolean>>({})
   const [orderModal, setOrderModal] = useState<{
     open: boolean; symbol: string; name?: string; side: 'BUY' | 'SELL'; ltp?: number; initialQty?: number; dayChangePct?: number
   }>({ open: false, symbol: '', side: 'SELL' })
@@ -311,43 +308,21 @@ export default function HoldingsPage() {
           displayEntryPrice: positionEntryPriceBySymbol.get(r.tradingsymbol.toUpperCase()) ?? r.average_price,
         }))
 
-        const MAX_LOTS_COLLAPSE = 8
-        const flattenedHoldings = [
+const flattenedHoldings = [
           ...holdingsWithEntry,
           ...t0Holdings,
         ].flatMap(h => {
-          // Do NOT split settled holdings returned from Kite into per-lot rows.
-          // Splitting settled holdings using the positions store can produce
-          // dozens or hundreds of rows (e.g. JINDALSTEL). Only split T0
-          // (same-day) positions which truly represent distinct open lots.
-          if (h.source === 'holding') return [h]
-
-          // For T0 rows, prefer lots already present; otherwise fall back to
-          // the unified positions store lots for this symbol.
-          let activeLots = (h.lots || []).filter(lot => lot.remainingQty > 0)
+          const symbolKey = (h.tradingsymbol || '').toUpperCase()
+          // Gather active lots from the row itself, falling back to the
+          // unified positions store when needed.
+          let activeLots = (h.lots || []).filter((lot: any) => (lot.remainingQty || lot.originalQty || 0) > 0)
           if (activeLots.length === 0) {
-            const storeLots = positionLotsBySymbol.get((h.tradingsymbol || '').toUpperCase()) || []
+            const storeLots = positionLotsBySymbol.get(symbolKey) || []
             activeLots = (storeLots || []).filter((lot: any) => (lot.remainingQty || lot.originalQty || 0) > 0)
           }
+
           if (activeLots.length <= 1) return [h]
-          const symbolKey = (h.tradingsymbol || '').toUpperCase()
-          const isExpanded = !!expandedLots[symbolKey]
-          if (!isExpanded && activeLots.length > MAX_LOTS_COLLAPSE) {
-            // Aggregate into a single collapsed row with metadata.
-            const totalQty = activeLots.reduce((s: number, lot: any) => s + (lot.remainingQty || lot.originalQty || 0), 0)
-            const avgEntry = h.displayEntryPrice ?? (activeLots.reduce((s: number, lot: any) => s + ((lot.entryPrice || 0) * (lot.remainingQty || lot.originalQty || 0)), 0) / Math.max(1, totalQty))
-            return [{
-              ...h,
-              quantity: totalQty,
-              average_price: avgEntry,
-              displayEntryPrice: avgEntry,
-              pnl: totalQty * ((h.last_price || 0) - avgEntry),
-              lotId: undefined,
-              lots: activeLots.slice(0, 3), // small preview
-              aggregatedLotsCount: activeLots.length,
-              aggregated: true,
-            }]
-          }
+
           return activeLots.map((lot: any) => ({
             ...h,
             quantity: lot.remainingQty || lot.originalQty || 0,
@@ -595,11 +570,6 @@ export default function HoldingsPage() {
                     S
                   </button>
                 )
-                const ExpandBtn = h.aggregated ? (
-                  <button onClick={() => setExpandedLots(cur => ({ ...cur, [h.tradingsymbol.toUpperCase()]: true }))}
-                    className="text-[10px] px-2 py-1 rounded text-white/80 bg-indigo-500/10 border border-indigo-500/20">Details</button>
-                ) : null
-
                 return (
                   <div key={`${h.tradingsymbol}-${h.lotId || i}`} className={`px-4 py-3 transition-all hover:bg-white/5 text-[12px]${i < holdings.length - 1 ? ' dt-table-row' : ''}`}>
 
@@ -639,7 +609,7 @@ export default function HoldingsPage() {
                           LTP <span className="dt-text-primary">₹{h.last_price.toFixed(2)}</span>
                           <span className="ml-1.5" style={{ color: dayColor }}>{Math.abs(h.day_change_percentage).toFixed(2)}%</span>
                         </div>
-                        <div className="flex gap-1.5 pt-0.5">{BuyBtn}{SellBtn}{ExpandBtn}</div>
+                        <div className="flex gap-1.5 pt-0.5">{BuyBtn}{SellBtn}</div>
                       </div>
                     </div>
 
