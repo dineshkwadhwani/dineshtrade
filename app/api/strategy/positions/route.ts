@@ -122,7 +122,9 @@ export async function POST(req: Request) {
   if (!existing) {
     return NextResponse.json({ error: `${account}:${symbol} is not tracked in the positions store` }, { status: 404 })
   }
-  if (existing.strategyId === targetStrategyId) {
+  const lotId = typeof body.lotId === 'string' && body.lotId.trim() ? body.lotId.trim() : undefined
+
+  if (!lotId && existing.strategyId === targetStrategyId) {
     return NextResponse.json({ error: `${symbol} is already managed by ${targetStrategyId}` }, { status: 409 })
   }
 
@@ -134,7 +136,14 @@ export async function POST(req: Request) {
     return NextResponse.json({ error: `${target.name} is inactive — only active strategies can own live positions` }, { status: 409 })
   }
 
-  const changed = await setStrategyId(account, symbol, targetStrategyId)
+  let changed = false
+  if (lotId) {
+    // Change only the lot-level strategy
+    const { setLotStrategyId } = await import('@/lib/positions')
+    changed = await setLotStrategyId(account, symbol, lotId, targetStrategyId)
+  } else {
+    changed = await setStrategyId(account, symbol, targetStrategyId)
+  }
   if (!changed) {
     return NextResponse.json({ error: 'Strategy switch did not apply' }, { status: 409 })
   }

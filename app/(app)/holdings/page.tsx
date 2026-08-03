@@ -97,6 +97,7 @@ export default function HoldingsPage() {
     open: boolean
     symbol: string
     currentStrategyId: string
+    lotId?: string
     currentStrategyName: string
     selectedStrategyId: string
     busy: boolean
@@ -136,12 +137,13 @@ export default function HoldingsPage() {
     setSwitchModal({ open: false, symbol: '', currentStrategyId: '', currentStrategyName: '', selectedStrategyId: '', busy: false, error: '' })
   }
 
-  function openStrategySwitch(symbol: string, currentStrategyId: string, currentStrategyName: string) {
+  function openStrategySwitch(symbol: string, currentStrategyId: string, currentStrategyName: string, lotId?: string) {
     const options = activeStrategies.filter(strategy => strategy.id !== currentStrategyId)
     setSwitchModal({
       open: true,
       symbol,
       currentStrategyId,
+      lotId,
       currentStrategyName,
       selectedStrategyId: options[0]?.id || '',
       busy: false,
@@ -153,14 +155,16 @@ export default function HoldingsPage() {
     if (!activeTab || !switchModal.selectedStrategyId || switchModal.busy) return
     setSwitchModal(current => ({ ...current, busy: true, error: '' }))
     try {
+      const body: any = {
+        account: activeTab,
+        symbol: switchModal.symbol,
+        targetStrategyId: switchModal.selectedStrategyId,
+      }
+      if (switchModal.lotId) body.lotId = switchModal.lotId
       const res = await fetch('/api/strategy/positions', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({
-          account: activeTab,
-          symbol: switchModal.symbol,
-          targetStrategyId: switchModal.selectedStrategyId,
-        }),
+        body: JSON.stringify(body),
       })
       const data = await res.json().catch(() => null)
       if (!res.ok || data?.error) {
@@ -562,7 +566,7 @@ export default function HoldingsPage() {
                 }
                 const Badge = canSwitchStrategy ? (
                   <button type="button" title={badgeTitle}
-                    onClick={() => openStrategySwitch(h.tradingsymbol, tag!.strategyId, tag!.strategyName)}
+                    onClick={() => openStrategySwitch(h.tradingsymbol, tag!.strategyId, tag!.strategyName, h.lotId)}
                     className="text-[8px] px-1.5 py-0.5 rounded flex-shrink-0 tracking-wider underline-offset-2 hover:underline"
                     style={badgeStyle}>
                     {badgeLabel}

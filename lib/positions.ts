@@ -465,6 +465,25 @@ export async function setStrategyId(account: string, symbol: string, newStrategy
   return true
 }
 
+// Set the strategyId for a single lot within a tracked position. Returns
+// true if changed. This allows per-lot strategy ownership when a symbol has
+// mixed lots from multiple strategies.
+export async function setLotStrategyId(account: string, symbol: string, lotId: string, newStrategyId: string): Promise<boolean> {
+  const all = await readAll()
+  const k = makeKey(account, symbol)
+  const p = all[k]
+  if (!p || !p.lots || p.lots.length === 0) return false
+  const lot = p.lots.find(l => l.id === lotId)
+  if (!lot) return false
+  if (lot.strategyId === newStrategyId) return false
+  lot.strategyId = newStrategyId
+  console.log(`[positions] re-stamped lot ${k}#${lotId}: → ${newStrategyId}`)
+  // Recompute position summary if needed
+  if (p.lots && p.lots.length > 0) summarizeMomentumPosition(p)
+  await writeAll(all)
+  return true
+}
+
 // Re-stamp the strategyId of every position currently owned by `fromId` to
 // `toId`. Used when a strategy is deactivated or deleted — all its open
 // positions migrate to the accumulator's care. Returns the count migrated.
