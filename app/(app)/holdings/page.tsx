@@ -25,6 +25,7 @@ interface Holding {
   day_change_percentage: number
   source?: 'holding' | 't0'
   t0StrategyId?: string
+  displayEntryPrice?: number
   lots?: Array<{ id: string; entryPrice: number; remainingQty: number; boughtAt: string; strategyId?: string }>
 }
 
@@ -275,10 +276,22 @@ export default function HoldingsPage() {
           return t0Price === undefined || Math.abs(t0Price - h.average_price) > 0.01
         })
 
+        const holdingsWithEntry = dedupedHoldings.map(item => ({
+          ...item,
+          source: 'holding' as const,
+          displayEntryPrice: item.average_price,
+        }))
+
+        const t0Holdings: Holding[] = t0Rows.map(r => ({
+          ...r,
+          source: 't0',
+          displayEntryPrice: r.average_price,
+        }))
+
         setHoldings(
           [
-            ...dedupedHoldings.map(item => ({ ...item, source: 'holding' as const })),
-            ...t0Rows,
+            ...holdingsWithEntry,
+            ...t0Holdings,
           ].sort((left, right) => left.tradingsymbol.localeCompare(right.tradingsymbol))
         )
       }
@@ -474,9 +487,9 @@ export default function HoldingsPage() {
                 const qty = totalQty(h)
                 const isShortPosition = qty < 0
                 const actionQty = Math.abs(qty)
-                const pnlPct = h.average_price > 0 ? ((h.last_price - h.average_price) / h.average_price) * 100 : 0
+                const pnlPct = h.displayEntryPrice && h.displayEntryPrice > 0 ? ((h.last_price - h.displayEntryPrice) / h.displayEntryPrice) * 100 : 0
                 const activeLots = (h.lots || []).filter(lot => lot.remainingQty > 0).sort((a, b) => a.boughtAt.localeCompare(b.boughtAt))
-                const displayEntryPrice = activeLots[0]?.entryPrice ?? h.average_price
+                const displayEntryPrice = h.displayEntryPrice ?? activeLots[0]?.entryPrice ?? h.average_price
 
                 const badgeStyle = {
                   background: isManaged ? `${badgeColor}26` : 'rgba(255,255,255,0.05)',
