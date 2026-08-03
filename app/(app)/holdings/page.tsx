@@ -551,7 +551,7 @@ export default function HoldingsPage() {
                 )
 
                 return (
-                  <div key={`${h.tradingsymbol}-${i}`} className={`px-4 py-3 transition-all hover:bg-white/5 text-[12px]${i < holdings.length - 1 ? ' dt-table-row' : ''}`}>
+                  <div key={`${h.tradingsymbol}-${h.lotId || i}`} className={`px-4 py-3 transition-all hover:bg-white/5 text-[12px]${i < holdings.length - 1 ? ' dt-table-row' : ''}`}>
 
                     {/* ── Mobile: two-column card (hidden on sm+) ── */}
                     <div className="sm:hidden flex items-start justify-between gap-3">
