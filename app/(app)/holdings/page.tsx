@@ -27,7 +27,8 @@ interface Holding {
   t0StrategyId?: string
   displayEntryPrice?: number
   lotId?: string
-  lots?: Array<{ id: string; entryPrice: number; remainingQty: number; boughtAt: string; strategyId?: string }>
+  lots?: Array<{ id: string; entryPrice: number; remainingQty: number; originalQty?: number; boughtAt: string; strategyId?: string }>
+  isPartialLot?: boolean
 }
 
 interface QuoteEntry {
@@ -330,8 +331,7 @@ const flattenedHoldings = [
             displayEntryPrice: lot.entryPrice,
             pnl: (lot.remainingQty || 0) * ((h.last_price || 0) - lot.entryPrice),
             lotId: lot.id,
-            lots: [lot],
-          }))
+            lots: [lot],            isPartialLot: typeof lot.originalQty === 'number' && lot.remainingQty < lot.originalQty,          }))
         })
 
         setHoldings(flattenedHoldings.sort((left, right) => {
@@ -586,6 +586,10 @@ const flattenedHoldings = [
                             <span className="text-[8px] px-1.5 py-0.5 rounded tracking-wider"
                               style={{ background:'rgba(96,165,250,0.12)', color:'rgba(96,165,250,0.8)', border:'1px solid rgba(96,165,250,0.25)' }}>T1</span>
                           )}
+                          {h.isPartialLot && (
+                            <span className="text-[8px] px-1.5 py-0.5 rounded tracking-wider"
+                              style={{ background:'rgba(249,115,22,0.12)', color:'rgba(249,115,22,0.88)', border:'1px solid rgba(249,115,22,0.25)' }}>P</span>
+                          )}
                           {Badge}
                         </div>
                         <div className="text-[11px] dt-text-muted">
@@ -623,6 +627,10 @@ const flattenedHoldings = [
                         {isT1Only && (
                           <span className="text-[8px] px-1.5 py-0.5 rounded tracking-wider"
                             style={{ background:'rgba(96,165,250,0.12)', color:'rgba(96,165,250,0.8)', border:'1px solid rgba(96,165,250,0.25)', fontFamily:'JetBrains Mono, monospace' }}>T1</span>
+                        )}
+                        {h.isPartialLot && (
+                          <span className="text-[8px] px-1.5 py-0.5 rounded tracking-wider"
+                            style={{ background:'rgba(249,115,22,0.12)', color:'rgba(249,115,22,0.88)', border:'1px solid rgba(249,115,22,0.25)', fontFamily:'JetBrains Mono, monospace' }}>P</span>
                         )}
                         {Badge}
                       </div>
