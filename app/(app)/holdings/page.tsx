@@ -250,7 +250,13 @@ export default function HoldingsPage() {
 
         const t0Rows = Array.isArray(pRes?.positions)
           ? (pRes.positions as EnrichedPosition[])
-              .filter(position => position.qty !== 0)
+              .filter(position => {
+                // pRes may come from different sources: Kite's positions have
+                // `qty`, our unified store uses `remainingQty`. Normalize both
+                // and only include rows with positive live quantity.
+                const qty = (position as any).qty ?? (position as any).remainingQty ?? 0
+                return qty !== 0
+              })
               // Include ALL same-day positions, even if the symbol is already in
               // settled holdings — they represent a different lot / strategy.
               .map(positionToHolding)
@@ -320,10 +326,13 @@ const flattenedHoldings = [
           // unified positions store for settled holdings rows, because T0
           // rows are already the live same-day position snapshot and must not
           // be expanded into the same per-lot rows twice.
-          let activeLots = (h.lots || []).filter((lot: any) => (lot.remainingQty || lot.originalQty || 0) > 0)
+          // Only consider lots with remainingQty > 0. Using originalQty here
+          // incorrectly included sold (remainingQty === 0) lots and produced
+          // phantom T0/settled duplicates (e.g. BSE catalyst sold lot).
+          let activeLots = (h.lots || []).filter((lot: any) => (lot.remainingQty || 0) > 0)
           if (activeLots.length === 0 && h.source === 'holding') {
             const storeLots = positionLotsBySymbol.get(symbolKey) || []
-            activeLots = (storeLots || []).filter((lot: any) => (lot.remainingQty || lot.originalQty || 0) > 0)
+            activeLots = (storeLots || []).filter((lot: any) => (lot.remainingQty || 0) > 0)
           }
 
           if (activeLots.length === 0) return [h]
