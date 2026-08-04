@@ -238,7 +238,12 @@ function PositionRow({ p, last, marketOpen, onSquareOff }: {
   p: EnrichedPosition; last: boolean; marketOpen: boolean; onSquareOff: () => void
 }) {
   const isOpen = p.qty !== 0
-  const uColor = p.unrealized >= 0 ? '#52b788' : '#e05a5e'
+  // p.pnl is already unrealized + realized combined (correct for every row
+  // shape: live open positions have realized=0, rows reconciled from a closed
+  // trade have unrealized=0) — use it as the headline figure so a fully
+  // realized sale doesn't display as "+₹0" just because there's no more live
+  // market exposure.
+  const uColor = p.pnl >= 0 ? '#52b788' : '#e05a5e'
   const rColor = p.realized > 0 ? '#52b788' : p.realized < 0 ? '#e05a5e' : 'rgba(255,255,255,0.35)'
   const dc = p.dayChangePct
   const dColor = dc === undefined ? 'rgba(255,255,255,0.8)'
@@ -303,7 +308,7 @@ function PositionRow({ p, last, marketOpen, onSquareOff }: {
         <div className="shrink-0 flex flex-col items-end gap-1" style={{ fontFamily:'JetBrains Mono, monospace' }}>
           <div className="text-right">
             <div className="text-[15px] font-semibold whitespace-nowrap" style={{ color: isOpen ? uColor : 'rgba(255,255,255,0.35)' }}>
-              {isOpen ? signedRupees(p.unrealized) : '—'}
+              {isOpen ? signedRupees(p.pnl) : '—'}
             </div>
             {unrealizedPct !== null && (
               <div className="text-[10px] whitespace-nowrap" style={{ color: uColor, opacity: 0.75 }}>
@@ -348,7 +353,7 @@ function PositionRow({ p, last, marketOpen, onSquareOff }: {
         </span>
         <span className="col-span-2 text-right" style={{ fontFamily:'JetBrains Mono, monospace' }}>
           <div className="font-semibold" style={{ color: isOpen ? uColor : 'rgba(255,255,255,0.35)' }}>
-            {isOpen ? signedRupees(p.unrealized) : '—'}
+            {isOpen ? signedRupees(p.pnl) : '—'}
           </div>
           {unrealizedPct !== null && (
             <div className="text-[9px] mt-0.5" style={{ color: uColor, opacity: 0.75 }}>{signedPct(unrealizedPct)}</div>
