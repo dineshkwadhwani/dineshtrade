@@ -236,56 +236,57 @@ export async function GET(req: Request) {
 
   const filtered = [...openRows, ...closedOrderOnlyRows]
 
-  // Reconcile each row against the journal's trade records. If Kite already
-  // surfaced the sell (matching order id present on the row), trust the
-  // journal for strategy/entry-price/realized since it knows the true lot
-  // the sale came from — Kite's data doesn't. If Kite has no trace of the
-  // trade at all, synthesize the row so it isn't silently missing.
+  // Reconcile against the journal's trade records. Kite's day position is
+  // PER SYMBOL, not per-lot/per-trade — a symbol can have multiple distinct
+  // closed-today trades (e.g. two different lots, under two different
+  // strategies, both sold out of holdings with no offsetting buy) that Kite
+  // nets into a SINGLE row that can't correctly represent even one of them,
+  // let alone both (e.g. two -15 sells net to one -30 "row", which reads like
+  // an open short position, not two closed lots). Rather than patch that one
+  // row in place, drop it for any symbol the journal has trade coverage for
+  // today, and rebuild one row per trade directly from the journal — ground
+  // truth for what actually closed, however many trades there were.
+  const tradesBySymbol = new Map<string, TradeRecord[]>()
   for (const trade of todaysTrades) {
     const sym = trade.symbol.toUpperCase()
-    const strategyMeta = strategiesById.get(trade.strategy)
-    const matchIdx = filtered.findIndex(row =>
-      row.symbol === sym && !!trade.orderIdSell && row.orderIds.includes(trade.orderIdSell))
-    if (matchIdx >= 0) {
-      const row = filtered[matchIdx]
-      if (row.qty === 0) {
-        filtered[matchIdx] = {
-          ...row,
-          strategyId: trade.strategy,
-          strategyName: strategyMeta?.name ?? row.strategyName,
-          strategyColor: strategyMeta?.color ?? row.strategyColor,
-          avgPrice: trade.entryPrice,
-          realized: trade.pnlRupees,
-          pnl: trade.pnlRupees,
-          journalReconciled: true,
-        }
+    const list = tradesBySymbol.get(sym) || []
+    list.push(trade)
+    tradesBySymbol.set(sym, list)
+  }
+  for (const [sym, trades] of Array.from(tradesBySymbol.entries())) {
+    const orderIds = new Set(trades.map(t => t.orderIdSell).filter((id): id is string => !!id))
+    for (let i = filtered.length - 1; i >= 0; i--) {
+      if (filtered[i].symbol === sym && filtered[i].orderIds.some(id => orderIds.has(id))) {
+        filtered.splice(i, 1)
       }
-      continue
     }
-    const quote = quotes[`NSE:${sym}`]
-    const liveLtp = Number(quote?.last_price) || trade.exitPrice
-    const prevClose = Number((quote as any)?.ohlc?.close) || 0
-    const dayChangePct = prevClose > 0 && liveLtp > 0 ? ((liveLtp - prevClose) / prevClose) * 100 : undefined
-    filtered.push({
-      symbol: sym,
-      exchange: 'NSE',
-      product: 'CNC',
-      strategyId: trade.strategy,
-      strategyName: strategyMeta?.name,
-      strategyColor: strategyMeta?.color,
-      qty: 0,
-      avgPrice: trade.entryPrice,
-      ltp: liveLtp,
-      dayChangePct,
-      dayBuyQty: 0,
-      daySellQty: trade.qty,
-      pnl: trade.pnlRupees,
-      m2m: 0,
-      unrealized: 0,
-      realized: trade.pnlRupees,
-      orderIds: trade.orderIdSell ? [trade.orderIdSell] : [],
-      journalReconciled: true,
-    })
+    for (const trade of trades) {
+      const strategyMeta = strategiesById.get(trade.strategy)
+      const quote = quotes[`NSE:${sym}`]
+      const liveLtp = Number(quote?.last_price) || trade.exitPrice
+      const prevClose = Number((quote as any)?.ohlc?.close) || 0
+      const dayChangePct = prevClose > 0 && liveLtp > 0 ? ((liveLtp - prevClose) / prevClose) * 100 : undefined
+      filtered.push({
+        symbol: sym,
+        exchange: 'NSE',
+        product: 'CNC',
+        strategyId: trade.strategy,
+        strategyName: strategyMeta?.name,
+        strategyColor: strategyMeta?.color,
+        qty: 0,
+        avgPrice: trade.entryPrice,
+        ltp: liveLtp,
+        dayChangePct,
+        dayBuyQty: 0,
+        daySellQty: trade.qty,
+        pnl: trade.pnlRupees,
+        m2m: 0,
+        unrealized: 0,
+        realized: trade.pnlRupees,
+        orderIds: trade.orderIdSell ? [trade.orderIdSell] : [],
+        journalReconciled: true,
+      })
+    }
   }
 
   // Also make sure any still-OPEN lot bought TODAY gets its own row. Kite's day
