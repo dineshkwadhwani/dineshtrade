@@ -4,6 +4,19 @@ import OrderModal, { type AccountDisplay } from '@/components/OrderModal'
 import type { EnrichedPosition, ClosedTodaySummary } from '@/app/api/positions/route'
 import { isMarketOpen } from '@/lib/market'
 
+// A row reconciled from today's journal (a lot actually sold today) reports
+// its headline as exitPrice-vs-current-LTP — "if I bought this back right
+// now, where do I stand" — not the realized gain vs entry (p.realized already
+// covers that). Every other row shape (still-open, live exposure) uses p.pnl
+// (unrealized + realized combined). Shared so the per-row figure and the
+// "Day P&L" total never drift apart.
+function headlinePnlFor(p: EnrichedPosition): number {
+  if (typeof p.exitPrice === 'number' && p.daySellQty > 0) {
+    return (p.exitPrice - p.ltp) * p.daySellQty
+  }
+  return p.pnl
+}
+
 export default function PositionsPage() {
   const [accounts, setAccounts] = useState<AccountDisplay[]>([])
   const [connected, setConnected] = useState<string[]>([])
@@ -63,12 +76,14 @@ export default function PositionsPage() {
 
   const openCount = positions.filter(p => p.qty !== 0).length
   const totalUnrealized = positions.reduce((s, p) => s + p.unrealized, 0)
-  const totalRealized = positions.reduce((s, p) => s + p.realized, 0)
   // Capital invested in still-open positions — used as the denominator for the
   // hero %-of-deployed-capital figures so users can read return in context.
   const investedOpen = positions.filter(p => p.qty > 0).reduce((s, p) => s + p.qty * p.avgPrice, 0)
   const totalUnrealizedPct = investedOpen > 0 ? (totalUnrealized / investedOpen) * 100 : null
-  const totalPnl = totalUnrealized + totalRealized
+  // Day P&L must match what each row's headline actually shows — sum the same
+  // per-row figure (headlinePnlFor), not realized+unrealized, or the total
+  // silently uses the entry-vs-exit gain while every row shows exit-vs-LTP.
+  const totalPnl = positions.reduce((s, p) => s + headlinePnlFor(p), 0)
   const capitalDeployed = investedOpen
   const totalPnlPct = capitalDeployed > 0 ? (totalPnl / capitalDeployed) * 100 : null
   const activeAccount = accounts.find(a => a.name === activeTab)
@@ -244,8 +259,7 @@ function PositionRow({ p, last, marketOpen, onSquareOff }: {
   // what "realized" already shows below). p.pnl (unrealized + realized) stays
   // the headline for every other row shape (still-open, live exposure).
   const hasExitPrice = typeof p.exitPrice === 'number' && p.daySellQty > 0
-  const todaysTradePnl = hasExitPrice ? (p.exitPrice! - p.ltp) * p.daySellQty : null
-  const headlinePnl = todaysTradePnl ?? p.pnl
+  const headlinePnl = headlinePnlFor(p)
   const uColor = headlinePnl >= 0 ? '#52b788' : '#e05a5e'
   const rColor = p.realized > 0 ? '#52b788' : p.realized < 0 ? '#e05a5e' : 'rgba(255,255,255,0.35)'
   const dc = p.dayChangePct
