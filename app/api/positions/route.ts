@@ -93,7 +93,8 @@ export async function GET(req: Request) {
   // today) doesn't create a same-day Kite "day" position and its order alone
   // doesn't carry the original multi-day-old buy price, so relying on Kite
   // alone can drop the row entirely or show ₹0 entry price / ₹0 realized P&L.
-  const todaysTrades = (await readJournalDay(istDateString()).catch(() => [] as JournalRecord[]))
+  const today = istDateString()
+  const todaysTrades = (await readJournalDay(today).catch(() => [] as JournalRecord[]))
     .filter((r): r is TradeRecord => r.type === 'trade' && r.account.toUpperCase() === account.toUpperCase())
   const allSymbols = Array.from(new Set([
     ...positions.day.map(p => p.tradingsymbol.toUpperCase()),
@@ -266,6 +267,16 @@ export async function GET(req: Request) {
       const liveLtp = Number(quote?.last_price) || trade.exitPrice
       const prevClose = Number((quote as any)?.ohlc?.close) || 0
       const dayChangePct = prevClose > 0 && liveLtp > 0 ? ((liveLtp - prevClose) / prevClose) * 100 : undefined
+      // A trade whose ENTRY was also today is a genuine same-day round trip —
+      // Kite naturally nets that to qty 0, and it's already covered by
+      // closedToday (built from today's buy+sell order aggregation). A trade
+      // whose entry was a PRIOR day is a sell straight out of settled
+      // holdings — Kite's own day-position semantics represent that as a
+      // NEGATIVE quantity (an outstanding day-sell against the holding), not
+      // a closed/zero row. Preserve that sign so this page reads the same
+      // way the actual Kite Positions tab does.
+      const boughtToday = istDateString(new Date(trade.entryTime)) === today
+      const qty = boughtToday ? 0 : -trade.qty
       filtered.push({
         symbol: sym,
         exchange: 'NSE',
@@ -273,11 +284,11 @@ export async function GET(req: Request) {
         strategyId: trade.strategy,
         strategyName: strategyMeta?.name,
         strategyColor: strategyMeta?.color,
-        qty: 0,
+        qty,
         avgPrice: trade.entryPrice,
         ltp: liveLtp,
         dayChangePct,
-        dayBuyQty: 0,
+        dayBuyQty: boughtToday ? trade.qty : 0,
         daySellQty: trade.qty,
         pnl: trade.pnlRupees,
         m2m: 0,
@@ -297,7 +308,6 @@ export async function GET(req: Request) {
   // The position store is authoritative for per-lot state regardless of what
   // Kite's aggregated view shows, so use it directly for anything not already
   // visibly represented.
-  const today = istDateString()
   for (const p of trackedPositions) {
     for (const lot of p.lots || []) {
       if (lot.remainingQty <= 0) continue
