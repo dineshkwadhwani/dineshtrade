@@ -35,6 +35,7 @@ export interface EnrichedPosition {
   unrealized: number       // qty × (ltp − avgPrice)  -- 0 when fully closed
   realized: number         // best-effort closed-leg P&L for today
   journalReconciled?: boolean  // avgPrice/strategy/realized came from the journal's trade record, not Kite — don't second-guess it
+  exitPrice?: number       // price this lot was actually sold at today (journalReconciled rows only) — lets the UI show a re-entry-relative figure (exitPrice vs current LTP) distinct from realized (exitPrice vs entryPrice)
   orderIds: string[]       // today's COMPLETE order ids for this symbol
 }
 
@@ -294,6 +295,7 @@ export async function GET(req: Request) {
         m2m: 0,
         unrealized: 0,
         realized: trade.pnlRupees,
+        exitPrice: trade.exitPrice,
         orderIds: trade.orderIdSell ? [trade.orderIdSell] : [],
         journalReconciled: true,
       })

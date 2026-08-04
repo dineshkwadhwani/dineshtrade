@@ -238,21 +238,24 @@ function PositionRow({ p, last, marketOpen, onSquareOff }: {
   p: EnrichedPosition; last: boolean; marketOpen: boolean; onSquareOff: () => void
 }) {
   const isOpen = p.qty !== 0
-  // p.pnl is already unrealized + realized combined (correct for every row
-  // shape: live open positions have realized=0, rows reconciled from a closed
-  // trade have unrealized=0) — use it as the headline figure so a fully
-  // realized sale doesn't display as "+₹0" just because there's no more live
-  // market exposure.
-  const uColor = p.pnl >= 0 ? '#52b788' : '#e05a5e'
+  // For a row reconciled from today's journal (a lot actually sold today), the
+  // headline should answer "if I bought this back right now, where do I stand"
+  // — i.e. exitPrice vs current LTP — not the realized gain vs entry (that's
+  // what "realized" already shows below). p.pnl (unrealized + realized) stays
+  // the headline for every other row shape (still-open, live exposure).
+  const hasExitPrice = typeof p.exitPrice === 'number' && p.daySellQty > 0
+  const todaysTradePnl = hasExitPrice ? (p.exitPrice! - p.ltp) * p.daySellQty : null
+  const headlinePnl = todaysTradePnl ?? p.pnl
+  const uColor = headlinePnl >= 0 ? '#52b788' : '#e05a5e'
   const rColor = p.realized > 0 ? '#52b788' : p.realized < 0 ? '#e05a5e' : 'rgba(255,255,255,0.35)'
   const dc = p.dayChangePct
   const dColor = dc === undefined ? 'rgba(255,255,255,0.8)'
     : dc > 0 ? '#52b788' : dc < 0 ? '#e05a5e' : 'rgba(255,255,255,0.7)'
-  // Position-level return since entry — what the user wants under each row's P&L.
-  // For open positions: (ltp - avg)/avg. For closed: skip (qty is 0).
-  const unrealizedPct = isOpen && p.avgPrice > 0 && p.ltp > 0
-    ? ((p.ltp - p.avgPrice) / p.avgPrice) * 100
-    : null
+  // Position-level return to match the headline figure above: exitPrice-vs-LTP
+  // for a reconciled sold-today row, entry-vs-LTP for a still-open position.
+  const unrealizedPct = hasExitPrice
+    ? (p.exitPrice! > 0 ? ((p.exitPrice! - p.ltp) / p.exitPrice!) * 100 : null)
+    : (isOpen && p.avgPrice > 0 && p.ltp > 0 ? ((p.ltp - p.avgPrice) / p.avgPrice) * 100 : null)
   const strategyLabel = p.strategyName
     ? p.strategyName.trim()
     : (p.strategyId ? p.strategyId.replace(/[_-]+/g, ' ').trim() : null)
@@ -307,8 +310,8 @@ function PositionRow({ p, last, marketOpen, onSquareOff }: {
         {/* Right — P&L (₹ + %), LTP, button */}
         <div className="shrink-0 flex flex-col items-end gap-1" style={{ fontFamily:'JetBrains Mono, monospace' }}>
           <div className="text-right">
-            <div className="text-[15px] font-semibold whitespace-nowrap" style={{ color: isOpen ? uColor : 'rgba(255,255,255,0.35)' }}>
-              {isOpen ? signedRupees(p.pnl) : '—'}
+            <div className="text-[15px] font-semibold whitespace-nowrap" style={{ color: (isOpen || hasExitPrice) ? uColor : 'rgba(255,255,255,0.35)' }}>
+              {(isOpen || hasExitPrice) ? signedRupees(headlinePnl) : '—'}
             </div>
             {unrealizedPct !== null && (
               <div className="text-[10px] whitespace-nowrap" style={{ color: uColor, opacity: 0.75 }}>
@@ -352,8 +355,8 @@ function PositionRow({ p, last, marketOpen, onSquareOff }: {
           )}
         </span>
         <span className="col-span-2 text-right" style={{ fontFamily:'JetBrains Mono, monospace' }}>
-          <div className="font-semibold" style={{ color: isOpen ? uColor : 'rgba(255,255,255,0.35)' }}>
-            {isOpen ? signedRupees(p.pnl) : '—'}
+          <div className="font-semibold" style={{ color: (isOpen || hasExitPrice) ? uColor : 'rgba(255,255,255,0.35)' }}>
+            {(isOpen || hasExitPrice) ? signedRupees(headlinePnl) : '—'}
           </div>
           {unrealizedPct !== null && (
             <div className="text-[9px] mt-0.5" style={{ color: uColor, opacity: 0.75 }}>{signedPct(unrealizedPct)}</div>
