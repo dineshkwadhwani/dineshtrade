@@ -311,11 +311,22 @@ export default function HoldingsPage() {
           displayEntryPrice: positionEntryPriceBySymbol.get(item.tradingsymbol.toUpperCase()) ?? item.average_price,
         }))
 
-        const t0Holdings: Holding[] = t0Rows.map(r => ({
-          ...r,
-          source: 't0',
-          displayEntryPrice: positionEntryPriceBySymbol.get(r.tradingsymbol.toUpperCase()) ?? r.average_price,
-        }))
+        const t0Holdings: Holding[] = t0Rows.map(r => {
+          const symbolKey = r.tradingsymbol.toUpperCase()
+          // Try to attribute a per-lot strategy for T0 rows by matching the
+          // row's avg price to a lot in the unified positions store. This
+          // ensures closed/sold T0 rows that came from a `catalyst` lot keep
+          // their original strategy tag instead of inheriting the parent's.
+          const storeLots = positionLotsBySymbol.get(symbolKey) || []
+          const matchedLot = storeLots.find((lot: any) => Math.abs((lot.entryPrice || 0) - (r.average_price || 0)) <= 0.01)
+          const t0StrategyId = (matchedLot && matchedLot.strategyId) || (r as any).strategyId || (r as any).t0StrategyId
+          return {
+            ...r,
+            source: 't0',
+            displayEntryPrice: positionEntryPriceBySymbol.get(r.tradingsymbol.toUpperCase()) ?? r.average_price,
+            t0StrategyId,
+          }
+        })
 
 const flattenedHoldings = [
           ...holdingsWithEntry,
