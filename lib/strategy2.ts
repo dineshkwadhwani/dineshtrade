@@ -238,9 +238,11 @@ export async function monitorAccount(account: string): Promise<MonitorResult> {
       continue
     }
 
-    // Age check — handoff to Accumulator if too old (skip when handoffDays=0 i.e. never hand off)
+    // Age check — handoff to Accumulator if the root position belongs to a
+    // momentum strategy. For mixed-root positions, keep the position alive and
+    // let individual lots drive their own strategy exits.
     const ageDays = ageInCalendarDays(pos.firstBuyAt)
-    if (handoffDays > 0 && ageDays >= handoffDays) {
+    if (momentumIds.has(pos.strategyId) && handoffDays > 0 && ageDays >= handoffDays) {
       const handedOff = await ensureStrategy1Tracking(account, symbol, pos.remainingQty, pos.firstBuyPrice, `strategy2_age_${Math.floor(ageDays)}d`)
         .catch(err => { console.error('[strategy2] handoff to s1 failed:', err); return false })
       await removeStrategy2Position(account, symbol)
@@ -273,8 +275,13 @@ export async function monitorAccount(account: string): Promise<MonitorResult> {
 
     for (const lot of lots) {
       if (lot.remainingQty < 1) continue
-      const lotT1Price = lot.entryPrice * (1 + t1Pct / 100)
-      const lotT2Price = lot.entryPrice * (1 + t2Pct / 100)
+      const lotStrategyId = lot.strategyId || pos.strategyId
+      const lotStrategy = getStrategyById(lotStrategyId)
+      const lotStrategyName = lotStrategy?.name || lotStrategyId
+      const lotT1Pct = lotStrategy?.exits?.t1Pct ?? 1.5
+      const lotT2Pct = lotStrategy?.exits?.t2Pct ?? 2.0
+      const lotT1Price = lot.entryPrice * (1 + lotT1Pct / 100)
+      const lotT2Price = lot.entryPrice * (1 + lotT2Pct / 100)
       const lotGainPct = ((ltp - lot.entryPrice) / lot.entryPrice) * 100
       const lotTranche1Done = !!lot.tranche1At
       const lotLabel = `${new Date(lot.boughtAt).toLocaleDateString('en-IN', { timeZone: 'Asia/Kolkata' })} @ ₹${lot.entryPrice.toFixed(2)}`
@@ -343,7 +350,7 @@ export async function monitorAccount(account: string): Promise<MonitorResult> {
           price: ltp,
           reason: `Lot ${lotLabel}: ${skipReason}`,
           status: 'skipped',
-          strategyId: pos.strategyId,
+          strategyId: lotStrategyId,
         }).catch(err => console.error('[strategy2] exit monitor journal write failed:', err))
         continue
       }
@@ -374,8 +381,8 @@ export async function monitorAccount(account: string): Promise<MonitorResult> {
           dayHighAfterEntry: dayHigh,
           dayLowAfterEntry: dayLow,
           leftOnTable: Math.max(0, dayHigh - ltp),
-          verdict: classifyVerdict({ strategy: 'catalyst', entryPrice: lot.entryPrice, exitPrice: ltp, t1TriggerPct: t1Pct }),
-          strategy: pos.strategyId,
+          verdict: classifyVerdict({ strategy: 'catalyst', entryPrice: lot.entryPrice, exitPrice: ltp, t1TriggerPct: lotT1Pct }),
+          strategy: lotStrategyId,
           orderIdSell: placed.data.data.order_id,
           notes: sellReason,
         }).catch(err => console.error('[strategy2] journal write failed:', err))
@@ -390,7 +397,7 @@ export async function monitorAccount(account: string): Promise<MonitorResult> {
           account, accountDisplayName: displayName, symbol,
           side: 'SELL', quantity: actualQty, price: ltp,
           orderId: placed.data.data.order_id,
-          source: `${ownerStrategyName} auto-exit @ +${lotGainPct.toFixed(2)}%`,
+          source: `${lotStrategyName} auto-exit @ +${lotGainPct.toFixed(2)}%`,
           reason: sellReason,
           mode: 'auto',
         }).catch(err => console.error('[strategy2] sold-email failed:', err))
@@ -408,7 +415,7 @@ export async function monitorAccount(account: string): Promise<MonitorResult> {
           price: ltp,
           reason: `Lot ${lotLabel}: Kite SELL failed — ${errMsg}`,
           status: 'failed',
-          strategyId: pos.strategyId,
+          strategyId: lotStrategyId,
         }).catch(err => console.error('[strategy2] exit monitor journal write failed:', err))
         sendEmail('trade_failed', {
           account, accountDisplayName: displayName, symbol,

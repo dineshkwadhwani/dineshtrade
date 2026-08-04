@@ -55,7 +55,8 @@ export async function listStrategy2Positions(): Promise<S2PositionWithKey[]> {
   const momentumIds = new Set(getStrategies().filter(s => s.type === 'momentum').map(s => s.id))
   const all = await positions.listPositions()
   return all
-    .filter(p => momentumIds.has(p.strategyId))
+    .filter(p => momentumIds.has(p.strategyId)
+      || Array.isArray(p.lots) && p.lots.some(lot => typeof lot.strategyId === 'string' && momentumIds.has(lot.strategyId)))
     .map(p => ({
       account: p.account,
       symbol: p.symbol,
