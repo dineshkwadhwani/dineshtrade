@@ -266,20 +266,22 @@ export default function HoldingsPage() {
               })
           : []
 
+        const t0ActiveRows = t0Rows.filter(r => totalQty(r) > 0)
         // De-duplicate: if a T0 row has the same symbol+avgPrice as the holding
         // (can happen if the only buy was today and Kite shows it in both), prefer
         // the T0 row and drop the holding to avoid a phantom duplicate.
-        // IMPORTANT: only include T0 rows with qty > 0. A zero-qty T0 row is a
-        // closed/sold position (e.g. T1 auto-sell, manual sell) — it is NOT a
-        // duplicate of a remaining settled holding and must never suppress it.
-        const t0Symbols = new Map(
-          t0Rows.filter(r => totalQty(r) > 0).map(r => [r.tradingsymbol.toUpperCase(), r.average_price])
-        )
+        const t0PricesBySymbol = new Map<string, number[]>()
+        for (const row of t0ActiveRows) {
+          const symbol = row.tradingsymbol.toUpperCase()
+          const prices = t0PricesBySymbol.get(symbol) || []
+          prices.push(row.average_price)
+          t0PricesBySymbol.set(symbol, prices)
+        }
+
         const dedupedHoldings = enrichedHoldings.filter(h => {
-          const t0Price = t0Symbols.get(h.tradingsymbol.toUpperCase())
-          // Only drop the holding if its avg price matches the T0 price exactly
-          // (same-day-only buy appearing in both endpoints — Kite quirk)
-          return t0Price === undefined || Math.abs(t0Price - h.average_price) > 0.01
+          const prices = t0PricesBySymbol.get(h.tradingsymbol.toUpperCase())
+          if (!prices || prices.length === 0) return true
+          return !prices.some(price => Math.abs(price - h.average_price) <= 0.01)
         })
 
         const positionEntryPriceBySymbol = new Map<string, number>()
@@ -314,10 +316,12 @@ const flattenedHoldings = [
           ...t0Holdings,
         ].flatMap(h => {
           const symbolKey = (h.tradingsymbol || '').toUpperCase()
-          // Gather active lots from the row itself, falling back to the
-          // unified positions store when needed.
+          // Gather active lots from the row itself. Only fallback to the
+          // unified positions store for settled holdings rows, because T0
+          // rows are already the live same-day position snapshot and must not
+          // be expanded into the same per-lot rows twice.
           let activeLots = (h.lots || []).filter((lot: any) => (lot.remainingQty || lot.originalQty || 0) > 0)
-          if (activeLots.length === 0) {
+          if (activeLots.length === 0 && h.source === 'holding') {
             const storeLots = positionLotsBySymbol.get(symbolKey) || []
             activeLots = (storeLots || []).filter((lot: any) => (lot.remainingQty || lot.originalQty || 0) > 0)
           }
@@ -331,7 +335,9 @@ const flattenedHoldings = [
             displayEntryPrice: lot.entryPrice,
             pnl: (lot.remainingQty || 0) * ((h.last_price || 0) - lot.entryPrice),
             lotId: lot.id,
-            lots: [lot],            isPartialLot: typeof lot.originalQty === 'number' && lot.remainingQty < lot.originalQty,          }))
+            lots: [lot],
+            isPartialLot: typeof lot.originalQty === 'number' && lot.remainingQty < lot.originalQty,
+          }))
         })
 
         setHoldings(flattenedHoldings.sort((left, right) => {
