@@ -85,6 +85,9 @@ export interface PreflightInput {
   side: 'BUY' | 'SELL'
   quantity: number
   pricePerShare: number
+  // Optional lot-level buy price for SELL preflight. When provided, the no-loss
+  // gate evaluates P&L against this basis instead of Kite's average held price.
+  buyPricePerShare?: number
   // Strategy id — used by the sector concentration gate. Optional; absent means
   // skip sector gate (e.g. manual orders, legacy callers).
   strategyId?: string
@@ -407,39 +410,41 @@ export async function runPreflight(input: PreflightInput): Promise<PreflightResu
         .filter(v => Number.isFinite(v) && v > 0)
       const avg = avgCandidates[0] ?? 0
       const ltp = ltpCandidates[0] ?? 0
+      const basis = input.buyPricePerShare && input.buyPricePerShare > 0 ? input.buyPricePerShare : avg
+      const basisLabel = input.buyPricePerShare ? 'basis' : 'avg'
       const evalQty = Math.max(1, Math.floor(sellAdjustedQty ?? quantity))
-      if (avg <= 0 || ltp <= 0) {
+      if (basis <= 0 || ltp <= 0) {
         return {
           ok: false,
           gate: 'noLossSell',
-          reason: `${account}: ${symbol} — unable to verify no-loss exit (avg=${avg}, ltp=${ltp}); blocking auto SELL`,
+          reason: `${account}: ${symbol} — unable to verify no-loss exit (${basisLabel}=${basis}, ltp=${ltp}); blocking auto SELL`,
         }
       }
-      if (avg > 0 && ltp > 0 && evalQty > 0) {
+      if (basis > 0 && ltp > 0 && evalQty > 0) {
         const model: 'intraday' | 'delivery' = heldQty > 0 ? 'delivery' : 'intraday'
-        const buyValue = avg * evalQty
+        const buyValue = basis * evalQty
         const sellValue = ltp * evalQty
         const grossPnl = sellValue - buyValue
         const estimatedCharges = estimateExitCharges(model, buyValue, sellValue)
         const netPnl = round2(grossPnl - estimatedCharges)
         if (netPnl < 0) {
-          const lossPct = ((avg - ltp) / avg * 100).toFixed(2)
+          const lossPct = ((basis - ltp) / basis * 100).toFixed(2)
           const netLoss = Math.abs(netPnl).toFixed(2)
           const gross = round2(grossPnl).toFixed(2)
           const charges = estimatedCharges.toFixed(2)
           return {
             ok: false,
             gate: 'noLossSell',
-            reason: `${account}: ${symbol} at ₹${ltp.toFixed(2)} vs avg ₹${avg.toFixed(2)} (${lossPct.startsWith('-') ? '' : ltp >= avg ? '+' : '−'}${Math.abs(Number(lossPct)).toFixed(2)}%) — estimated ${model} net P&L is -₹${netLoss} (gross ₹${gross}, charges ₹${charges})`,
+            reason: `${account}: ${symbol} at ₹${ltp.toFixed(2)} vs ${basisLabel} ₹${basis.toFixed(2)} (${lossPct.startsWith('-') ? '' : ltp >= basis ? '+' : '−'}${Math.abs(Number(lossPct)).toFixed(2)}%) — estimated ${model} net P&L is -₹${netLoss} (gross ₹${gross}, charges ₹${charges})`,
           }
         }
       }
 
-      if (avg > 0 && ltp > 0 && ltp < avg) {
-        const lossPct = ((avg - ltp) / avg * 100).toFixed(2)
+      if (basis > 0 && ltp > 0 && ltp < basis) {
+        const lossPct = ((basis - ltp) / basis * 100).toFixed(2)
         return {
           ok: false, gate: 'noLossSell',
-          reason: `${account}: ${symbol} at ₹${ltp} vs avg ₹${avg} (−${lossPct}%) — Auto mode never sells at a loss`,
+          reason: `${account}: ${symbol} at ₹${ltp} vs ${basisLabel} ₹${basis} (−${lossPct}%) — Auto mode never sells at a loss`,
         }
       }
     }

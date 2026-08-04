@@ -322,7 +322,7 @@ export async function monitorAccount(account: string): Promise<MonitorResult> {
 
       if (sellQty === 0) continue
 
-      const pre = await runPreflight({ account, symbol, side: 'SELL', quantity: sellQty, pricePerShare: ltp })
+      const pre = await runPreflight({ account, symbol, side: 'SELL', quantity: sellQty, pricePerShare: ltp, buyPricePerShare: lot.entryPrice })
       if (!pre.ok) {
         const skipReason = pre.gate === 'noShort'
           ? 'Position no longer held in Kite (manually closed?) — skipping'

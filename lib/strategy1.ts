@@ -158,7 +158,7 @@ export async function monitorAccountStrategy1(account: string): Promise<Strategy
 
       if (!lot.tranche1At && ltp >= t2Trigger) {
         const intentQty = lot.remainingQty
-        const pre = await runPreflight({ account, symbol, side: 'SELL', quantity: intentQty, pricePerShare: ltp })
+        const pre = await runPreflight({ account, symbol, side: 'SELL', quantity: intentQty, pricePerShare: ltp, buyPricePerShare: lot.entryPrice })
         if (!pre.ok) {
           if (pre.gate === 'noLossSell') {
             appendJournal({
@@ -226,7 +226,7 @@ export async function monitorAccountStrategy1(account: string): Promise<Strategy
           entries.push({ account, accountDisplayName: displayName, symbol, action: 'skipped', reason: `Invalid qty ${intentQty}` })
           continue
         }
-        const pre = await runPreflight({ account, symbol, side: 'SELL', quantity: intentQty, pricePerShare: ltp })
+        const pre = await runPreflight({ account, symbol, side: 'SELL', quantity: intentQty, pricePerShare: ltp, buyPricePerShare: lot.entryPrice })
         if (!pre.ok) {
           if (pre.gate === 'noLossSell') {
             appendJournal({
@@ -292,7 +292,7 @@ export async function monitorAccountStrategy1(account: string): Promise<Strategy
 
       if (lot.tranche1At && ltp >= t2Trigger) {
         const intentQty = lot.remainingQty
-        const pre = await runPreflight({ account, symbol, side: 'SELL', quantity: intentQty, pricePerShare: ltp })
+        const pre = await runPreflight({ account, symbol, side: 'SELL', quantity: intentQty, pricePerShare: ltp, buyPricePerShare: lot.entryPrice })
         if (!pre.ok) {
           if (pre.gate === 'noLossSell') {
             appendJournal({
