@@ -147,11 +147,18 @@ function ensureMomentumLots(position: Position): PositionLot[] {
   return position.lots
 }
 
+// Returns true only if normalizing actually mutated the position (e.g. first-time
+// legacy lot synthesis, or a derived field was stale). Reporting "changed" when
+// nothing actually changed causes migrateIfNeeded() to rewrite positions.json on
+// every single read (listPositions/getPosition are called constantly — every page
+// load, every cron tick) — which turns a plain read into a write racing against
+// any concurrent recordBuy/applyLotSell, silently dropping the other write's lot.
 async function normalizePosition(position: Position): Promise<boolean> {
   if (!(await isTrackedStrategyId(position.strategyId))) return false
+  const before = JSON.stringify(position)
   ensureMomentumLots(position)
   summarizeMomentumPosition(position)
-  return true
+  return JSON.stringify(position) !== before
 }
 
 export async function listPositionLots(position: Position): Promise<PositionLot[]> {

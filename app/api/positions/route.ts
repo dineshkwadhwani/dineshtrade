@@ -288,6 +288,52 @@ export async function GET(req: Request) {
     })
   }
 
+  // Also make sure any still-OPEN lot bought TODAY gets its own row. Kite's day
+  // position is per-SYMBOL, not per-lot: if a symbol has both an old lot sold
+  // AND a brand new lot bought today (possibly under a different strategy),
+  // Kite nets them into a single row that can only reflect one side — and the
+  // journal reconciliation above already claimed that row for the closed lot.
+  // The position store is authoritative for per-lot state regardless of what
+  // Kite's aggregated view shows, so use it directly for anything not already
+  // visibly represented.
+  const today = istDateString()
+  for (const p of trackedPositions) {
+    for (const lot of p.lots || []) {
+      if (lot.remainingQty <= 0) continue
+      if (istDateString(new Date(lot.boughtAt)) !== today) continue
+      const sym = p.symbol.toUpperCase()
+      const alreadyRepresented = filtered.some(row =>
+        row.symbol === sym && row.qty === lot.remainingQty && Math.abs(row.avgPrice - lot.entryPrice) <= 0.01)
+      if (alreadyRepresented) continue
+      const lotStrategyId = lot.strategyId || p.strategyId
+      const strategyMeta = strategiesById.get(lotStrategyId)
+      const quote = quotes[`NSE:${sym}`]
+      const liveLtp = Number(quote?.last_price) || lot.entryPrice
+      const prevClose = Number((quote as any)?.ohlc?.close) || 0
+      const dayChangePct = prevClose > 0 && liveLtp > 0 ? ((liveLtp - prevClose) / prevClose) * 100 : undefined
+      filtered.push({
+        symbol: sym,
+        exchange: 'NSE',
+        product: 'CNC',
+        strategyId: lotStrategyId,
+        strategyName: strategyMeta?.name,
+        strategyColor: strategyMeta?.color,
+        qty: lot.remainingQty,
+        avgPrice: lot.entryPrice,
+        ltp: liveLtp,
+        dayChangePct,
+        dayBuyQty: lot.remainingQty,
+        daySellQty: 0,
+        pnl: lot.remainingQty * (liveLtp - lot.entryPrice),
+        m2m: 0,
+        unrealized: lot.remainingQty * (liveLtp - lot.entryPrice),
+        realized: 0,
+        orderIds: [],
+        journalReconciled: true,
+      })
+    }
+  }
+
   const closedToday: ClosedTodaySummary[] = []
   for (const sym of allSymbols) {
     const buyAgg = buyAggBySymbol.get(sym)
