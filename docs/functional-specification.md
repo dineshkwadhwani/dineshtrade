@@ -734,6 +734,8 @@ The status column shows a single glyph instead of the raw Kite enum, with a tool
 
 Hard-coded in preflight gate 8 (no-short / no-loss-sell). **Auto-mode SELLs** fail this gate if `ltp < entryPrice`. **Manual SELLs** are exempt — the user is the human override.
 
+- Current progress: lot-level SELL flows now pass `buyPricePerShare` into `runPreflight()` so auto exits evaluate the individual lot entry price rather than the position average. This resolves mixed-root and per-lot strategy exit defects.
+
 ### CB2 — Idempotency for "execute again" clicks
 
 The in-process ledger (`${account}:${date}:${symbol}`, BUY-only) means double-clicking Execute on the Engine page in a single session won't fire the same BUY twice. Crossing midnight IST resets the ledger.

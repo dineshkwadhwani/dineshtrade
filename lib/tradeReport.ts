@@ -757,8 +757,7 @@ export async function buildLiveTradeReport(options: LiveTradeReportOptions): Pro
   const unrealizedPnl = clampMoney(includedTrades.reduce((sum, trade) => sum + trade.unrealizedPnl, 0))
   const chargeSummary = applyBacktestCharges(includedTrades, toDate)
   const closedTrades = includedTrades.filter(trade => trade.remainingQty === 0)
-  const closedChargeSummary = applyBacktestCharges(closedTrades, toDate)
-  const realizedPnl = clampMoney(closedTrades.reduce((sum, trade) => sum + trade.realizedPnl, 0))
+  const realizedPnl = clampMoney(allRealizedPnl)
   const totalPnl = clampMoney(allRealizedPnl + unrealizedPnl)
   const endingCapital = clampMoney(startingCapital + totalPnl)
   const wins = closedTrades.filter(trade => (trade.netRealizedPnl ?? trade.realizedPnl) > 0).length
@@ -769,11 +768,9 @@ export async function buildLiveTradeReport(options: LiveTradeReportOptions): Pro
   const avgUtilizationPct = startingCapital > 0 && equityCurve.length > 0
     ? Number(((equityCurve.reduce((sum, point) => sum + point.marketValue, 0) / equityCurve.length / startingCapital) * 100).toFixed(2))
     : null
-  const incurredCharges = closedChargeSummary.incurredCharges ?? closedChargeSummary.totalCharges ?? 0
+  const incurredCharges = chargeSummary.incurredCharges ?? chargeSummary.totalCharges ?? 0
   const chargesAsPctOfGross = realizedPnl > 0
-    ? Number((((closedChargeSummary.netRealizedPnl !== undefined
-      ? realizedPnl - closedChargeSummary.netRealizedPnl
-      : incurredCharges) / realizedPnl) * 100).toFixed(2))
+    ? Number((((realizedPnl - chargeSummary.netRealizedPnl) / realizedPnl) * 100).toFixed(2))
     : null
   const dipDays = new Set(includedTrades.filter(trade => trade.strategyId === 'accumulator').map(trade => trade.entryDate)).size
   const momentumDays = new Set(includedTrades.filter(trade => trade.strategyId === 'catalyst').map(trade => trade.entryDate)).size
@@ -794,10 +791,10 @@ export async function buildLiveTradeReport(options: LiveTradeReportOptions): Pro
       momentumDays,
       startingCapital,
       endingCapital,
-      totalCharges: closedChargeSummary.totalCharges,
+      totalCharges: chargeSummary.totalCharges,
       incurredCharges,
       realizedPnl,
-      netRealizedPnl: closedChargeSummary.netRealizedPnl,
+      netRealizedPnl: chargeSummary.netRealizedPnl,
       unrealizedPnl,
       netUnrealizedPnl: chargeSummary.netUnrealizedPnl,
       totalPnl,

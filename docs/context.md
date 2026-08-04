@@ -81,6 +81,7 @@ The original "two strategies" model evolved on 21 May into a **multi-strategy fr
 - **Exit T2:** that same lot sells the remainder at its own entry × 1.020
 - **Live target-touch fallback:** if the latest completed 5-minute candle high touched T1/T2 but current LTP has retraced, Catalyst can still fire the exit immediately so cron ticks do not miss a valid touch. Quote day-high is not used.
 - **No-loss guard:** that fallback does not bypass the no-loss rider when the current sell price is below the lot's own entry.
+- **Progress:** lot-level SELL logic now passes each lot's own `entryPrice` into preflight, so profitable lots can exit independently even when the row-level average is underwater.
 - **Handoff:** if `firstBuyAt` age ≥ `deliveryHandoffDays` (default 15) the position's `strategyId` is re-stamped to `accumulator` — accumulator's EMA-based exits take over.
 - **When used:** "Catalyst mode" (positive/flat days)
 

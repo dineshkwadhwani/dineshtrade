@@ -497,6 +497,9 @@ Type check only (no build): `npx tsc --noEmit`
 
 ## 12. OPEN ISSUES / KNOWN BUGS (as of 11 Jun 2026)
 
+- **Resolved:** holdings display now derives weighted average from currently open lots and exposes per-lot price/qty breakdown for UI rendering.
+- **Resolved:** mixed-root positions (e.g. BSE) now preserve lot-level `strategyId` and evaluate per-lot exits by that lot's own strategy instead of the row-level fallback.
+- **Resolved:** no-loss preflight now accepts `buyPricePerShare` and evaluates SELL gate 8 against each lot's own entry price when exiting a single lot.
 - **Login with Kite button**: clicking navigates to `/api/zerodha/login` which should redirect to Kite OAuth. If it "refreshes" instead, check `ZERODHA_ENVIRONMENT` and `PROD_ZERODHA_API_KEY_DINESH` env vars on EC2.
 - **Light mode**: attribute selector overrides apply after React hydration. SSR-rendered pages may flash before light mode applies.
 
