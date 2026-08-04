@@ -276,6 +276,19 @@ async function writeAll(p: PositionsMap): Promise<void> {
   await writeJsonAtomic(POS_FILE, p)
 }
 
+// Serializes every read-modify-write against positions.json. All cron tasks +
+// API routes run in one long-lived Node process (PM2, not clustered), so an
+// in-process mutex is sufficient here — no cross-process locking needed.
+// Without it, two BUY/SELL operations whose `await`s land in the same
+// event-loop window can interleave: both read the same pre-mutation snapshot,
+// and whichever writes last silently drops the other's lot.
+let lockQueue: Promise<unknown> = Promise.resolve()
+function withLock<T>(fn: () => Promise<T>): Promise<T> {
+  const run = lockQueue.then(fn, fn)
+  lockQueue = run.then(() => undefined, () => undefined)
+  return run
+}
+
 // ─── Public API ────────────────────────────────────────────────────────────
 
 // Pyramid-aware BUY recorder. If a position exists for (account, symbol):
@@ -286,28 +299,58 @@ async function writeAll(p: PositionsMap): Promise<void> {
 // erase lot-level exits; we need the new fill to remain independently sellable.
 // Otherwise create fresh entry with the given strategyId.
 export async function recordBuy(strategyId: string, account: string, symbol: string, qty: number, price: number): Promise<void> {
-  const positions = await readAll()
-  const k = makeKey(account, symbol)
-  const existing = positions[k]
-  if (existing) {
-    const existingTracked = await isTrackedStrategyId(existing.strategyId)
-    const incomingTracked = await isTrackedStrategyId(strategyId)
-    if (existingTracked || incomingTracked) {
-      const lots = ensureMomentumLots(existing)
-      lots.push(makeLot(qty, price, new Date().toISOString(), strategyId))
-      summarizeMomentumPosition(existing)
-      if (existing.strategyId !== strategyId) {
-        console.log(`[positions] lot BUY ${k} +${qty} @ ₹${price} (owner stays ${existing.strategyId}; source strategy ${strategyId}; lots ${lots.length}; avg ₹${existing.firstBuyPrice}, remaining ${existing.remainingQty})`)
+  return withLock(async () => {
+    const positions = await readAll()
+    const k = makeKey(account, symbol)
+    const existing = positions[k]
+    if (existing) {
+      const existingTracked = await isTrackedStrategyId(existing.strategyId)
+      const incomingTracked = await isTrackedStrategyId(strategyId)
+      if (existingTracked || incomingTracked) {
+        const lots = ensureMomentumLots(existing)
+        lots.push(makeLot(qty, price, new Date().toISOString(), strategyId))
+        summarizeMomentumPosition(existing)
+        if (existing.strategyId !== strategyId) {
+          console.log(`[positions] lot BUY ${k} +${qty} @ ₹${price} (owner stays ${existing.strategyId}; source strategy ${strategyId}; lots ${lots.length}; avg ₹${existing.firstBuyPrice}, remaining ${existing.remainingQty})`)
+        } else {
+          console.log(`[positions] lot BUY ${k} +${qty} @ ₹${price} (lots ${lots.length}; avg ₹${existing.firstBuyPrice}, remaining ${existing.remainingQty}, strategyId=${existing.strategyId})`)
+        }
       } else {
-        console.log(`[positions] lot BUY ${k} +${qty} @ ₹${price} (lots ${lots.length}; avg ₹${existing.firstBuyPrice}, remaining ${existing.remainingQty}, strategyId=${existing.strategyId})`)
+        existing.totalQty += qty
+        existing.remainingQty += qty
+        console.log(`[positions] pyramid BUY ${k} +${qty} @ ₹${price} (totalQty ${existing.totalQty}; anchor unchanged @ ₹${existing.firstBuyPrice}, strategyId=${existing.strategyId})`)
       }
     } else {
-      existing.totalQty += qty
-      existing.remainingQty += qty
-      console.log(`[positions] pyramid BUY ${k} +${qty} @ ₹${price} (totalQty ${existing.totalQty}; anchor unchanged @ ₹${existing.firstBuyPrice}, strategyId=${existing.strategyId})`)
+      const next: Position = {
+        strategyId,
+        account: account.toUpperCase(),
+        symbol: symbol.toUpperCase(),
+        firstBuyPrice: price,
+        firstBuyAt: new Date().toISOString(),
+        totalQty: qty,
+        remainingQty: qty,
+        tranche1At: null,
+      }
+      if (await isTrackedStrategyId(strategyId)) {
+        next.lots = [makeLot(qty, price, next.firstBuyAt, strategyId)]
+        summarizeMomentumPosition(next)
+      }
+      positions[k] = next
+      console.log(`[positions] new ${strategyId} position ${k} × ${qty} @ ₹${price}`)
     }
-  } else {
-    const next: Position = {
+    await writeAll(positions)
+  })
+}
+
+// Idempotent — only creates a new entry if (account, symbol) doesn't already
+// have one. Used by the handoff flow (re-stamping strategyId is a separate
+// op via setStrategyId). Returns true on create, false if skipped.
+export async function ensureTracked(strategyId: string, account: string, symbol: string, qty: number, price: number): Promise<boolean> {
+  return withLock(async () => {
+    const positions = await readAll()
+    const k = makeKey(account, symbol)
+    if (positions[k]) return false
+    positions[k] = {
       strategyId,
       account: account.toUpperCase(),
       symbol: symbol.toUpperCase(),
@@ -317,178 +360,170 @@ export async function recordBuy(strategyId: string, account: string, symbol: str
       remainingQty: qty,
       tranche1At: null,
     }
-    if (await isTrackedStrategyId(strategyId)) {
-      next.lots = [makeLot(qty, price, next.firstBuyAt, strategyId)]
-      summarizeMomentumPosition(next)
-    }
-    positions[k] = next
-    console.log(`[positions] new ${strategyId} position ${k} × ${qty} @ ₹${price}`)
-  }
-  await writeAll(positions)
-}
-
-// Idempotent — only creates a new entry if (account, symbol) doesn't already
-// have one. Used by the handoff flow (re-stamping strategyId is a separate
-// op via setStrategyId). Returns true on create, false if skipped.
-export async function ensureTracked(strategyId: string, account: string, symbol: string, qty: number, price: number): Promise<boolean> {
-  const positions = await readAll()
-  const k = makeKey(account, symbol)
-  if (positions[k]) return false
-  positions[k] = {
-    strategyId,
-    account: account.toUpperCase(),
-    symbol: symbol.toUpperCase(),
-    firstBuyPrice: price,
-    firstBuyAt: new Date().toISOString(),
-    totalQty: qty,
-    remainingQty: qty,
-    tranche1At: null,
-  }
-  await writeAll(positions)
-  return true
+    await writeAll(positions)
+    return true
+  })
 }
 
 // Seeds a missing position with an explicit BUY anchor (price + timestamp).
 // Used by monitor reseed paths so restart/rebuild flows do not reset anchors
 // to "now" and accidentally trigger exits from stale/incorrect prices.
 export async function seedMissingPosition(strategyId: string, account: string, symbol: string, qty: number, price: number, boughtAtIso: string): Promise<boolean> {
-  const positions = await readAll()
-  const k = makeKey(account, symbol)
-  if (positions[k]) return false
+  return withLock(async () => {
+    const positions = await readAll()
+    const k = makeKey(account, symbol)
+    if (positions[k]) return false
 
-  const safeBoughtAt = Number.isFinite(new Date(boughtAtIso).getTime()) ? boughtAtIso : new Date().toISOString()
-  const next: Position = {
-    strategyId,
-    account: account.toUpperCase(),
-    symbol: symbol.toUpperCase(),
-    firstBuyPrice: price,
-    firstBuyAt: safeBoughtAt,
-    totalQty: qty,
-    remainingQty: qty,
-    tranche1At: null,
-  }
-  if (await isTrackedStrategyId(strategyId)) {
-    next.lots = [makeLot(qty, price, safeBoughtAt, strategyId)]
-    summarizeMomentumPosition(next)
-  }
-  positions[k] = next
-  await writeAll(positions)
-  return true
+    const safeBoughtAt = Number.isFinite(new Date(boughtAtIso).getTime()) ? boughtAtIso : new Date().toISOString()
+    const next: Position = {
+      strategyId,
+      account: account.toUpperCase(),
+      symbol: symbol.toUpperCase(),
+      firstBuyPrice: price,
+      firstBuyAt: safeBoughtAt,
+      totalQty: qty,
+      remainingQty: qty,
+      tranche1At: null,
+    }
+    if (await isTrackedStrategyId(strategyId)) {
+      next.lots = [makeLot(qty, price, safeBoughtAt, strategyId)]
+      summarizeMomentumPosition(next)
+    }
+    positions[k] = next
+    await writeAll(positions)
+    return true
+  })
 }
 
 // Repairs an existing single-lot position anchor (price + timestamp).
 // Intended for self-healing old reseeded rows that were stamped with stale
 // prices and "now" timestamps after a restart.
 export async function realignPositionAnchor(account: string, symbol: string, price: number, boughtAtIso: string): Promise<boolean> {
-  const positions = await readAll()
-  const k = makeKey(account, symbol)
-  const p = positions[k]
-  if (!p) return false
+  return withLock(async () => {
+    const positions = await readAll()
+    const k = makeKey(account, symbol)
+    const p = positions[k]
+    if (!p) return false
 
-  const safeBoughtAt = Number.isFinite(new Date(boughtAtIso).getTime()) ? boughtAtIso : p.firstBuyAt
-  p.firstBuyPrice = price
-  p.firstBuyAt = safeBoughtAt
+    const safeBoughtAt = Number.isFinite(new Date(boughtAtIso).getTime()) ? boughtAtIso : p.firstBuyAt
+    p.firstBuyPrice = price
+    p.firstBuyAt = safeBoughtAt
 
-  if (p.lots && p.lots.length === 1) {
-    p.lots[0].entryPrice = price
-    p.lots[0].boughtAt = safeBoughtAt
-  }
+    if (p.lots && p.lots.length === 1) {
+      p.lots[0].entryPrice = price
+      p.lots[0].boughtAt = safeBoughtAt
+    }
 
-  if (p.lots && p.lots.length > 0) summarizeMomentumPosition(p)
-  await writeAll(positions)
-  return true
+    if (p.lots && p.lots.length > 0) summarizeMomentumPosition(p)
+    await writeAll(positions)
+    return true
+  })
 }
 
 export async function markTranche1Sold(account: string, symbol: string, soldQty: number): Promise<void> {
-  const positions = await readAll()
-  const k = makeKey(account, symbol)
-  const p = positions[k]
-  if (!p) return
-  p.tranche1At = new Date().toISOString()
-  p.tranche1SoldQty = soldQty
-  p.remainingQty = Math.max(0, p.remainingQty - soldQty)
-  await writeAll(positions)
+  return withLock(async () => {
+    const positions = await readAll()
+    const k = makeKey(account, symbol)
+    const p = positions[k]
+    if (!p) return
+    p.tranche1At = new Date().toISOString()
+    p.tranche1SoldQty = soldQty
+    p.remainingQty = Math.max(0, p.remainingQty - soldQty)
+    await writeAll(positions)
+  })
 }
 
 export async function applyLotSell(account: string, symbol: string, lotId: string, soldQty: number, opts?: { markTranche1?: boolean }): Promise<void> {
-  const positions = await readAll()
-  const k = makeKey(account, symbol)
-  const p = positions[k]
-  if (!p || !p.lots || soldQty <= 0) return
-  const lot = p.lots.find(item => item.id === lotId)
-  if (!lot || lot.remainingQty <= 0) return
-  const executedQty = Math.min(soldQty, lot.remainingQty)
-  if (opts?.markTranche1) {
-    lot.tranche1At = new Date().toISOString()
-    lot.tranche1SoldQty = (lot.tranche1SoldQty || 0) + executedQty
-  }
-  lot.remainingQty = Math.max(0, lot.remainingQty - executedQty)
-  summarizeMomentumPosition(p)
-  if (p.remainingQty <= 0) {
-    delete positions[k]
-  }
-  await writeAll(positions)
+  return withLock(async () => {
+    const positions = await readAll()
+    const k = makeKey(account, symbol)
+    const p = positions[k]
+    if (!p || !p.lots || soldQty <= 0) return
+    const lot = p.lots.find(item => item.id === lotId)
+    if (!lot || lot.remainingQty <= 0) return
+    const executedQty = Math.min(soldQty, lot.remainingQty)
+    if (opts?.markTranche1) {
+      lot.tranche1At = new Date().toISOString()
+      lot.tranche1SoldQty = (lot.tranche1SoldQty || 0) + executedQty
+    }
+    lot.remainingQty = Math.max(0, lot.remainingQty - executedQty)
+    summarizeMomentumPosition(p)
+    if (p.remainingQty <= 0) {
+      delete positions[k]
+    }
+    await writeAll(positions)
+  })
 }
 
 export async function removePosition(account: string, symbol: string): Promise<void> {
-  const positions = await readAll()
-  const k = makeKey(account, symbol)
-  if (!(k in positions)) return
-  delete positions[k]
-  await writeAll(positions)
+  return withLock(async () => {
+    const positions = await readAll()
+    const k = makeKey(account, symbol)
+    if (!(k in positions)) return
+    delete positions[k]
+    await writeAll(positions)
+  })
 }
 
 export async function getPosition(account: string, symbol: string): Promise<Position | null> {
-  const positions = await readAll()
-  return positions[makeKey(account, symbol)] || null
+  return withLock(async () => {
+    const positions = await readAll()
+    return positions[makeKey(account, symbol)] || null
+  })
 }
 
 export async function listPositions(opts?: { account?: string; strategyId?: string }): Promise<Position[]> {
-  const positions = await readAll()
-  const out: Position[] = []
-  for (const v of Object.values(positions)) {
-    if (opts?.account && v.account !== opts.account.toUpperCase()) continue
-    if (opts?.strategyId && v.strategyId !== opts.strategyId) continue
-    // Refresh weighted average price for momentum strategies with lots
-    if (v.lots && v.lots.length > 0) {
-      summarizeMomentumPosition(v)
+  return withLock(async () => {
+    const positions = await readAll()
+    const out: Position[] = []
+    for (const v of Object.values(positions)) {
+      if (opts?.account && v.account !== opts.account.toUpperCase()) continue
+      if (opts?.strategyId && v.strategyId !== opts.strategyId) continue
+      // Refresh weighted average price for momentum strategies with lots
+      if (v.lots && v.lots.length > 0) {
+        summarizeMomentumPosition(v)
+      }
+      out.push(v)
     }
-    out.push(v)
-  }
-  return out
+    return out
+  })
 }
 
 // Single-position strategyId setter — used by the handoff flow.
 // Returns true if changed, false if the position doesn't exist or already
 // has the target strategyId.
 export async function setStrategyId(account: string, symbol: string, newStrategyId: string): Promise<boolean> {
-  const all = await readAll()
-  const k = makeKey(account, symbol)
-  const p = all[k]
-  if (!p || p.strategyId === newStrategyId) return false
-  console.log(`[positions] re-stamped ${k}: ${p.strategyId} → ${newStrategyId}`)
-  p.strategyId = newStrategyId
-  await writeAll(all)
-  return true
+  return withLock(async () => {
+    const all = await readAll()
+    const k = makeKey(account, symbol)
+    const p = all[k]
+    if (!p || p.strategyId === newStrategyId) return false
+    console.log(`[positions] re-stamped ${k}: ${p.strategyId} → ${newStrategyId}`)
+    p.strategyId = newStrategyId
+    await writeAll(all)
+    return true
+  })
 }
 
 // Set the strategyId for a single lot within a tracked position. Returns
 // true if changed. This allows per-lot strategy ownership when a symbol has
 // mixed lots from multiple strategies.
 export async function setLotStrategyId(account: string, symbol: string, lotId: string, newStrategyId: string): Promise<boolean> {
-  const all = await readAll()
-  const k = makeKey(account, symbol)
-  const p = all[k]
-  if (!p || !p.lots || p.lots.length === 0) return false
-  const lot = p.lots.find(l => l.id === lotId)
-  if (!lot) return false
-  if (lot.strategyId === newStrategyId) return false
-  lot.strategyId = newStrategyId
-  console.log(`[positions] re-stamped lot ${k}#${lotId}: → ${newStrategyId}`)
-  // Recompute position summary if needed
-  if (p.lots && p.lots.length > 0) summarizeMomentumPosition(p)
-  await writeAll(all)
-  return true
+  return withLock(async () => {
+    const all = await readAll()
+    const k = makeKey(account, symbol)
+    const p = all[k]
+    if (!p || !p.lots || p.lots.length === 0) return false
+    const lot = p.lots.find(l => l.id === lotId)
+    if (!lot) return false
+    if (lot.strategyId === newStrategyId) return false
+    lot.strategyId = newStrategyId
+    console.log(`[positions] re-stamped lot ${k}#${lotId}: → ${newStrategyId}`)
+    // Recompute position summary if needed
+    if (p.lots && p.lots.length > 0) summarizeMomentumPosition(p)
+    await writeAll(all)
+    return true
+  })
 }
 
 // Re-stamp the strategyId of every position currently owned by `fromId` to
@@ -496,34 +531,38 @@ export async function setLotStrategyId(account: string, symbol: string, lotId: s
 // positions migrate to the accumulator's care. Returns the count migrated.
 export async function migrateStrategyId(fromId: string, toId: string): Promise<number> {
   if (fromId === toId) return 0
-  const positions = await readAll()
-  let count = 0
-  for (const k of Object.keys(positions)) {
-    if (positions[k].strategyId === fromId) {
-      positions[k].strategyId = toId
-      count++
+  return withLock(async () => {
+    const positions = await readAll()
+    let count = 0
+    for (const k of Object.keys(positions)) {
+      if (positions[k].strategyId === fromId) {
+        positions[k].strategyId = toId
+        count++
+      }
     }
-  }
-  if (count > 0) {
-    await writeAll(positions)
-    console.log(`[positions] migrated ${count} positions: ${fromId} → ${toId}`)
-  }
-  return count
+    if (count > 0) {
+      await writeAll(positions)
+      console.log(`[positions] migrated ${count} positions: ${fromId} → ${toId}`)
+    }
+    return count
+  })
 }
 
 // Removes all positions belonging to the given account. Used by the reset flow.
 export async function wipeAccountPositions(account: string): Promise<number> {
-  const positions = await readAll()
-  const acct = account.toUpperCase()
-  let removed = 0
-  for (const k of Object.keys(positions)) {
-    if (positions[k].account.toUpperCase() === acct) {
-      delete positions[k]
-      removed++
+  return withLock(async () => {
+    const positions = await readAll()
+    const acct = account.toUpperCase()
+    let removed = 0
+    for (const k of Object.keys(positions)) {
+      if (positions[k].account.toUpperCase() === acct) {
+        delete positions[k]
+        removed++
+      }
     }
-  }
-  if (removed > 0) await writeAll(positions)
-  return removed
+    if (removed > 0) await writeAll(positions)
+    return removed
+  })
 }
 
 // Calendar-day age of a position from its firstBuyAt. Used by the handoff
