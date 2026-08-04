@@ -29,6 +29,7 @@ interface Holding {
   lotId?: string
   lots?: Array<{ id: string; entryPrice: number; remainingQty: number; originalQty?: number; boughtAt: string; strategyId?: string }>
   isPartialLot?: boolean
+  journalReconciled?: boolean
 }
 
 interface QuoteEntry {
@@ -61,6 +62,7 @@ function positionToHolding(position: EnrichedPosition): Holding {
     source: 't0',
     t0StrategyId: (position as any).strategyId,
     lots: (position as any).lots,
+    journalReconciled: (position as any).journalReconciled,
   }
 }
 
@@ -250,21 +252,18 @@ export default function HoldingsPage() {
 
         const t0Rows = Array.isArray(pRes?.positions)
           ? (pRes.positions as EnrichedPosition[])
-              .filter(position => {
-                // pRes may come from different sources: Kite's positions have
-                // `qty`, our unified store uses `remainingQty`. Normalize both
-                // and only include rows with positive live quantity.
-                const qty = (position as any).qty ?? (position as any).remainingQty ?? 0
-                return qty !== 0
-              })
-              // Include ALL same-day positions, even if the symbol is already in
-              // settled holdings — they represent a different lot / strategy.
+              // Include ALL same-day positions, even zero-qty sold rows.
+              // Each position row should render its own lot: active lots as qty,
+              // partially sold lots as partial qty, and fully sold lots as 0 qty.
               .map(positionToHolding)
               .map(r => {
                 // For closed T0 positions (qty=0), Kite's net position avg_price is
                 // the sell execution price, not the buy cost. Replace it with the
                 // holdings avg (Kite's weighted avg of all buy lots) when available.
-                if (totalQty(r) === 0) {
+                // Skip when the backend already reconciled this row against the
+                // journal — that avg_price is the true per-lot entry price, and the
+                // Kite holdings avg (a symbol-wide figure) would be wrong for it.
+                if (totalQty(r) === 0 && !r.journalReconciled) {
                   const buyAvg = holdingAvgBySymbol.get(r.tradingsymbol.toUpperCase())
                   if (buyAvg) return { ...r, average_price: buyAvg }
                 }
@@ -272,10 +271,9 @@ export default function HoldingsPage() {
               })
           : []
 
+        // Track active T0 trade prices only for deduping settled holdings.
+        // Closed/sold same-day rows (qty 0) must still appear separately.
         const t0ActiveRows = t0Rows.filter(r => totalQty(r) > 0)
-        // De-duplicate: if a T0 row has the same symbol+avgPrice as the holding
-        // (can happen if the only buy was today and Kite shows it in both), prefer
-        // the T0 row and drop the holding to avoid a phantom duplicate.
         const t0PricesBySymbol = new Map<string, number[]>()
         for (const row of t0ActiveRows) {
           const symbol = row.tradingsymbol.toUpperCase()
@@ -317,13 +315,17 @@ export default function HoldingsPage() {
           // row's avg price to a lot in the unified positions store. This
           // ensures closed/sold T0 rows that came from a `catalyst` lot keep
           // their original strategy tag instead of inheriting the parent's.
-          const storeLots = positionLotsBySymbol.get(symbolKey) || []
+          // Skip entirely when the backend already reconciled this row against
+          // the journal — matching by price is a heuristic that breaks for
+          // multi-lot symbols (it can land on a still-open, unrelated lot),
+          // and the journal already knows the exact strategy that made the sale.
+          const storeLots = r.journalReconciled ? [] : (positionLotsBySymbol.get(symbolKey) || [])
           const matchedLot = storeLots.find((lot: any) => Math.abs((lot.entryPrice || 0) - (r.average_price || 0)) <= 0.01)
           const t0StrategyId = (matchedLot && matchedLot.strategyId) || (r as any).strategyId || (r as any).t0StrategyId
           return {
             ...r,
             source: 't0',
-            displayEntryPrice: positionEntryPriceBySymbol.get(r.tradingsymbol.toUpperCase()) ?? r.average_price,
+            displayEntryPrice: r.journalReconciled ? r.average_price : (positionEntryPriceBySymbol.get(r.tradingsymbol.toUpperCase()) ?? r.average_price),
             t0StrategyId,
           }
         })
@@ -333,13 +335,10 @@ const flattenedHoldings = [
           ...t0Holdings,
         ].flatMap(h => {
           const symbolKey = (h.tradingsymbol || '').toUpperCase()
-          // Gather active lots from the row itself. Only fallback to the
-          // unified positions store for settled holdings rows, because T0
-          // rows are already the live same-day position snapshot and must not
-          // be expanded into the same per-lot rows twice.
-          // Only consider lots with remainingQty > 0. Using originalQty here
-          // incorrectly included sold (remainingQty === 0) lots and produced
-          // phantom T0/settled duplicates (e.g. BSE catalyst sold lot).
+          // Gather lots from the row itself. Only fallback to the unified
+          // positions store for settled holdings rows, because T0 rows are
+          // already the live same-day snapshot and must not be expanded into
+          // duplicate per-lot rows twice.
           let activeLots = (h.lots || []).filter((lot: any) => (lot.remainingQty || 0) > 0)
           if (activeLots.length === 0 && h.source === 'holding') {
             const storeLots = positionLotsBySymbol.get(symbolKey) || []

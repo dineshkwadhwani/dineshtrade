@@ -11,6 +11,7 @@ import { verifySession } from '@/lib/auth'
 import { resolveAccountCreds, getPositions, getOrders, getQuotes, type KiteOrder } from '@/lib/kite'
 import { listPositions } from '@/lib/positions'
 import { getStrategies } from '@/lib/strategyConfig'
+import { readJournalDay, istDateString, type JournalRecord, type TradeRecord } from '@/lib/journal'
 
 // Live broker data — every request must hit Kite fresh, never serve from cache.
 export const dynamic = 'force-dynamic'
@@ -33,6 +34,7 @@ export interface EnrichedPosition {
   m2m: number
   unrealized: number       // qty × (ltp − avgPrice)  -- 0 when fully closed
   realized: number         // best-effort closed-leg P&L for today
+  journalReconciled?: boolean  // avgPrice/strategy/realized came from the journal's trade record, not Kite — don't second-guess it
   orderIds: string[]       // today's COMPLETE order ids for this symbol
 }
 
@@ -85,9 +87,18 @@ export async function GET(req: Request) {
   // Watchlist's price. Without /quote the LTP would lag Watchlist on the same
   // symbol by ~20 rupees, which is what the user was seeing.
   const completedOrders = orders.filter(o => o.status === 'COMPLETE')
+  // Today's completed BUY+SELL trades from the bot's own journal — ground truth
+  // for what actually executed, independent of Kite's Positions/Orders view.
+  // A SELL of a lot bought on a PRIOR day (e.g. a settled CNC holding exited
+  // today) doesn't create a same-day Kite "day" position and its order alone
+  // doesn't carry the original multi-day-old buy price, so relying on Kite
+  // alone can drop the row entirely or show ₹0 entry price / ₹0 realized P&L.
+  const todaysTrades = (await readJournalDay(istDateString()).catch(() => [] as JournalRecord[]))
+    .filter((r): r is TradeRecord => r.type === 'trade' && r.account.toUpperCase() === account.toUpperCase())
   const allSymbols = Array.from(new Set([
     ...positions.day.map(p => p.tradingsymbol.toUpperCase()),
     ...completedOrders.map(o => o.tradingsymbol.toUpperCase()),
+    ...todaysTrades.map(t => t.symbol.toUpperCase()),
   ]))
   const quotes = allSymbols.length > 0
     ? await getQuotes(creds, allSymbols).catch(() => ({} as Awaited<ReturnType<typeof getQuotes>>))
@@ -224,6 +235,59 @@ export async function GET(req: Request) {
   }
 
   const filtered = [...openRows, ...closedOrderOnlyRows]
+
+  // Reconcile each row against the journal's trade records. If Kite already
+  // surfaced the sell (matching order id present on the row), trust the
+  // journal for strategy/entry-price/realized since it knows the true lot
+  // the sale came from — Kite's data doesn't. If Kite has no trace of the
+  // trade at all, synthesize the row so it isn't silently missing.
+  for (const trade of todaysTrades) {
+    const sym = trade.symbol.toUpperCase()
+    const strategyMeta = strategiesById.get(trade.strategy)
+    const matchIdx = filtered.findIndex(row =>
+      row.symbol === sym && !!trade.orderIdSell && row.orderIds.includes(trade.orderIdSell))
+    if (matchIdx >= 0) {
+      const row = filtered[matchIdx]
+      if (row.qty === 0) {
+        filtered[matchIdx] = {
+          ...row,
+          strategyId: trade.strategy,
+          strategyName: strategyMeta?.name ?? row.strategyName,
+          strategyColor: strategyMeta?.color ?? row.strategyColor,
+          avgPrice: trade.entryPrice,
+          realized: trade.pnlRupees,
+          pnl: trade.pnlRupees,
+          journalReconciled: true,
+        }
+      }
+      continue
+    }
+    const quote = quotes[`NSE:${sym}`]
+    const liveLtp = Number(quote?.last_price) || trade.exitPrice
+    const prevClose = Number((quote as any)?.ohlc?.close) || 0
+    const dayChangePct = prevClose > 0 && liveLtp > 0 ? ((liveLtp - prevClose) / prevClose) * 100 : undefined
+    filtered.push({
+      symbol: sym,
+      exchange: 'NSE',
+      product: 'CNC',
+      strategyId: trade.strategy,
+      strategyName: strategyMeta?.name,
+      strategyColor: strategyMeta?.color,
+      qty: 0,
+      avgPrice: trade.entryPrice,
+      ltp: liveLtp,
+      dayChangePct,
+      dayBuyQty: 0,
+      daySellQty: trade.qty,
+      pnl: trade.pnlRupees,
+      m2m: 0,
+      unrealized: 0,
+      realized: trade.pnlRupees,
+      orderIds: trade.orderIdSell ? [trade.orderIdSell] : [],
+      journalReconciled: true,
+    })
+  }
+
   const closedToday: ClosedTodaySummary[] = []
   for (const sym of allSymbols) {
     const buyAgg = buyAggBySymbol.get(sym)
