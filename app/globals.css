@@ -7,6 +7,10 @@
 :root {
   --accent:#5da9ff;--accent-light:#9cd0ff;--accent-dark:#2c72d9;
   --obsidian:#061426;--up:#52b788;--dn:#e05a5e;
+  --dt-success:#52b788;
+  --dt-danger:#e05a5e;
+  --dt-warning:#f59e0b;
+  --dt-info:#60a5fa;
 
   --dt-bg:            #0a2d56;
   --dt-bg-card:       #0e396d;
@@ -23,6 +27,7 @@
   --dt-nav-border:    rgba(93,169,255,0.24);
   --dt-scrollbar-bg:  #0b1e36;
   --dt-scrollbar-thumb: rgba(93,169,255,0.32);
+  --dt-focus-ring: 0 0 0 2px rgba(93,169,255,0.35);
 }
 
 /* ─── Light mode ─────────────────────────────────────────────────────── */
@@ -42,6 +47,7 @@ html.light {
   --dt-nav-border:    rgba(72,145,231,0.28);
   --dt-scrollbar-bg:  #dcecff;
   --dt-scrollbar-thumb: rgba(72,145,231,0.46);
+  --dt-focus-ring: 0 0 0 2px rgba(72,145,231,0.35);
 }
 
 /* ─── Global base ────────────────────────────────────────────────────── */
@@ -286,6 +292,102 @@ html.light .dt-card-accent {
 .dt-text-secondary { color: var(--dt-text-secondary); }
 .dt-text-muted     { color: var(--dt-text-muted); }
 
+/* ─── Shared shell/footer/auth primitives ───────────────────────────── */
+.dt-app-shell { background: var(--dt-bg); color: var(--dt-text-primary); }
+
+.dt-topnav {
+  background: var(--dt-bg-nav);
+  border-bottom: 1px solid var(--dt-nav-border);
+  backdrop-filter: blur(12px);
+}
+
+.dt-avatar-button {
+  background: rgba(93,169,255,0.12);
+  border: 1px solid var(--dt-border-accent);
+  color: var(--dt-accent-display);
+  font-family: 'Cormorant Garamond', serif;
+}
+.dt-avatar-button:hover { background: rgba(93,169,255,0.2); }
+
+.dt-menu-panel {
+  background: var(--dt-bg-card);
+  border: 1px solid var(--dt-border-accent);
+}
+
+.dt-menu-section {
+  background: var(--dt-surface);
+  border: 1px solid var(--dt-border);
+}
+
+.dt-menu-link {
+  color: var(--dt-text-secondary);
+  background: transparent;
+}
+.dt-menu-link:hover { background: var(--dt-surface-2); }
+.dt-menu-link[data-active="1"] {
+  color: var(--dt-accent-display);
+  background: rgba(93,169,255,0.12);
+}
+
+.dt-theme-switch {
+  position: relative;
+  width: 2.5rem;
+  height: 1.25rem;
+  border-radius: 9999px;
+  border: 1px solid var(--dt-border);
+  background: var(--dt-surface);
+  transition: background 0.15s ease, border-color 0.15s ease;
+}
+.dt-theme-switch[data-on="1"] {
+  background: rgba(93,169,255,0.28);
+  border-color: var(--dt-border-accent);
+}
+.dt-theme-switch:focus-visible { box-shadow: var(--dt-focus-ring); }
+
+.dt-theme-switch-thumb {
+  position: absolute;
+  top: 0.125rem;
+  left: 0.125rem;
+  width: 1rem;
+  height: 1rem;
+  border-radius: 9999px;
+  background: rgba(255,255,255,0.5);
+  transition: left 0.15s ease, background 0.15s ease;
+}
+.dt-theme-switch[data-on="1"] .dt-theme-switch-thumb {
+  left: 1.25rem;
+  background: var(--dt-accent-display);
+}
+
+.dt-footer {
+  border-top: 1px solid var(--dt-border);
+  background: var(--dt-bg-nav);
+  color: var(--dt-text-muted);
+}
+.dt-footer-emphasis { color: var(--dt-text-secondary); }
+.dt-footer-link {
+  color: var(--dt-info);
+  transition: color 0.12s ease;
+}
+.dt-footer-link:hover { color: var(--dt-accent-display); }
+
+.dt-login-surface {
+  background: rgba(93,169,255,0.06);
+  border: 1px solid rgba(127,209,255,0.24);
+}
+html.light .dt-login-surface {
+  background: rgba(93,169,255,0.08);
+  border-color: rgba(72,145,231,0.3);
+}
+
+.dt-login-input {
+  color: var(--dt-text-primary);
+  background: transparent;
+  border: 0;
+}
+.dt-login-input::placeholder { color: var(--dt-text-muted); }
+.dt-login-input:focus { outline: none; }
+
 /* ─── Light mode overrides ───────────────────────────────────────────────
    STRATEGY: One blanket rule forces ALL main-content text dark.
    Higher-specificity rules then restore semantic colors (green/red/gold).
@@ -416,6 +518,76 @@ html.light .text-white\/30,
 html.light .text-white\/20 {
   color: var(--dt-text-primary) !important;
 }
+
+html.light .hover\:text-white\/90:hover,
+html.light .hover\:text-white\/85:hover,
+html.light .hover\:text-white\/80:hover,
+html.light .hover\:text-white\/70:hover,
+html.light .hover\:text-white\/60:hover,
+html.light .hover\:text-white\/50:hover,
+html.light .hover\:text-white\/40:hover,
+html.light .hover\:text-white\/30:hover,
+html.light .hover\:text-white\/20:hover,
+html.light .hover\:text-white:hover {
+  color: var(--dt-text-primary) !important;
+}
+
+/* Generic Tailwind dark-surface compatibility for light mode */
+html.light [class*="text-gray-9"],
+html.light [class*="text-gray-8"],
+html.light [class*="text-gray-7"],
+html.light [class*="text-slate-9"],
+html.light [class*="text-slate-8"],
+html.light [class*="text-zinc-9"],
+html.light [class*="text-zinc-8"] {
+  color: var(--dt-text-primary) !important;
+}
+
+html.light [class*="text-gray-6"],
+html.light [class*="text-gray-5"],
+html.light [class*="text-gray-4"],
+html.light [class*="text-slate-6"],
+html.light [class*="text-slate-5"],
+html.light [class*="text-zinc-6"],
+html.light [class*="text-zinc-5"] {
+  color: var(--dt-text-secondary) !important;
+}
+
+html.light [class*="bg-gray-9"],
+html.light [class*="bg-gray-8"],
+html.light [class*="bg-gray-7"],
+html.light [class*="bg-slate-9"],
+html.light [class*="bg-slate-8"],
+html.light [class*="bg-zinc-9"],
+html.light [class*="bg-zinc-8"] {
+  background-color: var(--dt-bg-card) !important;
+}
+
+html.light [class*="border-gray-9"],
+html.light [class*="border-gray-8"],
+html.light [class*="border-gray-7"],
+html.light [class*="border-slate-9"],
+html.light [class*="border-slate-8"],
+html.light [class*="border-zinc-9"],
+html.light [class*="border-zinc-8"] {
+  border-color: var(--dt-border) !important;
+}
+
+html.light [class*="hover:bg-gray-9"]:hover,
+html.light [class*="hover:bg-gray-8"]:hover,
+html.light [class*="hover:bg-gray-7"]:hover,
+html.light [class*="hover:bg-slate-9"]:hover,
+html.light [class*="hover:bg-slate-8"]:hover,
+html.light [class*="hover:bg-zinc-9"]:hover,
+html.light [class*="hover:bg-zinc-8"]:hover {
+  background-color: var(--dt-surface) !important;
+}
+
+/* Preserve semantic status utility colors in light mode */
+html.light [class*="text-emerald-"] { color: #0a6e3f !important; }
+html.light [class*="text-red-"] { color: #a91818 !important; }
+html.light [class*="text-amber-"] { color: #92400e !important; }
+html.light [class*="text-blue-"] { color: #1d40ae !important; }
 
 /* ══ LIVE TICKER — keep its strip styling intact without flattening item colors ══ */
 html.light .ticker-strip { color: var(--dt-text-primary); }

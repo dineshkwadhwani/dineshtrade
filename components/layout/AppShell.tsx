@@ -100,12 +100,11 @@ export default function AppShell({ children }: { children: React.ReactNode }) {
   }
 
   return (
-    <div className="min-h-screen flex flex-col" style={{ background: 'var(--dt-bg)' }}>
+    <div className="dt-app-shell min-h-screen flex flex-col">
 
       <LiveTicker />
 
-      <nav className="sticky top-0 z-50 border-b"
-        style={{ background: 'var(--dt-bg-nav)', borderColor: 'var(--dt-nav-border)', backdropFilter: 'blur(12px)' }}>
+      <nav className="dt-topnav sticky top-0 z-50">
         <div className="max-w-7xl mx-auto px-4 h-14 flex items-center justify-between">
 
           <Link href="/dashboard" className="flex items-center gap-2">
@@ -124,20 +123,14 @@ export default function AppShell({ children }: { children: React.ReactNode }) {
               onClick={() => setMenuOpen(o => !o)}
               aria-haspopup="menu"
               aria-expanded={menuOpen}
-              className="w-9 h-9 rounded-full flex items-center justify-center text-[13px] font-bold border transition-all"
-              style={{
-                background: menuOpen ? 'rgba(93,169,255,0.2)' : 'rgba(93,169,255,0.1)',
-                borderColor: 'rgba(93,169,255,0.32)',
-                color: '#5da9ff',
-                fontFamily: 'Cormorant Garamond, serif',
-              }}>
+              className="dt-avatar-button w-9 h-9 rounded-full flex items-center justify-center text-[13px] font-bold border transition-all"
+              style={{ background: menuOpen ? 'rgba(93,169,255,0.2)' : undefined }}>
               DW
             </button>
 
             {menuOpen && (
               <div role="menu"
-                className="absolute right-0 top-11 z-50 w-[min(16.75rem,calc(100vw-1rem))] max-h-[calc(100vh-4.5rem)] overflow-y-auto rounded-xl shadow-2xl"
-                style={{ background: 'var(--dt-bg-card)', border: '1px solid var(--dt-border-accent)' }}>
+                className="dt-menu-panel absolute right-0 top-11 z-50 w-[min(16.75rem,calc(100vw-1rem))] max-h-[calc(100vh-4.5rem)] overflow-y-auto rounded-xl shadow-2xl">
 
                 {/* Identity */}
                 <div className="px-3 py-2 border-b" style={{ borderColor: 'var(--dt-border)' }}>
@@ -158,17 +151,14 @@ export default function AppShell({ children }: { children: React.ReactNode }) {
                     <span style={{ fontSize: 14 }}>{light ? '☀️' : '🌙'}</span>
                     <span className="text-[11px]"
                       style={{ color: 'var(--dt-text-secondary)', fontFamily: 'JetBrains Mono, monospace' }}>
-                      {light ? 'Light mode' : 'Dark mode'}
+                      Theme: {light ? 'Light' : 'Dark'}
                     </span>
                   </div>
                   <button onClick={toggleLight}
-                    className="relative w-10 h-5 rounded-full transition-all"
-                    style={{
-                      background: light ? 'rgba(93,169,255,0.32)' : 'rgba(255,255,255,0.12)',
-                      border: `1px solid ${light ? 'rgba(93,169,255,0.55)' : 'rgba(255,255,255,0.22)'}`,
-                    }}>
-                    <span className="absolute top-0.5 w-4 h-4 rounded-full transition-all"
-                      style={{ background: light ? '#5da9ff' : 'rgba(255,255,255,0.5)', left: light ? '1.25rem' : '0.125rem' }} />
+                    aria-label={light ? 'Switch to dark theme' : 'Switch to light theme'}
+                    className="dt-theme-switch"
+                    data-on={light ? '1' : '0'}>
+                    <span className="dt-theme-switch-thumb" />
                   </button>
                 </div>
 
@@ -180,17 +170,13 @@ export default function AppShell({ children }: { children: React.ReactNode }) {
                         style={{ color: 'var(--dt-accent-display)', fontFamily: 'JetBrains Mono, monospace', opacity: 0.65 }}>
                         {group.title}
                       </p>
-                      <div className="rounded-lg overflow-hidden"
-                        style={{ background: 'var(--dt-surface)', border: '1px solid var(--dt-border)' }}>
+                      <div className="dt-menu-section rounded-lg overflow-hidden">
                         {group.items.map(item => {
                           const active = item.isActive ? item.isActive(pathname, currentView) : pathname === item.href
                           return (
                             <Link key={item.href} href={item.href} role="menuitem"
-                              className="flex items-center justify-between gap-1.5 px-2.5 py-1.5 text-[11px] transition-all"
-                              style={{
-                                background: active ? 'rgba(93,169,255,0.12)' : 'transparent',
-                                color: active ? '#5da9ff' : 'var(--dt-text-secondary)',
-                              }}>
+                              className="dt-menu-link flex items-center justify-between gap-1.5 px-2.5 py-1.5 text-[11px] transition-all"
+                              data-active={active ? '1' : '0'}>
                               <span className="flex min-w-0 items-center gap-1.5">
                                 <span className="text-[13px] leading-none opacity-80" style={{ width: '1em', textAlign: 'center' }}>{item.icon}</span>
                                 <span className="truncate">{item.label}</span>

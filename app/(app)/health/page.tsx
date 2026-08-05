@@ -11,7 +11,7 @@ interface TestState {
 }
 
 const LEVEL_STYLE: Record<LogLevel, string> = {
-  info:  'text-gray-300',
+  info:  'dt-text-secondary',
   ok:    'text-emerald-400',
   error: 'text-red-400',
   warn:  'text-amber-400',
@@ -25,10 +25,10 @@ const LEVEL_PREFIX: Record<LogLevel, string> = {
 }
 
 const STATUS_BADGE: Record<TestStatus, { label: string; cls: string }> = {
-  idle:    { label: 'Not tested',  cls: 'bg-gray-800 text-gray-400' },
-  running: { label: 'Testing…',   cls: 'bg-blue-900/60 text-blue-300 animate-pulse' },
-  pass:    { label: 'OK',         cls: 'bg-emerald-900/60 text-emerald-300' },
-  fail:    { label: 'Failed',     cls: 'bg-red-900/60 text-red-300' },
+  idle:    { label: 'Not tested',  cls: 'dt-surface dt-text-muted' },
+  running: { label: 'Testing…',   cls: 'bg-blue-900/20 text-blue-500 animate-pulse' },
+  pass:    { label: 'OK',         cls: 'bg-emerald-900/20 text-emerald-500' },
+  fail:    { label: 'Failed',     cls: 'bg-red-900/20 text-red-500' },
 }
 
 const TESTS: { key: string; label: string; icon: string; description: string }[] = [
@@ -92,13 +92,14 @@ export default function HealthPage() {
       {/* Header */}
       <div className="flex items-center justify-between">
         <div>
-          <h1 className="text-xl font-semibold text-white tracking-tight">Integration Health</h1>
-          <p className="text-sm text-gray-400 mt-0.5">Test connectivity to Zerodha, AI provider, and email.</p>
+          <h1 className="text-xl font-semibold dt-text-primary tracking-tight">Integration Health</h1>
+          <p className="text-sm dt-text-muted mt-0.5">Test connectivity to Zerodha, AI provider, and email.</p>
         </div>
         <button
           onClick={runAll}
           disabled={anyRunning}
-          className="px-4 py-2 rounded-lg text-sm font-medium bg-blue-600 hover:bg-blue-500 disabled:opacity-50 disabled:cursor-not-allowed text-white transition-colors"
+          className="px-4 py-2 rounded-lg text-sm font-medium disabled:opacity-50 disabled:cursor-not-allowed transition-colors"
+          style={{ background: 'linear-gradient(135deg, #3aa8ff, #7fd1ff)', color: '#072749' }}
         >
           {anyRunning ? 'Testing…' : 'Test All'}
         </button>
@@ -111,15 +112,15 @@ export default function HealthPage() {
         return (
           <div
             key={test.key}
-            className="rounded-xl border border-gray-700 bg-gray-900 overflow-hidden"
+            className="rounded-xl dt-card overflow-hidden"
           >
             {/* Card header */}
-            <div className="flex items-center justify-between px-5 py-4 border-b border-gray-800">
+            <div className="flex items-center justify-between px-5 py-4 dt-border-b">
               <div className="flex items-center gap-3">
                 <span className="text-lg">{test.icon}</span>
                 <div>
-                  <div className="text-sm font-semibold text-white">{test.label}</div>
-                  <div className="text-xs text-gray-400 mt-0.5">{test.description}</div>
+                  <div className="text-sm font-semibold dt-text-primary">{test.label}</div>
+                  <div className="text-xs dt-text-muted mt-0.5">{test.description}</div>
                 </div>
               </div>
               <div className="flex items-center gap-3 flex-shrink-0 ml-4">
@@ -129,7 +130,7 @@ export default function HealthPage() {
                 <button
                   onClick={() => runTest(test.key)}
                   disabled={state.status === 'running'}
-                  className="px-3 py-1.5 rounded-lg text-xs font-medium bg-gray-700 hover:bg-gray-600 disabled:opacity-50 disabled:cursor-not-allowed text-gray-200 transition-colors"
+                  className="px-3 py-1.5 rounded-lg text-xs font-medium disabled:opacity-50 disabled:cursor-not-allowed transition-colors dt-card dt-text-secondary"
                 >
                   {state.status === 'running' ? 'Running…' : 'Test'}
                 </button>
@@ -138,7 +139,7 @@ export default function HealthPage() {
 
             {/* Log output */}
             {state.logs.length > 0 && (
-              <div className="px-5 py-3 font-mono text-xs space-y-1 bg-gray-950/60">
+              <div className="px-5 py-3 font-mono text-xs space-y-1 dt-surface-2 dt-border-t">
                 {state.logs.map((line, i) => (
                   <div key={i} className={`flex gap-2 ${LEVEL_STYLE[line.level]}`}>
                     <span className="flex-shrink-0 w-3">{LEVEL_PREFIX[line.level]}</span>
@@ -150,14 +151,14 @@ export default function HealthPage() {
 
             {/* Idle placeholder */}
             {state.status === 'idle' && (
-              <div className="px-5 py-3 text-xs text-gray-600 font-mono">
+              <div className="px-5 py-3 text-xs dt-text-muted font-mono">
                 Press Test to run
               </div>
             )}
 
             {/* Running spinner */}
             {state.status === 'running' && state.logs.length === 0 && (
-              <div className="px-5 py-3 text-xs text-blue-400 font-mono animate-pulse">
+              <div className="px-5 py-3 text-xs text-blue-500 font-mono animate-pulse">
                 Running test…
               </div>
             )}
@@ -169,8 +170,8 @@ export default function HealthPage() {
       {allDone && (
         <div className={`rounded-lg px-5 py-3 text-sm font-medium ${
           TESTS.every(t => states[t.key].status === 'pass')
-            ? 'bg-emerald-900/30 text-emerald-300 border border-emerald-800'
-            : 'bg-red-900/30 text-red-300 border border-red-800'
+            ? 'bg-emerald-900/20 text-emerald-500 border border-emerald-700/50'
+            : 'bg-red-900/20 text-red-500 border border-red-700/50'
         }`}>
           {TESTS.every(t => states[t.key].status === 'pass')
             ? '✓ All integrations healthy'

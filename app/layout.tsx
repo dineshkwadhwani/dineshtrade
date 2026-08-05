@@ -22,8 +22,13 @@ export default function RootLayout({ children }: { children: React.ReactNode }) 
         <link rel="icon" href="/favicon.ico" />
         <meta name="apple-mobile-web-app-capable" content="yes" />
         <meta name="apple-mobile-web-app-status-bar-style" content="black-translucent" />
+        <script
+          dangerouslySetInnerHTML={{
+            __html: "try{if(localStorage.getItem('dt-light')==='1'){document.documentElement.classList.add('light')}}catch(e){}",
+          }}
+        />
       </head>
-      <body className="flex flex-col min-h-screen bg-[#061426]">
+      <body className="flex flex-col min-h-screen">
         <div className="flex-1">{children}</div>
         <AppFooter />
       </body>

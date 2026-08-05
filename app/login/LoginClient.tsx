@@ -103,12 +103,12 @@ export default function LoginClient({ hint, market, datetime }: Props) {
 
         {/* Welcome */}
         <div className="text-center mb-1 animate-fade-up" style={{ animationDelay:'0.15s' }}>
-          <p className="text-white/60 text-lg mb-[2px]"
+          <p className="text-lg mb-[2px]"
             style={{ fontFamily:'Cormorant Garamond, Georgia, serif', fontWeight:300 }}>
-            Welcome, <span className="text-[#b7e7ff]">Dinesh</span>
+            Welcome, <span style={{ color: 'var(--dt-accent-display)' }}>Dinesh</span>
           </p>
           <p className="text-[10px] tracking-widest uppercase mt-1"
-            style={{ color:'rgba(127,209,255,0.72)', fontFamily:'JetBrains Mono, monospace' }}>
+            style={{ color:'var(--dt-text-muted)', fontFamily:'JetBrains Mono, monospace' }}>
             {datetime.dayName} · {hint.date} · {currentTime}
           </p>
         </div>
@@ -125,26 +125,26 @@ export default function LoginClient({ hint, market, datetime }: Props) {
         {/* Login form */}
         <form onSubmit={handleLogin} className="w-full max-w-[360px] animate-fade-up" style={{ animationDelay:'0.25s' }}>
           <p className="text-[9px] tracking-widest uppercase text-center mb-2"
-            style={{ color:'rgba(127,209,255,0.68)', fontFamily:'JetBrains Mono, monospace' }}>
+            style={{ color:'var(--dt-text-muted)', fontFamily:'JetBrains Mono, monospace' }}>
             Access Code
           </p>
 
-          <input
-            type="password"
-            value={password}
-            onChange={e => { setPassword(e.target.value); setError('') }}
-            placeholder="••••••••••"
-            className="w-full text-center text-[22px] tracking-[0.2em] py-4 px-4 rounded-xl outline-none transition-all duration-200 mb-3"
-            style={{
-              background:'rgba(127,209,255,0.06)',
-              border: error ? '1px solid rgba(224,90,94,0.5)' : '1px solid rgba(127,209,255,0.24)',
-              fontFamily:'JetBrains Mono, monospace',
-              color:'rgba(255,255,255,0.9)',
-            }}
-            autoComplete="off"
-            inputMode="numeric"
-            maxLength={10}
-          />
+          <div className="dt-login-surface w-full rounded-xl mb-3">
+            <input
+              type="password"
+              value={password}
+              onChange={e => { setPassword(e.target.value); setError('') }}
+              placeholder="••••••••••"
+              className="dt-login-input w-full text-center text-[22px] tracking-[0.2em] py-4 px-4 rounded-xl transition-all duration-200"
+              style={{
+                border: error ? '1px solid rgba(224,90,94,0.5)' : undefined,
+                fontFamily:'JetBrains Mono, monospace',
+              }}
+              autoComplete="off"
+              inputMode="numeric"
+              maxLength={10}
+            />
+          </div>
 
           {error && (
             <p className="text-[#e05a5e] text-[11px] text-center mb-3 tracking-wide">{error}</p>
@@ -167,11 +167,11 @@ export default function LoginClient({ hint, market, datetime }: Props) {
 
       {/* Ticker strip */}
       <div className="relative z-10 border-t py-3 overflow-hidden"
-        style={{ borderColor:'rgba(127,209,255,0.18)', background:'rgba(8,35,70,0.44)' }}>
+        style={{ borderColor:'var(--dt-border)', background:'var(--dt-bg-nav)' }}>
         <div className="flex animate-ticker whitespace-nowrap" style={{ width:'max-content' }}>
           {doubled.map((s, i) => (
             <span key={i} className="flex items-center gap-2 mx-4">
-              <span className="text-[9px] tracking-wider" style={{ color:'rgba(255,255,255,0.3)', fontFamily:'JetBrains Mono, monospace' }}>
+              <span className="text-[9px] tracking-wider" style={{ color:'var(--dt-text-muted)', fontFamily:'JetBrains Mono, monospace' }}>
                 {s.sym}
               </span>
               <span className={`text-[11px] font-medium ${s.up ? 'text-[#52b788]' : 'text-[#e05a5e]'}`}

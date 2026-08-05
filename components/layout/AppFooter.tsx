@@ -35,14 +35,14 @@ export default function AppFooter() {
   }
 
   return (
-    <footer className="border-t border-white/10 bg-[#0a0905] py-4 px-4 mt-auto text-center text-xs text-white/60">
+    <footer className="dt-footer py-4 px-4 mt-auto text-center text-xs">
       <div className="space-y-1">
         <div>
-          Created by <span className="text-white/80">Dinesh Wadhwani</span> • 
-          <a href="mailto:dinesh.k.wadhwani@gmail.com" className="ml-1 text-blue-400/80 hover:text-blue-400 transition-colors">
+          Created by <span className="dt-footer-emphasis">Dinesh Wadhwani</span> • 
+          <a href="mailto:dinesh.k.wadhwani@gmail.com" className="dt-footer-link ml-1">
             dinesh.k.wadhwani@gmail.com
           </a> • 
-          <span className="ml-1 text-white/80">+91 9767676738</span>
+          <span className="ml-1 dt-footer-emphasis">+91 9767676738</span>
         </div>
         <div>
           Version: {loading ? 'Loading...' : startedAt ? formatTime(startedAt) : 'Unknown'}
