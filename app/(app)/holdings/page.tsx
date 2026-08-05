@@ -1,5 +1,6 @@
 'use client'
 import { useEffect, useState } from 'react'
+import { createPortal } from 'react-dom'
 import OrderModal from '@/components/OrderModal'
 import type { EnrichedPosition } from '@/app/api/positions/route'
 import { isMarketOpen } from '@/lib/market'
@@ -733,8 +734,8 @@ const flattenedHoldings = [
           if (activeTab) load(activeTab)
         }} />
 
-      {switchModal.open && (
-        <div className="fixed inset-0 z-50 flex items-center justify-center px-4" style={{ background:'rgba(0,0,0,0.72)', backdropFilter:'blur(4px)' }}>
+      {switchModal.open && typeof document !== 'undefined' && createPortal(
+        <div className="fixed inset-0 z-[100] flex items-center justify-center px-4" style={{ background:'rgba(0,0,0,0.72)', backdropFilter:'blur(4px)' }}>
           <div className="w-full max-w-md rounded-xl p-5 dt-card-inner" style={{ border:'1px solid rgba(201,168,76,0.24)' }}>
             <div className="flex items-start justify-between gap-3">
               <div>
@@ -788,7 +789,8 @@ const flattenedHoldings = [
               </button>
             </div>
           </div>
-        </div>
+        </div>,
+        document.body,
       )}
     </div>
   )
