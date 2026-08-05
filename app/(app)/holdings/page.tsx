@@ -324,13 +324,22 @@ export default function HoldingsPage() {
           // multi-lot symbols (it can land on a still-open, unrelated lot),
           // and the journal already knows the exact strategy that made the sale.
           const storeLots = r.journalReconciled ? [] : (positionLotsBySymbol.get(symbolKey) || [])
-          const matchedLot = storeLots.find((lot: any) => Math.abs((lot.entryPrice || 0) - (r.average_price || 0)) <= 0.01)
+          const activeStoreLots = storeLots.filter((lot: any) => (lot.remainingQty || 0) > 0)
+          // Match the visible T0 row to a concrete lot so the UI can always do
+          // lot-level strategy switching. Prefer exact qty+price, then price-only,
+          // then single-active-lot fallback.
+          const matchedLot =
+            activeStoreLots.find((lot: any) => Math.abs((lot.entryPrice || 0) - (r.average_price || 0)) <= 0.01 && (lot.remainingQty || 0) === totalQty(r)) ||
+            activeStoreLots.find((lot: any) => Math.abs((lot.entryPrice || 0) - (r.average_price || 0)) <= 0.01) ||
+            (activeStoreLots.length === 1 ? activeStoreLots[0] : undefined)
           const t0StrategyId = (matchedLot && matchedLot.strategyId) || (r as any).strategyId || (r as any).t0StrategyId
           return {
             ...r,
             source: 't0',
             displayEntryPrice: r.journalReconciled ? r.average_price : (positionEntryPriceBySymbol.get(r.tradingsymbol.toUpperCase()) ?? r.average_price),
             t0StrategyId,
+            lotId: matchedLot?.id,
+            lots: matchedLot ? [matchedLot] : r.lots,
           }
         })
 
