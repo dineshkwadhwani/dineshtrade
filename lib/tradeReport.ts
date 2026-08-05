@@ -273,6 +273,22 @@ function mergeTodayOrders(rawOrders: OrderRecord[], liveOrders: OrderRecord[], t
 
   const merged: OrderRecord[] = []
   const consumedLiveOrderIds = new Set<string>()
+  const latestSellTsByKey = new Map<string, string>()
+  const orderKey = (order: OrderRecord): string => `${order.account}:${order.symbol}:${order.date}`
+
+  for (const order of rawOrders) {
+    if (order.date !== toDate || order.side !== 'SELL') continue
+    if (!order.orderId) continue
+    const key = orderKey(order)
+    const prev = latestSellTsByKey.get(key)
+    if (!prev || order.ts > prev) latestSellTsByKey.set(key, order.ts)
+  }
+  for (const order of liveOrders) {
+    if (order.date !== toDate || order.side !== 'SELL') continue
+    const key = orderKey(order)
+    const prev = latestSellTsByKey.get(key)
+    if (!prev || order.ts > prev) latestSellTsByKey.set(key, order.ts)
+  }
 
   for (const order of rawOrders) {
     if (order.date !== toDate) {
@@ -283,8 +299,7 @@ function mergeTodayOrders(rawOrders: OrderRecord[], liveOrders: OrderRecord[], t
     // For TODAY, live Kite COMPLETE orders are the source of truth when
     // available. Journal rows without an orderId can be synthetic/stale
     // (for example a replayed BUY after a SELL reconcile), and those rows can
-    // create phantom trades + inflated realized P/L. Keep only today rows that
-    // are verifiably tied to a live fill (by orderId or exact shape match).
+    // create phantom trades + inflated realized P/L.
     if (!order.orderId) {
       const shapeKey = makeShapeKey(order)
       const bucket = liveByShape.get(shapeKey) || []
@@ -292,7 +307,19 @@ function mergeTodayOrders(rawOrders: OrderRecord[], liveOrders: OrderRecord[], t
       if (replacement) {
         if (replacement.orderId) consumedLiveOrderIds.add(replacement.orderId)
         merged.push(replacement)
+        continue
       }
+
+      // Preserve seed/manual no-id rows by default, but drop suspicious
+      // no-id BUY rows that appear only after a same-day SELL for the same
+      // account+symbol+date. Those are typically reconcile intake artifacts
+      // caused by transient broker snapshot timing.
+      if (order.side === 'BUY') {
+        const sellTs = latestSellTsByKey.get(orderKey(order))
+        if (sellTs && order.ts >= sellTs) continue
+      }
+
+      merged.push(order)
       continue
     }
 
