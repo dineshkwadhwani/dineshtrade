@@ -1,7 +1,7 @@
 # DineshTrade — Project Context
 
-**Last Updated:** 22 Jun 2026
-**Version:** 2.5
+**Last Updated:** 04 Aug 2026
+**Version:** 2.6
 **Purpose:** This file gives Claude (or any AI assistant) full context of everything discussed so far about this project. Start any new conversation by uploading this file.
 
 ---
@@ -493,9 +493,48 @@ Type check only (no build): `npx tsc --noEmit`
   - Version: server startup timestamp
 - Added `/api/version` endpoint returning process/module start time for footer version display.
 
+### Phase 9 — built 04 Aug 2026
+
+#### Sold-today lots vanishing / misrepresented on Holdings + Today's Positions
+
+- Root cause: `/api/positions` built "today's positions" purely from Kite's Positions/Orders API, which doesn't reliably represent a SELL of a CNC holding bought on a *prior* day (row missing entirely, or shows ₹0 entry/realized and the wrong strategy tag — `positions.json`'s top-level `strategyId` is frozen to whichever lot was bought first, not the lot actually sold).
+- Fix: `/api/positions` now reconciles every "today" row against the bot's own `trade` journal records (ground truth for what actually executed). Drops any Kite-derived row a journal trade's order id touches and rebuilds one row per trade from the journal — handles a symbol having multiple distinct closed-today trades under different strategies, which Kite nets into a single row that can't represent any of them correctly. A second pass walks the position store directly for any lot bought today not yet visibly represented (handles "sold an old lot + bought a new one, same symbol, same day").
+- Row semantics differ by page on purpose: Holdings clamps to qty 0 for any sold-today lot (`Math.max(0, qty)`); Today's Positions preserves Kite's real signed semantics — a pure sell out of settled holdings shows as **negative quantity** (matches the real Kite Positions tab), a genuine same-day round trip shows qty 0/closed.
+- Today's Positions headline P&L for a reconciled sold-today row now shows the **re-entry-relative** figure (`exitPrice − current LTP`) × sold qty — "if I bought this back right now, where do I stand" — not the realized gain vs entry (that stays in the "realized" line below, unchanged). The page's total "Day P&L" tile was fixed to sum this same per-row figure (was silently summing realized+unrealized instead, drifting from what the rows actually showed).
+
+#### Position store race condition (lost buys/sells)
+
+- Root cause: `lib/positions.ts`'s `normalizePosition()` unconditionally reported "changed" for any tracked position, so `migrateIfNeeded()` rewrote `positions.json` on *every read* (every page load, every cron tick) — a plain read racing a concurrent `recordBuy`/`applyLotSell` write could silently clobber the write with a stale snapshot. Concretely lost a same-day Market Boom BUY lot for BSE this way.
+- Fix: `normalizePosition()` now only reports "changed" if it actually mutated the position (before/after snapshot compare) — plain reads stop writing.
+- Residual risk closed too: `cron.ts` runs the 5-min SELL tick plus a separate cron task per active strategy, all in one process, and their schedules periodically land on the same minute — two genuine writes could still interleave. Added an in-process async mutex (`withLock`) wrapping all 13 exported read-modify-write functions in `lib/positions.ts`. Sufficient since the whole app is one long-lived Node process (PM2, not clustered); verified no nested lock calls (no deadlock risk).
+- Manually repaired the lost BSE lot and a since-discovered stale SAIL lot directly in `data/positions.json` this session (documented recovery pattern: read the journal's order/trade records for true qty/price/timestamp, append a matching lot, recompute derived fields the same way `summarizeMomentumPosition` would).
+
+#### Trade Report understates real P&L — journal has corrupted phantom trades (NOT YET FIXED)
+
+- Zerodha Console shows Net Realized P&L +₹11.67k / Gross +₹16.07k for 2026-05-19 to 08-04. The in-app Trade Report (`/trade-report`, `lib/tradeReport.ts`) showed only +₹5,548 net for the same window.
+- Cross-referenced our journal's `order` records against the real Zerodha tradebook CSV (per-symbol buy/sell qty totals) — ~15 symbols mismatch, worst case TATASTEEL: our journal records a SELL of **28,700 shares** on 2026-07-01 against a lifetime total of 165 shares actually bought.
+- Root cause traced to `reconcileManualSells()` in `lib/cronReconcile.ts`: its "absorb untracked live position" path (phantom BUY, no order ID) and "Case 2 synthetic close" path (synthetic SELL using `pos.remainingQty` at that instant, then `removePosition`) can cycle — phantom BUY → synthetic SELL → phantom re-BUY of the same physical holding — and somewhere in that cycle a lot's `remainingQty` got corrupted before being captured verbatim into a permanent journal record. Confirmed same fingerprint (phantom no-order-ID BUY / synthetic `dt-manual` SELL / phantom no-order-ID re-BUY) on BSOFT, CAMS, and others.
+- **Decision:** don't hand-patch months of corrupted journal entries. Full account reset planned for **2026-08-05, 7:30 AM IST** (right after Zerodha's overnight reconciliation window closes, so the reset seeds from a fully-settled snapshot) via the existing Settings → Reset flow: wipes journal + position store, re-seeds one lot per symbol at Zerodha's real current avg price/qty (JINDALSTEL collapses from its current multi-lot state to one lot — confirmed fine). Every position resets `firstBuyAt` to reset-day (age-based exit rules restart) and comes back tagged Accumulator (needs manual re-tag to real strategy per symbol afterward). Zerodha Console remains the source of truth for anything before the reset; the in-app Trade Report becomes trustworthy only from reset-day forward.
+- **Still outstanding:** the root-cause fix in `reconcileManualSells()`'s Case 2 + untracked-position-absorb logic, so this can't recur. Deferred on purpose to the same conversation as the broker-abstraction/account-scoping refactor below, since it's the same subsystem.
+- Also surfaced: Kite Connect's `/orders` and `/trades` endpoints are strictly scoped to the current trading day — there is no API path for historical multi-day trade data. Console's Tradebook CSV / P&L reports (manual download or scheduled email) are Zerodha's only historical source; going forward, "Today's Positions" pulling straight from live Kite orders instead of trusting our own journal is worth doing precisely because it sidesteps this exact class of journal-corruption bug.
+
+#### Major refactor discussed, not started — planned for a weekend
+
+Three changes requested together; recommended as two sequenced projects plus a cross-cutting architectural requirement:
+
+1. **Account-scoped strategies** — strategies are currently applied universally across all accounts. Each strategy becomes an "out of the box" template; each account creates its own copy to customize/run independently. Cron needs to run each strategy per-account.
+2. **Broker abstraction layer** — plug out Zerodha, plug in Upstox or another broker's API; only Zerodha supported for now, but the refactor must not paint the architecture into a corner. **Note:** `docs/HANDOFF.md` already specifies an `IBroker` interface pattern for exactly this (targeting Angel One specifically, not Upstox) — read that doc's "Broker Adapter Pattern" section first when this work starts; the interface shape likely needs only the target adapter swapped.
+3. **JSON → Supabase migration** — motivation is broader than thread-safety (already mitigated by the mutex fix above) — also scaling, queryability, backups, and the relational structure the account-scoped model needs.
+
+Recommended sequencing: account-scoping first (on the existing JSON store, proven live for a few days), broker abstraction folded into that same pass (both touch the credential-resolution layer), Supabase schema designed around the now-settled account-scoped + broker-scoped shape last, not a straight port of the old flat JSON. Recommended timing: build/dry-run anytime including market hours (logging-only validation), but do the actual cutover (cron switch, or the Supabase point-of-no-return) off-market with a tested rollback ready.
+
 ---
 
-## 12. OPEN ISSUES / KNOWN BUGS (as of 11 Jun 2026)
+## 12. OPEN ISSUES / KNOWN BUGS (as of 04 Aug 2026)
+
+- **Open, root cause known, fix deferred:** `reconcileManualSells()` in `lib/cronReconcile.ts` can create phantom sell/rebuy cycles that corrupt `positions.json` and the journal (see Phase 9 above). Worked around via a full account reset (2026-08-05 7:30 AM); underlying fix not yet built.
+- **Resolved:** Holdings/Today's Positions sold-today-lot visibility, attribution, and P&L display bugs (see Phase 9).
+- **Resolved:** position store read-triggered and concurrent-write race conditions (see Phase 9).
 
 - **Resolved:** holdings display now derives weighted average from currently open lots and exposes per-lot price/qty breakdown for UI rendering.
 - **Resolved:** mixed-root positions (e.g. BSE) now preserve lot-level `strategyId` and evaluate per-lot exits by that lot's own strategy instead of the row-level fallback.
@@ -518,4 +557,4 @@ For GitHub Copilot or Cursor: see `COPILOT.md` in the repo root for the full tec
 
 ---
 
-Built with Claude AI — June 2026.
+Built with Claude AI — June 2026, updated August 2026.
