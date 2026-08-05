@@ -17,6 +17,14 @@ interface StrategyOption {
   name: string
 }
 
+interface StateResponse {
+  accountsWithToken?: string[]
+}
+
+interface PositionsApiResponse {
+  closedToday?: Array<{ realized?: number }>
+}
+
 function shiftDays(days: number): string {
   const d = new Date()
   d.setDate(d.getDate() + days)
@@ -27,6 +35,7 @@ export default function TradeReportPage() {
   const [fromDate, setFromDate] = useState(() => shiftDays(-30))
   const [toDate, setToDate] = useState(() => shiftDays(0))
   const [accounts, setAccounts] = useState<AccountDisplay[]>([])
+  const [connectedAccounts, setConnectedAccounts] = useState<string[]>([])
   const [strategies, setStrategies] = useState<StrategyOption[]>([])
   const [symbolOptions, setSymbolOptions] = useState<string[]>([])
   const [accountFilter, setAccountFilter] = useState('')
@@ -37,17 +46,21 @@ export default function TradeReportPage() {
   const [error, setError] = useState('')
   const [info, setInfo] = useState('')
   const [result, setResult] = useState<LiveTradeReportResult | null>(null)
+  const [todayClosedRealized, setTodayClosedRealized] = useState<number | null>(null)
+  const [todayClosedSymbols, setTodayClosedSymbols] = useState<number>(0)
 
   useEffect(() => {
     Promise.all([
       fetch('/api/accounts').then(r => r.json()).catch(() => ({ accounts: [] })),
       fetch('/api/strategies').then(r => r.json()).catch(() => ({ strategies: [] })),
-    ]).then(([accountsData, strategiesData]) => {
+      fetch('/api/state').then(r => r.json()).catch(() => ({ accountsWithToken: [] })),
+    ]).then(([accountsData, strategiesData, stateData]) => {
       setAccounts(Array.isArray(accountsData.accounts) ? accountsData.accounts : [])
       const nextStrategies = Array.isArray(strategiesData.strategies)
         ? (strategiesData.strategies as StrategyOption[]).map(strategy => ({ id: strategy.id, name: strategy.name }))
         : []
       setStrategies(nextStrategies)
+      setConnectedAccounts(Array.isArray((stateData as StateResponse).accountsWithToken) ? (stateData as StateResponse).accountsWithToken as string[] : [])
     }).catch(() => {})
 
     runReport(fromDate, toDate, accountFilter, strategyFilter, symbolFilter)
@@ -67,12 +80,37 @@ export default function TradeReportPage() {
       if (!res.ok) {
         setResult(null)
         setSymbolOptions([])
+        setTodayClosedRealized(null)
+        setTodayClosedSymbols(0)
         setError(data.error || `Trade report failed (HTTP ${res.status})`)
         return
       }
       const nextResult = (data.result || null) as LiveTradeReportResult | null
       setResult(nextResult)
       setSymbolOptions(Array.isArray(nextResult?.availableSymbols) ? nextResult.availableSymbols : [])
+
+      const today = shiftDays(0)
+      const isTodayOnly = nextFrom === today && nextTo === today
+      if (isTodayOnly) {
+        const targetAccounts = nextAccount ? [nextAccount] : connectedAccounts
+        if (targetAccounts.length > 0) {
+          const responses = await Promise.all(targetAccounts.map(async account => {
+            const payload = await fetch(`/api/positions?account=${encodeURIComponent(account)}&_t=${Date.now()}`, { cache: 'no-store' })
+            return payload.json() as Promise<PositionsApiResponse>
+          }))
+          const rows = responses.flatMap(r => Array.isArray(r.closedToday) ? r.closedToday : [])
+          const realized = rows.reduce((sum, row) => sum + (Number(row.realized) || 0), 0)
+          setTodayClosedRealized(realized)
+          setTodayClosedSymbols(rows.length)
+        } else {
+          setTodayClosedRealized(null)
+          setTodayClosedSymbols(0)
+        }
+      } else {
+        setTodayClosedRealized(null)
+        setTodayClosedSymbols(0)
+      }
+
       const filters = [
         nextAccount ? `Account: ${nextAccount}` : 'All accounts',
         nextStrategy ? `Strategy: ${nextStrategy === 'manual' ? 'Manual' : (strategies.find(strategy => strategy.id === nextStrategy)?.name || nextStrategy)}` : 'All strategies',
@@ -82,6 +120,8 @@ export default function TradeReportPage() {
     } catch {
       setResult(null)
       setSymbolOptions([])
+      setTodayClosedRealized(null)
+      setTodayClosedSymbols(0)
       setError('Network error while loading trade report')
     } finally {
       setLoading(false)
@@ -283,6 +323,30 @@ export default function TradeReportPage() {
               </div>
             )}
           </div>
+
+          {todayClosedRealized !== null && (
+            <div className="rounded-xl p-4 dt-card" style={{ border:'1px solid rgba(201,168,76,0.2)' }}>
+              <div className="flex items-center justify-between gap-3 flex-wrap">
+                <div>
+                  <p className="text-[10px] tracking-widest uppercase" style={{ color:'rgba(201,168,76,0.6)', fontFamily:'JetBrains Mono, monospace' }}>
+                    Today Closed Realized (Positions)
+                  </p>
+                  <p className="text-[11px] dt-text-muted mt-1">
+                    Uses the same today-only closed symbol aggregation as Positions page.
+                  </p>
+                </div>
+                <div className="text-right" style={{ fontFamily:'JetBrains Mono, monospace' }}>
+                  <p className="text-[20px] font-semibold" style={{ color: todayClosedRealized >= 0 ? '#52b788' : '#e05a5e' }}>
+                    {formatSignedCurrency(todayClosedRealized)}
+                  </p>
+                  <p className="text-[10px] dt-text-muted">symbols closed: {todayClosedSymbols}</p>
+                  <p className="text-[10px]" style={{ color:'rgba(201,168,76,0.7)' }}>
+                    delta vs Gross P/L: {formatSignedCurrency(result.summary.realizedPnl - todayClosedRealized)}
+                  </p>
+                </div>
+              </div>
+            </div>
+          )}
 
           <div className="rounded-xl overflow-hidden dt-card">
             <div className="px-4 py-2.5 flex items-center justify-between gap-3 dt-border-b">
