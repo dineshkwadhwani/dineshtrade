@@ -350,8 +350,24 @@ export async function GET(req: Request) {
     }
   }
 
-  const closedToday: ClosedTodaySummary[] = []
+  const closedTodayMap = new Map<string, { closedQty: number; buyNotional: number; sellNotional: number; realized: number }>()
+
+  // Primary source: journal trade records (ground truth for closed lots,
+  // including exits of prior-day holdings where today's BUY qty is zero).
+  for (const trade of todaysTrades) {
+    const sym = trade.symbol.toUpperCase()
+    const bucket = closedTodayMap.get(sym) || { closedQty: 0, buyNotional: 0, sellNotional: 0, realized: 0 }
+    bucket.closedQty += trade.qty
+    bucket.buyNotional += trade.qty * trade.entryPrice
+    bucket.sellNotional += trade.qty * trade.exitPrice
+    bucket.realized += trade.pnlRupees
+    closedTodayMap.set(sym, bucket)
+  }
+
+  // Fallback source: order aggregation for symbols that have no journal trade
+  // rows yet (e.g. legacy/manual paths that completed today).
   for (const sym of allSymbols) {
+    if (closedTodayMap.has(sym)) continue
     const buyAgg = buyAggBySymbol.get(sym)
     const sellAgg = sellAggBySymbol.get(sym)
     if (!buyAgg || !sellAgg || buyAgg.qty <= 0 || sellAgg.qty <= 0) continue
@@ -359,14 +375,24 @@ export async function GET(req: Request) {
     if (closedQty <= 0) continue
     const buyVwap = buyAgg.notional / buyAgg.qty
     const sellVwap = sellAgg.notional / sellAgg.qty
-    closedToday.push({
-      symbol: sym,
+    closedTodayMap.set(sym, {
       closedQty,
-      buyVwap,
-      sellVwap,
+      buyNotional: closedQty * buyVwap,
+      sellNotional: closedQty * sellVwap,
       realized: closedQty * (sellVwap - buyVwap),
     })
   }
+
+  const closedToday: ClosedTodaySummary[] = Array.from(closedTodayMap.entries()).map(([symbol, v]) => {
+    const safeQty = Math.max(1, v.closedQty)
+    return {
+      symbol,
+      closedQty: v.closedQty,
+      buyVwap: v.buyNotional / safeQty,
+      sellVwap: v.sellNotional / safeQty,
+      realized: v.realized,
+    }
+  })
 
   filtered.sort((a, b) => a.symbol.localeCompare(b.symbol))
   closedToday.sort((a, b) => b.closedQty - a.closedQty || a.symbol.localeCompare(b.symbol))
