@@ -273,21 +273,26 @@ function mergeTodayOrders(rawOrders: OrderRecord[], liveOrders: OrderRecord[], t
 
   const merged: OrderRecord[] = []
   const consumedLiveOrderIds = new Set<string>()
-  const latestSellTsByKey = new Map<string, string>()
+  // Track the EARLIEST sell ts per symbol. Phantom re-buys are written by the
+  // cron immediately after the sell (same second, higher milliseconds), so they
+  // will always be >= the earliest sell ts. Using the minimum means the Kite
+  // live-order ts (second-precision, often 1 s later) cannot push the threshold
+  // beyond the phantom BUY's timestamp and accidentally allow it through.
+  const earliestSellTsByKey = new Map<string, string>()
   const orderKey = (order: OrderRecord): string => `${order.account}:${order.symbol}:${order.date}`
 
   for (const order of rawOrders) {
     if (order.date !== toDate || order.side !== 'SELL') continue
     if (!order.orderId) continue
     const key = orderKey(order)
-    const prev = latestSellTsByKey.get(key)
-    if (!prev || order.ts > prev) latestSellTsByKey.set(key, order.ts)
+    const prev = earliestSellTsByKey.get(key)
+    if (!prev || order.ts < prev) earliestSellTsByKey.set(key, order.ts)
   }
   for (const order of liveOrders) {
     if (order.date !== toDate || order.side !== 'SELL') continue
     const key = orderKey(order)
-    const prev = latestSellTsByKey.get(key)
-    if (!prev || order.ts > prev) latestSellTsByKey.set(key, order.ts)
+    const prev = earliestSellTsByKey.get(key)
+    if (!prev || order.ts < prev) earliestSellTsByKey.set(key, order.ts)
   }
 
   for (const order of rawOrders) {
@@ -315,7 +320,7 @@ function mergeTodayOrders(rawOrders: OrderRecord[], liveOrders: OrderRecord[], t
       // account+symbol+date. Those are typically reconcile intake artifacts
       // caused by transient broker snapshot timing.
       if (order.side === 'BUY') {
-        const sellTs = latestSellTsByKey.get(orderKey(order))
+        const sellTs = earliestSellTsByKey.get(orderKey(order))
         if (sellTs && order.ts >= sellTs) continue
       }
 
