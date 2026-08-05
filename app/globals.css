@@ -293,11 +293,11 @@ html.light .dt-card-accent {
    !important is required to beat React inline styles.
    ────────────────────────────────────────────────────────────────────── */
 
-/* ══ BLANKET: every element inside <main> gets dark text ══════════════
-   Specificity: html(.light) main(*) = (0,1,1,0)
-   Semantic restores below have (0,2,0,0)+(attr) → always win over this. */
-html.light main,
-html.light main * { color: var(--dt-text-primary) !important; }
+/* ══ BLANKET: every app element gets readable light-mode text ═════════
+  Includes portal-rendered overlays/modals mounted under <body>.
+  Semantic restores below keep green/red/gold/blue meaning intact. */
+html.light body,
+html.light body * { color: var(--dt-text-primary) !important; }
 
 /* Restore body-level base (nav, ticker, etc. outside main) */
 html.light body { color: var(--dt-text-primary); }
@@ -400,7 +400,22 @@ html.light [style*="border-top:1px solid rgba(255,255,255"],
 html.light [style*="border-top: 1px solid rgba(255, 255, 255"]  { border-color: var(--dt-border) !important; }
 
 /* Transparent borders on inactive buttons → subtle visible border */
-html.light main button[style*="transparent"] { border-color: var(--dt-border) !important; }
+html.light body button[style*="transparent"] { border-color: var(--dt-border) !important; }
+
+/* Tailwind white text utilities in light mode -> readable primary tone */
+html.light .text-white,
+html.light .text-white\/90,
+html.light .text-white\/85,
+html.light .text-white\/80,
+html.light .text-white\/70,
+html.light .text-white\/60,
+html.light .text-white\/50,
+html.light .text-white\/40,
+html.light .text-white\/35,
+html.light .text-white\/30,
+html.light .text-white\/20 {
+  color: var(--dt-text-primary) !important;
+}
 
 /* ══ LIVE TICKER — keep its strip styling intact without flattening item colors ══ */
 html.light .ticker-strip { color: var(--dt-text-primary); }
