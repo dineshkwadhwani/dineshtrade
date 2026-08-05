@@ -126,9 +126,13 @@ export async function POST(req: Request) {
   if (!lotId) {
     return NextResponse.json({ error: 'lotId is required for lot-level strategy switching' }, { status: 400 })
   }
-
-  if (existing.strategyId === targetStrategyId) {
-    return NextResponse.json({ error: `${symbol} is already managed by ${targetStrategyId}` }, { status: 409 })
+  const lot = (existing.lots || []).find(l => l.id === lotId)
+  if (!lot) {
+    return NextResponse.json({ error: `Lot ${lotId} not found for ${symbol}` }, { status: 404 })
+  }
+  const currentLotStrategyId = String(lot.strategyId || existing.strategyId || '').trim()
+  if (currentLotStrategyId === targetStrategyId) {
+    return NextResponse.json({ error: `${symbol} lot ${lotId} is already managed by ${targetStrategyId}` }, { status: 409 })
   }
 
   const target = getStrategyById(targetStrategyId)
@@ -150,10 +154,11 @@ export async function POST(req: Request) {
     ok: true,
     account,
     symbol,
-    fromStrategyId: existing.strategyId,
+    lotId,
+    fromStrategyId: currentLotStrategyId,
     toStrategyId: target.id,
     toStrategyName: target.name,
     toStrategyColor: target.color,
-    message: `${symbol} is now managed by ${target.name}`,
+    message: `${symbol} lot ${lotId} is now managed by ${target.name}`,
   })
 }

@@ -358,7 +358,18 @@ const flattenedHoldings = [
             activeLots = (storeLots || []).filter((lot: any) => (lot.remainingQty || 0) > 0)
           }
 
-          if (activeLots.length === 0) return [h]
+          if (activeLots.length === 0) {
+            const storeLots = positionLotsBySymbol.get(symbolKey) || []
+            const singleActiveLot = storeLots.filter((lot: any) => (lot.remainingQty || 0) > 0)
+            if (singleActiveLot.length === 1) {
+              return [{
+                ...h,
+                lotId: singleActiveLot[0].id,
+                lots: [singleActiveLot[0]],
+              }]
+            }
+            return [h]
+          }
 
           return activeLots.map((lot: any) => ({
             ...h,
@@ -556,13 +567,16 @@ const flattenedHoldings = [
                 }
                 const isManaged = !!tag
                 const switchLotId = h.lotId || h.lots?.[0]?.id
-                const canSwitchStrategy = isManaged && !!switchLotId && activeStrategies.some(strategy => strategy.id !== tag!.strategyId)
+                const hasAlternateActiveStrategy = isManaged && activeStrategies.some(strategy => strategy.id !== tag!.strategyId)
+                const canSwitchStrategy = isManaged && !!switchLotId
                 const badgeLabel = isManaged ? tag!.strategyName.toUpperCase().slice(0, 14) : 'OOS'
                 const badgeColor = isManaged ? tag!.strategyColor : 'rgba(255,255,255,0.4)'
                 const badgeTitle = isManaged
                   ? canSwitchStrategy
-                    ? `${tag!.strategyName} managed — click to switch the active strategy for this holding.`
-                    : `${tag!.strategyName} managed — no alternate active strategy available.`
+                    ? hasAlternateActiveStrategy
+                      ? `${tag!.strategyName} managed — click to switch the active strategy for this holding.`
+                      : `${tag!.strategyName} managed — no alternate active strategy available right now.`
+                    : `${tag!.strategyName} managed — lot id missing for this row.`
                   : 'Out of System — not auto-managed. Bought outside DineshTrade, or transitioned-out. Manual Sell still works.'
                 const pnlColor = h.pnl >= 0 ? '#52b788' : '#e05a5e'
                 const dayColor = h.day_change_percentage >= 0 ? '#52b788' : '#e05a5e'
