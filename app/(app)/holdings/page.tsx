@@ -367,6 +367,7 @@ const flattenedHoldings = [
                 ...h,
                 lotId: singleActiveLot[0].id,
                 lots: [singleActiveLot[0]],
+                isPartialLot: typeof singleActiveLot[0].originalQty === 'number' && singleActiveLot[0].remainingQty < singleActiveLot[0].originalQty,
               }]
             }
             return [h]
@@ -441,6 +442,7 @@ const flattenedHoldings = [
 
   return (
     <div className="space-y-5 pb-4">
+            isPartialLot: !!matchedLot && typeof matchedLot.originalQty === 'number' && matchedLot.remainingQty < matchedLot.originalQty,
       <div className="flex items-center justify-between flex-wrap gap-3">
         <h1 className="text-2xl font-light dt-text-primary" style={{ fontFamily:'Cormorant Garamond, serif' }}>
           Current <span className="accent-text">Holdings</span>
