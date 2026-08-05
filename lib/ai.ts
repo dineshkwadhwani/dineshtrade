@@ -126,15 +126,18 @@ async function callGemini(model: string, opts: AICallOpts, useWebSearch: boolean
     contents: [{ parts: [{ text: opts.prompt }] }],
     generationConfig: {
       maxOutputTokens: opts.maxTokens || 3000,
-      // Disable Gemini 2.5's internal "thinking" tokens — they consume the
-      // output budget and aren't useful for structured-JSON tasks like this.
-      thinkingConfig: { thinkingBudget: 0 },
     },
+  }
+  // Disable Gemini 2.5 internal thinking tokens where supported. Some legacy
+  // aliases (e.g. gemini-flash-latest) reject thinkingConfig with
+  // INVALID_ARGUMENT, so we attach it selectively and keep a retry fallback.
+  if (model.includes('2.5')) {
+    body.generationConfig.thinkingConfig = { thinkingBudget: 0 }
   }
   if (useWebSearch) body.tools = [{ google_search: {} }]
 
   const url = `https://generativelanguage.googleapis.com/v1beta/models/${encodeURIComponent(model)}:generateContent`
-  const res = await fetch(url, {
+  let res = await fetch(url, {
     method: 'POST',
     headers: {
       'Content-Type': 'application/json',
@@ -142,6 +145,28 @@ async function callGemini(model: string, opts: AICallOpts, useWebSearch: boolean
     },
     body: JSON.stringify(body),
   })
+  if (!res.ok && res.status === 400 && body.generationConfig?.thinkingConfig) {
+    const firstErr = await res.text()
+    if (/INVALID_ARGUMENT|invalid argument/i.test(firstErr)) {
+      const retryBody = {
+        ...body,
+        generationConfig: {
+          ...body.generationConfig,
+        },
+      }
+      delete retryBody.generationConfig.thinkingConfig
+      res = await fetch(url, {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+          'x-goog-api-key': getApiKey('gemini'),
+        },
+        body: JSON.stringify(retryBody),
+      })
+    } else {
+      return { ok: false, text: '', status: res.status, error: firstErr, provider: 'gemini', model, webSearchUsed: useWebSearch }
+    }
+  }
   if (!res.ok) {
     return { ok: false, text: '', status: res.status, error: await res.text(), provider: 'gemini', model, webSearchUsed: useWebSearch }
   }
