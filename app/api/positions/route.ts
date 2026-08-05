@@ -101,6 +101,9 @@ export async function GET(req: Request) {
     ...positions.day.map(p => p.tradingsymbol.toUpperCase()),
     ...completedOrders.map(o => o.tradingsymbol.toUpperCase()),
     ...todaysTrades.map(t => t.symbol.toUpperCase()),
+    // Reset/reseed can create tracked lots with no same-day Kite day-position or
+    // order footprint. Include tracked symbols so those rows still get live LTP.
+    ...trackedPositions.filter(p => p.remainingQty > 0).map(p => p.symbol.toUpperCase()),
   ]))
   const quotes = allSymbols.length > 0
     ? await getQuotes(creds, allSymbols).catch(() => ({} as Awaited<ReturnType<typeof getQuotes>>))
