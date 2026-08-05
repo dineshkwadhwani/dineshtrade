@@ -29,19 +29,6 @@ function strategyFromTag(tag?: string): string | null {
   return sid
 }
 
-function parseOrderTsMs(value?: string): number {
-  if (!value) return 0
-  const ms = Date.parse(value)
-  if (Number.isFinite(ms) && ms > 0) return ms
-  // Kite sometimes returns `YYYY-MM-DD HH:MM:SS` (IST-ish, no timezone).
-  if (/^\d{4}-\d{2}-\d{2} /.test(value)) {
-    const normalized = value.replace(' ', 'T') + '+05:30'
-    const withTzMs = Date.parse(normalized)
-    if (Number.isFinite(withTzMs) && withTzMs > 0) return withTzMs
-  }
-  return 0
-}
-
 function buildLiveInventory(
   holdings: Awaited<ReturnType<typeof getHoldings>>,
   positions: Awaited<ReturnType<typeof getPositions>>,
@@ -98,35 +85,9 @@ export async function reconcileManualSells(): Promise<void> {
     const liveQty = buildLiveQtyBySymbol([...livePositions.day, ...livePositions.net], holdings)
     const liveInventory = buildLiveInventory(holdings, livePositions)
     const trackedSymbols = new Set(openPositions.map(position => position.symbol.toUpperCase()))
-    const latestCompletedBuyTsBySymbol = new Map<string, number>()
-    const latestCompletedSellTsBySymbol = new Map<string, number>()
-
-    for (const order of kiteOrders) {
-      if (order.status !== 'COMPLETE') continue
-      const sym = order.tradingsymbol.toUpperCase()
-      const tsMs = parseOrderTsMs(order.order_timestamp)
-      if (order.transaction_type === 'BUY') {
-        const prev = latestCompletedBuyTsBySymbol.get(sym) || 0
-        if (tsMs > prev) latestCompletedBuyTsBySymbol.set(sym, tsMs)
-      } else if (order.transaction_type === 'SELL') {
-        const prev = latestCompletedSellTsBySymbol.get(sym) || 0
-        if (tsMs > prev) latestCompletedSellTsBySymbol.set(sym, tsMs)
-      }
-    }
 
     for (const [symbol, live] of Array.from(liveInventory.entries())) {
       if (trackedSymbols.has(symbol)) continue
-
-      const latestSellTs = latestCompletedSellTsBySymbol.get(symbol) || 0
-      const latestBuyTs = latestCompletedBuyTsBySymbol.get(symbol) || 0
-      // Guard against post-sell race windows: immediately after a SELL, broker
-      // inventory snapshots can still show stale positive qty for a symbol we
-      // just closed. Don't absorb/re-journal that as a synthetic BUY unless
-      // there is a strictly newer confirmed BUY fill.
-      if (latestSellTs > 0 && latestBuyTs <= latestSellTs) {
-        console.log(`[reconcile] ${account} ${symbol}: intake skipped (latest SELL newer than BUY)`)
-        continue
-      }
 
       const latestCompletedBuy = kiteOrders
         .filter(o => o.transaction_type === 'BUY' && o.status === 'COMPLETE' && o.tradingsymbol.toUpperCase() === symbol)
