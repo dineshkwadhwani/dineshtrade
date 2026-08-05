@@ -168,9 +168,14 @@ export async function monitorAccount(account: string): Promise<MonitorResult> {
       const liveQty = liveQtyBySymbol.get(sym) ?? 0
       if (liveQty <= 0) continue
       const liveAvg = liveAvgBySymbol.get(sym)
-      const seedPrice = (typeof liveAvg === 'number' && liveAvg > 0) ? liveAvg : latestBuy.price
-      await seedMissingPosition(latestBuy.strategyId, account, sym, liveQty, seedPrice, latestBuy.ts)
-      console.log(`[strategy2 monitor] reseeded ${account}:${sym} × ${liveQty} @ ₹${seedPrice} from ${liveAvg ? 'broker avg' : 'journal'} (${latestBuy.strategyId}, buyTs=${latestBuy.ts})`)
+      // Intake cost basis must come from broker average_price, never journal/
+      // signal prices (which may reflect LTP at decision time).
+      if (!(typeof liveAvg === 'number' && liveAvg > 0)) {
+        console.log(`[strategy2 monitor] skipped reseed ${account}:${sym} — broker average_price unavailable (strategy=${latestBuy.strategyId}, buyTs=${latestBuy.ts})`)
+        continue
+      }
+      await seedMissingPosition(latestBuy.strategyId, account, sym, liveQty, liveAvg, latestBuy.ts)
+      console.log(`[strategy2 monitor] reseeded ${account}:${sym} × ${liveQty} @ ₹${liveAvg} from broker avg (${latestBuy.strategyId}, buyTs=${latestBuy.ts})`)
     }
   }
 
