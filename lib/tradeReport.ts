@@ -280,12 +280,11 @@ function mergeTodayOrders(rawOrders: OrderRecord[], liveOrders: OrderRecord[], t
       continue
     }
 
-    if (order.orderId && liveByOrderId.has(order.orderId)) {
-      consumedLiveOrderIds.add(order.orderId)
-      merged.push(liveByOrderId.get(order.orderId)!)
-      continue
-    }
-
+    // For TODAY, live Kite COMPLETE orders are the source of truth when
+    // available. Journal rows without an orderId can be synthetic/stale
+    // (for example a replayed BUY after a SELL reconcile), and those rows can
+    // create phantom trades + inflated realized P/L. Keep only today rows that
+    // are verifiably tied to a live fill (by orderId or exact shape match).
     if (!order.orderId) {
       const shapeKey = makeShapeKey(order)
       const bucket = liveByShape.get(shapeKey) || []
@@ -293,10 +292,18 @@ function mergeTodayOrders(rawOrders: OrderRecord[], liveOrders: OrderRecord[], t
       if (replacement) {
         if (replacement.orderId) consumedLiveOrderIds.add(replacement.orderId)
         merged.push(replacement)
-        continue
       }
+      continue
     }
 
+    if (order.orderId && liveByOrderId.has(order.orderId)) {
+      consumedLiveOrderIds.add(order.orderId)
+      merged.push(liveByOrderId.get(order.orderId)!)
+      continue
+    }
+
+    // Keep orderId-backed journal rows as a fallback if Kite live feed omitted
+    // a fill; these rows are still safer than no-id entries.
     merged.push(order)
   }
 
