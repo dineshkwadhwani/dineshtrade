@@ -153,14 +153,18 @@ export default function HoldingsPage() {
 
   async function confirmStrategySwitch() {
     if (!activeTab || !switchModal.selectedStrategyId || switchModal.busy) return
+    if (!switchModal.lotId) {
+      setSwitchModal(current => ({ ...current, error: 'Lot id missing for this row. Refresh and try again.' }))
+      return
+    }
     setSwitchModal(current => ({ ...current, busy: true, error: '' }))
     try {
       const body: any = {
         account: activeTab,
         symbol: switchModal.symbol,
         targetStrategyId: switchModal.selectedStrategyId,
+        lotId: switchModal.lotId,
       }
-      if (switchModal.lotId) body.lotId = switchModal.lotId
       const res = await fetch('/api/strategy/positions', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
@@ -520,10 +524,11 @@ const flattenedHoldings = [
 
               {holdings.map((h, i) => {
                 const isT0Position = h.source === 't0'
+                const symbolKey = h.tradingsymbol.toUpperCase()
                 // Positions store is the single source of truth for strategy tags.
                 // Both settled holdings and T0 same-day positions use the same lookup
                 // so strategy attribution is consistent across all pages.
-                const baseTag = posTags.get(`${(activeTab || '').toUpperCase()}:${h.tradingsymbol.toUpperCase()}`)
+                const baseTag = posTags.get(`${(activeTab || '').toUpperCase()}:${symbolKey}`)
                 const lotStrategyId = h.lots?.[0]?.strategyId || h.t0StrategyId || ([...(h.lots || [])].sort((a, b) => b.boughtAt.localeCompare(a.boughtAt))[0]?.strategyId)
                 // Mixed-lot symbols may render individual lot rows from either the
                 // settled holdings side or the same-day positions side. Prefer the
@@ -541,7 +546,8 @@ const flattenedHoldings = [
                   }
                 }
                 const isManaged = !!tag
-                const canSwitchStrategy = isManaged && activeStrategies.some(strategy => strategy.id !== tag!.strategyId)
+                const switchLotId = h.lotId || h.lots?.[0]?.id
+                const canSwitchStrategy = isManaged && !!switchLotId && activeStrategies.some(strategy => strategy.id !== tag!.strategyId)
                 const badgeLabel = isManaged ? tag!.strategyName.toUpperCase().slice(0, 14) : 'OOS'
                 const badgeColor = isManaged ? tag!.strategyColor : 'rgba(255,255,255,0.4)'
                 const badgeTitle = isManaged
@@ -565,7 +571,7 @@ const flattenedHoldings = [
                 }
                 const Badge = canSwitchStrategy ? (
                   <button type="button" title={badgeTitle}
-                    onClick={() => openStrategySwitch(h.tradingsymbol, tag!.strategyId, tag!.strategyName, h.lotId)}
+                    onClick={() => openStrategySwitch(h.tradingsymbol, tag!.strategyId, tag!.strategyName, switchLotId)}
                     className="text-[8px] px-1.5 py-0.5 rounded flex-shrink-0 tracking-wider underline-offset-2 hover:underline"
                     style={badgeStyle}>
                     {badgeLabel}

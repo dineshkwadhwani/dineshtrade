@@ -12,7 +12,7 @@
 import { NextResponse } from 'next/server'
 import { cookies } from 'next/headers'
 import { verifySession } from '@/lib/auth'
-import { getPosition, listPositions, setStrategyId } from '@/lib/positions'
+import { getPosition, listPositions } from '@/lib/positions'
 import { getStrategies, getStrategyById } from '@/lib/strategyConfig'
 import { readJournalRange, istDateString } from '@/lib/journal'
 
@@ -123,8 +123,11 @@ export async function POST(req: Request) {
     return NextResponse.json({ error: `${account}:${symbol} is not tracked in the positions store` }, { status: 404 })
   }
   const lotId = typeof body.lotId === 'string' && body.lotId.trim() ? body.lotId.trim() : undefined
+  if (!lotId) {
+    return NextResponse.json({ error: 'lotId is required for lot-level strategy switching' }, { status: 400 })
+  }
 
-  if (!lotId && existing.strategyId === targetStrategyId) {
+  if (existing.strategyId === targetStrategyId) {
     return NextResponse.json({ error: `${symbol} is already managed by ${targetStrategyId}` }, { status: 409 })
   }
 
@@ -136,14 +139,9 @@ export async function POST(req: Request) {
     return NextResponse.json({ error: `${target.name} is inactive — only active strategies can own live positions` }, { status: 409 })
   }
 
-  let changed = false
-  if (lotId) {
-    // Change only the lot-level strategy
-    const { setLotStrategyId } = await import('@/lib/positions')
-    changed = await setLotStrategyId(account, symbol, lotId, targetStrategyId)
-  } else {
-    changed = await setStrategyId(account, symbol, targetStrategyId)
-  }
+  // Change only the lot-level strategy.
+  const { setLotStrategyId } = await import('@/lib/positions')
+  const changed = await setLotStrategyId(account, symbol, lotId, targetStrategyId)
   if (!changed) {
     return NextResponse.json({ error: 'Strategy switch did not apply' }, { status: 409 })
   }
