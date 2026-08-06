@@ -318,10 +318,16 @@ export async function GET(req: Request) {
       if (lot.remainingQty <= 0) continue
       if (istDateString(new Date(lot.boughtAt)) !== today) continue
       const sym = p.symbol.toUpperCase()
-      const alreadyRepresented = filtered.some(row =>
-        row.symbol === sym && row.qty === lot.remainingQty && Math.abs(row.avgPrice - lot.entryPrice) <= 0.01)
-      if (alreadyRepresented) continue
       const lotStrategyId = lot.strategyId || p.strategyId
+      const alreadyRepresented = filtered.some(row => {
+        if (row.symbol !== sym) return false
+        if (row.qty <= 0) return false
+        if ((row.strategyId || '') !== (lotStrategyId || '')) return false
+        // Kite avg and lot entry can differ slightly due to rounding.
+        // Matching by open qty coverage avoids false duplicates.
+        return Math.abs(row.qty - lot.remainingQty) <= 1
+      })
+      if (alreadyRepresented) continue
       const strategyMeta = strategiesById.get(lotStrategyId)
       const quote = quotes[`NSE:${sym}`]
       const liveLtp = Number(quote?.last_price) || lot.entryPrice
