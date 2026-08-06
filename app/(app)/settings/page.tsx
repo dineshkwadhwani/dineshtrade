@@ -870,6 +870,7 @@ const DIP_PARAM_DESCRIPTIONS: Record<string, string> = {
   reactiveIntervalMin: 'How often (in min) the reactive scan runs during the day.',
   firesOnAnyMode: 'When true, the reactive scan fires regardless of market mode (dip / catalyst).',
   maxPerSector: 'Sector concentration cap — max DineshTrade-tracked open positions in the same NSE sector before new auto-BUYs for this strategy are blocked. Set to 0 to disable. Requires sector data in the watchlist (run the backfill script on EC2).',
+  retraceAfterHit: 'When true, exit logic can sell if T1/T2 was hit intraday and price then retraced below trigger while still above entry. Default true.',
 }
 
 const MOMENTUM_PARAM_DESCRIPTIONS: Record<string, string> = {
@@ -886,6 +887,7 @@ const MOMENTUM_PARAM_DESCRIPTIONS: Record<string, string> = {
   squareOffEOD: 'Always square all positions at end of day regardless of profit or loss. Never takes delivery. Overrides the no-loss gate.',
   recentHighDays: 'Number of trading days to look back for computing resistance high. Default 20. Skip entry if price is within ceilingBufferPct% of this high — avoids buying at resistance. Fully active after 20 trading days; gracefully disabled during ramp-up.',
   ceilingBufferPct: 'Buffer percentage below the recent high above which entries are blocked. Default 2.0. Use 0 to disable ceiling filter entirely.',
+  retraceAfterHit: 'When true, exit logic can sell if T1/T2 was hit intraday and price then retraced below trigger while still above entry. Default true.',
 }
 
 const PIVOTAL_PARAM_DESCRIPTIONS: Record<string, string> = {
@@ -902,6 +904,7 @@ const PIVOTAL_PARAM_DESCRIPTIONS: Record<string, string> = {
   dayEndExecutionTime: 'Near-close decision time for dayEnd-mode scripts. No intraday buy is allowed before this.',
   deliveryHandoffDays: 'Calendar days after entry before an open pivotal position is handed off to Accumulator. Set to 0 to disable handoff.',
   pivotalListId: 'Dedicated Pivotal List that carries script-level trigger, target, execution mode, and stop-loss settings.',
+  retraceAfterHit: 'When true, exit logic can sell if T1/T2 was hit intraday and price then retraced below trigger while still above entry. Default true.',
 }
 
 // Default param sets for the Duplicate / Create-New / Reset flows
@@ -910,6 +913,7 @@ const DEFAULT_DIP_PARAMS = {
   capitulationFloorPct: 12,
   tranche2AboveEMAPct: 3.0, reactiveDrop: 3.0, reactiveIntervalMin: 30, firesOnAnyMode: true,
   maxPerSector: 3,
+  retraceAfterHit: true,
 }
 const DEFAULT_MOMENTUM_PARAMS = {
   minDayGainPct: 0.5, maxDayGainPct: 1.5, consecutiveCandles: 3, emaProximityPct: 3.0,
@@ -917,6 +921,7 @@ const DEFAULT_MOMENTUM_PARAMS = {
   deliveryHandoffDays: 15,
   exitSameDayTime: '15:10', exitSameDayOnPositive: false, squareOffEOD: false,
   recentHighDays: 20, ceilingBufferPct: 2.0,
+  retraceAfterHit: true,
 }
 const DEFAULT_PIVOTAL_PARAMS = {
   consolidationDays: 10,
@@ -932,6 +937,7 @@ const DEFAULT_PIVOTAL_PARAMS = {
   dayEndExecutionTime: '15:10',
   deliveryHandoffDays: 15,
   pivotalListId: 'pivotalA',
+  retraceAfterHit: true,
 }
 
 function getParamDescriptions(type: StrategyConfig['type']): Record<string, string> {
@@ -1185,8 +1191,9 @@ function StrategiesTab({ autoModeOn }: { autoModeOn: boolean }) {
         const pivotalOpts = Array.isArray(d.pivotalListOptions) && d.pivotalListOptions.length > 0
           ? d.pivotalListOptions
           : (Array.isArray(d.pivotalListKeys) ? d.pivotalListKeys.map((k: string) => ({ key: k, name: k })) : [])
-        setSource({ capital: d.capital, strategies: d.strategies, watchlistOptions: opts, pivotalListOptions: pivotalOpts, openPositionCounts: d.openPositionCounts || {}, strategyLastRunAt: d.strategyLastRunAt || {} })
-        setDraft({ capital: d.capital, strategies: d.strategies })
+        const normalizedStrategies = (Array.isArray(d.strategies) ? d.strategies : []).map((strategy: StrategyConfig) => withDefaultParams(strategy))
+        setSource({ capital: d.capital, strategies: normalizedStrategies, watchlistOptions: opts, pivotalListOptions: pivotalOpts, openPositionCounts: d.openPositionCounts || {}, strategyLastRunAt: d.strategyLastRunAt || {} })
+        setDraft({ capital: d.capital, strategies: normalizedStrategies })
       }
     }).catch(() => setError('Failed to load strategies'))
 
@@ -3232,10 +3239,13 @@ function StrategyCard({ s, expanded, onToggle, watchlistOptions, pivotalListOpti
             <p className="text-[10px] tracking-widest uppercase font-bold dt-text-muted" style={{ fontFamily:'JetBrains Mono, monospace' }}>Params</p>
             {(() => {
               const EOD_PARAM_KEYS = new Set(['exitSameDayTime', 'exitSameDayOnPositive', 'squareOffEOD'])
-              return Object.entries(s.params).filter(([k]) => !EOD_PARAM_KEYS.has(k)).map(([k, v]) => {
-                if (typeof v === 'boolean') return <BoolField key={k} label={k} value={v} onChange={x => patchParam(k, x)} desc={paramDescs[k]} disabled={locked} />
-                if (typeof v === 'number')  return <NumField  key={k} label={k} value={v} onChange={x => patchParam(k, x)} desc={paramDescs[k]} disabled={locked} />
-                return <TextField key={k} label={k} value={String(v)} onChange={x => patchParam(k, x)} desc={paramDescs[k]} disabled={locked} />
+              return getCanonicalStrategyParamKeys(s)
+                .filter(k => !EOD_PARAM_KEYS.has(k))
+                .map(k => {
+                  const value = s.params[k] ?? getDefaultStrategyParamValue(s.type, k)
+                  if (typeof value === 'boolean') return <BoolField key={k} label={k} value={value} onChange={x => patchParam(k, x)} desc={paramDescs[k]} disabled={locked} />
+                  if (typeof value === 'number')  return <NumField  key={k} label={k} value={value} onChange={x => patchParam(k, x)} desc={paramDescs[k]} disabled={locked} />
+                  return <TextField key={k} label={k} value={String(value)} onChange={x => patchParam(k, x)} desc={paramDescs[k]} disabled={locked} />
               })
             })()}
           </div>
@@ -3399,6 +3409,21 @@ function getCanonicalStrategyParamKeys(strategy: StrategyConfig): string[] {
       : Object.keys(DEFAULT_MOMENTUM_PARAMS)
   const extras = Object.keys(strategy.params).filter(k => !base.includes(k)).sort((a, b) => a.localeCompare(b))
   return [...base, ...extras]
+}
+
+function withDefaultParams(strategy: StrategyConfig): StrategyConfig {
+  const defaults = strategy.type === 'dip'
+    ? DEFAULT_DIP_PARAMS
+    : strategy.type === 'pivotal'
+      ? DEFAULT_PIVOTAL_PARAMS
+      : DEFAULT_MOMENTUM_PARAMS
+  return {
+    ...strategy,
+    params: {
+      ...defaults,
+      ...(strategy.params || {}),
+    },
+  }
 }
 
 function getDefaultStrategyParamValue(type: StrategyConfig['type'], key: string): unknown {

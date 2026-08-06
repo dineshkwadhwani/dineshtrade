@@ -21,7 +21,7 @@ import {
 import { runPreflight, markPlaced } from './preflight'
 import { sendEmail } from './email'
 import { appendJournal, journalOrder, istDateString, istHHMM } from './journal'
-import { getStrategyById, getStrategies } from './strategyConfig'
+import { asDipParams, getStrategyById, getStrategies } from './strategyConfig'
 import * as positions from './positions'
 import type { Position } from './positions'
 
@@ -138,6 +138,9 @@ export async function monitorAccountStrategy1(account: string): Promise<Strategy
     // (accumulator, deep_dip, etc.) gets its own t1Pct/t2Pct.
     const ownerStrategy = getStrategyById(pos.strategyId)
     const ownerStrategyName = ownerStrategy?.name || pos.strategyId
+    const retraceAfterHit = ownerStrategy?.type === 'dip'
+      ? asDipParams(ownerStrategy).retraceAfterHit !== false
+      : true
     const t1Pct = ownerStrategy?.exits?.t1Pct ?? 5.0
     const t2Pct = ownerStrategy?.exits?.t2Pct ?? 8.0
     const ltp = quotes[`NSE:${symbol}`]?.last_price
@@ -155,9 +158,16 @@ export async function monitorAccountStrategy1(account: string): Promise<Strategy
       const t2Trigger = lot.entryPrice * (1 + t2Pct / 100)
       const gainPct = ((ltp - lot.entryPrice) / lot.entryPrice) * 100
       const lotLabel = `${new Date(lot.boughtAt).toLocaleDateString('en-IN', { timeZone: 'Asia/Kolkata' })} @ ₹${lot.entryPrice.toFixed(2)}`
+      const q: any = quotes[`NSE:${symbol}`] as any
+      const observedHigh = Math.max(ltp, Number(q?.ohlc?.high || 0))
 
-      if (!lot.tranche1At && ltp >= t2Trigger) {
+      const t2DirectHit = !lot.tranche1At && ltp >= t2Trigger
+      const t2RetraceHit = retraceAfterHit && !lot.tranche1At && observedHigh >= t2Trigger && ltp < t2Trigger && ltp > lot.entryPrice
+      if (t2DirectHit || t2RetraceHit) {
         const intentQty = lot.remainingQty
+        const t2Reason = t2DirectHit
+          ? `Lot ${lotLabel} skipped past T1 — sold entire lot at T2`
+          : `Lot ${lotLabel} hit T2 intraday at ₹${observedHigh.toFixed(2)} then retraced to ₹${ltp.toFixed(2)} — sold entire lot`
         const pre = await runPreflight({ account, symbol, side: 'SELL', quantity: intentQty, pricePerShare: ltp, buyPricePerShare: lot.entryPrice })
         if (!pre.ok) {
           if (pre.gate === 'noLossSell') {
@@ -197,13 +207,15 @@ export async function monitorAccountStrategy1(account: string): Promise<Strategy
             dayHighAfterEntry: ltp, dayLowAfterEntry: ltp, leftOnTable: 0,
             verdict: 'correct_exit', strategy: pos.strategyId,
             orderIdSell: placed.data.data.order_id,
-            notes: `Lot ${lotLabel} skipped past T1 — sold entire lot at T2`,
+            notes: t2Reason,
           }).catch(err => console.error('[strategy1] journal write failed:', err))
           entries.push({
             account, accountDisplayName: displayName, symbol, action: 'tranche2_sold',
             qty: actualQty, entryPrice: lot.entryPrice, ltp,
             orderId: placed.data.data.order_id,
-            reason: `Lot ${lotLabel}: LTP ₹${ltp.toFixed(2)} ≥ T2 ₹${t2Trigger.toFixed(2)} before T1 — sold entire ${actualQty}`,
+            reason: t2DirectHit
+              ? `Lot ${lotLabel}: LTP ₹${ltp.toFixed(2)} ≥ T2 ₹${t2Trigger.toFixed(2)} before T1 — sold entire ${actualQty}`
+              : `Lot ${lotLabel}: T2 hit intraday at ₹${observedHigh.toFixed(2)} and retraced to ₹${ltp.toFixed(2)} — sold entire ${actualQty}`,
           })
           sendEmail('trade_executed', {
             account, accountDisplayName: displayName, symbol, side: 'SELL', quantity: actualQty, price: ltp,
@@ -220,8 +232,13 @@ export async function monitorAccountStrategy1(account: string): Promise<Strategy
         continue
       }
 
-      if (!lot.tranche1At && ltp >= t1Trigger) {
+      const t1DirectHit = !lot.tranche1At && ltp >= t1Trigger
+      const t1RetraceHit = retraceAfterHit && !lot.tranche1At && observedHigh >= t1Trigger && ltp < t1Trigger && ltp > lot.entryPrice
+      if (t1DirectHit || t1RetraceHit) {
         const intentQty = Math.max(1, Math.floor(lot.remainingQty * 0.5))
+        const t1Reason = t1DirectHit
+          ? `Lot ${lotLabel} tranche 1 hit (T1 ₹${t1Trigger.toFixed(2)})`
+          : `Lot ${lotLabel} hit T1 intraday at ₹${observedHigh.toFixed(2)} then retraced to ₹${ltp.toFixed(2)} — tranche 1 sell`
         if (intentQty > lot.remainingQty) {
           entries.push({ account, accountDisplayName: displayName, symbol, action: 'skipped', reason: `Invalid qty ${intentQty}` })
           continue
@@ -267,13 +284,15 @@ export async function monitorAccountStrategy1(account: string): Promise<Strategy
             verdict: 'correct_exit',
             strategy: pos.strategyId,
             orderIdSell: placed.data.data.order_id,
-            notes: `Lot ${lotLabel} tranche 1 hit (T1 ₹${t1Trigger.toFixed(2)})`,
+            notes: t1Reason,
           }).catch(err => console.error('[strategy1] journal write failed:', err))
           entries.push({
             account, accountDisplayName: displayName, symbol, action: 'tranche1_sold',
             qty: actualQty, entryPrice: lot.entryPrice, ltp,
             orderId: placed.data.data.order_id,
-            reason: `Lot ${lotLabel}: sold ${actualQty} as LTP reached T1 ₹${t1Trigger.toFixed(2)}`,
+            reason: t1DirectHit
+              ? `Lot ${lotLabel}: sold ${actualQty} as LTP reached T1 ₹${t1Trigger.toFixed(2)}`
+              : `Lot ${lotLabel}: sold ${actualQty} as T1 hit intraday at ₹${observedHigh.toFixed(2)} and retraced to ₹${ltp.toFixed(2)}`,
           })
           sendEmail('trade_executed', {
             account, accountDisplayName: displayName, symbol, side: 'SELL', quantity: actualQty, price: ltp,
@@ -290,8 +309,13 @@ export async function monitorAccountStrategy1(account: string): Promise<Strategy
         continue
       }
 
-      if (lot.tranche1At && ltp >= t2Trigger) {
+      const t2RemainderDirectHit = !!lot.tranche1At && ltp >= t2Trigger
+      const t2RemainderRetraceHit = retraceAfterHit && !!lot.tranche1At && observedHigh >= t2Trigger && ltp < t2Trigger && ltp > lot.entryPrice
+      if (t2RemainderDirectHit || t2RemainderRetraceHit) {
         const intentQty = lot.remainingQty
+        const t2RemainderReason = t2RemainderDirectHit
+          ? `Lot ${lotLabel} tranche 2 hit (T2 ₹${t2Trigger.toFixed(2)})`
+          : `Lot ${lotLabel} hit T2 intraday at ₹${observedHigh.toFixed(2)} then retraced to ₹${ltp.toFixed(2)} — closing remainder`
         const pre = await runPreflight({ account, symbol, side: 'SELL', quantity: intentQty, pricePerShare: ltp, buyPricePerShare: lot.entryPrice })
         if (!pre.ok) {
           if (pre.gate === 'noLossSell') {
@@ -331,13 +355,15 @@ export async function monitorAccountStrategy1(account: string): Promise<Strategy
             verdict: 'correct_exit',
             strategy: pos.strategyId,
             orderIdSell: placed.data.data.order_id,
-            notes: `Lot ${lotLabel} tranche 2 hit (T2 ₹${t2Trigger.toFixed(2)})`,
+            notes: t2RemainderReason,
           }).catch(err => console.error('[strategy1] journal write failed:', err))
           entries.push({
             account, accountDisplayName: displayName, symbol, action: 'tranche2_sold',
             qty: actualQty, entryPrice: lot.entryPrice, ltp,
             orderId: placed.data.data.order_id,
-            reason: `Lot ${lotLabel}: closing remaining ${actualQty} — LTP ₹${ltp.toFixed(2)} ≥ T2 ₹${t2Trigger.toFixed(2)}`,
+            reason: t2RemainderDirectHit
+              ? `Lot ${lotLabel}: closing remaining ${actualQty} — LTP ₹${ltp.toFixed(2)} ≥ T2 ₹${t2Trigger.toFixed(2)}`
+              : `Lot ${lotLabel}: closing remaining ${actualQty} — T2 hit intraday at ₹${observedHigh.toFixed(2)} and retraced to ₹${ltp.toFixed(2)}`,
           })
           sendEmail('trade_executed', {
             account, accountDisplayName: displayName, symbol, side: 'SELL', quantity: actualQty, price: ltp,

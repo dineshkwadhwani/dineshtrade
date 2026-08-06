@@ -80,6 +80,9 @@ export interface DipParams {
   // same sector before new auto-BUYs for this strategy are blocked. Skip gate
   // when undefined / 0 or when the symbol has no sector in the watchlist.
   maxPerSector?: number
+  // Exit behavior: when true, allow exits if T1/T2 was hit intraday and then
+  // price retraced below the trigger but remains above entry. Default true.
+  retraceAfterHit?: boolean
 }
 
 export interface MomentumParams {
@@ -101,6 +104,9 @@ export interface MomentumParams {
   // Ceiling filter — avoid buying at resistance. See strategyEngine for logic.
   recentHighDays?: number         // number of days to look back for computing the high (default 20)
   ceilingBufferPct?: number       // buffer percentage below the high (default 2.0)
+  // Exit behavior: when true, allow exits if T1/T2 was hit intraday and then
+  // price retraced below the trigger but remains above entry. Default true.
+  retraceAfterHit?: boolean
 }
 
 export interface PivotalParams {
@@ -117,6 +123,9 @@ export interface PivotalParams {
   dayEndExecutionTime: string
   deliveryHandoffDays: number
   pivotalListId: string
+  // Exit behavior: when true, allow exits if T1/T2 was hit intraday and then
+  // price retraced below the trigger but remains above entry. Default true.
+  retraceAfterHit?: boolean
 }
 
 export interface Strategy {
