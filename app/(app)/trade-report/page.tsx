@@ -25,15 +25,29 @@ interface PositionsApiResponse {
   closedToday?: Array<{ realized?: number }>
 }
 
-function shiftDays(days: number): string {
-  const d = new Date()
-  d.setDate(d.getDate() + days)
-  return d.toISOString().slice(0, 10)
+function istTodayYmd(): string {
+  const fmt = new Intl.DateTimeFormat('en-CA', {
+    timeZone: 'Asia/Kolkata',
+    year: 'numeric',
+    month: '2-digit',
+    day: '2-digit',
+  })
+  return fmt.format(new Date())
+}
+
+function shiftIstDays(days: number): string {
+  const now = new Date()
+  const istNow = new Date(now.toLocaleString('en-US', { timeZone: 'Asia/Kolkata' }))
+  istNow.setDate(istNow.getDate() + days)
+  const y = istNow.getFullYear()
+  const m = String(istNow.getMonth() + 1).padStart(2, '0')
+  const d = String(istNow.getDate()).padStart(2, '0')
+  return `${y}-${m}-${d}`
 }
 
 export default function TradeReportPage() {
-  const [fromDate, setFromDate] = useState(() => shiftDays(-30))
-  const [toDate, setToDate] = useState(() => shiftDays(0))
+  const [fromDate, setFromDate] = useState(() => shiftIstDays(-30))
+  const [toDate, setToDate] = useState(() => shiftIstDays(0))
   const [accounts, setAccounts] = useState<AccountDisplay[]>([])
   const [connectedAccounts, setConnectedAccounts] = useState<string[]>([])
   const [strategies, setStrategies] = useState<StrategyOption[]>([])
@@ -89,10 +103,15 @@ export default function TradeReportPage() {
       setResult(nextResult)
       setSymbolOptions(Array.isArray(nextResult?.availableSymbols) ? nextResult.availableSymbols : [])
 
-      const today = shiftDays(0)
-      const isTodayOnly = nextFrom === today && nextTo === today
-      if (isTodayOnly) {
-        const targetAccounts = nextAccount ? [nextAccount] : connectedAccounts
+      const today = istTodayYmd()
+      const includesToday = nextTo === today
+      if (includesToday) {
+        let targetAccounts = nextAccount ? [nextAccount] : connectedAccounts
+        if (!nextAccount && targetAccounts.length === 0) {
+          const statePayload = await fetch('/api/state', { cache: 'no-store' }).then(r => r.json()).catch(() => ({} as StateResponse))
+          targetAccounts = Array.isArray(statePayload.accountsWithToken) ? statePayload.accountsWithToken : []
+          if (targetAccounts.length > 0) setConnectedAccounts(targetAccounts)
+        }
         if (targetAccounts.length > 0) {
           const responses = await Promise.all(targetAccounts.map(async account => {
             const payload = await fetch(`/api/positions?account=${encodeURIComponent(account)}&_t=${Date.now()}`, { cache: 'no-store' })

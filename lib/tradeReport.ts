@@ -280,21 +280,34 @@ function mergeTodayOrders(rawOrders: OrderRecord[], liveOrders: OrderRecord[], t
   const orderKey = (order: OrderRecord): string => `${order.account}:${order.symbol}:${order.date}`
 
   for (const order of rawOrders) {
-    if (order.date !== toDate || order.side !== 'SELL') continue
+    if (order.side !== 'SELL') continue
     if (!order.orderId) continue
     const key = orderKey(order)
     const prev = earliestSellTsByKey.get(key)
     if (!prev || order.ts < prev) earliestSellTsByKey.set(key, order.ts)
   }
   for (const order of liveOrders) {
-    if (order.date !== toDate || order.side !== 'SELL') continue
+    if (order.side !== 'SELL') continue
     const key = orderKey(order)
     const prev = earliestSellTsByKey.get(key)
     if (!prev || order.ts < prev) earliestSellTsByKey.set(key, order.ts)
   }
 
   for (const order of rawOrders) {
-    if (order.date !== toDate) {
+    const isToDate = order.date === toDate
+
+    // Across all dates in the requested range, remove stale synthetic no-id
+    // BUY artifacts that appear after a same-day SELL for the same symbol.
+    // These rows are reconcile intake artifacts (not real broker fills) and
+    // can later be force-closed synthetically, creating duplicate closed rows.
+    if (!isToDate && !order.orderId && order.side === 'BUY') {
+      const sellTs = earliestSellTsByKey.get(orderKey(order))
+      if (sellTs && order.ts >= sellTs) continue
+      merged.push(order)
+      continue
+    }
+
+    if (!isToDate) {
       merged.push(order)
       continue
     }
