@@ -515,6 +515,11 @@ async function reconcileLiveOpenTrades(
 }
 
 function closeStaleOpenTrades(trades: InternalTrade[], openQtyByKey: Map<string, number>, toDate: string): void {
+  // Historical reports do not have a live open-qty snapshot. Without this
+  // guard, missing keys imply desired open qty = 0 and every open trade gets
+  // force-closed synthetically at `toDate`.
+  if (openQtyByKey.size === 0) return
+
   const syntheticTs = `${toDate}T15:30:00.000Z`
   const byKey = new Map<string, InternalTrade[]>()
 

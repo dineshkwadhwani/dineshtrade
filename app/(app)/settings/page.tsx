@@ -2798,7 +2798,7 @@ function formatPreviewValue(key: string, value: unknown): string {
   if (typeof value === 'boolean') return value ? 'Yes' : 'No'
   if (typeof value === 'number') {
     if (/(Rupees|Amount|Capital|MTM|Profit|Deployed)/i.test(key)) return formatCurrency(value)
-    if (/(Pct|Rate|Drawdown|Gain|Drop|Below|Above|Proximity|Efficiency)/i.test(key)) return `${value.toFixed(2)}%`
+    if (/(Pct|Percent|Rate|Drawdown|Gain|Drop|Below|Above|Proximity|Efficiency)/i.test(key)) return `${value.toFixed(2)}%`
     if (/Min$/i.test(key)) return `${value} min`
     return Number.isInteger(value) ? String(value) : value.toFixed(2)
   }
@@ -3095,6 +3095,10 @@ function StrategyCard({ s, expanded, onToggle, watchlistOptions, pivotalListOpti
   function patchParam(k: string, v: unknown) {
     onPatch({ params: { ...s.params, [k]: v } })
   }
+  function getParamSuffix(k: string): string | undefined {
+    if (k === 'retractPercentAllowed') return '%'
+    return undefined
+  }
   return (
     <div className="rounded-xl overflow-hidden dt-surface"
       style={{ border:`1px solid ${s.active ? s.color + '55' : 'rgba(255,255,255,0.08)'}` }}>
@@ -3250,7 +3254,7 @@ function StrategyCard({ s, expanded, onToggle, watchlistOptions, pivotalListOpti
                 .map(k => {
                   const value = s.params[k] ?? getDefaultStrategyParamValue(s.type, k)
                   if (typeof value === 'boolean') return <BoolField key={k} label={k} value={value} onChange={x => patchParam(k, x)} desc={paramDescs[k]} disabled={locked} />
-                  if (typeof value === 'number')  return <NumField  key={k} label={k} value={value} onChange={x => patchParam(k, x)} desc={paramDescs[k]} disabled={locked} />
+                  if (typeof value === 'number')  return <NumField  key={k} label={k} value={value} onChange={x => patchParam(k, x)} suffix={getParamSuffix(k)} desc={paramDescs[k]} disabled={locked} />
                   return <TextField key={k} label={k} value={String(value)} onChange={x => patchParam(k, x)} desc={paramDescs[k]} disabled={locked} />
               })
             })()}
