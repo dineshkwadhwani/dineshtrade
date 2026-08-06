@@ -250,8 +250,6 @@ async function loadTodayLiveOrders(accounts: string[], toDate: string): Promise<
 }
 
 function mergeTodayOrders(rawOrders: OrderRecord[], liveOrders: OrderRecord[], toDate: string): OrderRecord[] {
-  if (liveOrders.length === 0) return rawOrders
-
   const liveByOrderId = new Map(liveOrders.filter(order => order.orderId).map(order => [order.orderId!, order]))
   const liveByShape = new Map<string, OrderRecord[]>()
   const makeShapeKey = (order: OrderRecord): string => [
@@ -273,21 +271,26 @@ function mergeTodayOrders(rawOrders: OrderRecord[], liveOrders: OrderRecord[], t
 
   const merged: OrderRecord[] = []
   const consumedLiveOrderIds = new Set<string>()
-  const latestSellTsByKey = new Map<string, string>()
+  // Track the EARLIEST sell ts per symbol. Phantom re-buys are written by the
+  // cron immediately after the sell (same second, higher milliseconds), so they
+  // will always be >= the earliest sell ts. Using the minimum means the Kite
+  // live-order ts (second-precision, often 1 s later) cannot push the threshold
+  // beyond the phantom BUY's timestamp and accidentally allow it through.
+  const earliestSellTsByKey = new Map<string, string>()
   const orderKey = (order: OrderRecord): string => `${order.account}:${order.symbol}:${order.date}`
 
   for (const order of rawOrders) {
     if (order.date !== toDate || order.side !== 'SELL') continue
     if (!order.orderId) continue
     const key = orderKey(order)
-    const prev = latestSellTsByKey.get(key)
-    if (!prev || order.ts > prev) latestSellTsByKey.set(key, order.ts)
+    const prev = earliestSellTsByKey.get(key)
+    if (!prev || order.ts < prev) earliestSellTsByKey.set(key, order.ts)
   }
   for (const order of liveOrders) {
     if (order.date !== toDate || order.side !== 'SELL') continue
     const key = orderKey(order)
-    const prev = latestSellTsByKey.get(key)
-    if (!prev || order.ts > prev) latestSellTsByKey.set(key, order.ts)
+    const prev = earliestSellTsByKey.get(key)
+    if (!prev || order.ts < prev) earliestSellTsByKey.set(key, order.ts)
   }
 
   for (const order of rawOrders) {
@@ -315,7 +318,7 @@ function mergeTodayOrders(rawOrders: OrderRecord[], liveOrders: OrderRecord[], t
       // account+symbol+date. Those are typically reconcile intake artifacts
       // caused by transient broker snapshot timing.
       if (order.side === 'BUY') {
-        const sellTs = latestSellTsByKey.get(orderKey(order))
+        const sellTs = earliestSellTsByKey.get(orderKey(order))
         if (sellTs && order.ts >= sellTs) continue
       }
 
@@ -327,6 +330,20 @@ function mergeTodayOrders(rawOrders: OrderRecord[], liveOrders: OrderRecord[], t
       consumedLiveOrderIds.add(order.orderId)
       merged.push(liveByOrderId.get(order.orderId)!)
       continue
+    }
+
+    // If orderId did not match, try a shape-based replacement as a fallback.
+    // This avoids duplicate rows when journal/live feeds disagree on orderId
+    // formatting but represent the same completed fill.
+    if (order.orderId) {
+      const shapeKey = makeShapeKey(order)
+      const bucket = liveByShape.get(shapeKey) || []
+      const replacement = bucket.shift()
+      if (replacement) {
+        if (replacement.orderId) consumedLiveOrderIds.add(replacement.orderId)
+        merged.push(replacement)
+        continue
+      }
     }
 
     // Keep orderId-backed journal rows as a fallback if Kite live feed omitted
