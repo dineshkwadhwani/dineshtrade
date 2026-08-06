@@ -390,7 +390,7 @@ export default function HoldingsPage() {
         const byLotKey = new Map<string, Holding>()
         for (const row of flattenedHoldings) {
           const symbol = (row.tradingsymbol || '').toUpperCase()
-          const price = Math.round((row.displayEntryPrice ?? row.average_price || 0) * 100)
+          const price = Math.round((row.displayEntryPrice ?? row.average_price ?? 0) * 100)
           const key = row.lotId
             ? `${symbol}:LOT:${row.lotId}`
             : `${symbol}:NOLOT:${row.product}:${totalQty(row)}:${price}`
