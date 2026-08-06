@@ -51,6 +51,7 @@ function pruneOldCache(currentKey: string) {
 export default function DashboardPage() {
   const [market, setMarket] = useState<MarketData | null>(null)
   const [loading, setLoading] = useState(true)
+  const [error, setError] = useState('')
   const [lastUpdated, setLastUpdated] = useState('')
   const [fromCache, setFromCache] = useState(false)
 
@@ -77,6 +78,7 @@ export default function DashboardPage() {
     }
 
     setLoading(true)
+    setError('')
     setFromCache(false)
     try {
       const res = await fetch('/api/market')
@@ -89,8 +91,12 @@ export default function DashboardPage() {
           localStorage.setItem(cacheKey, JSON.stringify({ data: d, generatedAt: json.generatedAt || new Date().toISOString() }))
           pruneOldCache(cacheKey)
         } catch {}
+      } else {
+        setError(json?.error || `Market briefing unavailable (HTTP ${res.status})`)
       }
-    } catch {}
+    } catch {
+      setError('Network error while fetching market briefing')
+    }
     finally { setLoading(false) }
   }
 
@@ -126,6 +132,14 @@ export default function DashboardPage() {
             <div className="text-3xl mb-3 animate-spin">↻</div>
             <p className="text-[12px]" style={{ color:'rgba(147,208,255,0.78)', fontFamily:'JetBrains Mono, monospace' }}>Fetching live market data…</p>
           </div>
+        </div>
+      )}
+
+      {!loading && !market && error && (
+        <div className="rounded-xl p-4" style={{ background:'rgba(224,90,94,0.08)', border:'1px solid rgba(224,90,94,0.35)' }}>
+          <p className="text-[12px]" style={{ color:'#e05a5e', fontFamily:'JetBrains Mono, monospace' }}>
+            {error}
+          </p>
         </div>
       )}
 

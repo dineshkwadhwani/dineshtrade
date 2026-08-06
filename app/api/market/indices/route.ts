@@ -99,8 +99,11 @@ export async function GET() {
   try {
     const briefing = await getMarketBriefing()
     if (briefing.ok) {
-      const giftPct = (briefing as any).giftChangePct
-      if (typeof giftPct === 'number') {
+      const giftPctRaw = briefing.data?.giftNifty?.change
+      const giftPct = typeof giftPctRaw === 'string'
+        ? Number(giftPctRaw.replace(/[^0-9+\-.]/g, ''))
+        : typeof giftPctRaw === 'number' ? giftPctRaw : NaN
+      if (Number.isFinite(giftPct)) {
         out.giftNifty = { label: 'GIFT NIFTY', ltp: null, changePct: giftPct, source: 'briefing' }
       }
     }

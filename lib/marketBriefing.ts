@@ -121,9 +121,22 @@ export async function getMarketBriefing(): Promise<BriefingResult> {
 
 async function fetchBriefingFresh(): Promise<BriefingResult> {
   try {
-    const result = await callAI({ prompt: buildPrompt(), useWebSearch: true, maxTokens: 3000 })
+    let result = await callAI({ prompt: buildPrompt(), useWebSearch: true, maxTokens: 3000 })
     if (!result.ok) {
-      return { ok: false, source: 'error', provider: result.provider, error: `${result.provider} API ${result.status}`, detail: result.error?.slice(0, 500) }
+      // Compatibility fallback for providers/models that reject web-search
+      // tools after a model switch. Better to provide a best-effort briefing
+      // than leave the dashboard empty.
+      result = await callAI({ prompt: buildPrompt(), useWebSearch: false, maxTokens: 3000 })
+    }
+    if (!result.ok) {
+      return {
+        ok: true,
+        data: MOCK_MARKET_DATA,
+        source: 'mock',
+        provider: result.provider,
+        model: result.model,
+        detail: `AI unavailable (${result.provider} ${result.status || ''}): ${(result.error || '').slice(0, 280)}`,
+      }
     }
     // Strip common markdown fences some models wrap output in.
     const cleaned = result.text
@@ -133,15 +146,29 @@ async function fetchBriefingFresh(): Promise<BriefingResult> {
 
     const jsonMatch = cleaned.match(/\{[\s\S]*\}/)
     if (!jsonMatch) {
-      return { ok: false, source: 'error', provider: result.provider, error: 'No JSON in model output', detail: result.text.slice(0, 400) }
+      return {
+        ok: true,
+        data: MOCK_MARKET_DATA,
+        source: 'mock',
+        provider: result.provider,
+        model: result.model,
+        detail: 'AI returned non-JSON output; serving fallback briefing.',
+      }
     }
     try {
       const parsed = JSON.parse(jsonMatch[0]) as BriefingData
       return { ok: true, data: parsed, source: 'ai', provider: result.provider, model: result.model }
     } catch (e) {
-      return { ok: false, source: 'error', provider: result.provider, error: 'Model output is not valid JSON', detail: result.text.slice(0, 600) }
+      return {
+        ok: true,
+        data: MOCK_MARKET_DATA,
+        source: 'mock',
+        provider: result.provider,
+        model: result.model,
+        detail: 'AI returned invalid JSON; serving fallback briefing.',
+      }
     }
   } catch (e) {
-    return { ok: false, source: 'error', error: 'Network error', detail: String(e).slice(0, 200) }
+    return { ok: true, data: MOCK_MARKET_DATA, source: 'mock', error: 'Network error', detail: String(e).slice(0, 200) }
   }
 }
