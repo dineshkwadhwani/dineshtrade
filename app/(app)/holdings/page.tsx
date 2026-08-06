@@ -344,7 +344,7 @@ export default function HoldingsPage() {
           }
         })
 
-const flattenedHoldings = [
+  const flattenedHoldings = [
           ...holdingsWithEntry,
           ...t0Holdings,
         ].flatMap(h => {
@@ -385,7 +385,27 @@ const flattenedHoldings = [
           }))
         })
 
-        setHoldings(flattenedHoldings.sort((left, right) => {
+        // Final guard: the same physical lot can arrive from both sources
+        // (holdings + T0 positions). Keep exactly one row per lot record.
+        const byLotKey = new Map<string, Holding>()
+        for (const row of flattenedHoldings) {
+          const symbol = (row.tradingsymbol || '').toUpperCase()
+          const price = Math.round((row.displayEntryPrice ?? row.average_price || 0) * 100)
+          const key = row.lotId
+            ? `${symbol}:LOT:${row.lotId}`
+            : `${symbol}:NOLOT:${row.product}:${totalQty(row)}:${price}`
+          const existing = byLotKey.get(key)
+          if (!existing) {
+            byLotKey.set(key, row)
+            continue
+          }
+          // Prefer T0-flavoured rows when both represent the same lot.
+          if (existing.source !== 't0' && row.source === 't0') {
+            byLotKey.set(key, row)
+          }
+        }
+
+        setHoldings(Array.from(byLotKey.values()).sort((left, right) => {
           if (left.tradingsymbol !== right.tradingsymbol) return left.tradingsymbol.localeCompare(right.tradingsymbol)
           return (left.lotId || '').localeCompare(right.lotId || '')
         }))
