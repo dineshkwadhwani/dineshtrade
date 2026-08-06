@@ -204,6 +204,9 @@ export async function monitorPivotalAccount(account: string): Promise<PivotalMon
     if (!ownerStrategy) continue
     const params = asPivotalParams(ownerStrategy)
     const retraceAfterHit = params.retraceAfterHit !== false
+    const retractAllowed = (typeof params.retractPercentAllowed === 'number' && Number.isFinite(params.retractPercentAllowed) && params.retractPercentAllowed >= 0)
+      ? params.retractPercentAllowed
+      : null
     const script = findScript(ownerStrategy, pivotalLists, pos.symbol)
     const quote: any = quotes[`NSE:${pos.symbol.toUpperCase()}`]
     const ltp = Number(quote?.last_price || 0)
@@ -223,6 +226,12 @@ export async function monitorPivotalAccount(account: string): Promise<PivotalMon
       const lotT1Price = lot.entryPrice * (1 + t1Pct / 100)
       const lotT2Price = lot.entryPrice * (1 + t2Pct / 100)
       const observedHigh = Math.max(ltp, Number(quote?.ohlc?.high || 0))
+      const minGainAfterRetrace = (triggerPct: number): number => {
+        const allowed = retractAllowed === null ? triggerPct : retractAllowed
+        return Math.max(0, triggerPct - Math.max(0, allowed))
+      }
+      const minGainT1 = minGainAfterRetrace(t1Pct)
+      const minGainT2 = minGainAfterRetrace(t2Pct)
 
       let sellQty = 0
       let markTranche1 = false
@@ -239,7 +248,7 @@ export async function monitorPivotalAccount(account: string): Promise<PivotalMon
         sellQty = lot.remainingQty
         reason = `LTP ₹${ltp.toFixed(2)} ≥ T2 ₹${lotT2Price.toFixed(2)} — exiting lot`
         tagSuffix = 't2'
-      } else if (retraceAfterHit && !lot.tranche1At && observedHigh >= lotT2Price && ltp < lotT2Price && ltp > lot.entryPrice) {
+      } else if (retraceAfterHit && !lot.tranche1At && observedHigh >= lotT2Price && ltp < lotT2Price && ltp > lot.entryPrice && gainPct >= minGainT2) {
         sellQty = lot.remainingQty
         reason = `T2 was hit intraday at ₹${observedHigh.toFixed(2)} but price retraced to ₹${ltp.toFixed(2)} — exiting lot`
         tagSuffix = 't2'
@@ -248,7 +257,7 @@ export async function monitorPivotalAccount(account: string): Promise<PivotalMon
         markTranche1 = true
         reason = `LTP ₹${ltp.toFixed(2)} ≥ T1 ₹${lotT1Price.toFixed(2)} — tranche 1 sell`
         tagSuffix = 't1'
-      } else if (retraceAfterHit && !lot.tranche1At && observedHigh >= lotT1Price && ltp < lotT1Price && ltp > lot.entryPrice) {
+      } else if (retraceAfterHit && !lot.tranche1At && observedHigh >= lotT1Price && ltp < lotT1Price && ltp > lot.entryPrice && gainPct >= minGainT1) {
         sellQty = Math.max(1, Math.floor(lot.remainingQty / 2))
         markTranche1 = true
         reason = `T1 was hit intraday at ₹${observedHigh.toFixed(2)} but price retraced to ₹${ltp.toFixed(2)} — tranche 1 sell`
@@ -257,7 +266,7 @@ export async function monitorPivotalAccount(account: string): Promise<PivotalMon
         sellQty = lot.remainingQty
         reason = `LTP ₹${ltp.toFixed(2)} ≥ T2 ₹${lotT2Price.toFixed(2)} — closing remainder`
         tagSuffix = 't2'
-      } else if (retraceAfterHit && !!lot.tranche1At && observedHigh >= lotT2Price && ltp < lotT2Price && ltp > lot.entryPrice) {
+      } else if (retraceAfterHit && !!lot.tranche1At && observedHigh >= lotT2Price && ltp < lotT2Price && ltp > lot.entryPrice && gainPct >= minGainT2) {
         sellQty = lot.remainingQty
         reason = `T2 was hit intraday at ₹${observedHigh.toFixed(2)} but price retraced to ₹${ltp.toFixed(2)} — closing remainder`
         tagSuffix = 't2'

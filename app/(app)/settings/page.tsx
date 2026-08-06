@@ -871,6 +871,7 @@ const DIP_PARAM_DESCRIPTIONS: Record<string, string> = {
   firesOnAnyMode: 'When true, the reactive scan fires regardless of market mode (dip / catalyst).',
   maxPerSector: 'Sector concentration cap — max DineshTrade-tracked open positions in the same NSE sector before new auto-BUYs for this strategy are blocked. Set to 0 to disable. Requires sector data in the watchlist (run the backfill script on EC2).',
   retraceAfterHit: 'When true, exit logic can sell if T1/T2 was hit intraday and price then retraced below trigger while still above entry. Default true.',
+  retractPercentAllowed: 'Max allowed retracement (percentage points) below T1/T2 while still allowing retrace-after-hit exit. Example: T1=1.5 and value=0.25 means retrace exits only if current gain stays >= 1.25%. Ignored when retraceAfterHit=false.',
 }
 
 const MOMENTUM_PARAM_DESCRIPTIONS: Record<string, string> = {
@@ -888,6 +889,7 @@ const MOMENTUM_PARAM_DESCRIPTIONS: Record<string, string> = {
   recentHighDays: 'Number of trading days to look back for computing resistance high. Default 20. Skip entry if price is within ceilingBufferPct% of this high — avoids buying at resistance. Fully active after 20 trading days; gracefully disabled during ramp-up.',
   ceilingBufferPct: 'Buffer percentage below the recent high above which entries are blocked. Default 2.0. Use 0 to disable ceiling filter entirely.',
   retraceAfterHit: 'When true, exit logic can sell if T1/T2 was hit intraday and price then retraced below trigger while still above entry. Default true.',
+  retractPercentAllowed: 'Max allowed retracement (percentage points) below T1/T2 while still allowing retrace-after-hit exit. Example: T1=1.5 and value=0.25 means retrace exits only if current gain stays >= 1.25%. Ignored when retraceAfterHit=false.',
 }
 
 const PIVOTAL_PARAM_DESCRIPTIONS: Record<string, string> = {
@@ -905,6 +907,7 @@ const PIVOTAL_PARAM_DESCRIPTIONS: Record<string, string> = {
   deliveryHandoffDays: 'Calendar days after entry before an open pivotal position is handed off to Accumulator. Set to 0 to disable handoff.',
   pivotalListId: 'Dedicated Pivotal List that carries script-level trigger, target, execution mode, and stop-loss settings.',
   retraceAfterHit: 'When true, exit logic can sell if T1/T2 was hit intraday and price then retraced below trigger while still above entry. Default true.',
+  retractPercentAllowed: 'Max allowed retracement (percentage points) below T1/T2 while still allowing retrace-after-hit exit. Example: T1=1.5 and value=0.25 means retrace exits only if current gain stays >= 1.25%. Ignored when retraceAfterHit=false.',
 }
 
 // Default param sets for the Duplicate / Create-New / Reset flows
@@ -914,6 +917,7 @@ const DEFAULT_DIP_PARAMS = {
   tranche2AboveEMAPct: 3.0, reactiveDrop: 3.0, reactiveIntervalMin: 30, firesOnAnyMode: true,
   maxPerSector: 3,
   retraceAfterHit: true,
+  retractPercentAllowed: 100,
 }
 const DEFAULT_MOMENTUM_PARAMS = {
   minDayGainPct: 0.5, maxDayGainPct: 1.5, consecutiveCandles: 3, emaProximityPct: 3.0,
@@ -922,6 +926,7 @@ const DEFAULT_MOMENTUM_PARAMS = {
   exitSameDayTime: '15:10', exitSameDayOnPositive: false, squareOffEOD: false,
   recentHighDays: 20, ceilingBufferPct: 2.0,
   retraceAfterHit: true,
+  retractPercentAllowed: 100,
 }
 const DEFAULT_PIVOTAL_PARAMS = {
   consolidationDays: 10,
@@ -938,6 +943,7 @@ const DEFAULT_PIVOTAL_PARAMS = {
   deliveryHandoffDays: 15,
   pivotalListId: 'pivotalA',
   retraceAfterHit: true,
+  retractPercentAllowed: 100,
 }
 
 function getParamDescriptions(type: StrategyConfig['type']): Record<string, string> {

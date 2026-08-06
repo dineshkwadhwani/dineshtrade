@@ -83,6 +83,11 @@ export interface DipParams {
   // Exit behavior: when true, allow exits if T1/T2 was hit intraday and then
   // price retraced below the trigger but remains above entry. Default true.
   retraceAfterHit?: boolean
+  // Max allowed retracement (in percentage points) below the target that still
+  // permits a retrace-after-hit exit. Example: T1=1.5 and retract=0.25 means
+  // sell only if current gain is still >= 1.25. If absent, behavior matches
+  // legacy logic (full retrace allowed while still above entry).
+  retractPercentAllowed?: number
 }
 
 export interface MomentumParams {
@@ -107,6 +112,11 @@ export interface MomentumParams {
   // Exit behavior: when true, allow exits if T1/T2 was hit intraday and then
   // price retraced below the trigger but remains above entry. Default true.
   retraceAfterHit?: boolean
+  // Max allowed retracement (in percentage points) below the target that still
+  // permits a retrace-after-hit exit. Example: T1=1.5 and retract=0.25 means
+  // sell only if current gain is still >= 1.25. If absent, behavior matches
+  // legacy logic (full retrace allowed while still above entry).
+  retractPercentAllowed?: number
 }
 
 export interface PivotalParams {
@@ -126,6 +136,11 @@ export interface PivotalParams {
   // Exit behavior: when true, allow exits if T1/T2 was hit intraday and then
   // price retraced below the trigger but remains above entry. Default true.
   retraceAfterHit?: boolean
+  // Max allowed retracement (in percentage points) below the target that still
+  // permits a retrace-after-hit exit. Example: T1=1.5 and retract=0.25 means
+  // sell only if current gain is still >= 1.25. If absent, behavior matches
+  // legacy logic (full retrace allowed while still above entry).
+  retractPercentAllowed?: number
 }
 
 export interface Strategy {

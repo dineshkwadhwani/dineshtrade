@@ -141,6 +141,12 @@ export async function monitorAccountStrategy1(account: string): Promise<Strategy
     const retraceAfterHit = ownerStrategy?.type === 'dip'
       ? asDipParams(ownerStrategy).retraceAfterHit !== false
       : true
+    const retractAllowedRaw = ownerStrategy?.type === 'dip'
+      ? asDipParams(ownerStrategy).retractPercentAllowed
+      : undefined
+    const retractAllowed = (typeof retractAllowedRaw === 'number' && Number.isFinite(retractAllowedRaw) && retractAllowedRaw >= 0)
+      ? retractAllowedRaw
+      : null
     const t1Pct = ownerStrategy?.exits?.t1Pct ?? 5.0
     const t2Pct = ownerStrategy?.exits?.t2Pct ?? 8.0
     const ltp = quotes[`NSE:${symbol}`]?.last_price
@@ -160,9 +166,15 @@ export async function monitorAccountStrategy1(account: string): Promise<Strategy
       const lotLabel = `${new Date(lot.boughtAt).toLocaleDateString('en-IN', { timeZone: 'Asia/Kolkata' })} @ ₹${lot.entryPrice.toFixed(2)}`
       const q: any = quotes[`NSE:${symbol}`] as any
       const observedHigh = Math.max(ltp, Number(q?.ohlc?.high || 0))
+      const minGainAfterRetrace = (triggerPct: number): number => {
+        const allowed = retractAllowed === null ? triggerPct : retractAllowed
+        return Math.max(0, triggerPct - Math.max(0, allowed))
+      }
+      const minGainT1 = minGainAfterRetrace(t1Pct)
+      const minGainT2 = minGainAfterRetrace(t2Pct)
 
       const t2DirectHit = !lot.tranche1At && ltp >= t2Trigger
-      const t2RetraceHit = retraceAfterHit && !lot.tranche1At && observedHigh >= t2Trigger && ltp < t2Trigger && ltp > lot.entryPrice
+      const t2RetraceHit = retraceAfterHit && !lot.tranche1At && observedHigh >= t2Trigger && ltp < t2Trigger && ltp > lot.entryPrice && gainPct >= minGainT2
       if (t2DirectHit || t2RetraceHit) {
         const intentQty = lot.remainingQty
         const t2Reason = t2DirectHit
@@ -233,7 +245,7 @@ export async function monitorAccountStrategy1(account: string): Promise<Strategy
       }
 
       const t1DirectHit = !lot.tranche1At && ltp >= t1Trigger
-      const t1RetraceHit = retraceAfterHit && !lot.tranche1At && observedHigh >= t1Trigger && ltp < t1Trigger && ltp > lot.entryPrice
+      const t1RetraceHit = retraceAfterHit && !lot.tranche1At && observedHigh >= t1Trigger && ltp < t1Trigger && ltp > lot.entryPrice && gainPct >= minGainT1
       if (t1DirectHit || t1RetraceHit) {
         const intentQty = Math.max(1, Math.floor(lot.remainingQty * 0.5))
         const t1Reason = t1DirectHit
@@ -310,7 +322,7 @@ export async function monitorAccountStrategy1(account: string): Promise<Strategy
       }
 
       const t2RemainderDirectHit = !!lot.tranche1At && ltp >= t2Trigger
-      const t2RemainderRetraceHit = retraceAfterHit && !!lot.tranche1At && observedHigh >= t2Trigger && ltp < t2Trigger && ltp > lot.entryPrice
+      const t2RemainderRetraceHit = retraceAfterHit && !!lot.tranche1At && observedHigh >= t2Trigger && ltp < t2Trigger && ltp > lot.entryPrice && gainPct >= minGainT2
       if (t2RemainderDirectHit || t2RemainderRetraceHit) {
         const intentQty = lot.remainingQty
         const t2RemainderReason = t2RemainderDirectHit

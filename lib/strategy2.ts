@@ -286,6 +286,12 @@ export async function monitorAccount(account: string): Promise<MonitorResult> {
       const lotRetraceAfterHit = lotStrategy?.type === 'momentum'
         ? asMomentumParams(lotStrategy).retraceAfterHit !== false
         : true
+      const lotRetractAllowedRaw = lotStrategy?.type === 'momentum'
+        ? asMomentumParams(lotStrategy).retractPercentAllowed
+        : undefined
+      const lotRetractAllowed = (typeof lotRetractAllowedRaw === 'number' && Number.isFinite(lotRetractAllowedRaw) && lotRetractAllowedRaw >= 0)
+        ? lotRetractAllowedRaw
+        : null
       const lotT1Pct = lotStrategy?.exits?.t1Pct ?? 1.5
       const lotT2Pct = lotStrategy?.exits?.t2Pct ?? 2.0
       const lotT1Price = lot.entryPrice * (1 + lotT1Pct / 100)
@@ -302,6 +308,12 @@ export async function monitorAccount(account: string): Promise<MonitorResult> {
         ltp,
         recentCompletedHigh ?? Number.NEGATIVE_INFINITY,
       )
+      const minGainAfterRetrace = (triggerPct: number): number => {
+        const allowed = lotRetractAllowed === null ? triggerPct : lotRetractAllowed
+        return Math.max(0, triggerPct - Math.max(0, allowed))
+      }
+      const minGainT1 = minGainAfterRetrace(lotT1Pct)
+      const minGainT2 = minGainAfterRetrace(lotT2Pct)
 
       let sellQty = 0
       let sellReason = ''
@@ -309,21 +321,21 @@ export async function monitorAccount(account: string): Promise<MonitorResult> {
       if (!lotTranche1Done && ltp >= lotT2Price) {
         sellQty = lot.remainingQty
         sellReason = `Lot ${lotLabel}: LTP ₹${ltp.toFixed(2)} ≥ T2 ₹${lotT2Price.toFixed(2)} (skipped past T1) — selling entire lot`
-      } else if (lotRetraceAfterHit && !lotTranche1Done && observedHigh >= lotT2Price && ltp < lotT2Price && ltp > lot.entryPrice) {
+      } else if (lotRetraceAfterHit && !lotTranche1Done && observedHigh >= lotT2Price && ltp < lotT2Price && ltp > lot.entryPrice && lotGainPct >= minGainT2) {
         sellQty = lot.remainingQty
         sellReason = `Lot ${lotLabel}: T2 was hit intraday at ₹${observedHigh.toFixed(2)} but price retreated to ₹${ltp.toFixed(2)} — selling lot at market`
       } else if (!lotTranche1Done && ltp >= lotT1Price) {
         sellQty = Math.max(1, Math.floor(lot.remainingQty / 2))
         sellReason = `Lot ${lotLabel}: LTP ₹${ltp.toFixed(2)} ≥ T1 ₹${lotT1Price.toFixed(2)} — tranche 1 sell (50% of ${lot.remainingQty})`
         markTranche1 = true
-      } else if (lotRetraceAfterHit && !lotTranche1Done && observedHigh >= lotT1Price && ltp < lotT1Price && ltp > lot.entryPrice) {
+      } else if (lotRetraceAfterHit && !lotTranche1Done && observedHigh >= lotT1Price && ltp < lotT1Price && ltp > lot.entryPrice && lotGainPct >= minGainT1) {
         sellQty = Math.max(1, Math.floor(lot.remainingQty / 2))
         sellReason = `Lot ${lotLabel}: T1 was hit intraday at ₹${observedHigh.toFixed(2)} but price retreated to ₹${ltp.toFixed(2)} — selling lot at market`
         markTranche1 = true
       } else if (lotTranche1Done && ltp >= lotT2Price) {
         sellQty = lot.remainingQty
         sellReason = `Lot ${lotLabel}: LTP ₹${ltp.toFixed(2)} ≥ T2 ₹${lotT2Price.toFixed(2)} — tranche 2 sell (remainder)`
-      } else if (lotRetraceAfterHit && lotTranche1Done && observedHigh >= lotT2Price && ltp < lotT2Price && ltp > lot.entryPrice) {
+      } else if (lotRetraceAfterHit && lotTranche1Done && observedHigh >= lotT2Price && ltp < lotT2Price && ltp > lot.entryPrice && lotGainPct >= minGainT2) {
         sellQty = lot.remainingQty
         sellReason = `Lot ${lotLabel}: T2 was hit intraday at ₹${observedHigh.toFixed(2)} but price retreated to ₹${ltp.toFixed(2)} — selling lot at market`
       }
