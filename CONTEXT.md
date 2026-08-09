@@ -1,7 +1,8 @@
 # DineshTrade — Project Context
 
 **Last Updated:** 09 Aug 2026
-**Version:** 2.8 — capital/gate/strategy numbers below re-verified directly against live `data/strategy.json` and `lib/preflight.ts` on 09 Aug 2026; see `docs/ARCHITECTURE.md`, `docs/DATA_MODEL.md`, and `docs/MULTI_TENANCY_CURRENT_STATE.md` for the full code-verified picture (docs/ was reorganized the same day — speculative and superseded docs moved to `docs/archive/`).
+**Version:** 2.9 — DAlgo refactor Phase 8 (Testing and Cutover) verification pass added; see §14.
+**Version 2.8 note:** capital/gate/strategy numbers below re-verified directly against live `data/strategy.json` and `lib/preflight.ts` on 09 Aug 2026; see `docs/ARCHITECTURE.md`, `docs/DATA_MODEL.md`, and `docs/MULTI_TENANCY_CURRENT_STATE.md` for the full code-verified picture (docs/ was reorganized the same day — speculative and superseded docs moved to `docs/archive/`).
 **Purpose:** This file gives Claude (or any AI assistant) full context of everything discussed so far about this project. Start any new conversation by uploading this file.
 
 ---
@@ -785,14 +786,66 @@ Built every page from spec §16 Phase 7 / §11.1's public page list.
 - `POST /api/dalgo/contact` — validation paths confirmed correct (empty fields → 400 "all required", malformed email → 400 "valid email"); a valid submission reaches `sendViaResend()` correctly but Resend itself rejects the actual send with **403 "the dalgo.online domain is not verified"** — a pre-existing Resend account/domain-verification gap that affects every email this app sends (trade alerts, EOD summaries, registration emails, etc.), not something introduced by or specific to this phase. Not worked around in code — this is an infrastructure/account step (verify the sending domain in the Resend dashboard), not a bug.
 - Left the pre-existing dev server running (it wasn't started by this session, so not this session's to stop).
 
+### Phase 8 — Testing and Cutover — ✅ verification complete (09 Aug 2026, not yet committed — user commits manually via GitHub Desktop)
+
+Full pre-cutover verification pass per spec §16 Phase 8 / the Phase 8 task brief's Tasks 8.1–8.10. This phase is a **verification and reporting pass, not a build phase** — no application code was changed; findings below are either pre-existing (flagged, not fixed) or fixed inline where trivial (a bug in the verification script itself, not app code).
+
+**Task 8.1 — Build verification:**
+
+- `npx tsc --noEmit` — clean, 0 errors, both before and after this session (no code changes were needed).
+- `npm run build` — **skipped** per [[feedback_dev_build_conflict]]: a dev server was already running on port 3000 (not started by this session). Running a production build against the same `.next` directory risks corrupting the live dev server's cache. `tsc --noEmit` plus curl-verification against the live dev server (Task 8.3) substituted for it, same pattern Phase 7 used. **Still outstanding:** a real `npm run build` once the dev server can be safely stopped — bundle-size numbers (Task 8.7) are also blocked on this for the same reason.
+
+**Task 8.2 — Route audit** (middleware.ts vs. actual files): all PUBLIC, SUPERADMIN, and MANAGER routes exist and are correctly protected. Three customer-side gaps found (do not fix without explicit instruction — flagged only, per the task brief):
+
+- ❌ **`/sso` has no page** (`app/sso/` doesn't exist anywhere in the tree). Middleware already allows any authenticated role through to it (`ANY_AUTHENTICATED_EXACT`), and `/login`, `/register`, and `app/api/dalgo/auth/route.ts` all already set `customer: '/sso'` as the post-login redirect target — so **a customer logging in today lands on a 404**, not a working SSO handoff. This is Phase 4 item 10 ("SSO flow — login at main, redirect to customer instance"), never built. Confirmed via code comments in `app/login/page.tsx`/`app/api/dalgo/auth/route.ts` ("/admin, /manager, /sso don't exist as pages yet" — stale for /admin and /manager, still true for /sso). **This blocks the customer-login half of Phase 8's own E2E scenario** (spec §16 Phase 8 item 3) until built.
+- ❌ **`/orders` has no page** — middleware's `CUSTOMER_EXACT` allowlist already includes it, with an inline comment explaining it's meant to replace the still-live V1 `/trades` page ("Bridge entries... Remove once `/orders` and its skipped-signals view actually exist"). Expected/tracked gap, not a new find.
+- ❌ **`/strategies` has no page** — also in middleware's `CUSTOMER_EXACT` allowlist with no corresponding route anywhere in `app/`. Not mentioned in the task brief's route list and not referenced by any login-redirect/register code the way `/sso` is — lower urgency than the other two, but a customer navigating there gets a 404 instead of a redirect.
+- All other routes (12 public pages, 4 public APIs, 12 SuperAdmin, 6 Manager, 12 customer V1 pages under the `app/(app)/` route group) confirmed present.
+
+**Task 8.3 — E2E login tests:** all 6 PASS against the live dev server, using the real seed credentials from `scripts/migrate-to-supabase.ts` (`dinesh.k.wadhwani@gmail.com` / `dinesh_wadhwani@yahoo.com`, temp password — still active, see security note below):
+
+| # | Test | Result |
+| --- | --- | --- |
+| 1 | SuperAdmin login → 200, role=superadmin, redirectTo=/admin, cookie set | ✅ PASS |
+| 2 | SuperAdmin GET /admin with cookie → 200 | ✅ PASS |
+| 3 | Account Manager login → 200, role=account_manager, redirectTo=/manager | ✅ PASS |
+| 4 | GET /admin with AM cookie → 307 → /login | ✅ PASS |
+| 5 | GET /admin with no cookie → 307 → /login | ✅ PASS |
+| 6 | GET /login with no cookie → 200 | ✅ PASS |
+
+Session cookies/tokens obtained during testing were not persisted anywhere and were deleted from scratch files immediately after use; both JWTs expire on their own (~1hr) regardless.
+
+**Task 8.4 — Supabase data integrity:** temporary `scripts/_verify_phase8.ts` (deleted after use, per the Phase 4/5 precedent) — **23/23 checks pass** against the live DB: `profiles` (4 rows, valid roles, SA/AM active), `platform_strategies` (4 rows, published, all 4 named bug-fix params confirmed live), `platform_watchlists` (3 rows, listA = 48 symbols), `daily_closes` (4,020 rows), `customer_strategies` (4 rows for the test customer, all inactive), `customer_capital_config` (per_trade = ₹20,000, real live value), `customer_state` (cron_mode=manual), `platform_fixed_rules` (6 rows), `platform_config` (HEARTBEAT_DB_ENABLED / STRATEGY_SCAN_DB_ENABLED / SUREPASS_KYC_ENABLED all false). One transient failure during the first run (listA showing 0 symbols) was a bug in the verification script itself — it looked up the row by `id` (a uuid) instead of `platform_watchlists.list_key` (the actual text identifier per the schema) — fixed in the script before the final run; not an application bug.
+
+**Task 8.5 — Environment variables audit** (`.env.local`, presence only, no values printed): all required vars present except two the task brief itself named incorrectly — the app's real convention (`lib/ai.ts`, `<PROVIDER>_AI_MODEL`/`<PROVIDER>_AI_API_KEY`) is `GEMINI_AI_API_KEY`/`GEMINI_AI_MODEL`, both present and correctly named; the brief's literal `AI_GEMINI_API_KEY`/`AI_MODEL` names don't match any code path and were never going to be found. `SESSION_SECRET` already present (30+ chars) — nothing to generate. `NODE_ENV` is absent from `.env.local`, which is correct/by-design: Next.js reserves this var and sets it automatically from the `dev`/`build`/`start` scripts (`package.json`'s `start` script already does `NODE_ENV=production node server.js`) — it does not belong in an env file. `CRON_ENABLED=false` confirmed byte-clean (no stray whitespace/CR).
+
+**Task 8.6 — Security audit:**
+
+- ❌ **Hardcoded temp password still live in production.** `app/api/dalgo/admin/managers/route.ts`'s `TEMP_PASSWORD = 'DAlgo@2026!'` (also embedded in the welcome-email template in `lib/email.ts`) is assigned to every newly created Account Manager account, and — confirmed directly via Task 8.3's live login test — **it is still the actual working password for both the SuperAdmin and Account Manager seed accounts today**, not just a design pattern. Every future AM this same code creates will share this exact same publicly-visible-in-source password until they change it themselves. This is precisely why the cutover checklist below already carries "change all 3 seed account passwords" as a required manual step — flagged here so it isn't skipped. The `randomBytes` hit in the same grep sweep (`lib/encryption.ts`) is a false positive — that's the real AES-256-GCM IV generation, not a leaked secret.
+- ✅ No `NEXT_PUBLIC_` prefix on `SUPABASE_SERVICE_KEY`/`ENCRYPTION_KEY`/`SHARED_SSO_SECRET`.
+- ✅ `SUPABASE_SERVICE_KEY` never referenced from any client (`.tsx`) file.
+- ✅ Every `/api/dalgo/admin/*` mutation route (12 routes checked) calls `requireRole('superadmin')` or `requireRole(['superadmin','account_manager'])` from `lib/dalgoAuth.ts`, with AM-scoped routes additionally checking `assigned_to`/`assigned_account_manager_id` server-side — confirmed there is no separate `/api/dalgo/manager/*` tree; Manager reuses the same admin routes with role branching inside each handler, matching Phase 6's documented design. None of these are in middleware's `PUBLIC_EXACT`.
+- ✅ `app/api/dalgo/auth/route.ts` sets `httpOnly: true`, `secure: process.env.NODE_ENV === 'production'`, `sameSite: 'lax'` — all three present.
+- **Unrelated hygiene note, not a vulnerability:** `dotenv@17.4.2`'s own console output prints a random promotional "tip" line (e.g. `⌁ auth for agents [www.vestauth.com]`) on every load — confirmed as a real, intentional feature of the published package (`node_modules/dotenv/lib/main.js` / its own changelog), not a supply-chain compromise. Worth knowing this will show up in `pm2 logs` / server startup output in production.
+
+**Task 8.7 — Performance checks:**
+
+- Bundle size — **not measured**, same reason as 8.1 (build skipped to protect the running dev server). Needs a real `npm run build` before go-live.
+- Image alt text — ✅ the one `<img>` in the codebase (`app/admin/registrations/[id]/RegistrationDetailClient.tsx`) has `alt={doc.label}`.
+- `console.log` in `lib/`/`app/api/` — ~60 call sites found, none dev-gated, but nearly all are the trading engine's operational audit trail (cron ticks, reconciliation decisions, strategy scan results) — the same log lines the cutover checklist's own "MONITORING → `pm2 logs dalgo`" step depends on. Not flagged as cleanup work; stripping them would remove production observability the ops runbook relies on.
+
+**No application code changed this phase** — Phase 8 was verification-only. The three route gaps and the shared-password issue above are carried forward as known issues, not fixed here (per the task brief's explicit "do not fix missing V1 pages/routes — just report them").
+
 ### What's next
 
-1. **Run `scripts/migrations/2026-08-09-phase5-schema-extensions.sql`** in the Supabase SQL editor — required before heartbeat/token-status/reset-timestamp writes will actually succeed (confirmed via the live smoke test above, still outstanding as of Phase 6).
-2. **Manually click through Phase 6's pages logged in as both seeded accounts** (see "Not independently verified this session" above) — this is the one thing this session couldn't do itself.
-3. **Verify the `dalgo.online` sending domain in the Resend dashboard** — every email this app sends (contact form, trade alerts, registration emails, token alerts) will keep failing with a 403 until this is done; it's an account-level step, not a code fix.
-4. **Run `npm run build` for Phase 7** once the dev server is stopped (per [[feedback_dev_build_conflict]]) — this session verified against the live dev server instead, so a full production build of the new public pages is still outstanding.
-5. **Phase 8 — Testing and Cutover** (spec §16): full E2E test with the 3 seeded accounts, register→approve→activate→SSO→token paste→Auto mode→live order flow, health dashboard green check, then point `dalgo.online` to the new deployment and keep `dineshtrade.online` running until confident.
-6. Step 2 (broker setup + strategy setup screens) for the customer-facing registration flow is still not built — Phase 6 only closed the Step 1 (identity) approval loop on the admin/manager side. A registered, identity-verified customer still has no self-service path to connect a broker or enable a strategy before an AM can activate them.
+1. **Build `/sso`** — the one gap that actually blocks Phase 8's own E2E scenario (spec §16 item 3, customer login → SSO redirect). Customer login is otherwise fully wired (register → approve → activate all exist per Phase 3/6) but currently dead-ends at a 404 post-login.
+2. **Change all 3 seed account passwords** away from the shared `DAlgo@2026!` default before any real customer traffic — already on the cutover checklist below, called out again here because Task 8.6 confirmed it's still live today, not just a pre-launch formality.
+3. **Run a real `npm run build`** once the dev server can be stopped — needed for both a final clean-build confirmation and the bundle-size check that Task 8.7 couldn't do this session.
+4. **Run `scripts/migrations/2026-08-09-phase5-schema-extensions.sql`** in the Supabase SQL editor if not already applied — required before heartbeat/token-status/reset-timestamp writes succeed (carried forward from Phase 6, not re-checked this session).
+5. **Verify the `dalgo.online` sending domain in the Resend dashboard** — every email (contact form, trade alerts, registration emails, token alerts) still 403s until this account-level step is done (carried forward from Phase 7).
+6. Step 2 (broker setup + strategy setup screens) for the customer-facing registration flow is still not built — a registered, identity-verified customer still has no self-service path to connect a broker or enable a strategy before an AM activates them (carried forward from Phase 6).
+7. `/orders` and `/strategies` customer pages remain unbuilt (bridged via `/trades` and n/a respectively) — lower priority than `/sso`, see Task 8.2 above.
+8. Production cutover checklist (DNS, EC2, Caddy, Supabase, Resend, Zerodha, verification, monitoring) — see the standalone checklist Claude printed at the end of the Phase 8 session; not duplicated here to avoid drift between two copies.
 
 ---
 
