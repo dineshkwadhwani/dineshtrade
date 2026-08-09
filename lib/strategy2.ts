@@ -20,6 +20,7 @@ import {
   type KitePosition, type KiteOrder,
 } from './kite'
 import { runPreflight, markPlaced } from './preflight'
+import { getBroker } from './broker'
 import { sendEmail } from './email'
 import { getAccountList } from './accounts'
 import { ensureStrategy1Tracking } from './strategy1'
@@ -96,6 +97,7 @@ export async function monitorAccount(account: string): Promise<MonitorResult> {
   if (!creds.ok) {
     return { account, ranAt, positionsChecked: 0, entries: [{ account, accountDisplayName: displayName, symbol: '—', action: 'skipped', reason: creds.error }] }
   }
+  const broker = getBroker({ brokerName: 'zerodha', brokerCredentials: { apiKey: creds.apiKey, accessToken: creds.accessToken } })
 
   // Per-position strategy config — looked up inside the loop now so each
   // position uses ITS OWN strategy's exits + handoff window. Default fallbacks
@@ -342,7 +344,7 @@ export async function monitorAccount(account: string): Promise<MonitorResult> {
 
       if (sellQty === 0) continue
 
-      const pre = await runPreflight({ account, symbol, side: 'SELL', quantity: sellQty, pricePerShare: ltp, buyPricePerShare: lot.entryPrice })
+      const pre = await runPreflight({ account, symbol, side: 'SELL', quantity: sellQty, pricePerShare: ltp, buyPricePerShare: lot.entryPrice }, broker)
       if (!pre.ok) {
         const skipReason = pre.gate === 'noShort'
           ? 'Position no longer held in Kite (manually closed?) — skipping'

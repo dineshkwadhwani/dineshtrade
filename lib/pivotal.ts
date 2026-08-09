@@ -5,6 +5,7 @@ import { asPivotalParams, getCapital, getStrategyById, getStrategies, type Strat
 import { resolveAccountCreds, getHistoricalCandles, getQuotes, placeKiteOrder, type KiteCreds } from './kite'
 import { getInstrumentTokens } from './instruments'
 import { runPreflight, markPlaced } from './preflight'
+import { getBroker } from './broker'
 import { appendJournal, classifyVerdict, istDateString, journalOrder } from './journal'
 import { applyLotSell, listPositionLots, listPositions, removePosition, setStrategyId, type Position } from './positions'
 import { sendEmail } from './email'
@@ -195,6 +196,7 @@ export async function monitorPivotalAccount(account: string): Promise<PivotalMon
     return { account, ranAt, positionsChecked: 0, entries: [{ account, accountDisplayName: displayName, symbol: '—', action: 'skipped', reason: credsResult.error }] }
   }
   const creds: KiteCreds = { apiKey: credsResult.apiKey, accessToken: credsResult.accessToken }
+  const broker = getBroker({ brokerName: 'zerodha', brokerCredentials: { apiKey: creds.apiKey, accessToken: creds.accessToken } })
   const quotes = await getQuotes(creds, positions.map(position => position.symbol)).catch(() => ({} as Awaited<ReturnType<typeof getQuotes>>))
   const pivotalLists = await getPivotalLists()
   const entries: PivotalMonitorEntry[] = []
@@ -282,7 +284,7 @@ export async function monitorPivotalAccount(account: string): Promise<PivotalMon
         pricePerShare: ltp,
         strategyId: pos.strategyId,
         bypassNoLossSellReason,
-      })
+      }, broker)
       if (!pre.ok) {
         if (pre.gate === 'noLossSell') {
           appendJournal({

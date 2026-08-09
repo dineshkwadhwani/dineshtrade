@@ -7,6 +7,7 @@ import { sendDailyReport, sendMonthlyReport, isEmailConfigured } from './email'
 import { getActiveStrategies, asMomentumParams } from './strategyConfig'
 import { resolveAccountCreds, placeKiteOrder, getQuotes } from './kite'
 import { runPreflight, markPlaced } from './preflight'
+import { getBroker } from './broker'
 import { istDateString, journalOrder, readJournalDay, type OrderRecord } from './journal'
 import { buildDailyReport, buildMonthlyReport, isLastWeekdayOfMonth } from './retrospective'
 import { listPositions, removePosition } from './positions'
@@ -79,6 +80,7 @@ export async function runEODSquareOff(): Promise<void> {
         console.warn(`[cron eod] ${strategy.id} ${account}: creds not available — skipping`)
         continue
       }
+      const broker = getBroker({ brokerName: 'zerodha', brokerCredentials: { apiKey: creds.apiKey, accessToken: creds.accessToken } })
 
       const strategyPositions = await listPositions({ account, strategyId: strategy.id })
       const accountPositions = await listPositions({ account })
@@ -123,7 +125,7 @@ export async function runEODSquareOff(): Promise<void> {
           quantity: qty, pricePerShare: ltp,
           strategyId: strategy.id,
           bypassNoLossSell: squareOffEOD,
-        })
+        }, broker)
         const sellQty = pre.adjustedQty ?? qty
         if (!pre.ok) {
           recordFailed({ time: t, account, symbol: pos.symbol, side: 'SELL', quantity: sellQty, reason: `[${pre.gate}] ${pre.reason}` })

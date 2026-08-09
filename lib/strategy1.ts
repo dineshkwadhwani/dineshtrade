@@ -19,6 +19,7 @@ import {
   type KiteCreds,
 } from './kite'
 import { runPreflight, markPlaced } from './preflight'
+import { getBroker } from './broker'
 import { sendEmail } from './email'
 import { appendJournal, journalOrder, istDateString, istHHMM } from './journal'
 import { asDipParams, getStrategyById, getStrategies } from './strategyConfig'
@@ -113,6 +114,7 @@ export async function monitorAccountStrategy1(account: string): Promise<Strategy
     return { account, ranAt, positionsChecked: 0, entries: [{ account, accountDisplayName: displayName, symbol: '—', action: 'skipped', reason: cr.error }] }
   }
   const creds: KiteCreds = { apiKey: cr.apiKey, accessToken: cr.accessToken }
+  const broker = getBroker({ brokerName: 'zerodha', brokerCredentials: { apiKey: creds.apiKey, accessToken: creds.accessToken } })
 
   // All dip-type strategies use the Strategy 1 monitor (accumulator + any
   // user-created dip-type strategies). Each position's exits come from ITS
@@ -180,7 +182,7 @@ export async function monitorAccountStrategy1(account: string): Promise<Strategy
         const t2Reason = t2DirectHit
           ? `Lot ${lotLabel} skipped past T1 — sold entire lot at T2`
           : `Lot ${lotLabel} hit T2 intraday at ₹${observedHigh.toFixed(2)} then retraced to ₹${ltp.toFixed(2)} — sold entire lot`
-        const pre = await runPreflight({ account, symbol, side: 'SELL', quantity: intentQty, pricePerShare: ltp, buyPricePerShare: lot.entryPrice })
+        const pre = await runPreflight({ account, symbol, side: 'SELL', quantity: intentQty, pricePerShare: ltp, buyPricePerShare: lot.entryPrice }, broker)
         if (!pre.ok) {
           if (pre.gate === 'noLossSell') {
             appendJournal({
@@ -255,7 +257,7 @@ export async function monitorAccountStrategy1(account: string): Promise<Strategy
           entries.push({ account, accountDisplayName: displayName, symbol, action: 'skipped', reason: `Invalid qty ${intentQty}` })
           continue
         }
-        const pre = await runPreflight({ account, symbol, side: 'SELL', quantity: intentQty, pricePerShare: ltp, buyPricePerShare: lot.entryPrice })
+        const pre = await runPreflight({ account, symbol, side: 'SELL', quantity: intentQty, pricePerShare: ltp, buyPricePerShare: lot.entryPrice }, broker)
         if (!pre.ok) {
           if (pre.gate === 'noLossSell') {
             appendJournal({
@@ -328,7 +330,7 @@ export async function monitorAccountStrategy1(account: string): Promise<Strategy
         const t2RemainderReason = t2RemainderDirectHit
           ? `Lot ${lotLabel} tranche 2 hit (T2 ₹${t2Trigger.toFixed(2)})`
           : `Lot ${lotLabel} hit T2 intraday at ₹${observedHigh.toFixed(2)} then retraced to ₹${ltp.toFixed(2)} — closing remainder`
-        const pre = await runPreflight({ account, symbol, side: 'SELL', quantity: intentQty, pricePerShare: ltp, buyPricePerShare: lot.entryPrice })
+        const pre = await runPreflight({ account, symbol, side: 'SELL', quantity: intentQty, pricePerShare: ltp, buyPricePerShare: lot.entryPrice }, broker)
         if (!pre.ok) {
           if (pre.gate === 'noLossSell') {
             appendJournal({

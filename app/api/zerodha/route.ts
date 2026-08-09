@@ -7,6 +7,7 @@ import { istDateString, readJournalDay, type OrderRecord } from '@/lib/journal'
 import { runPreflight, markPlaced } from '@/lib/preflight'
 import { recordStrategy1Buy, STRATEGY_1_BUY_TAG } from '@/lib/strategy1'
 import { sendEmail } from '@/lib/email'
+import { getBroker } from '@/lib/broker'
 
 const KITE_BASE = 'https://api.kite.trade'
 
@@ -122,6 +123,7 @@ export async function POST(req: NextRequest) {
 
   const creds = await resolveAccountCreds(account)
   if (!creds.ok) return NextResponse.json({ error: creds.error }, { status: 400 })
+  const broker = getBroker({ brokerName: 'zerodha', brokerCredentials: { apiKey: creds.apiKey, accessToken: creds.accessToken } })
 
   if (action !== 'place_order') {
     return NextResponse.json({ error: `Invalid action: ${action}` }, { status: 400 })
@@ -168,7 +170,7 @@ export async function POST(req: NextRequest) {
     quantity: qty,
     pricePerShare,
     manual,
-  })
+  }, broker)
   if (!pre.ok) {
     // Email the user when a preflight gate blocked the trade — they explicitly clicked Execute
     // (or the cron tried it) and deserve a notification with the reason.

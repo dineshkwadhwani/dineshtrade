@@ -9,6 +9,7 @@ import { runStrategyScan, runReactiveDipScan, type Recommendation } from './stra
 import { getCapital, type Strategy } from './strategyConfig'
 import { resolveAccountCreds, placeKiteOrder } from './kite'
 import { runPreflight, markPlaced } from './preflight'
+import { getBroker } from './broker'
 import { appendJournal, istDateString } from './journal'
 import {
   istHHMM, maybeRollDay,
@@ -65,6 +66,7 @@ export async function autoBuyOnAccount(account: string, accountDisplayName: stri
     recordSkipped({ time: istHHMM(), account, symbol: '—', side: 'BUY', quantity: 0, reason: creds.error })
     return
   }
+  const broker = getBroker({ brokerName: 'zerodha', brokerCredentials: { apiKey: creds.apiKey, accessToken: creds.accessToken } })
   // Read the capital config once for the in-process quota check
   const cap = getCapital()
   for (const rec of recs) {
@@ -112,7 +114,7 @@ export async function autoBuyOnAccount(account: string, accountDisplayName: stri
       account, symbol: rec.symbol, side: 'BUY',
       quantity: rec.suggestedQty, pricePerShare: rec.price,
       strategyId: rec.strategy,
-    })
+    }, broker)
     if (!pre.ok) {
       recordAutoBuySkip({
         account,

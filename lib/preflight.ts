@@ -9,24 +9,11 @@ import { istDateString, readJournalRange, type JournalRecord } from '@/lib/journ
 import { isMarketOpen } from '@/lib/market'
 import { checkIntradayCircuit } from '@/lib/intradayCircuit'
 import { checkPanicSell } from '@/lib/panicSell'
-
-const KITE_BASE = 'https://api.kite.trade'
+import type { IBroker, BrokerHolding, BrokerOrder, BrokerPositions } from '@/lib/broker'
 
 // Idempotency ledger now lives in state.json (see lib/state.ts) — persistent
 // across PM2 restarts, shared by every code path. Old days are pruned by
 // normalize() at read time, so we don't need an in-process prune here.
-
-async function kiteGet<T = any>(path: string, apiKey: string, accessToken: string): Promise<T | null> {
-  try {
-    const res = await fetch(`${KITE_BASE}${path}`, {
-      headers: { 'X-Kite-Version': '3', Authorization: `token ${apiKey}:${accessToken}` },
-    })
-    if (!res.ok) return null
-    return await res.json() as T
-  } catch {
-    return null
-  }
-}
 
 async function recoverBuyHistoryFromJournal(account: string, symbol: string, heldQty: number): Promise<Array<{ price: number; ts: string }>> {
   if (heldQty <= 0) return []
@@ -117,7 +104,7 @@ export interface PreflightResult {
   adjustedQty?: number
 }
 
-export async function runPreflight(input: PreflightInput): Promise<PreflightResult> {
+export async function runPreflight(input: PreflightInput, broker: IBroker): Promise<PreflightResult> {
   const { account, symbol, side, quantity, pricePerShare, manual } = input
   const tradeValue = pricePerShare * quantity
 
@@ -194,14 +181,14 @@ export async function runPreflight(input: PreflightInput): Promise<PreflightResu
     const maxBuys = cap.maxBuysPerSymbol
     const minDropPct = cap.minDropBetweenBuysPct
     // Check current held qty in Kite. If 0, reset the history before reading.
-    const positionsJson = await kiteGet<{ data?: { net?: any[]; day?: any[] } }>('/portfolio/positions', apiKey, accessToken)
-    const holdingsJson  = await kiteGet<{ data?: any[] }>('/portfolio/holdings', apiKey, accessToken)
+    const pyramidPositions = await broker.getPositions().catch(() => ({ net: [], day: [] }) as BrokerPositions)
+    const pyramidHoldings  = await broker.getHoldings().catch(() => [] as BrokerHolding[])
     let heldQty = 0
-    for (const p of (positionsJson?.data?.net || [])) {
-      if (p.tradingsymbol?.toUpperCase() === symbol.toUpperCase()) heldQty += (p.quantity || 0)
+    for (const p of pyramidPositions.net) {
+      if (p.symbol.toUpperCase() === symbol.toUpperCase()) heldQty += (p.quantity || 0)
     }
-    for (const h of (holdingsJson?.data || [])) {
-      if (h.tradingsymbol?.toUpperCase() === symbol.toUpperCase()) heldQty += (h.quantity || 0) + (h.t1_quantity || 0)
+    for (const h of pyramidHoldings) {
+      if (h.symbol.toUpperCase() === symbol.toUpperCase()) heldQty += (h.quantity || 0) + (h.t1Quantity || 0)
     }
     if (heldQty <= 0) {
       // No open position — clear any stale history for this symbol
@@ -305,11 +292,15 @@ export async function runPreflight(input: PreflightInput): Promise<PreflightResu
 
   // GATE 5 — day buy/sell quota (via getOrders). Skipped for explicit manual orders.
   if (!manual) {
-    const ordersJson = await kiteGet<{ data?: any[] }>('/orders', apiKey, accessToken)
-    if (ordersJson?.data) {
-      const completed = ordersJson.data.filter(o => o.status === 'COMPLETE')
-      const buys = completed.filter(o => o.transaction_type === 'BUY').length
-      const sells = completed.filter(o => o.transaction_type === 'SELL').length
+    // null (not []) means the broker call itself failed — gate is skipped in
+    // that case, matching the old kiteGet()-returns-null behaviour. A
+    // successful empty order list still runs the quota check below.
+    let orders: BrokerOrder[] | null = null
+    try { orders = await broker.getOrders() } catch { orders = null }
+    if (orders) {
+      const completed = orders.filter(o => o.status === 'COMPLETE')
+      const buys = completed.filter(o => o.side === 'BUY').length
+      const sells = completed.filter(o => o.side === 'SELL').length
       const maxBuys = cap.maxBuysPerDay
       const maxSells = cap.maxSellsPerDay
       const netBuys = buys - sells  // sells free up a slot — keeps open positions in check
@@ -324,23 +315,21 @@ export async function runPreflight(input: PreflightInput): Promise<PreflightResu
 
   // GATE 6 — open positions < maxPositions (BUY only). Skipped for manual orders.
   if (!manual && side === 'BUY') {
-    const [holdingsJson, positionsJson] = await Promise.all([
-      kiteGet<{ data?: any[] }>('/portfolio/holdings', apiKey, accessToken),
-      kiteGet<{ data?: { net?: any[] } }>('/portfolio/positions', apiKey, accessToken),
+    const [holdings, positions] = await Promise.all([
+      broker.getHoldings().catch(() => [] as BrokerHolding[]),
+      broker.getPositions().catch(() => ({ net: [], day: [] }) as BrokerPositions),
     ])
     const openSymbols = new Set<string>()
-    const holdings = holdingsJson?.data || []
-    const netPositions = positionsJson?.data?.net || []
 
     for (const h of holdings) {
-      const heldQty = Number(h?.quantity || 0) + Number(h?.t1_quantity || 0)
-      const symbol = String(h?.tradingsymbol || '').toUpperCase()
+      const heldQty = Number(h?.quantity || 0) + Number(h?.t1Quantity || 0)
+      const symbol = String(h?.symbol || '').toUpperCase()
       if (heldQty > 0 && symbol) openSymbols.add(symbol)
     }
 
-    for (const p of netPositions) {
+    for (const p of positions.net) {
       const qty = Number(p?.quantity || 0)
-      const symbol = String(p?.tradingsymbol || '').toUpperCase()
+      const symbol = String(p?.symbol || '').toUpperCase()
       if (qty !== 0 && symbol) openSymbols.add(symbol)
     }
 
@@ -353,10 +342,8 @@ export async function runPreflight(input: PreflightInput): Promise<PreflightResu
 
   // GATE 7 — funds available (BUY only)
   if (side === 'BUY') {
-    const marginsJson = await kiteGet<{ data?: { equity?: { available?: { live_balance?: number; cash?: number } } } }>('/user/margins', apiKey, accessToken)
-    const available = marginsJson?.data?.equity?.available?.live_balance
-      ?? marginsJson?.data?.equity?.available?.cash
-      ?? 0
+    const margins = await broker.getMargins().catch(() => ({ available: 0, used: 0 }))
+    const available = margins.available
     if (available < tradeValue) {
       return { ok: false, gate: 'funds', reason: `${account}: ₹${Math.round(available)} available, need ₹${Math.round(tradeValue)}` }
     }
@@ -369,20 +356,20 @@ export async function runPreflight(input: PreflightInput): Promise<PreflightResu
   //   - held >= want → ok, no adjustment
   let sellAdjustedQty: number | undefined = undefined
   if (side === 'SELL') {
-    const [holdingsJson, positionsJson] = await Promise.all([
-      kiteGet<{ data?: any[] }>('/portfolio/holdings', apiKey, accessToken),
-      kiteGet<{ data?: { day?: any[]; net?: any[] } }>('/portfolio/positions', apiKey, accessToken),
+    const [holdings, positions] = await Promise.all([
+      broker.getHoldings().catch(() => [] as BrokerHolding[]),
+      broker.getPositions().catch(() => ({ net: [], day: [] }) as BrokerPositions),
     ])
     const sym = symbol.toUpperCase()
-    const eq = (s: any) => String(s).toUpperCase() === sym
-    const holding = (holdingsJson?.data || []).find((h: any) => eq(h.tradingsymbol))
-    const dayPos  = (positionsJson?.data?.day || []).find((p: any) => eq(p.tradingsymbol))
+    const eq = (s: string | undefined) => String(s).toUpperCase() === sym
+    const holding = holdings.find(h => eq(h.symbol))
+    const dayPos  = positions.day.find(p => eq(p.symbol))
     // Holdings already reflect the REMAINING delivery quantity after any same-day
     // CNC sells. Day positions can simultaneously show a negative quantity for the
     // sold leg; subtracting that from holdings turns a real remaining holding into
     // a phantom zero and blocks the second exit leg. Only positive day qty adds
     // extra sellable stock beyond holdings (e.g. same-day T0 long buys).
-    const heldQty = Number(holding?.quantity || 0) + Number(holding?.t1_quantity || 0)
+    const heldQty = Number(holding?.quantity || 0) + Number(holding?.t1Quantity || 0)
     const dayQty  = Number(dayPos?.quantity || 0)
     const available = heldQty + Math.max(0, dayQty)
 
@@ -402,10 +389,10 @@ export async function runPreflight(input: PreflightInput): Promise<PreflightResu
     // Also skipped for explicit manual orders (user knows what they're doing).
     // Also skipped when bypassNoLossSell=true (used by squareOffEOD).
     if (state.mode === 'auto' && !manual && !input.bypassNoLossSell && !input.bypassNoLossSellReason) {
-      const avgCandidates = [holding?.average_price, dayPos?.average_price, dayPos?.day_buy_price]
+      const avgCandidates = [holding?.averagePrice, dayPos?.averagePrice, dayPos?.dayBuyPrice]
         .map(v => Number(v))
         .filter(v => Number.isFinite(v) && v > 0)
-      const ltpCandidates = [holding?.last_price, dayPos?.last_price, pricePerShare]
+      const ltpCandidates = [holding?.lastPrice, dayPos?.lastPrice, pricePerShare]
         .map(v => Number(v))
         .filter(v => Number.isFinite(v) && v > 0)
       const avg = avgCandidates[0] ?? 0
