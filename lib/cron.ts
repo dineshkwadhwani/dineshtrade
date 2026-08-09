@@ -13,6 +13,11 @@
 //
 // Gated by CRON_ENABLED=true. Set CRON_ENABLED=false (or unset) for local dev.
 
+// Must be first — loads .env.local before any module reads process.env
+import * as dotenv from 'dotenv'
+import { resolve } from 'path'
+dotenv.config({ path: resolve(process.cwd(), '.env.local') })
+
 import cron, { ScheduledTask } from 'node-cron'
 import { getBackendInfo, getState } from './state'
 import { isMarketOpen } from './market'
