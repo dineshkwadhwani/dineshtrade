@@ -620,3 +620,19 @@ create policy "audit_read" on audit_log for select using (is_superadmin());
 create policy "audit_insert" on audit_log for insert with check (true);
 create policy "email_log_insert" on email_log for insert with check (true);
 create policy "email_log_read" on email_log for select using (is_superadmin());
+
+-- KYC documents bucket (storage.objects) — Phase 3 registration/onboarding.
+-- Explicit deny-by-default, service-role-only access. Redundant with
+-- "private bucket + zero policies" (RLS already denies anon/authenticated
+-- by default — see scripts/setup-storage.ts), but kept explicit and
+-- auditable alongside the rest of this file's RLS policies. Must be run
+-- manually in the Supabase SQL editor; supabase-js has no API to create
+-- storage.objects policies.
+create policy "kyc_documents_service_role_select" on storage.objects
+  for select using (bucket_id = 'kyc-documents' and auth.role() = 'service_role');
+create policy "kyc_documents_service_role_insert" on storage.objects
+  for insert with check (bucket_id = 'kyc-documents' and auth.role() = 'service_role');
+create policy "kyc_documents_service_role_update" on storage.objects
+  for update using (bucket_id = 'kyc-documents' and auth.role() = 'service_role');
+create policy "kyc_documents_service_role_delete" on storage.objects
+  for delete using (bucket_id = 'kyc-documents' and auth.role() = 'service_role');

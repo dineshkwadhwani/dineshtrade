@@ -20,6 +20,7 @@
     "nodemailer": "^6.9.16",
     "react": "^18",
     "react-dom": "^18",
+    "resend": "^6.18.1",
     "tailwind-merge": "^2.3.0",
     "yahoo-finance2": "3.14.1"
   },

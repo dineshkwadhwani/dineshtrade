@@ -82,7 +82,7 @@ function assertServer(): void {
 // Login
 // ---------------------------------------------------------------------------
 
-function createEphemeralAnonClient() {
+export function createEphemeralAnonClient() {
   const url = process.env.NEXT_PUBLIC_SUPABASE_URL
   const anonKey = process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY
   if (!url || !anonKey) {
@@ -91,11 +91,12 @@ function createEphemeralAnonClient() {
     )
   }
   // A FRESH client, never the shared `supabaseAnon` singleton from
-  // lib/supabase.ts. signInWithPassword() mutates a client's internal auth
-  // state — reusing a module-level singleton for that would risk one
+  // lib/supabase.ts. signInWithPassword()/signUp() mutate a client's internal
+  // auth state — reusing a module-level singleton for either would risk one
   // request's session bleeding into a concurrent request on the same
   // long-lived Node process. persistSession/autoRefreshToken are off because
-  // nothing should keep this throwaway client's state alive after login().
+  // nothing should keep this throwaway client's state alive afterward.
+  // Exported for reuse by app/api/dalgo/register/route.ts's signUp() call.
   return createClient(url, anonKey, {
     auth: { autoRefreshToken: false, persistSession: false },
   })

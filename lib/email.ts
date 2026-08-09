@@ -1,4 +1,4 @@
-// Email notifications via Gmail SMTP (nodemailer + Google App Password).
+// Email notifications via Resend (https://resend.com).
 //
 // Unified dispatcher: sendEmail(type, data)
 //   type='trade_executed'  data: TradeExecutedData
@@ -6,38 +6,35 @@
 //   type='eod_summary'     data: EODSummaryData
 //   type='test'            data: undefined
 //
-// Required env (only USER + PASS are mandatory; HOST/PORT default to Gmail):
-//   SMTP_USER=dinesh.k.wadhwani@gmail.com
-//   SMTP_PASS=<16-char Google App Password>
-//   NOTIFY_TO=dinesh.k.wadhwani@gmail.com   (optional, defaults to SMTP_USER)
-//   SMTP_HOST=smtp.gmail.com                (optional, default shown)
-//   SMTP_PORT=587                           (optional, default shown)
+// Required env:
+//   RESEND_API_KEY=<Resend API key>
+//   FROM_EMAIL=contact@dalgo.online
+//   FROM_NAME=DAlgo Trade                   (optional, defaults to 'DineshTrade')
+//   NOTIFY_TO=dinesh.k.wadhwani@gmail.com    (optional, defaults to FROM_EMAIL)
 //
-// All sends are best-effort: if SMTP is not configured, calls return
+// All sends are best-effort: if Resend is not configured, calls return
 // {ok:false, skipped:true} so callers can fire-and-forget without try/catch.
 
-import nodemailer, { Transporter } from 'nodemailer'
+import { Resend } from 'resend'
 import type { DailyReport } from './retrospective'
 
-let cached: Transporter | null = null
+// Lazily constructed — Resend's constructor THROWS if no API key is
+// available (`if (!this.key) throw new Error('Missing API key...')`), so
+// this must not run eagerly at module load: lib/email.ts is imported from
+// the entire order-placement pipeline (zerodha/route.ts, cronBuy.ts,
+// cronEOD.ts, strategy1/2.ts, pivotal.ts), none of which should crash just
+// because email isn't configured in a given environment.
+let resendClient: Resend | null = null
 
-function getTransport(): Transporter | null {
-  if (cached) return cached
-  const user = process.env.SMTP_USER
-  const pass = process.env.SMTP_PASS
-  if (!user || !pass) return null
-  const host = process.env.SMTP_HOST || 'smtp.gmail.com'
-  const port = parseInt(process.env.SMTP_PORT || '587', 10)
-  cached = nodemailer.createTransport({
-    host, port,
-    secure: port === 465,
-    auth: { user, pass },
-  })
-  return cached
+function getResendClient(): Resend | null {
+  if (resendClient) return resendClient
+  if (!process.env.RESEND_API_KEY) return null
+  resendClient = new Resend(process.env.RESEND_API_KEY)
+  return resendClient
 }
 
 export function isEmailConfigured(): boolean {
-  return !!(process.env.SMTP_USER && process.env.SMTP_PASS)
+  return !!(process.env.RESEND_API_KEY && process.env.FROM_EMAIL)
 }
 
 export interface EmailResult {
@@ -103,6 +100,14 @@ export interface EODSummaryData {
 }
 
 // ──────── DISPATCH ────────
+//
+// Keeps returning Promise<EmailResult> — app/api/health/route.ts,
+// app/api/email/test/route.ts, and lib/cronEOD.ts all read
+// .ok/.error/.skipped/.messageId from it. Calls sendViaResend() directly
+// (not deliver()) to get that real outcome — deliver() further down is
+// intentionally void/error-swallowing and is used only by the Phase 3
+// registration emails, which are genuinely fire-and-forget with no caller
+// that needs a result back.
 
 export function sendEmail(type: 'trade_executed', data: TradeExecutedData): Promise<EmailResult>
 export function sendEmail(type: 'trade_failed',   data: TradeFailedData):   Promise<EmailResult>
@@ -111,13 +116,14 @@ export function sendEmail(type: 'daily_report',   data: DailyReport):       Prom
 export function sendEmail(type: 'monthly_report', data: MonthlyReportData): Promise<EmailResult>
 export function sendEmail(type: 'test',           data?: undefined):        Promise<EmailResult>
 export function sendEmail(type: string, data?: any): Promise<EmailResult> {
+  const to = process.env.NOTIFY_TO || process.env.FROM_EMAIL || ''
   switch (type) {
-    case 'trade_executed': return deliver(executedSubject(data), executedBody(data))
-    case 'trade_failed':   return deliver(failedSubject(data),   failedBody(data))
-    case 'eod_summary':    return deliver(eodSubject(data),      eodBody(data))
-    case 'daily_report':   return deliver(dailyReportSubject(data), dailyReportText(data), dailyReportHTML(data))
-    case 'monthly_report': return deliver(monthlyReportSubject(data), monthlyReportText(data), monthlyReportHTML(data))
-    case 'test':           return deliver('[DineshTrade] SMTP test — wiring works', testBody())
+    case 'trade_executed': return sendViaResend(to, executedSubject(data), executedBody(data))
+    case 'trade_failed':   return sendViaResend(to, failedSubject(data),   failedBody(data))
+    case 'eod_summary':    return sendViaResend(to, eodSubject(data),      eodBody(data))
+    case 'daily_report':   return sendViaResend(to, dailyReportSubject(data), dailyReportText(data), dailyReportHTML(data))
+    case 'monthly_report': return sendViaResend(to, monthlyReportSubject(data), monthlyReportText(data), monthlyReportHTML(data))
+    case 'test':           return sendViaResend(to, '[DineshTrade] Resend test — wiring works', testBody())
     default: return Promise.resolve({ ok: false, error: `Unknown email type: ${type}` })
   }
 }
@@ -133,29 +139,43 @@ export const sendTestEmail     = ()                     => sendEmail('test')
 
 // ──────── DELIVERY ────────
 
-async function deliver(subject: string, text: string, html?: string): Promise<EmailResult> {
-  const tx = getTransport()
-  if (!tx) {
-    console.warn('[email] SMTP not configured — skipping:', subject)
-    console.warn('[email] ensure SMTP_USER and SMTP_PASS are set in the server environment')
-    return { ok: false, skipped: true, error: 'SMTP not configured' }
+// The only place that actually calls the Resend API. Returns a real
+// EmailResult (ok/error/messageId) — Resend's SDK does NOT throw for
+// API-level failures (bad domain, invalid key, etc.), it returns them as
+// `{ error }`, so that field must be checked explicitly rather than relying
+// on try/catch alone to detect a failed send.
+async function sendViaResend(to: string, subject: string, text: string, html?: string): Promise<EmailResult> {
+  const resend = getResendClient()
+  const fromEmail = process.env.FROM_EMAIL
+  if (!resend || !fromEmail) {
+    console.warn('[email] Resend not configured — skipping:', subject)
+    console.warn('[email] ensure RESEND_API_KEY and FROM_EMAIL are set in the server environment')
+    return { ok: false, skipped: true, error: 'Resend not configured' }
   }
-  const from = process.env.SMTP_USER!
-  const to = process.env.NOTIFY_TO || from
+  const from = `${process.env.FROM_NAME || 'DineshTrade'} <${fromEmail}>`
   try {
-    const info = await tx.sendMail({ from: `DineshTrade <${from}>`, to, subject, text, ...(html ? { html } : {}) })
-    console.log('[email] sent:', subject, '→', info.messageId)
-    return { ok: true, messageId: info.messageId }
+    const { data, error } = await resend.emails.send({ from, to, subject, text, ...(html ? { html } : {}) })
+    if (error) {
+      console.error('[email] send failed:', error.message)
+      return { ok: false, error: error.message }
+    }
+    console.log('[email] sent:', subject, '→', data?.id)
+    return { ok: true, messageId: data?.id }
   } catch (e) {
     const msg = String(e).slice(0, 300)
     console.error('[email] send failed:', msg)
-    // Reset the cached transport on auth failures so the next call retries
-    // with fresh credentials (e.g. after a Gmail App Password is regenerated).
-    if (/invalid login|authentication|EAUTH|535/i.test(msg)) {
-      console.error('[email] SMTP auth failure detected — clearing cached transport. Regenerate the Gmail App Password and update SMTP_PASS.')
-      cached = null
-    }
     return { ok: false, error: msg }
+  }
+}
+
+// Fire-and-forget sender for the Phase 3 registration/onboarding emails
+// below — never throws, returns nothing, logs only. Internally still goes
+// through sendViaResend() so the Resend call + config/error handling isn't
+// duplicated (and so a Resend-side {error} response isn't silently missed).
+async function deliver(to: string, subject: string, text: string): Promise<void> {
+  const result = await sendViaResend(to, subject, text)
+  if (!result.ok) {
+    console.error('[email] send failed:', subject, result.error)
   }
 }
 
@@ -802,15 +822,63 @@ function monthlyReportHTML(m: MonthlyReportData): string {
 
 function testBody(): string {
   return [
-    'SMTP wiring works.',
+    'Resend wiring works.',
     '',
-    row('From',      process.env.SMTP_USER || '(unset)'),
-    row('To',        process.env.NOTIFY_TO || process.env.SMTP_USER || '(unset)'),
-    row('Host',      process.env.SMTP_HOST || 'smtp.gmail.com (default)'),
-    row('Port',      process.env.SMTP_PORT || '587 (default)'),
+    row('From',      process.env.FROM_EMAIL || '(unset)'),
+    row('From name', process.env.FROM_NAME || 'DineshTrade (default)'),
+    row('To',        process.env.NOTIFY_TO || process.env.FROM_EMAIL || '(unset)'),
     row('Time',      nowIST()),
     '',
     'You can safely ignore this email. It confirms that DineshTrade can send mail',
-    'on your behalf using the Google App Password in .env.local.',
+    'on your behalf using the Resend API key in .env.local.',
   ].join('\n')
+}
+
+// ──────── DALGO REGISTRATION/ONBOARDING EMAILS (Phase 3) ────────
+//
+// Fire-and-forget via deliver() — recipients here are individual
+// customers/Account Managers (explicit `to`), not the fixed NOTIFY_TO
+// address the V1 functions above use.
+
+export async function sendRegistrationConfirmation(to: string, name: string): Promise<void> {
+  const subject = 'Your DAlgo application has been submitted'
+  const text =
+    `Thank you ${name}. Your application is under review. ` +
+    `We will notify you within 1–2 business days. ` +
+    `Contact support@dalgo.online with questions.`
+  await deliver(to, subject, text)
+}
+
+export async function sendRegistrationAssigned(to: string, customerName: string, customerEmail: string): Promise<void> {
+  const subject = `New registration assigned to you: ${customerName}`
+  const text =
+    `A new registration has been assigned to you for review.\n` +
+    `Customer: ${customerName} (${customerEmail})\n` +
+    `Log in to review at www.dalgo.online/manager/registrations`
+  await deliver(to, subject, text)
+}
+
+export async function sendIdentityApproved(to: string, name: string): Promise<void> {
+  const subject = 'Identity verified — complete your DAlgo setup'
+  const text =
+    `Hi ${name}, your identity has been verified. ` +
+    `Please log in to complete your broker setup.`
+  await deliver(to, subject, text)
+}
+
+export async function sendIdentityRejected(to: string, name: string, reason: string): Promise<void> {
+  const subject = 'Action required: Your DAlgo application needs attention'
+  const text =
+    `Hi ${name}, your application could not be approved.\n` +
+    `Reason: ${reason}\n` +
+    `Please contact support@dalgo.online for assistance.`
+  await deliver(to, subject, text)
+}
+
+export async function sendAccountActivated(to: string, name: string, instanceUrl: string): Promise<void> {
+  const subject = 'Your DAlgo trading account is now active!'
+  const text =
+    `Hi ${name}, your account is active. ` +
+    `Log in at www.dalgo.online — we will redirect you to your trading dashboard at ${instanceUrl}.`
+  await deliver(to, subject, text)
 }
