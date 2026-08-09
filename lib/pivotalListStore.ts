@@ -1,6 +1,15 @@
-import { promises as fs } from 'fs'
-import * as path from 'path'
-import bundled from '@/config/pivotalLists.json'
+// Pivotal list store — Supabase-backed (`customer_pivotal_lists`, one row
+// per (customer_id, list_id)). Ported in Phase 4 of the multi-tenant
+// refactor from the file-based `config/pivotalLists.json` (+ runtime
+// override at `~/dineshtrade/data/pivotalLists.json`).
+//
+// `generated` (the V1 file's cosmetic seed-timestamp) has no column in
+// `customer_pivotal_lists` and isn't read by any business logic — only
+// displayed as an optional footer string in the Pivotal Lists UI (same
+// reasoning as lib/watchlistStore.ts's `generated` field). Dropped on this
+// backend; stays optional on the PivotalLists type so existing callers still compile.
+
+import { getSupabaseAdmin, getCustomerId } from './supabase'
 
 export type PivotalExecutionMode = 'normal' | 'dayEnd'
 
@@ -26,8 +35,6 @@ export interface PivotalLists {
   lists: Record<string, PivotalScriptEntry[]>
 }
 
-const STATE_FILE_PATH = process.env.STATE_FILE_PATH || ''
-const RUNTIME_PATH = STATE_FILE_PATH ? path.join(path.dirname(STATE_FILE_PATH), 'pivotalLists.json') : ''
 const LIST_KEY_RE = /^pivotal[A-Za-z0-9]+$/
 
 export function isPivotalListKey(k: string): boolean { return LIST_KEY_RE.test(k) }
@@ -90,27 +97,60 @@ function normalize(raw: any): PivotalLists {
     meta[key] = { name }
   }
 
-  return { generated: raw?.generated, meta, lists }
+  return { meta, lists }
 }
 
 export async function getPivotalLists(): Promise<PivotalLists> {
-  if (!RUNTIME_PATH) return normalize(bundled as any)
-  try {
-    const raw = await fs.readFile(RUNTIME_PATH, 'utf8')
-    return normalize(JSON.parse(raw))
-  } catch {
-    return normalize(bundled as any)
+  const admin = getSupabaseAdmin()
+  const { data, error } = await admin
+    .from('customer_pivotal_lists')
+    .select('list_id, name, entries')
+    .eq('customer_id', getCustomerId())
+  if (error) throw new Error(`[pivotalListStore] read failed: ${error.message}`)
+
+  if (!data || data.length === 0) return normalize(null)
+
+  const raw: any = { meta: {}, lists: {} }
+  for (const row of data) {
+    raw.lists[row.list_id] = row.entries
+    raw.meta[row.list_id] = { name: row.name }
   }
+  return normalize(raw)
 }
 
 export async function savePivotalLists(next: PivotalLists): Promise<void> {
-  if (!RUNTIME_PATH) throw new Error('STATE_FILE_PATH not configured — cannot persist pivotalLists changes in this environment')
-  const dir = path.dirname(RUNTIME_PATH)
-  await fs.mkdir(dir, { recursive: true })
+  const admin = getSupabaseAdmin()
+  const customerId = getCustomerId()
   const canonical = normalize(next)
-  const tmp = RUNTIME_PATH + '.tmp'
-  await fs.writeFile(tmp, JSON.stringify(canonical, null, 2) + '\n', { encoding: 'utf8', mode: 0o600 })
-  await fs.rename(tmp, RUNTIME_PATH)
+
+  const rows = Object.entries(canonical.lists).map(([key, entries]) => ({
+    customer_id: customerId,
+    list_id: key,
+    name: canonical.meta[key]?.name ?? defaultMetaName(key),
+    entries,
+    updated_at: new Date().toISOString(),
+  }))
+  const { error: upsertError } = await admin
+    .from('customer_pivotal_lists')
+    .upsert(rows, { onConflict: 'customer_id,list_id' })
+  if (upsertError) throw new Error(`[pivotalListStore] upsert failed: ${upsertError.message}`)
+
+  // Remove lists that existed before but aren't in the canonical set anymore.
+  const { data: existing, error: selectError } = await admin
+    .from('customer_pivotal_lists')
+    .select('list_id')
+    .eq('customer_id', customerId)
+  if (selectError) throw new Error(`[pivotalListStore] post-save read failed: ${selectError.message}`)
+  const keep = new Set(Object.keys(canonical.lists))
+  const toDelete = (existing || []).map(r => r.list_id).filter(k => !keep.has(k))
+  if (toDelete.length > 0) {
+    const { error: deleteError } = await admin
+      .from('customer_pivotal_lists')
+      .delete()
+      .eq('customer_id', customerId)
+      .in('list_id', toDelete)
+    if (deleteError) throw new Error(`[pivotalListStore] delete stale lists failed: ${deleteError.message}`)
+  }
 }
 
 export function nextPivotalListKey(existing: Record<string, unknown>): string {

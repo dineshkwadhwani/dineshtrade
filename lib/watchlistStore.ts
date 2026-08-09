@@ -1,19 +1,22 @@
-// Runtime watchlist store. The original `config/watchlist.json` is the seed
-// (checked into git). Once the Manage Lists UI saves a change, we write to
-// `~/dineshtrade/data/watchlist.json` and prefer that file going forward, so
-// edits survive deploys without requiring a config commit + push.
+// Runtime watchlist store — Supabase-backed (`customer_watchlists`, one row
+// per (customer_id, list_key)). Ported in Phase 4 of the multi-tenant
+// refactor from the file-based `~/dineshtrade/data/watchlist.json`.
 //
 // Reads are uncached on the server — each strategy scan / API request picks
 // up the latest version, so changes go live without any restart.
 //
 // Schema note: lists are keyed by stable strings ("listA", "listB",
 // "list3", "list4", …). Display names live in `meta[key].name` and can be
-// renamed freely without touching strategy.json — strategies reference the
+// renamed freely without touching strategy config — strategies reference the
 // stable keys, never the display name.
+//
+// `generated`/`rules` (the V1 file's cosmetic seed-timestamp + freeform
+// rules blob) have no column in `customer_watchlists` and aren't read by any
+// business logic — only displayed as an optional footer string in the
+// Manage Lists UI. Dropped on this backend; both fields stay optional on the
+// Watchlist type so existing callers that pass or destructure them still compile.
 
-import { promises as fs } from 'fs'
-import * as path from 'path'
-import bundled from '@/config/watchlist.json'
+import { getSupabaseAdmin, getCustomerId } from './supabase'
 
 export interface WatchlistEntry {
   nse: string                  // NSE tradingsymbol (uppercase, no spaces)
@@ -33,9 +36,6 @@ export interface Watchlist {
   meta: Record<string, ListMeta>
   lists: Record<string, WatchlistEntry[]>
 }
-
-const STATE_FILE_PATH = process.env.STATE_FILE_PATH || ''
-const RUNTIME_PATH = STATE_FILE_PATH ? path.join(path.dirname(STATE_FILE_PATH), 'watchlist.json') : ''
 
 const LIST_KEY_RE = /^list[A-Za-z0-9]+$/
 
@@ -91,27 +91,62 @@ function normalize(raw: any): Watchlist {
     meta[k] = { name }
   }
 
-  return { generated: raw?.generated, rules: raw?.rules, meta, lists }
+  return { meta, lists }
 }
 
 export async function getWatchlist(): Promise<Watchlist> {
-  if (!RUNTIME_PATH) return normalize(bundled as any)
-  try {
-    const raw = await fs.readFile(RUNTIME_PATH, 'utf8')
-    return normalize(JSON.parse(raw))
-  } catch {
-    return normalize(bundled as any)
+  const admin = getSupabaseAdmin()
+  const { data, error } = await admin
+    .from('customer_watchlists')
+    .select('list_key, name, symbols')
+    .eq('customer_id', getCustomerId())
+  if (error) throw new Error(`[watchlistStore] read failed: ${error.message}`)
+
+  if (!data || data.length === 0) return normalize(null)
+
+  const raw: any = { meta: {}, lists: {} }
+  for (const row of data) {
+    raw.lists[row.list_key] = row.symbols
+    raw.meta[row.list_key] = { name: row.name }
   }
+  return normalize(raw)
 }
 
 export async function saveWatchlist(next: Watchlist): Promise<void> {
-  if (!RUNTIME_PATH) throw new Error('STATE_FILE_PATH not configured — cannot persist watchlist changes in this environment')
-  const dir = path.dirname(RUNTIME_PATH)
-  await fs.mkdir(dir, { recursive: true })
+  const admin = getSupabaseAdmin()
+  const customerId = getCustomerId()
   const canonical = normalize(next)
-  const tmp = RUNTIME_PATH + '.tmp'
-  await fs.writeFile(tmp, JSON.stringify(canonical, null, 2) + '\n', { encoding: 'utf8', mode: 0o600 })
-  await fs.rename(tmp, RUNTIME_PATH)
+
+  const rows = Object.entries(canonical.lists).map(([key, symbols]) => ({
+    customer_id: customerId,
+    list_key: key,
+    name: canonical.meta[key]?.name ?? defaultMetaName(key),
+    symbols,
+    updated_at: new Date().toISOString(),
+  }))
+  const { error: upsertError } = await admin
+    .from('customer_watchlists')
+    .upsert(rows, { onConflict: 'customer_id,list_key' })
+  if (upsertError) throw new Error(`[watchlistStore] upsert failed: ${upsertError.message}`)
+
+  // Remove lists that existed before but aren't in the canonical set anymore
+  // (e.g. a list was deleted) — mirrors the old file backend fully overwriting
+  // watchlist.json with exactly the canonical shape.
+  const { data: existing, error: selectError } = await admin
+    .from('customer_watchlists')
+    .select('list_key')
+    .eq('customer_id', customerId)
+  if (selectError) throw new Error(`[watchlistStore] post-save read failed: ${selectError.message}`)
+  const keep = new Set(Object.keys(canonical.lists))
+  const toDelete = (existing || []).map(r => r.list_key).filter(k => !keep.has(k))
+  if (toDelete.length > 0) {
+    const { error: deleteError } = await admin
+      .from('customer_watchlists')
+      .delete()
+      .eq('customer_id', customerId)
+      .in('list_key', toDelete)
+    if (deleteError) throw new Error(`[watchlistStore] delete stale lists failed: ${deleteError.message}`)
+  }
 }
 
 // Returns the next free list key — e.g. if listA, listB, list3 exist, returns "list4".

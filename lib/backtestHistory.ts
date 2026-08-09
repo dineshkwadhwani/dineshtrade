@@ -1,9 +1,7 @@
-import { promises as fs } from 'fs'
-import os from 'os'
-import path from 'path'
 import type { StrategyBacktestResult } from './backtest'
 import { callAI } from './ai'
 import { getCapital, asMomentumParams, type Strategy, type StrategyType } from './strategyConfig'
+import { getSupabaseAdmin, getCustomerId } from './supabase'
 
 export type BacktestHistoryStrategyType = StrategyType | 'all'
 
@@ -35,13 +33,6 @@ export interface BacktestHistoryEntry {
   strategySnapshots?: Strategy[]
 }
 
-interface DiskShape {
-  schema: number
-  updatedAt: string
-  runs: BacktestHistoryEntry[]
-}
-
-const SCHEMA_VERSION = 1
 export const BACKTEST_ANALYSIS_SYSTEM_PROMPT = [
   'You are a trading strategy coach writing for a non-technical retail investor.',
   'Use only realizedProfitRupees and realizedProfitPct to judge whether a run performed well.',
@@ -65,46 +56,6 @@ const SINGLE_BACKTEST_ANALYSIS_SYSTEM_PROMPT = [
   'In Suggested Next Experiments, provide 4 concrete tests with exact parameter changes and why each test matters.',
 ].join(' ')
 
-function historyPath(): string {
-  const stateFilePath = process.env.STATE_FILE_PATH || ''
-  if (stateFilePath) return path.join(path.dirname(stateFilePath), 'backtest-history.json')
-  return path.join(os.homedir(), 'dineshtrade', 'data', 'backtest-history.json')
-}
-
-function emptyDisk(): DiskShape {
-  return { schema: SCHEMA_VERSION, updatedAt: '', runs: [] }
-}
-
-async function loadDisk(): Promise<DiskShape> {
-  try {
-    const raw = await fs.readFile(historyPath(), 'utf8')
-    const parsed = JSON.parse(raw)
-    if (parsed && typeof parsed === 'object' && Array.isArray(parsed.runs)) {
-      return {
-        schema: typeof parsed.schema === 'number' ? parsed.schema : SCHEMA_VERSION,
-        updatedAt: typeof parsed.updatedAt === 'string' ? parsed.updatedAt : '',
-        runs: parsed.runs as BacktestHistoryEntry[],
-      }
-    }
-  } catch {
-    return emptyDisk()
-  }
-  return emptyDisk()
-}
-
-async function saveDisk(disk: DiskShape): Promise<void> {
-  const filePath = historyPath()
-  await fs.mkdir(path.dirname(filePath), { recursive: true })
-  const payload: DiskShape = {
-    schema: SCHEMA_VERSION,
-    updatedAt: new Date().toISOString(),
-    runs: disk.runs,
-  }
-  const tmp = `${filePath}.tmp`
-  await fs.writeFile(tmp, JSON.stringify(payload, null, 2) + '\n', { encoding: 'utf8', mode: 0o600 })
-  await fs.rename(tmp, filePath)
-}
-
 function round2(value: number): number {
   return Number(value.toFixed(2))
 }
@@ -127,6 +78,56 @@ function cloneStrategy(strategy: Strategy | null | undefined): Strategy | null {
 
 function cloneStrategies(strategies: Strategy[]): Strategy[] {
   return JSON.parse(JSON.stringify(strategies)) as Strategy[]
+}
+
+// ─── Supabase row mapping ───────────────────────────────────────────────────
+// `backtest_runs` splits the entry into: strategy_name/strategy_type (their
+// own columns), params (← entryParams), and results — a jsonb catch-all for
+// everything else (exitCriteria + every numeric summary field + runId/
+// timestamp, since the table has no dedicated columns for those). Lossless
+// round trip; no schema extension needed for this store.
+
+function entryToRow(customerId: string, entry: BacktestHistoryEntry): Record<string, unknown> {
+  const { strategyName, strategyType, entryParams, runId, timestamp, exitCriteria, ...rest } = entry
+  return {
+    customer_id: customerId,
+    strategy_name: strategyName,
+    strategy_type: strategyType,
+    params: entryParams,
+    results: { runId, timestamp, exitCriteria, ...rest },
+    run_at: timestamp,
+  }
+}
+
+function rowToEntry(row: any): BacktestHistoryEntry {
+  const r = row.results || {}
+  return {
+    runId: r.runId,
+    timestamp: r.timestamp || row.run_at,
+    strategyName: row.strategy_name,
+    strategyType: row.strategy_type,
+    entryParams: row.params || {},
+    exitCriteria: r.exitCriteria || {},
+    startingAmount: r.startingAmount,
+    maxBuysPerDay: r.maxBuysPerDay,
+    maxSellsPerDay: r.maxSellsPerDay,
+    backtestDays: r.backtestDays,
+    closedTrades: r.closedTrades,
+    openTrades: r.openTrades,
+    avgHoldDays: r.avgHoldDays ?? null,
+    avgDrawdownPct: r.avgDrawdownPct,
+    netProfitRupees: r.netProfitRupees,
+    netProfitPct: r.netProfitPct,
+    realizedProfitRupees: r.realizedProfitRupees,
+    realizedProfitPct: r.realizedProfitPct,
+    unrealizedMTM: r.unrealizedMTM,
+    winRate: r.winRate ?? null,
+    capitalEfficiency: r.capitalEfficiency,
+    avgDeployedCapital: r.avgDeployedCapital,
+    tradePnls: Array.isArray(r.tradePnls) ? r.tradePnls : [],
+    strategySnapshot: r.strategySnapshot ?? null,
+    strategySnapshots: r.strategySnapshots ?? undefined,
+  }
 }
 
 export function buildBacktestHistoryEntry(input: {
@@ -221,19 +222,27 @@ export function buildBacktestHistoryEntry(input: {
 }
 
 export async function loadBacktestHistory(): Promise<BacktestHistoryEntry[]> {
-  const disk = await loadDisk()
-  return [...disk.runs].sort((a, b) => b.timestamp.localeCompare(a.timestamp))
+  const admin = getSupabaseAdmin()
+  const { data, error } = await admin
+    .from('backtest_runs')
+    .select('*')
+    .eq('customer_id', getCustomerId())
+    .order('run_at', { ascending: false })
+  if (error) throw new Error(`[backtestHistory] read failed: ${error.message}`)
+  return (data || []).map(rowToEntry)
 }
 
 export async function appendBacktestHistory(entry: BacktestHistoryEntry): Promise<BacktestHistoryEntry[]> {
-  const disk = await loadDisk()
-  disk.runs.push(entry)
-  await saveDisk(disk)
+  const admin = getSupabaseAdmin()
+  const { error } = await admin.from('backtest_runs').insert(entryToRow(getCustomerId(), entry))
+  if (error) throw new Error(`[backtestHistory] insert failed: ${error.message}`)
   return loadBacktestHistory()
 }
 
 export async function resetBacktestHistory(): Promise<void> {
-  await saveDisk(emptyDisk())
+  const admin = getSupabaseAdmin()
+  const { error } = await admin.from('backtest_runs').delete().eq('customer_id', getCustomerId())
+  if (error) throw new Error(`[backtestHistory] reset failed: ${error.message}`)
 }
 
 export async function analyseBacktestHistory(runs: BacktestHistoryEntry[]): Promise<string> {

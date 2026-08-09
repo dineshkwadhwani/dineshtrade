@@ -668,14 +668,59 @@ Per spec §16 Phase 3's own 12-item list, only items 1–4 are done. Items 5–1
 
 **Verified end-to-end (09 Aug 2026):** browser-driven registration test (customer type, dummy Aadhar images) → both uploads succeeded → submit → redirected to `/pending` → confirmed `profiles` row (`status=pending`) and full `registrations` row in Supabase. Confirmation email fired without error but was not independently inbox-verified (no email access available).
 
+### Phase 4 — Store Porting (JSON files → Supabase) — ✅ complete (09 Aug 2026, not yet committed — user commits manually via GitHub Desktop)
+
+Ported all 8 V1 JSON-file stores to Supabase, customer-scoped via `getCustomerId()` (new helper in `lib/supabase.ts`, reads `process.env.CUSTOMER_ID`, throws if unset). Per spec §16 Phase 4 items 1–8 — items 9–10 (customer pages, SSO flow) are **not built yet**.
+
+| File | Table(s) |
+|---|---|
+| `lib/positions.ts` | `customer_positions` |
+| `lib/state.ts` | `customer_state` |
+| `lib/journal.ts` | `orders` / `trades` / `signals_skipped` / `strategy_scans` |
+| `lib/watchlistStore.ts` | `customer_watchlists` |
+| `lib/strategyConfigStore.ts` | `customer_strategies` + `customer_capital_config` |
+| `lib/dailyCloses.ts` | `daily_closes` (shared — **no** `customer_id` filter, NSE data identical for every customer) |
+| `lib/backtestHistory.ts` | `backtest_runs` |
+| `lib/pivotalListStore.ts` | `customer_pivotal_lists` |
+
+**Ground rule for the whole phase:** preserve every real exported function signature and all business logic exactly — only the storage backend changes. The task brief's own function-name lists for `state.ts`/`strategyConfigStore.ts`/`pivotalListStore.ts`/`backtestHistory.ts` turned out to be an approximate gloss that didn't match the actual code (e.g. `state.ts`'s real exports are `getState`/`saveState`/`recordIdempotency`/`recordBuyHistory`/`addPanicSkip`/etc, not the `getMode`/`addIdempotencyEntry`/`maybeRollDay` names the brief listed) — in every case, the *real* existing signatures were kept, not the brief's names.
+
+**Schema extensions required** (`scripts/migrations/2026-08-09-phase4-schema-extensions.sql`, already run manually in the Supabase SQL editor; also folded into `docs/DALGO_SUPABASE_SCHEMA_v2.sql` for fresh installs). The v2 schema's tables didn't have columns for several fields the existing (unchanged) business logic still carries:
+- `customer_state.session_meta` (jsonb) — legacy multi-account `kiteTokens`/`selectedAccounts` (V1 DINESH/KIRAN/SHEELA/SONIA concept), still read directly by ~12 live trading files this phase didn't touch (`cronBuy.ts`, `cronEOD.ts`, `strategy1.ts`, `strategy2.ts`, `pivotal.ts`, `cronReconcile.ts`, `kite.ts`, `intradayCircuit.ts`, `panicSell.ts`, `retrospective.ts`, `tradeReport.ts`, + API routes). Retiring these in favour of `broker_accounts.access_token_enc` is real work for a later phase — **not done here**.
+- `customer_positions.account` / `.strategy_tag` — `account` because the table's unique key is `(customer_id, symbol)` with no account dimension, but every `lib/positions.ts` function still takes `account: string`; `strategy_tag` carries the string strategy id (`'accumulator'`, etc.) since `strategy_id` is a uuid FK that stays null until Phase 5's strategy-registry wiring.
+- `orders`/`signals_skipped`/`strategy_scans` all gained `.account` (+ `.strategy_tag` on `orders`/`strategy_scans`, + `.strategy_name` on `strategy_scans`) for the same reasons.
+- `trades` also gained `.day_high_after_entry`/`.day_low_after_entry`/`.left_on_table`/`.notes` (report fields read by `lib/retrospective.ts`, `lib/email.ts`, the trades page) and `.buy_order_broker_id`/`.sell_order_broker_id` (Kite's own order-id strings — distinct from the uuid `buy_order_id`/`sell_order_id` FKs, which point at this app's own `orders` rows, Phase 5 work).
+- `customer_strategies.strategy_key` (text) + a unique index on `(customer_id, strategy_key)` — business logic keys every strategy off a stable string id used everywhere (`positions.strategyId`, `journal` strategy_tag, `getStrategyById(id)`), which is neither `name` (user-editable display label) nor `platform_strategy_id` (not unique per customer — a customer can copy the same template twice). This is the upsert conflict target, so renaming a strategy updates its row instead of inserting a duplicate.
+
+**Notable per-file design decisions:**
+- `state.ts`: user chose (from 3 options) to add the `session_meta` column rather than leave `kiteTokens`/`selectedAccounts` on the old file backend or do a bigger migration to `broker_accounts` — zero call-site changes anywhere.
+- `journal.ts`: `readJournalDay/Month/Range` still return the full mixed record type (order/trade/signal_skipped, + strategy_scan when `STRATEGY_SCAN_DB_ENABLED`), reassembled from 3–4 tables — `retrospective.ts`/`tradeReport.ts` depend on that mix, not just orders. `exit_monitor` is dropped (written by `strategy2.ts`, confirmed nothing reads it back anywhere) — same treatment as `monitor_heartbeat`, which the spec explicitly drops.
+- `strategyConfigStore.ts`: `getRuntimeStrategyConfig()` stays **synchronous** — `lib/strategyConfig.ts` (unchanged per spec) calls it sync from dozens of sites across the engine/cron/preflight. Backed by an in-memory cache that's eagerly hydrated from Supabase on module load (fire-and-forget), serving the bundled `config/strategy.json` seed as a fallback until that resolves. `saveRuntimeStrategyConfig()` writes through to Supabase and updates the cache synchronously, so a save is visible on the very next read with no restart.
+- `backtestHistory.ts` / `dailyCloses.ts`: no schema extension needed — `backtest_runs`' `params`/`results` jsonb columns absorbed the rich `BacktestHistoryEntry` shape losslessly; `daily_closes` enforces its 60-row rolling window per symbol by pruning after every upsert (same bound the old file backend's array-slice enforced).
+- Dropped only confirmed-dead cosmetic fields after checking every reader first: `watchlist.generated`/`pivotalLists.generated` (UI footer text only) and `capital.sharedPool` (computed but never branched on anywhere — `strategyConfig.ts`'s own default already produces the same value when it's absent).
+
+**Data fix applied:** the test customer's 4 `customer_strategies` rows (seeded in Phase 1, before `strategy_key` existed) all had `strategy_key = null`. Backfilled via the admin client (`strategy_key = platform_strategy_id`, a safe 1:1 mapping — `migrate-to-supabase.ts` always sets `platform_strategy_id` to the template's string id) after a live smoke test caught the gap (hydration was silently falling back to the 3-strategy bundled seed instead of the customer's real 4 strategies).
+
+**Environment:** `CUSTOMER_ID=95f45bd0-1d1d-407f-88dc-35892ced8c86` (the `wadhwani_dinesh@hotmail.com` test customer from Phase 1's seed) added to `.env.local` — this instance represents Dinesh's own customer account. `.env.local` is gitignored, so this value isn't committed; **every other customer instance needs its own `CUSTOMER_ID` set to its own `profiles.id`** per spec §5.4. Also added `tsconfig-paths` as a devDependency (resolves the `@/*` path alias for one-off `ts-node` verification scripts — harmless, doesn't affect the app bundle).
+
+**Verified (09 Aug 2026):**
+- `npx tsc --noEmit` — clean.
+- `npm run build` — clean, exit 0 (dev server stopped first per [[feedback_dev_build_conflict]]): all 40 routes generated, middleware bundled at 82 kB (confirms none of the 8 ported files leak into the Edge bundle — they're all server-only, consistent with `getSupabaseAdmin()`'s own browser-context guard).
+- Live smoke test against the real Supabase DB (temporary `ts-node` script, deleted after use) — all 8 stores read correctly with the real `CUSTOMER_ID`: `customer_state` (mode=manual), `customer_positions` (0 open), `orders`/`trades`/`signals_skipped` (0 today), `customer_watchlists` (listA/listB/list3), `customer_strategies`+`customer_capital_config` (all 4 strategies, perTrade=₹20,000, after the backfill above), `daily_closes` (50 symbols cached), `backtest_runs` (0 runs), `customer_pivotal_lists` (pivotalA).
+- No `fs` imports or `STATE_FILE_PATH` remain in any of the 8 ported files (grep-verified).
+
+**Known gaps carried forward (explicitly out of scope for Phase 4):**
+- The ~12 files listed under `session_meta` above still call `lib/kite.ts` directly and read `state.kiteTokens`/`selectedAccounts` — unchanged V1 multi-account logic, now transitively running against Supabase (since `getState()`/`appendJournal()`/etc. underneath them changed backend) but not re-architected for one-broker-account-per-customer.
+- `cronReconcile.ts`'s root-cause bug (spec §10.1 — phantom BUY/SELL cycles from the "absorb untracked position" path) is **not fixed**. It already calls the now-Supabase-backed `getState()`/`setBuyHistoryForSymbol()`/`readJournalRange()`/`journalOrder()` unchanged, but the spec is explicit: fix this bug *before* porting/relying on reconciliation logic in production — don't let Phase 5 build on top of it as-is.
+
 ### What's next
 
-Two real options for the next session, worth deciding explicitly rather than defaulting to spec order:
+Two real options for the next session:
 
 1. **Finish Phase 3 properly** (spec §16 items 5–12: `/admin/registrations`, `/manager/registrations`, Step 1/Step 2 approval UI, broker+strategy setup screens, activation flow) — this is what makes the other 4 email functions and the `pending`/`identity_verified`/`active` status machine actually mean something. Right now a registered customer has no path to ever leave `pending`.
-2. **Jump to spec's Phase 4** (Customer Trading Dashboard — port `lib/positions.ts`/`state.ts`/`journal.ts`/etc. to Supabase, SSO flow) — spec's own phase order, but this implicitly assumes registrations already reach `active` somehow.
+2. **Phase 5 — Multi-Tenant Cron** (spec §16): wire `CUSTOMER_ID` into the actual cron scheduler, fix `cronReconcile.ts`'s bug (§10.1) FIRST, heartbeat + token-status writes to `customer_instances`, 9AM token alert. This is where the ~12-file `kiteTokens`/direct-`kite.ts` gap above should get closed too.
 
-Recommend (1) before (2): Phase 4's SSO/dashboard work only matters for a customer who's `active`, and nothing today can make a customer `active` except manually editing the DB row.
+Recommend (1) before (2), same reasoning as before: cron only matters for a customer who's `active`, and nothing today can make one `active` except manually editing the DB row.
 
 ---
 

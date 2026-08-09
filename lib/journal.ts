@@ -1,14 +1,25 @@
-// Append-only daily trade + signal journal. One file per IST month at
-// ~/dineshtrade/data/journal-YYYY-MM.jsonl. Files are never overwritten by
-// deployments — they live alongside state.json and strategy1.json.
+// Trade + signal journal — Supabase-backed, lean design per
+// docs/DALGO_REFACTOR_SPEC_v2.md §8.2. Ported in Phase 4 of the multi-tenant
+// refactor from the append-only `journal-YYYY-MM.jsonl` files.
 //
-// Core record types:
-//   - trade           : completed trade (BUY entry + SELL exit pair)
-//   - signal_skipped  : Auto-mode cron tried to BUY a rec but preflight blocked
-//   - exit_monitor    : Auto-mode SELL monitor wanted to exit/checked an exit but was blocked or failed
+// Storage routing by record type:
+//   - order            → `orders` table (always on)
+//   - trade            → `trades` table (always on)
+//   - signal_skipped   → `signals_skipped` table (always on)
+//   - strategy_scan    → `strategy_scans` table, only when the
+//                        STRATEGY_SCAN_DB_ENABLED platform_config flag is
+//                        'true' (read once, cached — see isStrategyScanDbEnabled)
+//   - exit_monitor     → dropped. Written by strategy2.ts but never read back
+//                        anywhere in the app; no table in the lean schema.
+//   - monitor_heartbeat→ dropped entirely per spec §8.2 (never written to DB).
+//
+// `orders`/`trades`/`signals_skipped`/`strategy_scans` don't have columns
+// for everything the existing record shapes carry (the legacy `account`
+// identity, the string `strategyId` tag, trade report fields, Kite broker
+// order-id strings). Those columns were added in Phase 4 — see
+// scripts/migrations/2026-08-09-phase4-schema-extensions.sql.
 
-import { promises as fs } from 'fs'
-import * as path from 'path'
+import { getSupabaseAdmin, getCustomerId } from './supabase'
 
 export type TradeVerdict = 'correct_exit' | 'early_exit' | 'delivery' | 'manual'
 // Stored strategy owner for a completed trade. Historically this was limited
@@ -108,65 +119,266 @@ export interface OrderRecord {
 
 export type JournalRecord = TradeRecord | SignalSkippedRecord | ExitMonitorRecord | MonitorHeartbeatRecord | StrategyScanRecord | OrderRecord
 
-// Storage is anchored to the same dir as state.json. Local dev (cookie state)
-// keeps it in memory only — fine since cron won't run there anyway.
-const STATE_FILE_PATH = process.env.STATE_FILE_PATH || ''
-const JOURNAL_DIR = STATE_FILE_PATH ? path.dirname(STATE_FILE_PATH) : ''
-const useFile = !!JOURNAL_DIR
-const memStore: JournalRecord[] = []
+// ─── platform_config cache (STRATEGY_SCAN_DB_ENABLED) ──────────────────────
 
-function ymKey(dateYmd: string): string { return dateYmd.slice(0, 7) }
-function journalPath(yearMonth: string): string {
-  return path.join(JOURNAL_DIR, `journal-${yearMonth}.jsonl`)
+let strategyScanDbEnabledCache: boolean | null = null
+
+async function isStrategyScanDbEnabled(): Promise<boolean> {
+  if (strategyScanDbEnabledCache !== null) return strategyScanDbEnabledCache
+  try {
+    const admin = getSupabaseAdmin()
+    const { data, error } = await admin
+      .from('platform_config')
+      .select('value')
+      .eq('key', 'STRATEGY_SCAN_DB_ENABLED')
+      .maybeSingle()
+    if (error) throw error
+    strategyScanDbEnabledCache = data?.value === 'true'
+  } catch (err) {
+    console.warn('[journal] failed to read STRATEGY_SCAN_DB_ENABLED, defaulting to false:', String(err).slice(0, 200))
+    strategyScanDbEnabledCache = false
+  }
+  return strategyScanDbEnabledCache
+}
+
+// ─── Row ⇄ record mapping ───────────────────────────────────────────────────
+
+function rowToOrderRecord(row: any): OrderRecord {
+  return {
+    type: 'order',
+    date: row.trade_date,
+    ts: row.created_at,
+    account: row.account || '',
+    symbol: row.symbol,
+    side: row.side,
+    qty: row.qty,
+    price: Number(row.price),
+    tag: row.tag ?? undefined,
+    strategyId: row.strategy_tag ?? undefined,
+    source: row.source,
+    orderId: row.broker_order_id ?? undefined,
+  }
+}
+
+function rowToTradeRecord(row: any): TradeRecord {
+  return {
+    type: 'trade',
+    date: row.trade_date,
+    account: row.account || '',
+    symbol: row.symbol,
+    qty: row.qty,
+    entryPrice: Number(row.entry_price),
+    entryTime: row.entry_time,
+    exitPrice: Number(row.exit_price),
+    exitTime: row.exit_time,
+    pnlRupees: Number(row.pnl_rupees),
+    pnlPct: Number(row.pnl_pct),
+    dayHighAfterEntry: Number(row.day_high_after_entry) || 0,
+    dayLowAfterEntry: Number(row.day_low_after_entry) || 0,
+    leftOnTable: Number(row.left_on_table) || 0,
+    verdict: row.verdict,
+    strategy: row.strategy_tag || '',
+    orderIdBuy: row.buy_order_broker_id ?? undefined,
+    orderIdSell: row.sell_order_broker_id ?? undefined,
+    notes: row.notes ?? undefined,
+  }
+}
+
+function rowToSignalSkippedRecord(row: any): SignalSkippedRecord {
+  return {
+    type: 'signal_skipped',
+    date: row.signal_date,
+    time: row.signal_time || '',
+    account: row.account || '',
+    symbol: row.symbol,
+    signalPrice: Number(row.signal_price) || 0,
+    reasonSkipped: row.reason,
+  }
+}
+
+function rowToStrategyScanRecord(row: any): StrategyScanRecord {
+  return {
+    type: 'strategy_scan',
+    date: row.scan_date,
+    ts: row.scanned_at,
+    strategyId: row.strategy_tag || '',
+    strategyName: row.strategy_name || '',
+    recs: row.recs ?? 0,
+    executed: row.executed ?? 0,
+    symbols: Array.isArray(row.symbols) ? row.symbols : undefined,
+    skipReason: row.skip_reason ?? undefined,
+  }
+}
+
+// gate/reason split: today's callers always pass one free-form string
+// (sometimes prefixed `[gateName] ...`). `reason` keeps the full original
+// text so the round trip through reasonSkipped is lossless; `gate` is a
+// best-effort short label derived from the prefix, purely for the (not-null)
+// column and any future gate-level filtering.
+function splitGateReason(reasonSkipped: string): { gate: string; reason: string } {
+  const m = reasonSkipped.match(/^\[([^\]]+)\]/)
+  return { gate: m ? m[1] : 'signal_skipped', reason: reasonSkipped }
+}
+
+// ─── Writers ────────────────────────────────────────────────────────────────
+
+async function insertOrderRow(record: OrderRecord): Promise<void> {
+  const admin = getSupabaseAdmin()
+  const row = {
+    customer_id: getCustomerId(),
+    account: record.account.toUpperCase(),
+    strategy_tag: record.strategyId ?? null,
+    symbol: record.symbol.toUpperCase(),
+    side: record.side,
+    qty: record.qty,
+    price: record.price,
+    broker_order_id: record.orderId ?? null,
+    tag: record.tag ?? null,
+    status: 'COMPLETE',     // journalOrder()/appendJournal({type:'order'}) is only ever called post-fill
+    source: record.source,
+    trade_date: record.date,
+    created_at: record.ts,
+  }
+  const { error } = await admin.from('orders').insert(row)
+  if (error) throw new Error(`[journal] insert order failed: ${error.message}`)
+}
+
+async function insertTradeRow(record: TradeRecord): Promise<void> {
+  const admin = getSupabaseAdmin()
+  const row = {
+    customer_id: getCustomerId(),
+    account: record.account.toUpperCase(),
+    strategy_tag: record.strategy,
+    symbol: record.symbol.toUpperCase(),
+    qty: record.qty,
+    entry_price: record.entryPrice,
+    entry_time: record.entryTime,
+    exit_price: record.exitPrice,
+    exit_time: record.exitTime,
+    pnl_rupees: record.pnlRupees,
+    pnl_pct: record.pnlPct,
+    day_high_after_entry: record.dayHighAfterEntry,
+    day_low_after_entry: record.dayLowAfterEntry,
+    left_on_table: record.leftOnTable,
+    verdict: record.verdict,
+    buy_order_broker_id: record.orderIdBuy ?? null,
+    sell_order_broker_id: record.orderIdSell ?? null,
+    notes: record.notes ?? null,
+    trade_date: record.date,
+  }
+  const { error } = await admin.from('trades').insert(row)
+  if (error) throw new Error(`[journal] insert trade failed: ${error.message}`)
+}
+
+async function insertSignalSkippedRow(record: SignalSkippedRecord): Promise<void> {
+  const admin = getSupabaseAdmin()
+  const { gate, reason } = splitGateReason(record.reasonSkipped)
+  const row = {
+    customer_id: getCustomerId(),
+    account: record.account.toUpperCase(),
+    symbol: record.symbol.toUpperCase(),
+    signal_price: record.signalPrice,
+    gate,
+    reason,
+    signal_date: record.date,
+    signal_time: record.time,
+  }
+  const { error } = await admin.from('signals_skipped').insert(row)
+  if (error) throw new Error(`[journal] insert signal_skipped failed: ${error.message}`)
+}
+
+async function insertStrategyScanRow(record: StrategyScanRecord): Promise<void> {
+  const admin = getSupabaseAdmin()
+  const row = {
+    customer_id: getCustomerId(),
+    strategy_tag: record.strategyId,
+    strategy_name: record.strategyName,
+    recs: record.recs,
+    executed: record.executed,
+    symbols: record.symbols ?? null,
+    skip_reason: record.skipReason ?? null,
+    scanned_at: record.ts,
+    scan_date: record.date,
+  }
+  const { error } = await admin.from('strategy_scans').insert(row)
+  if (error) throw new Error(`[journal] insert strategy_scan failed: ${error.message}`)
 }
 
 export async function appendJournal(record: JournalRecord): Promise<void> {
-  if (!useFile) { memStore.push(record); return }
-  await fs.mkdir(JOURNAL_DIR, { recursive: true })
-  const filePath = journalPath(ymKey(record.date))
-  await fs.appendFile(filePath, JSON.stringify(record) + '\n', { encoding: 'utf8', mode: 0o600 })
+  switch (record.type) {
+    case 'order': return insertOrderRow(record)
+    case 'trade': return insertTradeRow(record)
+    case 'signal_skipped': return insertSignalSkippedRow(record)
+    case 'strategy_scan':
+      if (!(await isStrategyScanDbEnabled())) return
+      return insertStrategyScanRow(record)
+    case 'exit_monitor':
+    case 'monitor_heartbeat':
+      // Lean journal design (spec §8.2) — never persisted. exit_monitor is
+      // written by strategy2.ts but nothing reads it back; monitor_heartbeat
+      // is dropped explicitly by the spec.
+      return
+  }
 }
 
-export async function readJournalMonth(yearMonth: string): Promise<JournalRecord[]> {
-  if (!useFile) return memStore.filter(r => ymKey(r.date) === yearMonth)
-  try {
-    const raw = await fs.readFile(journalPath(yearMonth), 'utf8')
-    const out: JournalRecord[] = []
-    for (const line of raw.split('\n')) {
-      const t = line.trim()
-      if (!t) continue
-      try { out.push(JSON.parse(t) as JournalRecord) } catch { /* malformed line */ }
-    }
-    return out
-  } catch { return [] }
+// ─── Readers ────────────────────────────────────────────────────────────────
+
+async function fetchRange<T>(
+  table: string,
+  dateColumn: string,
+  startYmd: string,
+  endYmd: string,
+  mapRow: (row: any) => T,
+): Promise<T[]> {
+  const admin = getSupabaseAdmin()
+  const { data, error } = await admin
+    .from(table)
+    .select('*')
+    .eq('customer_id', getCustomerId())
+    .gte(dateColumn, startYmd)
+    .lte(dateColumn, endYmd)
+  if (error) throw new Error(`[journal] read ${table} failed: ${error.message}`)
+  return (data || []).map(mapRow)
 }
 
-export async function readJournalDay(dateYmd: string): Promise<JournalRecord[]> {
-  const records = await readJournalMonth(ymKey(dateYmd))
-  return records.filter(r => r.date === dateYmd)
+function sortByDateThenTs(a: JournalRecord, b: JournalRecord): number {
+  if (a.date !== b.date) return a.date < b.date ? -1 : 1
+  const aTs = 'ts' in a ? a.ts : ('time' in a ? a.time : '')
+  const bTs = 'ts' in b ? b.ts : ('time' in b ? b.time : '')
+  return aTs < bTs ? -1 : aTs > bTs ? 1 : 0
 }
 
 export async function readJournalRange(startYmd: string, endYmd: string): Promise<JournalRecord[]> {
-  // Collect the unique YYYY-MM months that the range spans, then filter.
-  const months = new Set<string>()
-  const start = new Date(startYmd + 'T00:00:00Z')
-  const end = new Date(endYmd + 'T23:59:59Z')
-  for (let d = new Date(start.getFullYear(), start.getMonth(), 1); d <= end; d.setMonth(d.getMonth() + 1)) {
-    months.add(`${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}`)
-  }
-  const all: JournalRecord[] = []
-  for (const ym of Array.from(months)) all.push(...await readJournalMonth(ym))
-  return all.filter(r => r.date >= startYmd && r.date <= endYmd)
+  const [orders, trades, signals, scans] = await Promise.all([
+    fetchRange('orders', 'trade_date', startYmd, endYmd, rowToOrderRecord),
+    fetchRange('trades', 'trade_date', startYmd, endYmd, rowToTradeRecord),
+    fetchRange('signals_skipped', 'signal_date', startYmd, endYmd, rowToSignalSkippedRecord),
+    (await isStrategyScanDbEnabled())
+      ? fetchRange('strategy_scans', 'scan_date', startYmd, endYmd, rowToStrategyScanRecord)
+      : Promise.resolve([] as StrategyScanRecord[]),
+  ])
+  const all: JournalRecord[] = [...orders, ...trades, ...signals, ...scans]
+  return all.sort(sortByDateThenTs)
+}
+
+export async function readJournalMonth(yearMonth: string): Promise<JournalRecord[]> {
+  const [y, m] = yearMonth.split('-').map(Number)
+  const lastDay = new Date(y, m, 0).getDate()
+  const start = `${yearMonth}-01`
+  const end = `${yearMonth}-${String(lastDay).padStart(2, '0')}`
+  return readJournalRange(start, end)
+}
+
+export async function readJournalDay(dateYmd: string): Promise<JournalRecord[]> {
+  return readJournalRange(dateYmd, dateYmd)
 }
 
 // Returns the sorted list of dates for the in-app date picker (newest first).
-// Now returns the UNION of:
+// Returns the UNION of:
 //   - Every trading day in the last 60 calendar days (Mon-Fri, minus NSE holidays)
 //   - Every date that has at least one journal record (preserves older entries)
 // This way the retrospective dropdown always shows today + recent past trading
 // days, even if no journal records exist yet (e.g. user has been in manual mode).
-// The retrospective builder uses journaled orders for past dates and live Kite
-// for today, so the dropdown entries always resolve to a renderable report.
 export async function listJournalDates(): Promise<string[]> {
   const dates = new Set<string>()
 
@@ -190,18 +402,19 @@ export async function listJournalDates(): Promise<string[]> {
   }
 
   // (2) All journal-record dates (preserves anything older than 60 days too).
-  if (useFile) {
-    try {
-      const files = await fs.readdir(JOURNAL_DIR)
-      const jrFiles = files.filter(f => /^journal-\d{4}-\d{2}\.jsonl$/.test(f))
-      for (const f of jrFiles) {
-        const ym = f.match(/^journal-(\d{4}-\d{2})\.jsonl$/)![1]
-        const records = await readJournalMonth(ym)
-        for (const r of records) dates.add(r.date)
-      }
-    } catch { /* journal dir missing or unreadable — fine, calendar dates still returned */ }
-  } else {
-    for (const r of memStore) dates.add(r.date)
+  try {
+    const admin = getSupabaseAdmin()
+    const customerId = getCustomerId()
+    const [ordersRes, tradesRes, signalsRes] = await Promise.all([
+      admin.from('orders').select('trade_date').eq('customer_id', customerId),
+      admin.from('trades').select('trade_date').eq('customer_id', customerId),
+      admin.from('signals_skipped').select('signal_date').eq('customer_id', customerId),
+    ])
+    for (const row of ordersRes.data || []) dates.add(row.trade_date)
+    for (const row of tradesRes.data || []) dates.add(row.trade_date)
+    for (const row of signalsRes.data || []) dates.add(row.signal_date)
+  } catch (err) {
+    console.warn('[journal] listJournalDates: record-date lookup failed:', String(err).slice(0, 200))
   }
 
   return Array.from(dates).sort().reverse()
@@ -301,51 +514,36 @@ export async function journalMonitorHeartbeat(opts: {
   })
 }
 
-// Hard-wipes all journal entries that belong to the given account.
-// Reads every monthly JSONL file, removes matching lines, rewrites.
-// Deletes the file entirely if it becomes empty after filtering.
-// Returns counts so the caller can confirm what was removed.
+// Hard-wipes all journal entries that belong to the given account, across
+// orders/trades/signals_skipped. strategy_scans is intentionally untouched —
+// StrategyScanRecord (and its `strategy_scans` row) has no account field, so
+// the original file-based implementation never matched (and thus never
+// removed) scan records here either.
+// Returns counts so the caller can confirm what was removed. `filesModified`
+// is repurposed from "monthly journal files touched" to "tables touched" —
+// closest equivalent now that storage isn't file-based.
 export async function wipeAccountJournal(account: string): Promise<{ filesModified: number; recordsRemoved: number }> {
-  if (!useFile) {
-    // in-memory: filter memStore in place
-    const before = memStore.length
-    const keep = memStore.filter(r => (r as any).account?.toUpperCase() !== account.toUpperCase())
-    memStore.length = 0
-    memStore.push(...keep)
-    return { filesModified: 1, recordsRemoved: before - memStore.length }
-  }
+  const admin = getSupabaseAdmin()
+  const customerId = getCustomerId()
+  const acct = account.toUpperCase()
   let filesModified = 0
   let recordsRemoved = 0
-  try {
-    const files = await fs.readdir(JOURNAL_DIR)
-    const jrFiles = files.filter(f => /^journal-\d{4}-\d{2}\.jsonl$/.test(f))
-    for (const fname of jrFiles) {
-      const fpath = path.join(JOURNAL_DIR, fname)
-      let raw: string
-      try { raw = await fs.readFile(fpath, 'utf8') } catch { continue }
-      const lines = raw.split('\n').filter(Boolean)
-      const kept: string[] = []
-      let removed = 0
-      for (const line of lines) {
-        try {
-          const rec = JSON.parse(line)
-          if (rec?.account?.toUpperCase() === account.toUpperCase()) { removed++; continue }
-        } catch { /* malformed line — keep it */ }
-        kept.push(line)
-      }
-      if (removed === 0) continue
-      recordsRemoved += removed
-      filesModified++
-      if (kept.length === 0) {
-        await fs.unlink(fpath)
-      } else {
-        const tmp = fpath + '.tmp'
-        await fs.writeFile(tmp, kept.join('\n') + '\n', { encoding: 'utf8', mode: 0o600 })
-        await fs.rename(tmp, fpath)
-      }
+  for (const table of ['orders', 'trades', 'signals_skipped'] as const) {
+    const { data, error } = await admin
+      .from(table)
+      .delete()
+      .eq('customer_id', customerId)
+      .eq('account', acct)
+      .select('id')
+    if (error) {
+      console.error(`[journal] wipeAccountJournal(${table}) error:`, error)
+      continue
     }
-  } catch (err) {
-    console.error('[journal] wipeAccountJournal error:', err)
+    const removed = (data || []).length
+    if (removed > 0) {
+      filesModified++
+      recordsRemoved += removed
+    }
   }
   return { filesModified, recordsRemoved }
 }

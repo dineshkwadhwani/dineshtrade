@@ -276,6 +276,10 @@ create table if not exists customer_strategies (
   id uuid primary key default gen_random_uuid(),
   customer_id uuid not null references profiles(id) on delete cascade,
   platform_strategy_id text references platform_strategies(id),
+  -- Phase 4 addition — stable string id (business logic's Strategy.id, e.g.
+  -- 'accumulator'/'catalyst'). See scripts/migrations/2026-08-09-*.sql for
+  -- why this can't just be `name` or `platform_strategy_id`.
+  strategy_key text,
   name text not null,
   type text not null check (type in ('dip','momentum','pivotal')),
   active boolean default false,
@@ -290,6 +294,10 @@ create table if not exists customer_strategies (
   updated_at timestamptz default now(),
   unique(customer_id, name)
 );
+
+create unique index if not exists customer_strategies_customer_key
+  on customer_strategies(customer_id, strategy_key)
+  where strategy_key is not null;
 
 -- Customer watchlists
 create table if not exists customer_watchlists (
@@ -321,7 +329,16 @@ create table if not exists customer_positions (
   customer_id uuid not null references profiles(id) on delete cascade,
   broker_account_id uuid references broker_accounts(id),
   strategy_id uuid references customer_strategies(id),
+  -- string strategy id ('accumulator', 'catalyst', ad hoc user ids) — the
+  -- FK above stays null until Phase 5 wires up the strategy registry
+  -- properly. Added in Phase 4 (scripts/migrations/2026-08-09-*.sql).
+  strategy_tag text,
   symbol text not null,
+  -- Legacy V1 multi-account identity (DINESH/KIRAN/SHEELA/SONIA). The
+  -- table's unique key intentionally has no account dimension (one broker
+  -- account per customer instance), but lib/positions.ts still takes
+  -- `account` on every call. Added in Phase 4.
+  account text not null default '',
   total_qty integer not null default 0,
   remaining_qty integer not null default 0,
   first_buy_price numeric not null,
@@ -347,6 +364,12 @@ create table if not exists customer_state (
   day_key text,
   circuit_tripped boolean default false,
   gift_nifty_change_pct numeric,
+  -- Legacy V1 multi-account fields with no dedicated column: kiteTokens
+  -- (per-account Kite access tokens) and selectedAccounts. Persisted
+  -- verbatim so lib/state.ts can drop STATE_FILE_PATH. Retiring these in
+  -- favour of broker_accounts.access_token_enc is later-phase work — see
+  -- scripts/migrations/2026-08-09-phase4-schema-extensions.sql.
+  session_meta jsonb not null default '{}',
   updated_at timestamptz default now()
 );
 
@@ -356,6 +379,10 @@ create table if not exists orders (
   customer_id uuid not null references profiles(id) on delete cascade,
   broker_account_id uuid references broker_accounts(id),
   strategy_id uuid references customer_strategies(id),
+  -- legacy V1 multi-account identity + string strategy tag — see the
+  -- customer_positions comment above. Added in Phase 4.
+  account text not null default '',
+  strategy_tag text,
   symbol text not null,
   side text not null check (side in ('BUY','SELL')),
   qty integer not null,
@@ -374,6 +401,19 @@ create table if not exists trades (
   id uuid primary key default gen_random_uuid(),
   customer_id uuid not null references profiles(id) on delete cascade,
   strategy_id uuid references customer_strategies(id),
+  -- Phase 4 additions: legacy account identity, string strategy tag, report
+  -- fields used by lib/retrospective.ts/lib/email.ts/the trades page, and
+  -- the Kite (broker) order-id strings for each leg — distinct from the uuid
+  -- buy_order_id/sell_order_id FKs below, which point at this app's own
+  -- `orders` rows (Phase 5 wiring).
+  account text not null default '',
+  strategy_tag text,
+  day_high_after_entry numeric,
+  day_low_after_entry numeric,
+  left_on_table numeric,
+  notes text,
+  buy_order_broker_id text,
+  sell_order_broker_id text,
   symbol text not null,
   qty integer not null,
   entry_price numeric not null,
@@ -394,6 +434,8 @@ create table if not exists signals_skipped (
   id uuid primary key default gen_random_uuid(),
   customer_id uuid not null references profiles(id) on delete cascade,
   strategy_id uuid references customer_strategies(id),
+  -- Phase 4 addition — see customer_positions.account above.
+  account text not null default '',
   symbol text not null,
   signal_price numeric,
   gate text not null,
@@ -408,6 +450,11 @@ create table if not exists strategy_scans (
   id uuid primary key default gen_random_uuid(),
   customer_id uuid not null references profiles(id) on delete cascade,
   strategy_id uuid references customer_strategies(id),
+  -- Phase 4 additions — string strategy id/name (StrategyScanRecord has no
+  -- uuid to give strategy_id yet) + legacy account identity.
+  account text not null default '',
+  strategy_tag text,
+  strategy_name text,
   recs integer default 0,
   executed integer default 0,
   symbols text[],

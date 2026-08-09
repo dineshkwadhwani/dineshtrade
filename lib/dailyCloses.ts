@@ -1,5 +1,8 @@
-// Persistent rolling cache of daily closes per symbol. Replaces the old
-// "fetch 60 days of historical for every List A symbol, every morning" pattern.
+// Persistent rolling cache of daily closes per symbol — Supabase-backed
+// (`daily_closes`, SHARED across all customers — NSE OHLC data is identical
+// for everyone, so this table is NOT scoped by customer_id). Ported in
+// Phase 4 of the multi-tenant refactor from the file-based
+// `~/dineshtrade/data/daily-closes.json`.
 //
 // Why this exists: Kite's `/instruments/historical/{token}/day` endpoint can't
 // be batched (one symbol per HTTP call) and is rate-limited to ~3 req/sec.
@@ -7,19 +10,17 @@
 // limit on cold cache — some symbols silently fail and their EMA / tile rules
 // show `—` for the whole day.
 //
-// Structural fix: persist closes on disk. Each morning fetch ONLY the bars
-// missing since `lastCachedDate` (typically a single trading day). Call count
-// is unchanged (Kite design — one call per symbol regardless of date range)
-// but each call returns a tiny payload, completes in milliseconds, and the
-// system has near-zero pressure against the rate limit.
+// Structural fix: persist closes in Supabase. Each morning fetch ONLY the
+// bars missing since `lastCachedDate` (typically a single trading day). Call
+// count is unchanged (Kite design — one call per symbol regardless of date
+// range) but each call returns a tiny payload, completes in milliseconds,
+// and the system has near-zero pressure against the rate limit.
 //
-// File format: `~/dineshtrade/data/daily-closes.json`. Same dir as state +
-// journal, mode 0o600, written atomically via temp + rename. Self-healing:
-// if the file is missing or corrupted, the next call rebuilds from scratch
-// (full 60-day fetch, matching pre-cache behavior).
+// Rolling window: each symbol keeps at most MAX_KEEP (60) most-recent rows —
+// older rows are pruned after every write, same bound the old file backend
+// enforced by trimming the in-memory array before serialising.
 
-import { promises as fs } from 'fs'
-import * as path from 'path'
+import { getSupabaseAdmin } from './supabase'
 import { getHistoricalCandles, type KiteCreds } from './kite'
 import { getInstrumentTokens } from './instruments'
 
@@ -32,46 +33,65 @@ export interface DailyClose {
   volume: number
 }
 
-interface DiskShape {
-  schema: number
-  updatedAt: string
-  closes: Record<string, DailyClose[]>   // symbol → ascending-date array, trimmed to last MAX_KEEP
-}
-
-const SCHEMA_VERSION = 1
 const MAX_KEEP = 60                       // rolling window size — enough for EMA + 10-day avg + buffer
 const CONCURRENCY = 2                     // historical API is ~3/sec; 2 leaves headroom for retry
 const RETRY_BACKOFF_MS = 500
 
-const STATE_FILE_PATH = process.env.STATE_FILE_PATH || ''
-const CACHE_PATH = STATE_FILE_PATH ? path.join(path.dirname(STATE_FILE_PATH), 'daily-closes.json') : ''
+// ─── Supabase I/O ──────────────────────────────────────────────────────────
 
-// ─── Disk I/O ──────────────────────────────────────────────────────────────
-
-async function loadDisk(): Promise<DiskShape> {
-  if (!CACHE_PATH) return emptyDisk()
-  try {
-    const raw = await fs.readFile(CACHE_PATH, 'utf8')
-    const parsed = JSON.parse(raw)
-    if (parsed && typeof parsed === 'object' && parsed.closes && typeof parsed.closes === 'object') {
-      return { schema: parsed.schema ?? 1, updatedAt: parsed.updatedAt ?? '', closes: parsed.closes }
-    }
-  } catch { /* missing or corrupted — self-heal by returning empty */ }
-  return emptyDisk()
+function rowToClose(row: any): DailyClose {
+  return {
+    date: row.trade_date,
+    open: row.open_price ?? undefined,
+    high: row.high_price ?? undefined,
+    low: row.low_price ?? undefined,
+    close: Number(row.close_price),
+    volume: Number(row.volume) || 0,
+  }
 }
 
-async function saveDisk(disk: DiskShape): Promise<void> {
-  if (!CACHE_PATH) return
-  const dir = path.dirname(CACHE_PATH)
-  await fs.mkdir(dir, { recursive: true })
-  const payload: DiskShape = { schema: SCHEMA_VERSION, updatedAt: new Date().toISOString(), closes: disk.closes }
-  const tmp = CACHE_PATH + '.tmp'
-  await fs.writeFile(tmp, JSON.stringify(payload, null, 2) + '\n', { encoding: 'utf8', mode: 0o600 })
-  await fs.rename(tmp, CACHE_PATH)
+async function loadDb(symbols?: string[]): Promise<Record<string, DailyClose[]>> {
+  const admin = getSupabaseAdmin()
+  let query = admin.from('daily_closes').select('*').order('trade_date', { ascending: true })
+  if (symbols && symbols.length > 0) query = query.in('symbol', symbols)
+  const { data, error } = await query
+  if (error) throw new Error(`[dailyCloses] read failed: ${error.message}`)
+
+  const closes: Record<string, DailyClose[]> = {}
+  for (const row of data || []) {
+    const list = closes[row.symbol] ?? (closes[row.symbol] = [])
+    list.push(rowToClose(row))
+  }
+  return closes
 }
 
-function emptyDisk(): DiskShape {
-  return { schema: SCHEMA_VERSION, updatedAt: '', closes: {} }
+async function upsertSymbolCloses(symbol: string, records: DailyClose[]): Promise<void> {
+  const admin = getSupabaseAdmin()
+  const trimmed = records.slice(-MAX_KEEP)
+  const rows = trimmed.map(r => ({
+    symbol,
+    trade_date: r.date,
+    open_price: r.open ?? null,
+    high_price: r.high ?? null,
+    low_price: r.low ?? null,
+    close_price: r.close,
+    volume: r.volume,
+    updated_at: new Date().toISOString(),
+  }))
+  const { error } = await admin.from('daily_closes').upsert(rows, { onConflict: 'symbol,trade_date' })
+  if (error) throw new Error(`[dailyCloses] upsert failed for ${symbol}: ${error.message}`)
+
+  // Prune anything older than the trimmed window — keeps the shared table
+  // bounded the same way the old file backend's array-slice did.
+  const oldestKept = trimmed[0]?.date
+  if (oldestKept) {
+    const { error: deleteError } = await admin
+      .from('daily_closes')
+      .delete()
+      .eq('symbol', symbol)
+      .lt('trade_date', oldestKept)
+    if (deleteError) console.warn(`[dailyCloses] prune failed for ${symbol}: ${deleteError.message}`)
+  }
 }
 
 // ─── Date helpers ──────────────────────────────────────────────────────────
@@ -140,22 +160,23 @@ async function fetchSymbolBars(
 
 // ─── Public API ────────────────────────────────────────────────────────────
 
-// Loads cached closes from disk, fills in any missing days up to yesterday,
-// persists, and returns the updated closes by symbol. Failed symbols are still
-// returned with whatever cached data exists (possibly empty array) so callers
-// can decide whether they have enough bars to compute an EMA.
+// Loads cached closes from Supabase, fills in any missing days up to
+// yesterday, persists, and returns the updated closes by symbol. Failed
+// symbols are still returned with whatever cached data exists (possibly
+// empty array) so callers can decide whether they have enough bars to
+// compute an EMA.
 export async function loadAndRefreshCloses(
   creds: KiteCreds,
   symbols: string[],
 ): Promise<Record<string, DailyClose[]>> {
-  const disk = await loadDisk()
+  const closes = await loadDb(symbols)
   const yesterday = istYmd(-1)
   const fullStart = istYmd(-90)   // cold-cache window (a bit wider than MAX_KEEP for buffer)
 
   // Decide per-symbol what to fetch.
   type Plan = { symbol: string; from: string; to: string; mode: 'cold' | 'incremental' | 'skip' }
   const plans: Plan[] = symbols.map(sym => {
-    const cached = disk.closes[sym] || []
+    const cached = closes[sym] || []
     if (cached.length === 0) return { symbol: sym, from: fullStart, to: yesterday, mode: 'cold' }
     const lastDate = cached[cached.length - 1].date
     if (lastDate >= yesterday) return { symbol: sym, from: '', to: '', mode: 'skip' }
@@ -164,7 +185,7 @@ export async function loadAndRefreshCloses(
 
   const needFetch = plans.filter(p => p.mode !== 'skip')
   if (needFetch.length === 0) {
-    return disk.closes   // cache fully fresh, nothing to do
+    return closes   // cache fully fresh, nothing to do
   }
 
   // Resolve instrument tokens (single batched call inside getInstrumentTokens)
@@ -173,6 +194,7 @@ export async function loadAndRefreshCloses(
   // Fetch in parallel with a small concurrency cap. Each call is tiny in the
   // incremental case (1–3 days of data); cold-cache symbols still take longer.
   let coldCount = 0, incCount = 0, failCount = 0
+  const touchedSymbols = new Set<string>()
   await mapWithLimit(needFetch, CONCURRENCY, async (plan) => {
     const token = tokens[plan.symbol]
     if (!token) {
@@ -184,12 +206,13 @@ export async function loadAndRefreshCloses(
     if (!bars) { failCount++; return }
 
     // Merge: cache up to lastDate + new bars, dedup by date, sort ascending, trim.
-    const existing = disk.closes[plan.symbol] || []
+    const existing = closes[plan.symbol] || []
     const byDate = new Map<string, DailyClose>()
     for (const b of existing) byDate.set(b.date, b)
     for (const b of bars) byDate.set(b.date, b)
     const merged = Array.from(byDate.values()).sort((a, b) => a.date.localeCompare(b.date))
-    disk.closes[plan.symbol] = merged.slice(-MAX_KEEP)
+    closes[plan.symbol] = merged.slice(-MAX_KEEP)
+    touchedSymbols.add(plan.symbol)
 
     if (plan.mode === 'cold') coldCount++; else incCount++
   })
@@ -199,18 +222,17 @@ export async function loadAndRefreshCloses(
   }
 
   // Persist whatever we successfully accumulated. A partial failure still
-  // updates disk for the symbols that did succeed.
+  // updates the shared table for the symbols that did succeed.
   try {
-    await saveDisk(disk)
+    await Promise.all(Array.from(touchedSymbols).map(sym => upsertSymbolCloses(sym, closes[sym])))
   } catch (err) {
-    console.warn(`[dailyCloses] disk save failed — ${String(err).slice(0, 160)}`)
+    console.warn(`[dailyCloses] Supabase save failed — ${String(err).slice(0, 160)}`)
   }
-  return disk.closes
+  return closes
 }
 
 // Read-only access for callers that don't want to trigger a refresh — primarily
-// for diagnostics / inspection routes. Returns the on-disk view.
+// for diagnostics / inspection routes. Returns the shared cache as-is.
 export async function readCachedCloses(): Promise<Record<string, DailyClose[]>> {
-  const disk = await loadDisk()
-  return disk.closes
+  return loadDb()
 }

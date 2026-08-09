@@ -63,3 +63,11 @@ export function getSupabaseAdmin(): SupabaseClient {
   }
   return cachedAdmin
 }
+
+// ---- Customer scoping ----------------------------------------------------
+// Every customer-scoped store (positions, state, journal, watchlists, ...)
+// filters by this on every read and write. One customer per process — see
+// docs/DALGO_REFACTOR_SPEC_v2.md §5.6.
+export function getCustomerId(): string {
+  return requireEnv(process.env.CUSTOMER_ID, 'CUSTOMER_ID')
+}

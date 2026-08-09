@@ -1,31 +1,31 @@
-// Session-scoped state: mode, selected accounts, per-account daily Kite tokens.
-// Two pluggable backends behind the same API:
-//   - cookie (default) — signed JWT cookie via next/headers. Works only inside
-//     route handlers / server components. Used in local dev.
-//   - file — flat JSON on disk at STATE_FILE_PATH. Required for the node-cron
-//     job which runs outside any request context. Used on EC2.
+// Customer-scoped trading state — Supabase-backed (`customer_state`, one row
+// per customer_id). Ported from the file/cookie-backed session store in
+// Phase 4 of the multi-tenant refactor; see docs/DALGO_REFACTOR_SPEC_v2.md
+// §16 Phase 4.
 //
-// Pick backend via env: set STATE_FILE_PATH=/abs/path/state.json to enable file.
-// Otherwise the cookie backend is used.
+// Supabase replaces BOTH of the old backends (file, for the cron process;
+// signed cookie, for request handlers with no cron context) with a single
+// source of truth shared across every context for this customer — which is
+// actually more correct for multi-tenant than the old split ever was.
+//
+// `mode` maps directly onto the `cron_mode` column. `selectedAccounts` and
+// `kiteTokens` are legacy V1 multi-account fields (DINESH/KIRAN/SHEELA/SONIA
+// in one process) with no dedicated column in the v2 schema — they're
+// persisted verbatim in the `session_meta` jsonb column added by
+// scripts/migrations/2026-08-09-phase4-schema-extensions.sql. Retiring them
+// in favour of broker_accounts.access_token_enc is later-phase work.
 
-import { SignJWT, jwtVerify } from 'jose'
-import { promises as fs } from 'fs'
-import * as path from 'path'
+import { getSupabaseAdmin, getCustomerId } from './supabase'
 import { getAccountList, isAccountConfigured } from './accounts'
-
-const SECRET = new TextEncoder().encode(process.env.SESSION_SECRET || 'dineshtrade-secret-2026')
-const COOKIE = 'dt_state'
-
-const FILE_PATH = process.env.STATE_FILE_PATH || ''
-const useFile = !!FILE_PATH
 
 export type TradeMode = 'auto' | 'manual'
 
-// Idempotency ledger — persisted to state.json so it survives PM2 restarts and
-// is shared across every code path that checks it (cron tick, manual order
-// route, both strategy monitors). Key shape: `${ACCOUNT}:${YYYY-MM-DD}:${SYMBOL}:${SIDE}`
-// → true. All keys uppercased so ITC and itc map to the same entry. Old days
-// are pruned on read (see normalize()).
+// Idempotency ledger — persisted to customer_state so it survives PM2
+// restarts and is shared across every code path that checks it (cron tick,
+// manual order route, both strategy monitors). Key shape:
+// `${ACCOUNT}:${YYYY-MM-DD}:${SYMBOL}:${SIDE}` → true. All keys uppercased
+// so ITC and itc map to the same entry. Old days are pruned on read (see
+// normalize()).
 export type IdempotencyLedger = Record<string, true>
 
 // Per-account-symbol BUY history used by the pyramid gate. Records every
@@ -68,15 +68,6 @@ function istDateKey(): string {
   return `${ist.getFullYear()}-${String(ist.getMonth()+1).padStart(2,'0')}-${String(ist.getDate()).padStart(2,'0')}`
 }
 
-function midnightIST(): Date {
-  const now = new Date()
-  const ist = new Date(now.toLocaleString('en-US', { timeZone: 'Asia/Kolkata' }))
-  const midnight = new Date(ist)
-  midnight.setDate(midnight.getDate() + 1)
-  midnight.setHours(0, 0, 0, 0)
-  return midnight
-}
-
 function normalize(raw: Partial<SessionState> | null | undefined): SessionState {
   if (!raw) return { ...DEFAULT_STATE, kiteTokens: {}, idempotencyLedger: {}, buyHistory: {}, panicSkipList: {} }
   // Prune any ledger entries whose date prefix isn't today — old days never need to be remembered
@@ -96,7 +87,7 @@ function normalize(raw: Partial<SessionState> | null | undefined): SessionState 
   // Prune kiteTokens for accounts not configured in the current ZERODHA_ENVIRONMENT.
   // Tokens get persisted on successful OAuth; if you later switch environments
   // (e.g. PROD → TEST) the env may no longer have that account's secrets, leaving
-  // a stale token in state.json that downstream callers waste cycles on.
+  // a stale token in customer_state that downstream callers waste cycles on.
   // Only prune if the env actually exposes a non-empty account list — defensive
   // against transient env-load issues that would otherwise wipe everything.
   const rawTokens = (raw.kiteTokens && typeof raw.kiteTokens === 'object') ? raw.kiteTokens : {}
@@ -125,89 +116,72 @@ function normalize(raw: Partial<SessionState> | null | undefined): SessionState 
   }
 }
 
-// ──────── FILE BACKEND ────────
+// ──────── SUPABASE BACKEND ────────
 
-// One-shot guard so the stale-token migration write happens at most once per
-// process, even if many readFile() calls race in parallel.
-let migrationWriteInFlight = false
-
-async function readFile(): Promise<SessionState> {
-  try {
-    const raw = await fs.readFile(FILE_PATH, 'utf8')
-    const parsed = JSON.parse(raw) as Partial<SessionState>
-    const cleaned = normalize(parsed)
-    // If normalize() dropped one or more kiteTokens entries (stale tokens for
-    // accounts that aren't configured in the current ZERODHA_ENVIRONMENT),
-    // persist the cleaned state back to disk so subsequent reads stop firing
-    // the prune log. Fire-and-forget — never block the caller on the write.
-    const rawTokenCount = Object.keys((parsed?.kiteTokens && typeof parsed.kiteTokens === 'object') ? parsed.kiteTokens : {}).length
-    if (rawTokenCount !== Object.keys(cleaned.kiteTokens).length && !migrationWriteInFlight) {
-      migrationWriteInFlight = true
-      writeFile(cleaned)
-        .then(() => console.log('[state] cleaned-state migration persisted to disk'))
-        .catch(err => {
-          console.warn('[state] cleaned-state migration write failed:', String(err).slice(0, 200))
-          migrationWriteInFlight = false   // allow retry on next read
-        })
-    }
-    return cleaned
-  } catch {
-    return normalize(null)
+function rowToRawState(row: any): Partial<SessionState> {
+  if (!row) return {}
+  const meta = (row.session_meta && typeof row.session_meta === 'object') ? row.session_meta : {}
+  return {
+    mode: row.cron_mode === 'auto' ? 'auto' : 'manual',
+    selectedAccounts: Array.isArray(meta.selectedAccounts) ? meta.selectedAccounts : [],
+    kiteTokens: (meta.kiteTokens && typeof meta.kiteTokens === 'object') ? meta.kiteTokens : {},
+    idempotencyLedger: (row.idempotency_ledger && typeof row.idempotency_ledger === 'object') ? row.idempotency_ledger : {},
+    buyHistory: (row.buy_history && typeof row.buy_history === 'object') ? row.buy_history : {},
+    panicSkipList: (row.panic_skip_list && typeof row.panic_skip_list === 'object') ? row.panic_skip_list : {},
   }
 }
 
-async function writeFile(state: SessionState): Promise<void> {
-  await fs.mkdir(path.dirname(FILE_PATH), { recursive: true })
-  const tmp = FILE_PATH + '.tmp'
-  await fs.writeFile(tmp, JSON.stringify(state, null, 2), { encoding: 'utf8', mode: 0o600 })
-  await fs.rename(tmp, FILE_PATH)
+async function fetchRow(): Promise<any | null> {
+  const admin = getSupabaseAdmin()
+  const { data, error } = await admin
+    .from('customer_state')
+    .select('*')
+    .eq('customer_id', getCustomerId())
+    .maybeSingle()
+  if (error) throw new Error(`[state] read failed: ${error.message}`)
+  return data
 }
 
-async function deleteFile(): Promise<void> {
-  try { await fs.unlink(FILE_PATH) } catch {}
-}
-
-// ──────── COOKIE BACKEND ────────
-
-async function readCookie(): Promise<SessionState> {
-  const { cookies } = await import('next/headers')
-  const token = cookies().get(COOKIE)?.value
-  if (!token) return normalize(null)
-  try {
-    const { payload } = await jwtVerify(token, SECRET)
-    return normalize(payload.state as Partial<SessionState>)
-  } catch {
-    return normalize(null)
+async function writeRow(state: SessionState): Promise<void> {
+  const admin = getSupabaseAdmin()
+  const row = {
+    customer_id: getCustomerId(),
+    cron_mode: state.mode,
+    idempotency_ledger: state.idempotencyLedger,
+    buy_history: state.buyHistory,
+    panic_skip_list: state.panicSkipList,
+    session_meta: { selectedAccounts: state.selectedAccounts, kiteTokens: state.kiteTokens },
+    updated_at: new Date().toISOString(),
   }
+  const { error } = await admin.from('customer_state').upsert(row, { onConflict: 'customer_id' })
+  if (error) throw new Error(`[state] write failed: ${error.message}`)
 }
 
-async function writeCookie(state: SessionState): Promise<void> {
-  const { cookies } = await import('next/headers')
-  const expires = midnightIST()
-  const expiresSec = Math.max(60, Math.floor((expires.getTime() - Date.now()) / 1000))
-  const token = await new SignJWT({ state })
-    .setProtectedHeader({ alg: 'HS256' })
-    .setIssuedAt()
-    .setExpirationTime(`${expiresSec}s`)
-    .sign(SECRET)
-  cookies().set(COOKIE, token, {
-    httpOnly: true,
-    secure: process.env.NODE_ENV === 'production',
-    sameSite: 'lax',
-    expires,
-    path: '/',
-  })
-}
-
-async function deleteCookie(): Promise<void> {
-  const { cookies } = await import('next/headers')
-  cookies().delete(COOKIE)
-}
+// One-shot-per-process guard so the stale-token migration write happens at
+// most once at a time, even if many getState() calls race in parallel.
+let tokenPruneWriteInFlight = false
 
 // ──────── PUBLIC API ────────
 
 export async function getState(): Promise<SessionState> {
-  return useFile ? readFile() : readCookie()
+  const row = await fetchRow()
+  const raw = rowToRawState(row)
+  const cleaned = normalize(raw)
+  // If normalize() dropped one or more kiteTokens entries (stale tokens for
+  // accounts that aren't configured in the current ZERODHA_ENVIRONMENT),
+  // persist the cleaned state back to Supabase so subsequent reads stop
+  // firing the prune log. Fire-and-forget — never block the caller on the write.
+  const rawTokenCount = Object.keys(raw.kiteTokens || {}).length
+  if (rawTokenCount !== Object.keys(cleaned.kiteTokens).length && !tokenPruneWriteInFlight) {
+    tokenPruneWriteInFlight = true
+    writeRow(cleaned)
+      .then(() => console.log('[state] cleaned-state migration persisted to Supabase'))
+      .catch(err => {
+        console.warn('[state] cleaned-state migration write failed:', String(err).slice(0, 200))
+        tokenPruneWriteInFlight = false   // allow retry on next read
+      })
+  }
+  return cleaned
 }
 
 export async function saveState(patch: Partial<SessionState>): Promise<SessionState> {
@@ -220,8 +194,7 @@ export async function saveState(patch: Partial<SessionState>): Promise<SessionSt
     buyHistory: patch.buyHistory ?? current.buyHistory,
     panicSkipList: patch.panicSkipList ?? current.panicSkipList,
   }
-  if (useFile) await writeFile(next)
-  else await writeCookie(next)
+  await writeRow(next)
   return next
 }
 
@@ -320,8 +293,7 @@ export function listPanicSkips(state: SessionState): string[] {
 // Replace whole state. Used when removing a token (saveState merges, which would
 // keep the deleted key). Caller must pass full SessionState.
 async function replaceState(next: SessionState): Promise<SessionState> {
-  if (useFile) await writeFile(next)
-  else await writeCookie(next)
+  await writeRow(next)
   return next
 }
 
@@ -349,11 +321,10 @@ export async function clearAccountToken(accountName: string): Promise<SessionSta
 }
 
 export async function clearState(): Promise<void> {
-  if (useFile) await deleteFile()
-  else await deleteCookie()
+  await replaceState({ ...DEFAULT_STATE, kiteTokens: {}, idempotencyLedger: {}, buyHistory: {}, panicSkipList: {} })
 }
 
 // Diagnostic info — surface in /api/state if helpful.
-export function getBackendInfo(): { backend: 'file' | 'cookie'; path: string | null } {
-  return { backend: useFile ? 'file' : 'cookie', path: useFile ? FILE_PATH : null }
+export function getBackendInfo(): { backend: 'file' | 'cookie' | 'supabase'; path: string | null } {
+  return { backend: 'supabase', path: null }
 }
