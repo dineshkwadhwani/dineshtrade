@@ -1,5 +1,7 @@
 # DineshTrade — Private Trading Desk
 
+**Last tested:** 09 Aug 2026
+
 ## Setup
 
 ### 1. Install dependencies
