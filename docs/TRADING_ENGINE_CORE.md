@@ -1,7 +1,16 @@
 # DineshTrade — Trading Engine Core Reference
-**Version:** 2.0 | **Date:** June 2026  
-**Purpose:** Authoritative reference for all trading rules, strategy logic, and engine behaviour  
+**Version:** 2.1 | **Corrected against live code + `data/strategy.json`: 09 Aug 2026**
+**Purpose:** Authoritative reference for all trading rules, strategy logic, and engine behaviour
 **Keep this alongside code — update when rules change**
+
+> **Correction note (09 Aug 2026):** this doc previously mixed in numbers from the
+> checked-in `config/strategy.json` seed and, in a couple of places, from the
+> speculative Angel One "v2" plan (now archived — see `docs/archive/`). The values
+> below are read directly from the live `data/strategy.json` that the running app
+> actually uses. See `docs/DATA_MODEL.md` for the full seed-vs-live diff and
+> `docs/ARCHITECTURE.md` for the broader current-state picture. This app runs
+> Zerodha Kite Connect only — there is no Angel One integration and no nightly
+> token-refresh cron; Zerodha requires a manual daily "Login with Kite" instead.
 
 ---
 
@@ -157,7 +166,7 @@ TRANCHE 1: LTP ≥ firstBuyPrice × (1 + t1Pct/100)
   Record: tranche1At, tranche1SoldQty
 
 TRANCHE 2: LTP ≥ firstBuyPrice × (1 + t2Pct/100)
-  Current: t2Pct = 7%
+  Current: t2Pct = 5%
   Action: sell remaining 50% (all of remainingQty)
 
 JUMP (T2 before T1): LTP crosses T2 without T1 being hit first
@@ -170,7 +179,7 @@ Note: tranche2AboveEMAPct = 3% is an additional exit condition:
 
 ### Reactive Scan
 ```
-Trigger: any watchlist symbol drops ≥ reactiveDrop% (3%) intraday
+Trigger: any watchlist symbol drops ≥ reactiveDrop% (2%) intraday
 Throttle: maximum one reactive scan per reactiveIntervalMin (30) minutes
 Mode gate: firesOnAnyMode = true → fires even in momentum market mode
 ```
@@ -191,7 +200,7 @@ When a momentum position ages past deliveryHandoffDays (15):
 ### Entry Rules (ALL must pass)
 ```
 1. Day gain between minDayGainPct and maxDayGainPct
-   Current: 0.5% ≤ dayGain ≤ 1.0%
+   Current: 0.5% ≤ dayGain ≤ 0.75%
 
 2. Last consecutiveCandles 5-min candles all rising
    Current: consecutiveCandles = 3
@@ -232,9 +241,9 @@ EOD (checked at 15:15 IST):
   → If estimated net P&L ≤ 0 → hold (no-loss gate applies)
   → Philosophy: dead entry thesis; free capital for tomorrow
 
-DELIVERY HANDOFF (after 15 calendar days):
+DELIVERY HANDOFF (after 30 calendar days — live deliveryHandoffDays):
   Re-tag position to 'accumulator'
-  Accumulator monitor takes over with 3%/7% targets
+  Accumulator monitor takes over with its own 3%/5% targets
 ```
 
 ---
@@ -244,30 +253,30 @@ DELIVERY HANDOFF (after 15 calendar days):
 ### Entry Rules
 ```
 Same as Catalyst with different thresholds:
-  minDayGainPct = 0.5%, maxDayGainPct = 1.0%
+  minDayGainPct = 0.25%, maxDayGainPct = 0.5% (fires earlier/tighter than Catalyst)
   consecutiveCandles = 2 (lower bar — boom days have strong momentum)
   emaProximityPct = 5% (wider)
   volumeAvgDays = 5 (shorter lookback)
-  scanStartHHMM = 09:30, scanEndHHMM = 15:15
+  scanStartHHMM = 09:15, scanEndHHMM = 15:15
 
-GIFT Nifty gate: enabled, minPct = 1.0%
-  → ONLY fires on strong gap-up days (GIFT Nifty ≥ +1%)
+GIFT Nifty gate: present but currently DISABLED (enabled: false, minPct: 1.0%)
+  → when enabled, would only fire on strong gap-up days (GIFT Nifty ≥ +1%)
 ```
 
 ### Exit Rules
 ```
 T1: 1.0% (lower target — capture quick boom moves)
-T2: 2.0%
+T2: 1.5%
 
-EOD (checked at 15:10 IST):
-  squareOffEOD = true → sell ALL positions regardless of P&L
-  Bypasses no-loss gate (bypassNoLossSellReason = 'squareOffEOD')
-  Fires ONCE per strategy per day (idempotent)
+EOD (checked at exitSameDayTime = 15:10 IST):
+  squareOffEOD = false, exitSameDayOnPositive = true
+  → same mechanism as Catalyst: sells only if estimated net P&L after
+    charges is still positive; re-checks every 5-min tick from 15:10 onward
+  → does NOT force-close losing positions at EOD (that would require
+    squareOffEOD = true, which is not how this strategy is configured today)
 
-  exitSameDayOnPositive = true also applies on earlier 5-min ticks
-
-deliveryHandoffDays = 0 → NEVER hand off to Accumulator
-  (squareOffEOD ensures all positions close same day)
+deliveryHandoffDays = 30 → positions not exited via T1/T2/EOD-positive
+  hand off to Accumulator after 30 calendar days, same as Catalyst
 ```
 
 ---
@@ -345,14 +354,14 @@ Validation:
 | true | true | Sell ALL positions regardless of P&L. |
 | false | true | Sell ALL positions regardless of P&L. (squareOffEOD wins) |
 
-**Current strategy settings:**
+**Current strategy settings (from live `data/strategy.json`):**
 
-| Strategy | exitSameDayOnPositive | squareOffEOD | Result |
-|---|---|---|---|
-| Catalyst | true | false | Exit if net positive after charges |
-| Market Boom | true | false | Exit if net positive (squareOffEOD should be true — known bug) |
-| Accumulator | N/A | N/A | No EOD action (dip strategy) |
-| Pivotal | N/A | N/A | No EOD action |
+| Strategy | exitSameDayOnPositive | squareOffEOD | deliveryHandoffDays | Result |
+|---|---|---|---|---|
+| Catalyst | true | false | 30 | Exit if net positive after charges; else hold, hand off after 30 days |
+| Market Boom | true | false | 30 | Same mechanism as Catalyst — no hard EOD square-off configured |
+| Accumulator | N/A | N/A | N/A (parking lot) | No EOD action (dip strategy, two-tranche EMA-based exit only) |
+| New Pivotal Strategy (`new_pivotal`) | N/A | N/A | 15 | No EOD action — exits via stop-loss / T1 / T2 / 15-day handoff |
 
 ---
 
@@ -442,21 +451,20 @@ Every significant event is journaled with a `strategyId` tag:
 ```
 Market hours:  09:15 – 15:30 IST (weekdays, non-holiday)
 
-23:50 IST     Angel One token refresh (all accounts)
 09:00 IST     Pre-market: fetch GIFT Nifty, check circuit breaker
+              (no nightly token-refresh cron exists — Zerodha requires a
+               manual daily "Login with Kite" from the user each morning)
 
-Every 3 min   Catalyst BUY scan (during 09:15–15:00)
-Every 5 min   Market Boom BUY scan (during 09:30–15:15)
-Every 5 min   Pivotal BUY scan (during 10:00–13:00)
-Every 5 min   Global sell monitor (all strategies)
-Every 5 min   EOD checks (after exitSameDayTime for each strategy)
+Every 3 min   Market Boom BUY scan (during 09:15–15:15)
+Every 5 min   Catalyst BUY scan (during 09:15–15:00)
+Every 5 min   Pivotal BUY scan (during 10:00–13:00 normal mode)
+Every 5 min   Global sell monitor (all strategies) + EOD checks + reconciliation
 Every 15 min  Accumulator BUY scan
 Every 30 min  Accumulator reactive scan (throttle)
 
-15:10 IST     Pivotal dayEnd execution window
-15:10–15:15   exitSameDayOnPositive + squareOffEOD checks
-15:35 IST     Reconciliation (detect manual sells)
-15:35 IST     Daily retrospective report generation + email
+15:10 IST     Market Boom exitSameDayTime; Pivotal dayEnd execution window
+15:15 IST     Catalyst exitSameDayTime
+15:35 IST     Reconciliation (detect manual sells) + daily retrospective email
 Last trading day of month: Monthly rollup report
 ```
 

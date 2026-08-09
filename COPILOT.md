@@ -2,8 +2,17 @@
 
 **Purpose:** Zero-context onboarding for GitHub Copilot, Cursor, or any AI assistant picking up this codebase for the first time. Read top-to-bottom before touching any file.
 
-**Last Updated:** 07 Jun 2026
-**Version:** 1.1
+**Last Updated:** 07 Jun 2026 (body), corrected 09 Aug 2026 (lib/ file table + preflight gate count, re-verified directly against code)
+**Version:** 1.2
+
+> Also read `docs/README.md` first — it points at `docs/ARCHITECTURE.md`,
+> `docs/APP_MAP.md`, `docs/DATA_MODEL.md`, and `docs/MULTI_TENANCY_CURRENT_STATE.md`,
+> all written/verified 09 Aug 2026 directly against the running code. Two files that
+> used to live in `docs/` (`FUNCTIONAL_SPEC.md`, `HANDOFF.md`) described a "v2"
+> Angel One + Supabase SaaS rewrite that was **never built** — confirmed via full
+> codebase grep, zero trace of either. They're archived under
+> `docs/archive/v2-unbuilt-angelone-supabase-plan/`; don't mistake them for current
+> state.
 
 ---
 
@@ -46,20 +55,25 @@ This is not a SaaS product. It is a private, single-owner trading system managin
 | `kite.ts` | Zerodha Kite API wrappers — all HTTP calls go through here. Also exports `buildLiveQtyBySymbol()` |
 | `market.ts` | Market hours (9:15–15:30 IST), NSE holidays, weekday check |
 | `marketBriefing.ts` | AI-generated morning briefing (calls Gemini API) |
-| `marketMock.ts` | Local dev mock data for Kite API responses |
-| `nse.ts` | NSE data helpers (sector info, index constituents) |
+| `marketMock.ts` | Local dev mock data for Kite API responses (used when `USE_MOCK_MARKET=true`) |
+| `nse.ts` | Sector classification helpers (Yahoo Finance lookup) — tags watchlist symbols for the sector-concentration gate |
 | `panicSell.ts` | Circuit-breaker panic-sell state — when triggered, blocks all auto-BUYs |
-| `positions.ts` | Unified position store (`positions.json`) — single source of truth for which strategy owns which holding |
-| `preflight.ts` | 10-gate order validation — runs before every order placement |
+| `pivotal.ts` | Pivotal (breakout) strategy engine — `scanPivotalStrategy()`, `monitorPivotalAccount()`, `monitorAllPivotalAccounts()` |
+| `pivotalListStore.ts` | Pivotal list CRUD — reads/writes `config/pivotalLists.json` seed + `data/pivotalLists.json` runtime overlay |
+| `positions.ts` | Unified position store (`positions.json`) — single source of truth for which strategy owns which holding; all read-modify-write functions wrapped in an in-process async mutex (`withLock`) |
+| `preflight.ts` | 13-named-checkpoint order validation gate chain — runs before every order placement (see §8 below — the file's own header comment saying "six gates" is stale) |
 | `retrospective.ts` | Builds daily/monthly HTML email reports from journal data |
 | `state.ts` | Reads/writes `state.json` (mode, Kite tokens, idempotency keys, buy history, panic list) |
 | `strategy.ts` | Legacy strategy helpers (shared utilities used by strategy1/strategy2) |
 | `strategy1.ts` | Accumulator (mean-reversion) SELL monitor — checks open Accumulator positions for EMA recovery exit |
 | `strategy2.ts` | Catalyst (momentum) SELL monitor — checks open Catalyst positions for profit exits |
-| `strategy2Positions.ts` | Catalyst position store helpers — seed, read, remove Catalyst entries |
-| `strategyConfig.ts` | Strategy schema: `DipParams`, `MomentumParams`, `Strategy` types, `asDipParams()` / `asMomentumParams()` helpers |
-| `strategyEngine.ts` | Generates BUY recommendations: `generateRecommendations()`, `runStrategyScan()`, `runReactiveDipScan()` |
+| `strategy2Positions.ts` | Thin back-compat facade over `positions.ts`, filtered to the `catalyst` strategyId |
+| `strategyConfig.ts` | Strategy schema: `DipParams`, `MomentumParams`, `PivotalParams`, `Strategy` types, `asDipParams()` / `asMomentumParams()` / `asPivotalParams()` helpers |
+| `strategyConfigStore.ts` | Runtime overlay persistence for `strategy.json` (bundled seed + `data/strategy.json` live overlay), plus legacy-id migration |
+| `strategyEngine.ts` | Generates BUY recommendations: `generateRecommendations()`, `runStrategyScan()`, `runReactiveDipScan()`, `evaluateAllForTiles()` |
 | `strategyTag.ts` | `resolvePositionTag()` helpers used by strategy surfaces; positions ownership remains anchored to `positions.json` |
+| `tradeReport.ts` | Builds the live date-range trade report (`buildLiveTradeReport()`) from journaled order legs — reuses `backtest.ts`'s charge/equity-curve types but replays real fills, not a simulation |
+| `watchlistStore.ts` | Named-list CRUD — reads/writes `config/watchlist.json` seed + `data/watchlist.json` runtime overlay, `{ meta, lists }` shape with stable keys |
 
 ### Key `/app/api/` routes
 
@@ -268,7 +282,7 @@ Shown only when tag resolution returns OOS — i.e., no positions store entry AN
 
 ---
 
-## 8. Preflight Gates (10 total)
+## 8. Preflight Gates (13 named checkpoints — re-verified against `lib/preflight.ts` code 09 Aug 2026; the file's own header comment claiming "six gates" is stale)
 
 `lib/preflight.ts` — runs before every order. All gates must pass or the order is rejected with a reason string.
 
@@ -276,16 +290,19 @@ Shown only when tag resolution returns OOS — i.e., no positions store entry AN
 | --- | --- | --- |
 | 1 | Token connected | All orders |
 | 2 | Market open (9:15–15:30 IST, weekday, non-holiday) | All orders |
-| 2b | Intraday circuit (live NIFTY 50 hysteresis ≥5% drop) | All orders |
-| 3 | Per-trade cap (≤ maxTradeValue) | Auto BUY only |
+| 2b | Intraday circuit (live NIFTY 50 hysteresis; currently enabled, −3% trip / −2% resume) | Auto BUY only |
+| 3 | Per-trade cap (≤ `capital.perTrade`) | Auto BUY only |
 | 4 | Idempotency (symbol not already bought today) | Auto BUY only |
-| 4b | Panic-sell flag not set | Auto BUY only |
+| 4b | Panic-sell flag not set (currently enabled, 10% drop / 10min window) | Auto BUY only |
 | 4c | Pyramid gate (maxBuysPerSymbol, minDropBetweenBuysPct) | Auto BUY only |
 | 4d | Sector concentration (maxPerSector in DipParams) | Auto BUY only |
-| 5 | Day quota (≤ maxBuysPerDay) | Auto only |
-| 6 | Position cap (≤ maxPositions) | BUY only |
-| 7 | Funds available | BUY only |
-| 8 | No-short guard (clamps sell qty to held qty; auto: no-loss-sell rider, bypassable via `bypassNoLossSell`) | SELL only |
+| 5 | Day quota (≤ maxBuysPerDay / maxSellsPerDay) | Auto only |
+| 6 | Position cap (≤ maxPositions) | Auto BUY only |
+| 7 | Funds available | All BUY |
+| 8 | No-short guard — clamps sell qty to held qty, rejects if held = 0 | All SELL |
+| 9 | No-loss-sell rider — auto SELLs reject if LTP < entry after modeled charges; bypassable via `bypassNoLossSell`/`bypassNoLossSellReason` | Auto SELL only |
+
+`manual: true` orders skip gates 3, 4, 4b, 4c, 4d, 5, 6, 9.
 
 ---
 

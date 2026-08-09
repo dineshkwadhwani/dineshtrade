@@ -1,7 +1,7 @@
 # DineshTrade — Project Context
 
 **Last Updated:** 09 Aug 2026
-**Version:** 2.7
+**Version:** 2.8 — capital/gate/strategy numbers below re-verified directly against live `data/strategy.json` and `lib/preflight.ts` on 09 Aug 2026; see `docs/ARCHITECTURE.md`, `docs/DATA_MODEL.md`, and `docs/MULTI_TENANCY_CURRENT_STATE.md` for the full code-verified picture (docs/ was reorganized the same day — speculative and superseded docs moved to `docs/archive/`).
 **Purpose:** This file gives Claude (or any AI assistant) full context of everything discussed so far about this project. Start any new conversation by uploading this file.
 
 ---
@@ -67,28 +67,33 @@ Dinesh has been trading Indian equities since **FY2020** across **4 family accou
 
 ### Strategy 2 — Catalyst (Intraday Momentum)
 
+*Live params below re-verified against `data/strategy.json` 09 Aug 2026 — several have drifted from the values documented here historically.*
+
 - Internal id: `catalyst`
-- **Signal:** Day gain +0.5–1.5%, 3+ rising 5-min candles, volume > 10-day avg, LTP within ±3% of EMA
-- **Scan window:** 09:30–14:30 IST, every configured `scanIntervalMin` (default 3 min via per-strategy cron task)
+- **Signal:** Day gain +0.5–0.75%, 3+ rising 5-min candles, volume > 10-day avg, LTP within ±3% of EMA, plus a ceiling filter (must sit below a 2% buffer under the 20-day high)
+- **Scan window:** 09:15–15:00 IST, every 5 min (live `scanIntervalMin`)
 - **Exit T1 = +1.5%, T2 = +2.0%** per open lot, anchored to that lot's own entry price
 - **Live exit monitor:** checks both current LTP and the latest completed 5-minute candle high so cron ticks do not miss valid intraday target touches; quote day-high is not used for exits
 - **No-loss rider stays in force:** a touched-then-retraced exit stays blocked if the current sell price is below that lot's own entry
-- **EOD behaviour** (added 28 May): `exitSameDayOnPositive` and `squareOffEOD` flags control what happens from `exitSameDayTime` onward (default 15:10)
-- **Handoff:** after `deliveryHandoffDays` (default 15) → Accumulator takes over
+- **EOD behaviour:** `exitSameDayOnPositive=true`, `squareOffEOD=false` from `exitSameDayTime` (live: **15:15**) onward
+- **Handoff:** after `deliveryHandoffDays` (live: **30**) → Accumulator takes over
 
-### Strategy 3 — Pivotal (Breakout)
+### Strategy 3 — New Pivotal Strategy (Breakout)
 
-- Type: `pivotal`
-- Uses a dedicated Pivotal list store, not the generic watchlist store
+- Internal id: `new_pivotal`. Type: `pivotal`
+- Uses a dedicated Pivotal list store, not the generic watchlist store — currently points at list `pivotalA`, which is **active but has zero symbols configured** (both the checked-in seed and the live runtime list are empty)
 - Each script carries `breakoutTriggerPrice`, `t1Pct`, `t2Pct`, `executionMode` (`normal` or `dayEnd`), optional `stopLossPrice`, and notes
 - Strategy params add consolidation, volume-surge, confirmation-candle, close-time, and handoff controls
 - `normal` mode buys on confirmed intraday breakout; `dayEnd` mode buys only if the breakout sustains into the configured close window
-- Exits respect script stop-loss, then T1/T2, then hand off to `accumulator`
+- Exits respect script stop-loss, then T1/T2, then hand off to `accumulator` after 15 calendar days
 
-### Market Boom (example third strategy)
+### Market Boom (`market_boom`, momentum type — active in live config)
 
-- `squareOffEOD=true`, `exitSameDayOnPositive=true`, `deliveryHandoffDays=0`
-- Always squares off at 15:10 — never takes delivery
+*Corrected 09 Aug 2026 — live values differ from what was documented here previously.*
+
+- Live: `squareOffEOD=false`, `exitSameDayOnPositive=true`, `deliveryHandoffDays=30`
+- Same EOD mechanism as Catalyst (sell only if net-of-charges P&L is still positive, re-checked every 5-min tick from `exitSameDayTime`=15:10 onward) — does **not** force-close at EOD regardless of P&L
+- Entry is tighter/earlier than Catalyst: day gain 0.25–0.5%, scans every 3 min, 09:15–15:15 window
 
 ### Market Mode
 
@@ -102,13 +107,17 @@ Dinesh has been trading Indian equities since **FY2020** across **4 family accou
 
 ## 5. HARD STOP RULES
 
-- Total corpus: ₹1,00,002 (current Dinesh account funded base)
-- Max per trade: ₹5,000
-- Max open positions: 10
-- Max buys per day: 5, max sells: 10
+*(Live values from `data/strategy.json`'s `capital` block — this is the shared config every account trades under, re-verified 09 Aug 2026. It has drifted from the checked-in `config/strategy.json` seed; see `docs/DATA_MODEL.md` for the diff.)*
+
+- Total corpus / funded base: ₹1,00,002 (Dinesh account `reconciliationBase`, from `config/accounts.json`)
+- Max per trade: ₹20,000 (`capital.perTrade`)
+- Max open positions: 35 (`capital.maxPositions`)
+- Max buys per day: 6, max sells per day: 20 (`capital.maxBuysPerDay` / `maxSellsPerDay`)
+- Max deployable: 100% of total capital (`capital.maxDeployPct`)
 - No short selling; No F&O; Delivery only (CNC), NSE
 - Cash check before every order
-- Circuit breaker: Nifty −5%+ intraday → stop all trades
+- Circuit breaker: GIFT Nifty −5%+ pre-market → stop all trades (`circuitBreakerPct`); live intraday NIFTY circuit also enabled at −3% trip / −2% resume (`intradayCircuitTripPct`/`intradayCircuitResumePct`)
+- Panic-sell gate also enabled: 10% drop-from-peak within a 10-min window (`panicDropPct`/`panicWindowMin`)
 
 ---
 
@@ -284,20 +293,23 @@ Dinesh has been trading Indian equities since **FY2020** across **4 family accou
 
 ---
 
-## 8. PREFLIGHT GATES (10 total)
+## 8. PREFLIGHT GATES (13 named checkpoints — re-verified against `lib/preflight.ts` 09 Aug 2026)
 
-1. Token connected
-1. Market open (9:15–15:30, weekday, non-holiday)
-1. Intraday circuit (live NIFTY 50 hysteresis)
-1. Per-trade cap (auto only)
-1. Idempotency (auto BUY only)
-1. Panic-sell (auto BUY only)
-1. Pyramid (auto BUY only — maxBuysPerSymbol, minDropBetweenBuysPct)
-1. Sector concentration (auto BUY with strategyId — maxPerSector)
-1. Day quota (auto only)
-1. Position cap (BUY)
-1. Funds available (BUY)
-1. No-short guard (SELL — clamps to held qty; auto: no-loss-sell rider, bypassable via `bypassNoLossSell`)
+1. Token connected (all orders)
+2. Market open — 9:15–15:30 IST, weekday, non-holiday (all orders)
+2b. Intraday circuit — live NIFTY 50 hysteresis, currently enabled (auto BUY only)
+3. Per-trade cap — auto only
+4. Idempotency — one BUY/account/day/symbol (auto BUY only)
+4b. Panic-sell — currently enabled, 10%/10min (auto BUY only)
+4c. Pyramid — `maxBuysPerSymbol`, `minDropBetweenBuysPct` (auto BUY only)
+4d. Sector concentration — `maxPerSector`, dip-type strategies only (auto BUY only)
+5. Day quota — `maxBuysPerDay`/`maxSellsPerDay` (auto only)
+6. Position cap — `maxPositions` (auto BUY only)
+7. Funds available (all BUY)
+8. No-short guard — clamps SELL qty to live held qty, rejects if held = 0 (all SELL)
+9. No-loss-sell rider — auto SELLs reject if LTP < entry after modeled charges; bypassable via `bypassNoLossSell`/`bypassNoLossSellReason` (auto SELL only)
+
+`manual: true` orders skip 3, 4, 4b, 4c, 4d, 5, 6, 9 — only token/market/funds/no-short still apply. See `docs/ARCHITECTURE.md` §5 for the full detail.
 
 ---
 
@@ -523,7 +535,7 @@ Type check only (no build): `npx tsc --noEmit`
 Three changes requested together; recommended as two sequenced projects plus a cross-cutting architectural requirement:
 
 1. **Account-scoped strategies** — strategies are currently applied universally across all accounts. Each strategy becomes an "out of the box" template; each account creates its own copy to customize/run independently. Cron needs to run each strategy per-account.
-2. **Broker abstraction layer** — plug out Zerodha, plug in Upstox or another broker's API; only Zerodha supported for now, but the refactor must not paint the architecture into a corner. **Note:** `docs/HANDOFF.md` already specifies an `IBroker` interface pattern for exactly this (targeting Angel One specifically, not Upstox) — read that doc's "Broker Adapter Pattern" section first when this work starts; the interface shape likely needs only the target adapter swapped.
+2. **Broker abstraction layer** — plug out Zerodha, plug in Upstox or another broker's API; only Zerodha supported for now, but the refactor must not paint the architecture into a corner. **Note:** `docs/archive/v2-unbuilt-angelone-supabase-plan/HANDOFF.md` (moved to archive 09 Aug 2026 — that whole plan was never built, see that folder's README) already sketches an `IBroker` interface pattern for exactly this (targeting Angel One specifically, not Upstox) — read that doc's "Broker Adapter Pattern" section first when this work starts; the interface shape likely needs only the target adapter swapped. Confirmed via code audit: no `IBroker`/adapter layer exists today — `lib/kite.ts` is called directly everywhere.
 3. **JSON → Supabase migration** — motivation is broader than thread-safety (already mitigated by the mutex fix above) — also scaling, queryability, backups, and the relational structure the account-scoped model needs.
 
 Recommended sequencing: account-scoping first (on the existing JSON store, proven live for a few days), broker abstraction folded into that same pass (both touch the credential-resolution layer), Supabase schema designed around the now-settled account-scoped + broker-scoped shape last, not a straight port of the old flat JSON. Recommended timing: build/dry-run anytime including market hours (logging-only validation), but do the actual cutover (cron switch, or the Supabase point-of-no-return) off-market with a tested rollback ready.
@@ -592,7 +604,19 @@ Start any new Claude conversation:
 1. Upload this `CONTEXT.md`
 2. Say: "This is context for DineshTrade. [Your question]"
 
-Also upload `docs/functional-specification.md` + `docs/technical-specification.md` for deep implementation questions.
+For deep implementation questions, upload from `docs/` (reorganized 09 Aug 2026 —
+these are code-verified against the actual app, not historical planning docs):
+
+- `docs/ARCHITECTURE.md` — stack, runtime model, preflight gates, all 4 live strategies
+- `docs/MULTI_TENANCY_CURRENT_STATE.md` — precisely how multi-tenant the app is today
+- `docs/APP_MAP.md` — every page, API route, and component
+- `docs/DATA_MODEL.md` — exact file shapes + the config-vs-live drift that exists today
+- `docs/TRADING_ENGINE_CORE.md` / `docs/TradingEngine.md` — strategy/exit rule reference
+
+Older docs (`docs/archive/v1-historical-2026-06/`,
+`docs/archive/v2-unbuilt-angelone-supabase-plan/`) are historical/speculative only —
+see `docs/README.md` for why they were archived and what's wrong with trusting them
+as current state.
 
 For GitHub Copilot or Cursor: see `COPILOT.md` in the repo root for the full technical handoff document.
 
