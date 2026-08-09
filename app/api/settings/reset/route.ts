@@ -1,10 +1,27 @@
 // POST /api/settings/reset
+//
 // Hard-resets a single Kite account's data:
 //   1. Wipes all journal records for the account
 //   2. Clears the positions store for the account
 //   3. Clears idempotency + buy-history cron state for the account
 //   4. Re-seeds current Kite holdings + net positions as Accumulator BUY entries
 //      in both the positions store and the journal
+//
+// Phase 5 Task 5.10 — multi-tenant isolation notes:
+//   - Every store call below (wipeAccountJournal/wipeAccountPositions/
+//     resetAccountCronState/recordBuy/journalOrder/recordBuyHistory) is
+//     ALREADY hard-scoped to this process's single CUSTOMER_ID internally
+//     (getCustomerId() in lib/supabase.ts, wired through every Phase 4
+//     Supabase-backed store) — `account` here is only the legacy V1
+//     multi-account label used WITHIN this one customer's data (see
+//     lib/state.ts header comment), never a cross-tenant selector. There is
+//     no code path in this route that can touch another customer's rows.
+//   - Added: cron must be in Manual mode before a reset is allowed (a reset
+//     while Auto is live would race the trading engine over the exact rows
+//     being wiped/re-seeded).
+//   - Added: customer_instances.last_reset_at is stamped after a successful
+//     reset (Task 5.10), independent of the HEARTBEAT_DB_ENABLED flag — see
+//     lib/instanceStatus.ts's recordResetTimestamp().
 
 import { NextResponse } from 'next/server'
 import { cookies } from 'next/headers'
@@ -13,6 +30,7 @@ import { getState, resetAccountCronState, recordBuyHistory } from '@/lib/state'
 import { resolveAccountCreds, getPositions, getHoldings } from '@/lib/kite'
 import { wipeAccountJournal, journalOrder, istDateString } from '@/lib/journal'
 import { wipeAccountPositions, recordBuy } from '@/lib/positions'
+import { recordResetTimestamp } from '@/lib/instanceStatus'
 
 export const dynamic = 'force-dynamic'
 
@@ -40,6 +58,17 @@ export async function POST(req: Request) {
   const state = await getState()
   if (!state.kiteTokens[account]) {
     return NextResponse.json({ error: `Account "${account}" is not connected — connect it in Settings first` }, { status: 400 })
+  }
+
+  // Task 5.10 — cron must be in Manual mode. A reset wipes + re-seeds the
+  // exact same rows (positions, idempotency ledger, buy history) the Auto
+  // engine reads/writes on every tick; allowing a reset while Auto is live
+  // risks the engine acting on a half-wiped store mid-request.
+  if (state.mode !== 'manual') {
+    return NextResponse.json(
+      { error: 'Switch to Manual mode before resetting account data — a reset while Auto is live could race the trading engine.' },
+      { status: 400 },
+    )
   }
 
   const creds = await resolveAccountCreds(account)
@@ -118,6 +147,8 @@ export async function POST(req: Request) {
     `[reset] ${account}: journal wiped (${journalResult.recordsRemoved} records in ${journalResult.filesModified} files), ` +
     `${positionsRemoved} positions cleared, ${seeded.length} positions re-seeded as Accumulator`,
   )
+
+  await recordResetTimestamp().catch(err => console.error('[reset] recordResetTimestamp failed (non-fatal):', err))
 
   return NextResponse.json({
     ok: true,

@@ -12,7 +12,7 @@ import { istDateString, journalOrder, readJournalDay, type OrderRecord } from '.
 import { buildDailyReport, buildMonthlyReport, isLastWeekdayOfMonth } from './retrospective'
 import { listPositions, removePosition } from './positions'
 import { sendEmail } from './email'
-import { reconcileManualSells } from './cronReconcile'
+import { reconcileManualSellsEOD } from './cronReconcile'
 import { estimateBacktestCharges } from './backtest'
 import {
   istHHMM, istDateKey, maybeRollDay, isMarketDay,
@@ -187,8 +187,11 @@ export async function dailyRetrospective(): Promise<void> {
 
   // Final EOD sweep — closes any positions sold manually during the day.
   // Runs here (15:35) so closing LTPs are available as the fallback price for
-  // prior-day sells where no today's order is found.
-  try { await reconcileManualSells() } catch (err) { console.error('[cron retro] reconcile manual sells failed:', err) }
+  // prior-day sells where no today's order is found. Phase 5 fix (spec §10.1):
+  // this synthetic-close sweep (Case 2) is now ONLY invoked from this single
+  // daily call site — never from the 5-min tick — see lib/cronReconcile.ts
+  // header comment for the full root-cause fix.
+  try { await reconcileManualSellsEOD() } catch (err) { console.error('[cron retro] reconcile manual sells (EOD) failed:', err) }
 
   if (!isEmailConfigured()) {
     console.warn('[cron retro] SMTP not configured — skipping')

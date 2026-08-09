@@ -144,7 +144,7 @@ export const sendTestEmail     = ()                     => sendEmail('test')
 // API-level failures (bad domain, invalid key, etc.), it returns them as
 // `{ error }`, so that field must be checked explicitly rather than relying
 // on try/catch alone to detect a failed send.
-async function sendViaResend(to: string, subject: string, text: string, html?: string): Promise<EmailResult> {
+async function sendViaResend(to: string, subject: string, text: string, html?: string, cc?: string[]): Promise<EmailResult> {
   const resend = getResendClient()
   const fromEmail = process.env.FROM_EMAIL
   if (!resend || !fromEmail) {
@@ -154,7 +154,7 @@ async function sendViaResend(to: string, subject: string, text: string, html?: s
   }
   const from = `${process.env.FROM_NAME || 'DineshTrade'} <${fromEmail}>`
   try {
-    const { data, error } = await resend.emails.send({ from, to, subject, text, ...(html ? { html } : {}) })
+    const { data, error } = await resend.emails.send({ from, to, subject, text, ...(html ? { html } : {}), ...(cc && cc.length ? { cc } : {}) })
     if (error) {
       console.error('[email] send failed:', error.message)
       return { ok: false, error: error.message }
@@ -881,4 +881,19 @@ export async function sendAccountActivated(to: string, name: string, instanceUrl
     `Hi ${name}, your account is active. ` +
     `Log in at www.dalgo.online — we will redirect you to your trading dashboard at ${instanceUrl}.`
   await deliver(to, subject, text)
+}
+
+// ── Token missing alert (Phase 5, spec §5.9 / §12) ──
+// Sent at 9:00 AM IST on weekdays when this customer's Kite token is missing
+// or expired — CC'd to the assigned Account Manager when one exists. Uses
+// sendViaResend() directly (not deliver()) so the caller (lib/tokenAlert.ts)
+// can log the real send outcome.
+export async function sendTokenMissingAlert(to: string, customerName: string, amEmail?: string): Promise<EmailResult> {
+  const subject = 'Action required: Paste your Zerodha token before market opens at 9:15 AM'
+  const text =
+    `Hi ${customerName}, your Zerodha access token is missing or expired. ` +
+    `Auto-trading cannot start until you paste a fresh token. ` +
+    `Log in at www.dalgo.online to update your token in Settings → Broker. ` +
+    `Market opens at 9:15 AM IST.`
+  return sendViaResend(to, subject, text, undefined, amEmail ? [amEmail] : undefined)
 }

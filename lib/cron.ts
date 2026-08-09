@@ -32,6 +32,10 @@ import { autoBuyOnAccount, runStrategyTaskBody } from './cronBuy'
 import { runEODSquareOff, dailyRetrospective } from './cronEOD'
 import { reconcileManualSells } from './cronReconcile'
 import { journalMonitorHeartbeat } from './journal'
+import { getFixedRules } from './fixedRules'
+import { isHeartbeatDbEnabled, updateInstanceStatus, checkKiteTokenStatus } from './instanceStatus'
+import { checkAndSendTokenAlert } from './tokenAlert'
+import { listPositions } from './positions'
 
 // Re-export record functions and getDayStats so external callers that were
 // using @/lib/cron keep working without any import-path change.
@@ -43,6 +47,14 @@ export {
 let started = false
 let tickTask: ScheduledTask | null = null
 let eodTask: ScheduledTask | null = null
+let tokenAlertTask: ScheduledTask | null = null
+
+// Task 5.6 — sellMonitorCadenceMin drives the core tick's cron expression.
+// node-cron can't reschedule a live task in place, so we track the interval
+// this task was BUILT with and, on a periodic check, stop+recreate it if
+// Fixed Rules changed. sellCadenceWatcher is that periodic check's timer.
+let currentSellCadenceMin = 5
+let sellCadenceWatcher: ReturnType<typeof setInterval> | null = null
 
 // Per-strategy scan tasks. Each active strategy in strategy.json gets its own
 // cron task at its scanIntervalMin. The map keys are strategy ids so we can
@@ -52,14 +64,41 @@ const strategyTasks = new Map<string, ScheduledTask>()
 
 // ──────── TICK ────────
 
+// Task 5.3/5.4 — heartbeat + Kite token status, combined into a single
+// customer_instances upsert per tick (see lib/instanceStatus.ts). No-ops
+// entirely (no Supabase calls, no extra Kite API call for the token probe)
+// unless the SuperAdmin has HEARTBEAT_DB_ENABLED='true' (default off).
+async function reportInstanceStatus(state: Awaited<ReturnType<typeof getState>>): Promise<void> {
+  if (!(await isHeartbeatDbEnabled())) return
+  const [openPositions, tokenStatus] = await Promise.all([
+    listPositions().catch(() => []),
+    checkKiteTokenStatus(state.kiteTokens),
+  ])
+  const executedToday = dayStats.executed
+  await updateInstanceStatus({
+    cronMode: state.mode,
+    kiteTokenStatus: tokenStatus,
+    openPositionsCount: openPositions.length,
+    todaysOrdersCount: executedToday.length,
+    todaysBuyCount: executedToday.filter(e => e.side === 'BUY').length,
+    todaysSellCount: executedToday.filter(e => e.side === 'SELL').length,
+  })
+}
+
 async function tick(): Promise<void> {
   maybeRollDay()
+  const state = await getState()
+
+  // Heartbeat fires on every tick regardless of what happens below — the
+  // health dashboard needs "last cron tick" + current mode even when trading
+  // itself is paused (market closed / manual mode / no token).
+  reportInstanceStatus(state).catch(err => console.error('[cron tick] instance status report failed:', err))
+
   const market = isMarketOpen()
   if (!market.open) {
     console.log(`[cron tick] skipped — market closed (${market.status})`)
     return
   }
-  const state = await getState()
   if (state.mode !== 'auto') {
     console.log(`[cron tick] skipped — mode=${state.mode}`)
     return
@@ -188,28 +227,82 @@ async function tick(): Promise<void> {
 
 // ──────── REGISTRATION ────────
 
-export function startCron(): void {
+// Builds the core-tick cron expression from Fixed Rules' sellMonitorCadenceMin
+// (Task 5.6) and updates currentSellCadenceMin as a side effect so the
+// watcher below can detect a subsequent change.
+async function buildTickExpr(): Promise<string> {
+  const rules = await getFixedRules()
+  currentSellCadenceMin = Math.max(1, Math.round(rules.sellMonitorCadenceMin) || 5)
+  return `*/${currentSellCadenceMin} 9-15 * * 1-5`
+}
+
+// Re-reads Fixed Rules (cheap — getFixedRules() itself caches 5 min) and
+// restarts the core tick task if sellMonitorCadenceMin changed since it was
+// last built. Runs on its own 5-min timer, independent of the tick cadence
+// itself, so a cadence change is picked up without a process restart.
+async function checkSellCadence(): Promise<void> {
+  try {
+    const rules = await getFixedRules()
+    const nextCadence = Math.max(1, Math.round(rules.sellMonitorCadenceMin) || 5)
+    if (nextCadence === currentSellCadenceMin) return
+    console.log(`[cron] sellMonitorCadenceMin changed ${currentSellCadenceMin} → ${nextCadence} — restarting core tick task`)
+    if (tickTask) tickTask.stop()
+    currentSellCadenceMin = nextCadence
+    tickTask = cron.schedule(`*/${nextCadence} 9-15 * * 1-5`, () => {
+      tick().catch(err => console.error('[cron tick] error:', err))
+    }, { timezone: 'Asia/Kolkata' })
+    tickTask.start()
+  } catch (err) {
+    console.error('[cron] checkSellCadence failed:', err)
+  }
+}
+
+export async function startCron(): Promise<void> {
   if (started) return
   if (process.env.CRON_ENABLED !== 'true') {
     console.log('[cron] disabled (set CRON_ENABLED=true to enable)')
     return
   }
+  // Task 5.2 — every customer EC2 cron process must know which single
+  // customer it is scoped to. All Supabase-backed stores (positions, state,
+  // journal, watchlists, strategies, ...) already call getCustomerId()
+  // internally and throw on every read/write if this is unset (Phase 4) —
+  // this guard just fails fast and loudly at startup instead of on the
+  // first store call, with a message that names the actual problem.
+  if (!process.env.CUSTOMER_ID) {
+    throw new Error('[cron] CUSTOMER_ID env var is required when CRON_ENABLED=true')
+  }
   started = true
   const backend = getBackendInfo()
-  console.log(`[cron] state backend=${backend.backend}${backend.path ? ` path=${backend.path}` : ''}`)
+  console.log(`[cron] state backend=${backend.backend}${backend.path ? ` path=${backend.path}` : ''} · customer=${process.env.CUSTOMER_ID}`)
 
-  // Core 5-min tick: SELL monitors + reactive dip scan only. BUY scans live
-  // on per-strategy schedules below.
-  tickTask = cron.schedule('*/5 9-15 * * 1-5', () => {
+  // Core tick: SELL monitors + reactive dip scan only. BUY scans live on
+  // per-strategy schedules below. Interval sourced from Fixed Rules'
+  // sellMonitorCadenceMin (Task 5.6) — falls back to 5 min on any read
+  // failure (getFixedRules() itself never throws).
+  const tickExpr = await buildTickExpr()
+  tickTask = cron.schedule(tickExpr, () => {
     tick().catch(err => console.error('[cron tick] error:', err))
   }, { timezone: 'Asia/Kolkata' })
   tickTask.start()
+
+  // Watches for sellMonitorCadenceMin changes every 5 min and restarts the
+  // core tick task in place — no process restart needed for a Fixed Rules edit.
+  sellCadenceWatcher = setInterval(() => {
+    checkSellCadence().catch(err => console.error('[cron] sell cadence watcher failed:', err))
+  }, 5 * 60 * 1000)
 
   // Daily retrospective email
   eodTask = cron.schedule('35 15 * * 1-5', () => {
     dailyRetrospective().catch(err => console.error('[cron retro] error:', err))
   }, { timezone: 'Asia/Kolkata' })
   eodTask.start()
+
+  // Task 5.5 — 9:00 AM IST weekday token-status alert (this customer only).
+  tokenAlertTask = cron.schedule('0 9 * * 1-5', () => {
+    checkAndSendTokenAlert().catch(err => console.error('[cron tokenAlert] error:', err))
+  }, { timezone: 'Asia/Kolkata' })
+  tokenAlertTask.start()
 
   // Per-strategy BUY-scan tasks. Each active strategy registers its own cron
   // at its scanIntervalMin. Inactive strategies are skipped here; toggling
@@ -220,11 +313,21 @@ export function startCron(): void {
     registerStrategyTask(strategy)
   }
   const summary = active.map(s => `${s.id}@${s.scanIntervalMin}m`).join(', ')
-  console.log(`[cron] starting — core tick every 5 min · retro 15:35 IST · per-strategy: ${summary || 'none'}`)
+  console.log(`[cron] starting — core tick every ${currentSellCadenceMin} min · retro 15:35 IST · token alert 09:00 IST · per-strategy: ${summary || 'none'}`)
 }
 
 export function ensureCronStarted(): void {
-  if (process.env.CRON_ROUTE_BOOTSTRAP === 'true') startCron()
+  if (process.env.CRON_ROUTE_BOOTSTRAP !== 'true') return
+  // startCron() is async (Task 5.6 reads Fixed Rules before scheduling) but
+  // every call site historically calls it fire-and-forget — keep that
+  // contract. The CUSTOMER_ID guard (Task 5.2) is the one case that MUST be
+  // loud: let it surface as an unhandled rejection / process crash rather
+  // than a silently swallowed log line, since a customer EC2 running with no
+  // CUSTOMER_ID must not limp along trading against the wrong (or no) data.
+  startCron().catch(err => {
+    console.error('[cron] startCron failed:', err)
+    throw err
+  })
 }
 
 function registerStrategyTask(strategy: Strategy): void {
@@ -300,6 +403,8 @@ export function reloadCronStrategies(): { added: string[]; removed: string[]; re
 export function stopCron(): void {
   if (tickTask) { tickTask.stop(); tickTask = null }
   if (eodTask)  { eodTask.stop();  eodTask = null }
+  if (tokenAlertTask) { tokenAlertTask.stop(); tokenAlertTask = null }
+  if (sellCadenceWatcher) { clearInterval(sellCadenceWatcher); sellCadenceWatcher = null }
   Array.from(strategyTasks.values()).forEach(t => t.stop())
   strategyTasks.clear()
   started = false

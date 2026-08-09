@@ -13,7 +13,12 @@ async function main() {
   const handle = app.getRequestHandler()
 
   await app.prepare()
-  startCron()
+  // startCron() is async (Phase 5 — reads Fixed Rules before scheduling) and
+  // throws if CRON_ENABLED=true but CUSTOMER_ID is unset. Await it here so a
+  // misconfigured customer EC2 fails fast at startup, before the HTTP server
+  // ever accepts a request, instead of crashing later via an unhandled
+  // rejection once the first tick would have fired.
+  await startCron()
 
   createServer((req, res) => {
     const parsedUrl = parse(req.url || '/', true)

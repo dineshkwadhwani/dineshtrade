@@ -120,11 +120,19 @@ export interface OrderRecord {
 export type JournalRecord = TradeRecord | SignalSkippedRecord | ExitMonitorRecord | MonitorHeartbeatRecord | StrategyScanRecord | OrderRecord
 
 // ─── platform_config cache (STRATEGY_SCAN_DB_ENABLED) ──────────────────────
+// Cached 60s (Phase 5 Task 5.7) — long enough to avoid a Supabase read on
+// every single journal write/read, short enough that a SuperAdmin flipping
+// this flag in platform_config takes effect without a process restart.
 
+const STRATEGY_SCAN_FLAG_TTL_MS = 60 * 1000
 let strategyScanDbEnabledCache: boolean | null = null
+let strategyScanDbEnabledCachedAt = 0
 
 async function isStrategyScanDbEnabled(): Promise<boolean> {
-  if (strategyScanDbEnabledCache !== null) return strategyScanDbEnabledCache
+  const now = Date.now()
+  if (strategyScanDbEnabledCache !== null && now - strategyScanDbEnabledCachedAt < STRATEGY_SCAN_FLAG_TTL_MS) {
+    return strategyScanDbEnabledCache
+  }
   try {
     const admin = getSupabaseAdmin()
     const { data, error } = await admin
@@ -138,6 +146,7 @@ async function isStrategyScanDbEnabled(): Promise<boolean> {
     console.warn('[journal] failed to read STRATEGY_SCAN_DB_ENABLED, defaulting to false:', String(err).slice(0, 200))
     strategyScanDbEnabledCache = false
   }
+  strategyScanDbEnabledCachedAt = Date.now()
   return strategyScanDbEnabledCache
 }
 

@@ -9,6 +9,7 @@ import { istDateString, readJournalRange, type JournalRecord } from '@/lib/journ
 import { isMarketOpen } from '@/lib/market'
 import { checkIntradayCircuit } from '@/lib/intradayCircuit'
 import { checkPanicSell } from '@/lib/panicSell'
+import { getFixedRules } from '@/lib/fixedRules'
 import type { IBroker, BrokerHolding, BrokerOrder, BrokerPositions } from '@/lib/broker'
 
 // Idempotency ledger now lives in state.json (see lib/state.ts) — persistent
@@ -349,11 +350,14 @@ export async function runPreflight(input: PreflightInput, broker: IBroker): Prom
     }
   }
 
-  // GATE 8 — Short-sell guard. Applies to ALL SELLs (Auto and Manual).
-  // Fetches live held quantity from Kite (holdings + day positions). Three outcomes:
+  // GATE 8 — Short-sell guard. Applies to ALL SELLs (Auto and Manual), unless
+  // the SuperAdmin has disabled it platform-wide via Fixed Rules
+  // (no_short_selling — spec §7.8). Fetches live held quantity from Kite
+  // (holdings + day positions). Three outcomes when enabled:
   //   - held == 0    → reject with gate='noShort' (position manually closed or never held)
   //   - held < want  → ok with adjustedQty=held (caller must use this clamped quantity)
   //   - held >= want → ok, no adjustment
+  const fixedRules = await getFixedRules()
   let sellAdjustedQty: number | undefined = undefined
   if (side === 'SELL') {
     const [holdings, positions] = await Promise.all([
@@ -373,22 +377,25 @@ export async function runPreflight(input: PreflightInput, broker: IBroker): Prom
     const dayQty  = Number(dayPos?.quantity || 0)
     const available = heldQty + Math.max(0, dayQty)
 
-    if (available <= 0) {
-      return {
-        ok: false, gate: 'noShort',
-        reason: `${account}: not holding ${symbol} — short selling blocked (position may have been closed manually in Kite)`,
+    if (fixedRules.noShortSelling) {
+      if (available <= 0) {
+        return {
+          ok: false, gate: 'noShort',
+          reason: `${account}: not holding ${symbol} — short selling blocked (position may have been closed manually in Kite)`,
+        }
+      }
+      if (quantity > available) {
+        sellAdjustedQty = available
+        console.warn(`[preflight] ${account} ${symbol}: clamping SELL ${quantity} → ${available} (live held)`)
       }
     }
-    if (quantity > available) {
-      sellAdjustedQty = available
-      console.warn(`[preflight] ${account} ${symbol}: clamping SELL ${quantity} → ${available} (live held)`)
-    }
 
-    // GATE 9 — Auto-mode never sells at a net loss after estimated charges.
+    // GATE 9 — Auto-mode never sells at a net loss after estimated charges
+    // (Fixed Rule no_loss_sell_auto — spec §7.8; SuperAdmin-configurable).
     // Manual mode lets you override.
     // Also skipped for explicit manual orders (user knows what they're doing).
     // Also skipped when bypassNoLossSell=true (used by squareOffEOD).
-    if (state.mode === 'auto' && !manual && !input.bypassNoLossSell && !input.bypassNoLossSellReason) {
+    if (fixedRules.noLossSellAuto && state.mode === 'auto' && !manual && !input.bypassNoLossSell && !input.bypassNoLossSellReason) {
       const avgCandidates = [holding?.averagePrice, dayPos?.averagePrice, dayPos?.dayBuyPrice]
         .map(v => Number(v))
         .filter(v => Number.isFinite(v) && v > 0)

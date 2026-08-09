@@ -155,14 +155,19 @@ create table if not exists broker_accounts (
 create table if not exists customer_instances (
   id uuid primary key default gen_random_uuid(),
   customer_id uuid not null references profiles(id) on delete cascade unique,
-  subdomain text not null unique,
-  instance_url text not null,
+  -- subdomain/instance_url nullable (Phase 5): the cron heartbeat/token-status
+  -- writer (lib/instanceStatus.ts) upserts this row from the customer EC2
+  -- itself and must be able to create it before the provisioning runbook
+  -- (spec §5.7) has recorded these — NULLs are fine under a unique index.
+  subdomain text unique,
+  instance_url text,
   elastic_ip text,
   ec2_instance_id text,
   status text not null default 'provisioning'
     check (status in ('provisioning','active','suspended','terminated')),
   last_heartbeat_at timestamptz,
   last_cron_tick_at timestamptz,
+  last_reset_at timestamptz,
   kite_token_status text default 'missing'
     check (kite_token_status in ('connected','missing','expired')),
   cron_mode text default 'manual' check (cron_mode in ('auto','manual')),
