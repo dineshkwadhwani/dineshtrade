@@ -622,4 +622,61 @@ For GitHub Copilot or Cursor: see `COPILOT.md` in the repo root for the full tec
 
 ---
 
+## 14. DALGO MULTI-TENANT REFACTOR — PROGRESS (branch `multitanent_refactor`)
+
+**Full spec:** `docs/DALGO_REFACTOR_SPEC_v2.md` — read completely before continuing this work; this section is a status summary, not a replacement for it.
+**Schema:** `docs/DALGO_SUPABASE_SCHEMA_v2.sql`
+**Branch:** `multitanent_refactor` — `main` stays untouched/live production per spec §17 rule 4.
+
+This is a separate, parallel effort from the V1 app documented in sections 1–13 above. V1 (`dineshtrade.online`) keeps running unchanged until cutover (spec §16 Phase 8) — don't conflate the two. V1's `lib/kite.ts`, positions/journal JSON files, etc. are untouched by this refactor except where explicitly noted below.
+
+### Phase 1 — Foundation — ✅ complete (commit `860d418`)
+
+- `lib/supabase.ts` (admin + anon clients), `lib/encryption.ts`, `lib/dalgoAuth.ts` (login/session/SSO token gen), `middleware.ts` role-based routing, DAlgo-themed `/login`, `scripts/migrate-to-supabase.ts`, skeleton `/admin` and `/manager` pages.
+- Verified: login works end-to-end against Supabase Auth + `profiles` table.
+
+### Phase 2 — Broker Abstraction — ✅ complete (commit `1b92ee3`)
+
+- `lib/broker/IBroker.ts` — full interface, zero imports, matches spec §6.2 exactly.
+- `lib/broker/ZerodhaAdapter.ts` — wraps `lib/kite.ts` (not deleted — V1 still uses it directly). Constructor takes `{ apiKey, accessToken, apiSecret? }` — `apiSecret` was added beyond the spec's literal shape because `generateSession()` needs it for Kite's login checksum; throws a clear error if omitted and called.
+- `lib/broker/AngelOneAdapter.ts` / `UpstoxAdapter.ts` — stub classes, every method throws `'... not yet implemented — V2'`. Deviates from spec §6.3's factory (which throws directly without instantiating) — the factory instead does `new AngelOneAdapter(...)` etc., a deliberate choice for interface uniformity, not a spec bug.
+- `lib/broker/index.ts` — `getBroker()` factory + re-exports all `IBroker.ts` types.
+- `lib/preflight.ts` — private `kiteGet()` DELETED. `runPreflight(input, broker: IBroker)` now takes a broker instance; all 6 gates that read Kite data go through it. All 7 call sites (`app/api/zerodha/route.ts`, `cronEOD.ts`, `cronBuy.ts`, `strategy1.ts` ×3, `strategy2.ts`, `pivotal.ts`) construct `getBroker({ brokerName: 'zerodha', ... })` from the existing `resolveAccountCreds()` and pass it in.
+- **Known gap, deliberate:** only `runPreflight()`'s Kite calls were migrated. `cronBuy.ts`, `cronEOD.ts`, `strategy1.ts`, `strategy2.ts`, `pivotal.ts` still call `lib/kite.ts` directly for `getQuotes`/`placeKiteOrder`/`getHistoricalCandles`/`resolveAccountCreds` outside of preflight — spec §16 Phase 2 item 6 ("Replace ALL direct Kite calls in strategy monitors with IBroker") was NOT done. Worth finishing before/during Phase 5 (multi-tenant cron), since that's when broker credentials stop being env-var-resolved.
+- `resolveInstrumentToken()` reuses the existing live-fetch/cache in `lib/instruments.ts` — not a static `config/instruments.json` (that file doesn't exist in this repo).
+
+### Phase 3 — Registration and Onboarding — ⚠️ PARTIAL (commit `6a01a80`)
+
+Per spec §16 Phase 3's own 12-item list, only items 1–4 are done. Items 5–12 (SuperAdmin `/admin/registrations`, AM `/manager/registrations`, Step 1 approval flow, Step 2 broker/strategy setup screens, activation flow) are **not built yet** — see "What's next" below.
+
+**Built:**
+
+- `scripts/setup-storage.ts` — creates the private `kyc-documents` Supabase Storage bucket (MIME allowlist, 5MB cap). The "service-role only" storage policy can't be created via the JS SDK (no API for `storage.objects` RLS) — the SQL is printed by the script and appended to `docs/DALGO_SUPABASE_SCHEMA_v2.sql`; already run manually in the Supabase SQL editor.
+- `lib/storage.ts` — `generateUploadUrl()` (returns `{uploadUrl, path}`, not just a string — forced by the uuid being generated inside the function) and `getFileUrl()` (60-min signed read URL).
+- `app/api/dalgo/register/route.ts` — customer + broking_company registration. Uses `supabaseAnon.auth.signUp()`, NOT `admin.createUser()` — the admin API doesn't send Supabase's confirmation email at all; `signUp()` does. Duplicate-email detection: checks `user.identities.length === 0` (Supabase's anti-enumeration "fake success" signal) first, falls back to a `profiles` insert unique-violation (`23505`) catch as a second layer. Best-effort rollback (deletes the auth user / profiles row) on any downstream insert failure so a half-registered email isn't permanently stuck.
+- `app/api/dalgo/upload-url/route.ts` — public route, signed upload URL for Aadhar images. Security boundary is the UUID-scoped path + private bucket, not auth.
+- `app/register/page.tsx` + `RegisterClient.tsx` — full customer/broking-company form, DAlgo light theme, drag-drop Aadhar upload with live status, masked Aadhar number display.
+- `app/pending/page.tsx` — status holding page; redirects to `/login` if already active.
+- `lib/email.ts` — **rewritten from nodemailer/Gmail SMTP to Resend** (explicit mid-task instruction, not in the original spec text). Structural points for whoever touches this next:
+  - `deliver(to, subject, text): Promise<void>` — fire-and-forget, never throws, used only by the 5 new Phase 3 functions below.
+  - A private `sendViaResend(to, subject, text, html?): Promise<EmailResult>` does the actual API call and checks Resend's `{error}` response shape (Resend does NOT throw for API-level failures) — `sendEmail()` (the old V1 dispatcher) calls this directly so `EmailResult` reporting is preserved for its 3 real consumers (`app/api/health/route.ts`, `app/api/email/test/route.ts`, `lib/cronEOD.ts`).
+  - Resend client is lazily constructed (`getResendClient()`) — not `const resend = new Resend(...)` at module scope, because the constructor throws immediately if `RESEND_API_KEY` is missing, which would crash every module importing `lib/email.ts` (most of the order-placement pipeline) in any environment missing that one env var.
+  - Env: `RESEND_API_KEY`, `FROM_EMAIL=contact@dalgo.online`, `FROM_NAME=DAlgo Trade` (already in `.env.local`), `NOTIFY_TO` (optional, V1 emails only).
+  - 5 new functions added: `sendRegistrationConfirmation`, `sendRegistrationAssigned`, `sendIdentityApproved`, `sendIdentityRejected`, `sendAccountActivated` — **only the first is actually wired up** (fire-and-forget in the register route). The other 4 exist but have no caller yet — they're for the Step 1/Step 2 approval flow (spec §4.5) that isn't built.
+- `middleware.ts` — `/api/dalgo/register` and `/api/dalgo/upload-url` added to `PUBLIC_EXACT` (`/register` and `/pending` pages were already public from Phase 1).
+- `lib/dalgoAuth.ts` — `createEphemeralAnonClient()` changed from private to exported (needed by the register route's `signUp()` call, for the same "don't reuse the shared client's mutable auth state" reason `login()` already used it for).
+
+**Verified end-to-end (09 Aug 2026):** browser-driven registration test (customer type, dummy Aadhar images) → both uploads succeeded → submit → redirected to `/pending` → confirmed `profiles` row (`status=pending`) and full `registrations` row in Supabase. Confirmation email fired without error but was not independently inbox-verified (no email access available).
+
+### What's next
+
+Two real options for the next session, worth deciding explicitly rather than defaulting to spec order:
+
+1. **Finish Phase 3 properly** (spec §16 items 5–12: `/admin/registrations`, `/manager/registrations`, Step 1/Step 2 approval UI, broker+strategy setup screens, activation flow) — this is what makes the other 4 email functions and the `pending`/`identity_verified`/`active` status machine actually mean something. Right now a registered customer has no path to ever leave `pending`.
+2. **Jump to spec's Phase 4** (Customer Trading Dashboard — port `lib/positions.ts`/`state.ts`/`journal.ts`/etc. to Supabase, SSO flow) — spec's own phase order, but this implicitly assumes registrations already reach `active` somehow.
+
+Recommend (1) before (2): Phase 4's SSO/dashboard work only matters for a customer who's `active`, and nothing today can make a customer `active` except manually editing the DB row.
+
+---
+
 Built with Claude AI — June 2026, updated August 2026.
