@@ -1,83 +1,81 @@
-import { redirect } from 'next/navigation'
+import Link from 'next/link'
 import { getProfile } from '@/lib/dalgoAuth'
+import { getManagerDashboardStats, listCustomers } from '@/lib/dalgoAdmin'
+import { PageHeader, StatGrid, StatCard, SectionCard, Table, Th, Td, Badge, EmptyState, statusTone, STATUS_LABELS } from '@/components/dalgo/ui'
+import { COLORS } from '@/components/dalgo/theme'
 
-// Server Component — getProfile() uses lib/dalgoAuth.ts's getSupabaseAdmin()
-// (service role), so this page works correctly regardless of the profiles
-// RLS recursion bug — that bug only affects middleware's anon-key-scoped
-// read. Middleware still gates this page first either way.
-
-const ROLE_LABELS: Record<string, string> = {
-  superadmin: 'Super Admin',
-  account_manager: 'Account Manager',
-  broking_company: 'Broking Company',
-  customer: 'Customer',
-}
-
-export default async function ManagerPage() {
+// Task 6.10 — Account Manager Dashboard. Shows only this AM's assigned
+// customers (see lib/dalgoAdmin.ts's {assignedTo} filter on every query).
+export default async function ManagerDashboardPage() {
   const profile = await getProfile()
-  if (!profile) {
-    redirect('/login')
-  }
+  if (!profile) return null
+
+  const [stats, customers] = await Promise.all([
+    getManagerDashboardStats(profile.id),
+    listCustomers({ assignedTo: profile.id }),
+  ])
 
   return (
-    <div
-      style={{
-        minHeight: '100vh',
-        display: 'flex',
-        flexDirection: 'column',
-        alignItems: 'center',
-        justifyContent: 'center',
-        background: '#F8FAFF',
-        padding: 32,
-      }}
-    >
-      <div style={{ fontFamily: "'Sora', sans-serif", fontWeight: 700, fontSize: 40, marginBottom: 24 }}>
-        <span style={{ color: '#1E3A8A' }}>D</span>
-        <span style={{ color: '#F59E0B' }}>A</span>
-        <span style={{ color: '#1E3A8A' }}>lgo</span>
-      </div>
+    <div>
+      <PageHeader title={`Welcome, ${profile.full_name}`} subtitle="Your assigned customers" />
 
-      <div
-        style={{
-          width: '100%',
-          maxWidth: 480,
-          background: '#FFFFFF',
-          border: '1px solid #BFDBFE',
-          borderRadius: 16,
-          padding: 40,
-          textAlign: 'center',
-          boxShadow: '0 4px 24px rgba(30,58,138,0.06)',
-        }}
-      >
-        <h1 style={{ fontFamily: "'Sora', sans-serif", fontWeight: 700, fontSize: 22, color: '#1E3A8A', margin: 0 }}>
-          Account Manager Dashboard
-        </h1>
-        <p style={{ fontFamily: "'Inter', sans-serif", fontSize: 14, color: '#475569', marginTop: 12, marginBottom: 4 }}>
-          Welcome, {profile.full_name}
-        </p>
-        <p style={{ fontFamily: "'Inter', sans-serif", fontSize: 13, color: '#94A3B8', marginTop: 0, marginBottom: 20 }}>
-          {profile.email}
-        </p>
-        <span
-          style={{
-            display: 'inline-block',
-            fontFamily: "'Inter', sans-serif",
-            fontSize: 12,
-            fontWeight: 500,
-            color: '#0D5C6B',
-            background: '#E6FAFA',
-            border: '1px solid #7DD8E0',
-            borderRadius: 999,
-            padding: '4px 12px',
-            marginBottom: 24,
-          }}
-        >
-          {ROLE_LABELS[profile.role] ?? profile.role}
-        </span>
-        <p style={{ fontFamily: "'Inter', sans-serif", fontSize: 13, color: '#94A3B8', margin: 0 }}>
-          Phase 2 coming soon
-        </p>
-      </div>
+      <StatGrid>
+        <StatCard label="My Customers" value={stats.myCustomers} />
+        <StatCard label="Pending Registrations" value={stats.myPendingRegistrations} tone="amber" />
+        <StatCard label="Active Customers" value={stats.myActiveCustomers} tone="green" />
+        <StatCard label="In Auto Mode" value={stats.myAutoModeCustomers} tone="teal" />
+      </StatGrid>
+
+      <SectionCard title="My Customers">
+        {customers.length === 0 ? (
+          <EmptyState>No customers assigned to you yet.</EmptyState>
+        ) : (
+          <Table>
+            <thead>
+              <tr>
+                <Th>Name</Th>
+                <Th>Email</Th>
+                <Th>Status</Th>
+                <Th>Token</Th>
+                <Th>Cron Mode</Th>
+                <Th>Last Active</Th>
+                <Th align="right">Positions</Th>
+              </tr>
+            </thead>
+            <tbody>
+              {customers.map(c => (
+                <tr key={c.profile.id}>
+                  <Td>
+                    <Link href={`/manager/customers/${c.profile.id}`} style={{ color: COLORS.heading, textDecoration: 'none', fontWeight: 500 }}>
+                      {c.profile.full_name}
+                    </Link>
+                  </Td>
+                  <Td>{c.profile.email}</Td>
+                  <Td>
+                    <Badge tone={statusTone(c.profile.status)}>{STATUS_LABELS[c.profile.status] ?? c.profile.status}</Badge>
+                  </Td>
+                  <Td>
+                    {c.instance ? (
+                      <Badge tone={statusTone(c.instance.kite_token_status)}>{c.instance.kite_token_status}</Badge>
+                    ) : (
+                      '—'
+                    )}
+                  </Td>
+                  <Td>
+                    {c.instance ? (
+                      <Badge tone={c.instance.cron_mode === 'auto' ? 'green' : 'amber'}>{c.instance.cron_mode}</Badge>
+                    ) : (
+                      '—'
+                    )}
+                  </Td>
+                  <Td>{c.instance?.last_heartbeat_at ? new Date(c.instance.last_heartbeat_at).toLocaleString('en-IN') : '—'}</Td>
+                  <Td align="right">{c.instance?.open_positions_count ?? 0}</Td>
+                </tr>
+              ))}
+            </tbody>
+          </Table>
+        )}
+      </SectionCard>
     </div>
   )
 }

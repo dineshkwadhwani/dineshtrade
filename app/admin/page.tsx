@@ -1,83 +1,134 @@
-import { redirect } from 'next/navigation'
+import Link from 'next/link'
 import { getProfile } from '@/lib/dalgoAuth'
+import { getDashboardStats, getCustomerHealthRows, getRecentRegistrations } from '@/lib/dalgoAdmin'
+import { PageHeader, StatGrid, StatCard, SectionCard, Table, Th, Td, Badge, StatusDot, EmptyState, statusTone, STATUS_LABELS, primaryButtonStyle, secondaryButtonStyle } from '@/components/dalgo/ui'
 
-// Server Component — getProfile() uses lib/dalgoAuth.ts's getSupabaseAdmin()
-// (service role), so this page works correctly regardless of the profiles
-// RLS recursion bug — that bug only affects middleware's anon-key-scoped
-// read. Middleware still gates this page first either way.
+// Task 6.2 — SuperAdmin Dashboard. Server Component: getProfile()/role are
+// already enforced by app/admin/layout.tsx, so this only needs the data.
 
-const ROLE_LABELS: Record<string, string> = {
-  superadmin: 'Super Admin',
-  account_manager: 'Account Manager',
-  broking_company: 'Broking Company',
-  customer: 'Customer',
-}
-
-export default async function AdminPage() {
+export default async function AdminDashboardPage() {
   const profile = await getProfile()
-  if (!profile) {
-    redirect('/login')
-  }
+  const [stats, healthRows, recentRegs] = await Promise.all([
+    getDashboardStats(),
+    getCustomerHealthRows(),
+    getRecentRegistrations(5),
+  ])
 
   return (
-    <div
-      style={{
-        minHeight: '100vh',
-        display: 'flex',
-        flexDirection: 'column',
-        alignItems: 'center',
-        justifyContent: 'center',
-        background: '#F8FAFF',
-        padding: 32,
-      }}
-    >
-      <div style={{ fontFamily: "'Sora', sans-serif", fontWeight: 700, fontSize: 40, marginBottom: 24 }}>
-        <span style={{ color: '#1E3A8A' }}>D</span>
-        <span style={{ color: '#F59E0B' }}>A</span>
-        <span style={{ color: '#1E3A8A' }}>lgo</span>
-      </div>
+    <div>
+      <PageHeader title={`Welcome, ${profile?.full_name ?? ''}`} subtitle="Platform overview and customer health" />
 
-      <div
-        style={{
-          width: '100%',
-          maxWidth: 480,
-          background: '#FFFFFF',
-          border: '1px solid #BFDBFE',
-          borderRadius: 16,
-          padding: 40,
-          textAlign: 'center',
-          boxShadow: '0 4px 24px rgba(30,58,138,0.06)',
-        }}
+      <StatGrid>
+        <StatCard label="Total Customers" value={stats.totalCustomers} />
+        <StatCard label="Active Customers" value={stats.activeCustomers} tone="green" />
+        <StatCard label="Pending Registrations" value={stats.pendingRegistrations} tone="amber" />
+        <StatCard label="Account Managers" value={stats.accountManagers} tone="teal" />
+      </StatGrid>
+
+      <SectionCard
+        title="Customer Health"
+        actions={
+          <Link href="/admin/customers" style={secondaryButtonStyle}>
+            View all customers
+          </Link>
+        }
+        style={{ marginBottom: 20 }}
       >
-        <h1 style={{ fontFamily: "'Sora', sans-serif", fontWeight: 700, fontSize: 22, color: '#1E3A8A', margin: 0 }}>
-          SuperAdmin Dashboard
-        </h1>
-        <p style={{ fontFamily: "'Inter', sans-serif", fontSize: 14, color: '#475569', marginTop: 12, marginBottom: 4 }}>
-          Welcome, {profile.full_name}
-        </p>
-        <p style={{ fontFamily: "'Inter', sans-serif", fontSize: 13, color: '#94A3B8', marginTop: 0, marginBottom: 20 }}>
-          {profile.email}
-        </p>
-        <span
-          style={{
-            display: 'inline-block',
-            fontFamily: "'Inter', sans-serif",
-            fontSize: 12,
-            fontWeight: 500,
-            color: '#0D5C6B',
-            background: '#E6FAFA',
-            border: '1px solid #7DD8E0',
-            borderRadius: 999,
-            padding: '4px 12px',
-            marginBottom: 24,
-          }}
-        >
-          {ROLE_LABELS[profile.role] ?? profile.role}
-        </span>
-        <p style={{ fontFamily: "'Inter', sans-serif", fontSize: 13, color: '#94A3B8', margin: 0 }}>
-          Phase 2 coming soon
-        </p>
-      </div>
+        {healthRows.length === 0 ? (
+          <EmptyState>No active customer instances yet.</EmptyState>
+        ) : (
+          <Table>
+            <thead>
+              <tr>
+                <Th>Customer</Th>
+                <Th>Subdomain</Th>
+                <Th>Last Tick</Th>
+                <Th>Token</Th>
+                <Th>Cron Mode</Th>
+                <Th align="right">Positions</Th>
+                <Th align="right">Orders Today</Th>
+              </tr>
+            </thead>
+            <tbody>
+              {healthRows.map(row => (
+                <tr key={row.instance.id}>
+                  <Td>
+                    <div style={{ fontWeight: 500, color: '#1E3A8A' }}>{row.customerName}</div>
+                    <div style={{ fontSize: 11, color: '#94A3B8' }}>{row.customerEmail}</div>
+                  </Td>
+                  <Td>{row.instance.subdomain ?? '—'}</Td>
+                  <Td>
+                    <span style={{ display: 'inline-flex', alignItems: 'center', gap: 6 }}>
+                      <StatusDot tone={row.lastTickDot} />
+                      {row.instance.last_cron_tick_at
+                        ? new Date(row.instance.last_cron_tick_at).toLocaleTimeString('en-IN', {
+                            timeZone: 'Asia/Kolkata',
+                            hour: '2-digit',
+                            minute: '2-digit',
+                          })
+                        : 'never'}
+                    </span>
+                  </Td>
+                  <Td>
+                    <Badge tone={statusTone(row.instance.kite_token_status)}>{row.instance.kite_token_status}</Badge>
+                  </Td>
+                  <Td>
+                    <Badge tone={row.instance.cron_mode === 'auto' ? 'green' : 'amber'}>{row.instance.cron_mode}</Badge>
+                  </Td>
+                  <Td align="right">{row.instance.open_positions_count}</Td>
+                  <Td align="right">{row.instance.todays_orders_count}</Td>
+                </tr>
+              ))}
+            </tbody>
+          </Table>
+        )}
+      </SectionCard>
+
+      <SectionCard
+        title="Recent Registrations"
+        actions={
+          <Link href="/admin/registrations" style={primaryButtonStyle}>
+            View all registrations
+          </Link>
+        }
+      >
+        {recentRegs.length === 0 ? (
+          <EmptyState>No registrations yet.</EmptyState>
+        ) : (
+          <Table>
+            <thead>
+              <tr>
+                <Th>Name</Th>
+                <Th>Email</Th>
+                <Th>Type</Th>
+                <Th>Status</Th>
+                <Th>Submitted</Th>
+                <Th>Assigned AM</Th>
+              </tr>
+            </thead>
+            <tbody>
+              {recentRegs.map(r => (
+                <tr key={r.registration.id}>
+                  <Td>
+                    <Link href={`/admin/registrations/${r.registration.id}`} style={{ color: '#1E3A8A', textDecoration: 'none', fontWeight: 500 }}>
+                      {r.registration.full_name}
+                    </Link>
+                  </Td>
+                  <Td>{r.profileEmail}</Td>
+                  <Td>
+                    <Badge tone="teal">{r.registration.registration_type === 'customer' ? 'Customer' : 'Broking Co.'}</Badge>
+                  </Td>
+                  <Td>
+                    <Badge tone={statusTone(r.profileStatus)}>{STATUS_LABELS[r.profileStatus] ?? r.profileStatus}</Badge>
+                  </Td>
+                  <Td>{new Date(r.registration.created_at).toLocaleDateString('en-IN')}</Td>
+                  <Td>{r.assignedToName ?? <span style={{ color: '#94A3B8' }}>Unassigned</span>}</Td>
+                </tr>
+              ))}
+            </tbody>
+          </Table>
+        )}
+      </SectionCard>
     </div>
   )
 }

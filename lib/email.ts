@@ -897,3 +897,37 @@ export async function sendTokenMissingAlert(to: string, customerName: string, am
     `Market opens at 9:15 AM IST.`
   return sendViaResend(to, subject, text, undefined, amEmail ? [amEmail] : undefined)
 }
+
+// ── Phase 6 — Admin/Account Manager dashboard emails ──
+// Same fire-and-forget deliver() pattern as the Phase 3 emails above, except
+// sendCustomerReassigned() which needs a CC recipient (the old AM) and so
+// goes through sendViaResend() directly, same as sendTokenMissingAlert().
+
+export async function sendAccountManagerWelcome(to: string, name: string): Promise<void> {
+  const subject = 'Welcome to DAlgo — set your password'
+  const text =
+    `You have been added as an Account Manager on DAlgo.\n` +
+    `Log in at www.dalgo.online with your email and temporary password: DAlgo@2026! ` +
+    `— please change this immediately.`
+  await deliver(to, subject, text)
+}
+
+export async function sendStrategyUpdated(to: string, strategyName: string): Promise<void> {
+  const subject = `Your ${strategyName} strategy has been updated by DAlgo`
+  const text =
+    `Your ${strategyName} strategy parameters have been updated by the DAlgo platform team. ` +
+    `Please review in your Strategies page within 48 hours.`
+  await deliver(to, subject, text)
+}
+
+export async function sendCustomerReassigned(
+  newAmEmail: string,
+  customerName: string,
+  oldAmEmail?: string
+): Promise<EmailResult> {
+  const subject = `Customer ${customerName} has been assigned to you`
+  const text =
+    `Customer ${customerName} has been reassigned to you as their Account Manager.\n` +
+    `Log in at www.dalgo.online/manager/customers to view their details.`
+  return sendViaResend(newAmEmail, subject, text, undefined, oldAmEmail ? [oldAmEmail] : undefined)
+}
