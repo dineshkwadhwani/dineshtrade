@@ -1,0 +1,608 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>DAlgo.online — Trade Smarter. Automate Faster.</title>
+<meta name="description" content="India's AI-powered algorithmic trading platform. Build, backtest and deploy NSE strategies on Zerodha, Upstox, Angel One. No coding required.">
+<meta name="keywords" content="algorithmic trading india, algo trading software, zerodha algo, automated trading nse, trading bot india, backtesting platform india">
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600&family=Sora:wght@400;600;700&display=swap" rel="stylesheet">
+<style>
+:root {
+  --blue: #3B82F6;
+  --blue-dark: #1D4ED8;
+  --blue-light: #BFDBFE;
+  --teal: #0EA5B8;
+  --amber: #F59E0B;
+  --amber-light: #B45309;
+  --green: #16A34A;
+  --green-dark: #166534;
+  --red: #DC2626;
+  --bg: #F8FAFF;
+  --bg2: #EFF6FF;
+  --bg3: #DBEAFE;
+  --card: #FFFFFF;
+  --border: rgba(59,130,246,0.15);
+  --text: #1E3A8A;
+  --muted: #475569;
+  --subtle: #94A3B8;
+  --radius: 12px;
+}
+*{box-sizing:border-box;margin:0;padding:0}
+html{scroll-behavior:smooth}
+body{font-family:'Inter',sans-serif;background:var(--bg);color:var(--text);line-height:1.6;overflow-x:hidden}
+h1,h2,h3,h4{font-family:'Sora',sans-serif;line-height:1.2}
+a{color:inherit;text-decoration:none}
+img{max-width:100%}
+
+/* NAV */
+nav{position:sticky;top:0;z-index:100;background:rgba(248,250,255,0.95);backdrop-filter:blur(12px);border-bottom:0.5px solid var(--border);padding:0 5vw;display:flex;align-items:center;justify-content:space-between;height:60px}
+.nav-logo{font-family:'Sora',sans-serif;font-size:22px;font-weight:700;color:#1E3A8A;letter-spacing:-0.02em}
+.nav-logo span{color:var(--amber)}
+.nav-links{display:flex;gap:28px;align-items:center}
+.nav-links a{font-size:13px;color:#475569;transition:color 0.2s}
+.nav-links a:hover{color:#1E3A8A}
+.nav-cta{background:var(--blue);color:#fff;padding:8px 20px;border-radius:8px;font-size:13px;font-weight:500;transition:background 0.2s}
+.nav-cta:hover{background:var(--blue-dark)}
+.nav-menu{display:none;flex-direction:column;gap:4px;cursor:pointer;padding:4px}
+.nav-menu span{display:block;width:20px;height:2px;background:#475569;border-radius:2px}
+
+/* HERO */
+.hero{min-height:92vh;display:flex;align-items:center;padding:80px 5vw 60px;position:relative;overflow:hidden;background:linear-gradient(135deg,#EFF6FF 0%,#F8FAFF 60%,#E0F2FE 100%)}
+.hero-content{position:relative;z-index:2;max-width:600px}
+.hero-badge{display:inline-flex;align-items:center;gap:8px;background:rgba(59,130,246,0.08);border:0.5px solid rgba(59,130,246,0.25);border-radius:20px;padding:5px 14px;font-size:12px;color:#1D4ED8;margin-bottom:24px}
+.hero-badge-dot{width:6px;height:6px;border-radius:50%;background:var(--green);animation:pulse 2s infinite}
+@keyframes pulse{0%,100%{opacity:1}50%{opacity:0.4}}
+.hero h1{font-size:clamp(36px,5.5vw,64px);font-weight:700;color:#1E3A8A;margin-bottom:8px;letter-spacing:-0.02em}
+.hero h1 em{color:var(--blue);font-style:normal}
+.hero-sub{font-size:clamp(16px,2vw,20px);color:#334155;margin-bottom:32px;max-width:520px;line-height:1.6}
+.hero-sub strong{color:var(--amber-light);font-weight:500}
+.hero-btns{display:flex;gap:12px;flex-wrap:wrap}
+.btn-primary{background:var(--blue);color:#fff;padding:13px 28px;border-radius:10px;font-size:15px;font-weight:600;display:inline-flex;align-items:center;gap:8px;transition:background 0.2s;font-family:'Inter',sans-serif}
+.btn-primary:hover{background:var(--blue-dark)}
+.btn-secondary{background:#fff;color:#1D4ED8;padding:13px 28px;border-radius:10px;font-size:15px;font-weight:500;border:0.5px solid #BFDBFE;display:inline-flex;align-items:center;gap:8px;transition:border-color 0.2s}
+.btn-secondary:hover{border-color:var(--blue)}
+.hero-trust{display:flex;gap:24px;margin-top:40px;flex-wrap:wrap}
+.trust-item{display:flex;align-items:center;gap:6px;font-size:12px;color:#475569}
+.trust-icon{color:var(--green)}
+
+/* CHART BG */
+.hero-visual{position:absolute;right:-40px;top:50%;transform:translateY(-50%);width:min(560px,55vw);opacity:0.8;z-index:1;pointer-events:none}
+.chart-svg{width:100%;height:auto}
+
+/* STATS BAR */
+.stats-bar{background:#1E3A8A;border-top:none;border-bottom:none;padding:24px 5vw;display:grid;grid-template-columns:repeat(4,1fr);gap:16px}
+.stat-item{text-align:center}
+.stat-num{font-family:'Sora',sans-serif;font-size:clamp(22px,3vw,32px);font-weight:700;color:#fff}
+.stat-num.blue{color:var(--blue)}
+.stat-num.green{color:var(--green)}
+.stat-num.amber{color:var(--amber)}
+.stat-lbl{font-size:12px;color:rgba(255,255,255,0.6);margin-top:2px}
+
+/* SECTIONS */
+section{padding:80px 5vw}
+.section-badge{display:inline-block;background:rgba(59,130,246,0.1);border:0.5px solid rgba(59,130,246,0.25);border-radius:20px;padding:4px 14px;font-size:12px;color:var(--blue-light);margin-bottom:16px;letter-spacing:0.04em;text-transform:uppercase}
+.section-head{text-align:center;margin-bottom:56px}
+.section-head h2{font-size:clamp(28px,4vw,44px);font-weight:700;color:#1E3A8A;margin-bottom:12px;letter-spacing:-0.01em}
+.section-head p{font-size:16px;color:#475569;max-width:520px;margin:0 auto}
+
+/* PROBLEM-SOLUTION */
+.ps-grid{display:grid;grid-template-columns:1fr 1fr;gap:24px}
+.ps-card{border-radius:var(--radius);padding:32px;border:0.5px solid transparent}
+.ps-card.problem{background:rgba(239,68,68,0.06);border-color:rgba(239,68,68,0.2)}
+.ps-card.solution{background:rgba(34,197,94,0.06);border-color:rgba(34,197,94,0.2)}
+.ps-icon{font-size:28px;margin-bottom:16px}
+.ps-card h3{font-size:20px;font-weight:600;margin-bottom:12px}
+.ps-card.problem h3{color:#FCA5A5}
+.ps-card.solution h3{color:#86EFAC}
+.ps-list{list-style:none;display:flex;flex-direction:column;gap:10px}
+.ps-list li{font-size:14px;color:var(--muted);display:flex;align-items:flex-start;gap:10px}
+.ps-list li span{flex-shrink:0;margin-top:2px}
+
+/* FEATURES */
+.features-grid{display:grid;grid-template-columns:repeat(3,1fr);gap:20px}
+.feat-card{background:#fff;border:0.5px solid #BFDBFE;border-radius:var(--radius);padding:28px;transition:border-color 0.2s;box-shadow:0 1px 4px rgba(59,130,246,0.06)}
+.feat-card:hover{border-color:#3B82F6}
+.feat-icon{width:44px;height:44px;border-radius:10px;display:flex;align-items:center;justify-content:center;margin-bottom:18px;font-size:20px}
+.feat-icon.blue{background:rgba(59,130,246,0.15)}
+.feat-icon.teal{background:rgba(125,216,224,0.15)}
+.feat-icon.amber{background:rgba(245,158,11,0.15)}
+.feat-icon.green{background:rgba(34,197,94,0.15)}
+.feat-card h3{font-size:16px;font-weight:600;color:#1E3A8A;margin-bottom:8px}
+.feat-card p{font-size:13px;color:#475569;line-height:1.6}
+
+/* HOW IT WORKS */
+.how-bg{background:#EFF6FF}
+.steps-grid{display:grid;grid-template-columns:repeat(3,1fr);gap:32px;position:relative}
+.steps-grid::before{content:'';position:absolute;top:32px;left:17%;right:17%;height:0.5px;background:linear-gradient(90deg,transparent,#BFDBFE,#BFDBFE,transparent)}
+.step{text-align:center;position:relative}
+.step-num{width:64px;height:64px;border-radius:50%;border:2px solid var(--blue);display:flex;align-items:center;justify-content:center;font-family:'Sora',sans-serif;font-size:22px;font-weight:700;color:var(--blue);margin:0 auto 20px;background:#fff}
+.step h3{font-size:18px;font-weight:600;color:#1E3A8A;margin-bottom:8px}
+.step p{font-size:13px;color:#475569}
+
+/* PERFORMANCE */
+.perf-grid{display:grid;grid-template-columns:1fr 1fr;gap:32px;align-items:center}
+.perf-card{background:#fff;border:0.5px solid #BFDBFE;border-radius:var(--radius);padding:28px;box-shadow:0 1px 4px rgba(59,130,246,0.06)}
+.perf-row{display:flex;justify-content:space-between;align-items:center;padding:12px 0;border-bottom:0.5px solid #EFF6FF}
+.perf-row:last-child{border-bottom:none}
+.perf-label{font-size:13px;color:#475569}
+.perf-val{font-size:15px;font-weight:600}
+.perf-val.green{color:var(--green)}
+.perf-val.blue{color:var(--blue)}
+.perf-val.amber{color:var(--amber)}
+.perf-content h2{font-size:clamp(26px,3.5vw,38px);font-weight:700;color:#1E3A8A;margin-bottom:16px;letter-spacing:-0.01em}
+.perf-content p{font-size:15px;color:#334155;margin-bottom:20px;line-height:1.7}
+.perf-disclaimer{font-size:11px;color:#94A3B8;margin-top:16px;line-height:1.5;padding:12px;background:#F8FAFF;border-radius:8px;border:0.5px solid #BFDBFE}
+
+/* BROKERS */
+.brokers-bg{background:#EFF6FF}
+.broker-logos{display:flex;gap:20px;justify-content:center;flex-wrap:wrap;margin-top:40px}
+.broker-pill{background:#fff;border:0.5px solid #BFDBFE;border-radius:10px;padding:12px 24px;font-size:14px;font-weight:500;color:#1D4ED8;display:flex;align-items:center;gap:10px}
+.broker-dot{width:8px;height:8px;border-radius:50%}
+
+
+
+/* FAQ */
+.faq-bg{background:#F8FAFF}
+.faq-grid{display:grid;grid-template-columns:1fr 1fr;gap:16px;max-width:860px;margin:0 auto}
+.faq-item{background:#fff;border:0.5px solid #BFDBFE;border-radius:var(--radius);padding:24px;box-shadow:0 1px 3px rgba(59,130,246,0.05)}
+.faq-item h4{font-size:14px;font-weight:600;color:#1E3A8A;margin-bottom:8px}
+.faq-item p{font-size:13px;color:#475569;line-height:1.6}
+
+/* FINAL CTA */
+.cta-section{text-align:center;padding:100px 5vw;background:linear-gradient(135deg,#EFF6FF,#F8FAFF)}
+.cta-section h2{font-size:clamp(28px,4.5vw,52px);font-weight:700;color:#1E3A8A;margin-bottom:16px;letter-spacing:-0.02em}
+.cta-section h2 em{color:var(--blue);font-style:normal}
+.cta-section p{font-size:16px;color:#475569;margin-bottom:36px;max-width:480px;margin-left:auto;margin-right:auto}
+.cta-small{font-size:12px;color:#94A3B8;margin-top:16px}
+
+/* FOOTER */
+footer{background:#1E3A8A;border-top:0.5px solid rgba(255,255,255,0.1);padding:60px 5vw 32px}
+.footer-grid{display:grid;grid-template-columns:2fr 1fr 1fr 1fr;gap:40px;margin-bottom:48px}
+.footer-brand p{font-size:13px;color:rgba(255,255,255,0.7);margin-top:12px;line-height:1.7;max-width:260px}
+.footer-col h5{font-size:12px;font-weight:600;color:rgba(255,255,255,0.5);text-transform:uppercase;letter-spacing:0.08em;margin-bottom:16px}
+.footer-col ul{list-style:none;display:flex;flex-direction:column;gap:10px}
+.footer-col ul li a{font-size:13px;color:rgba(255,255,255,0.7);transition:color 0.2s}
+.footer-col ul li a:hover{color:#fff}
+.footer-bottom{display:flex;align-items:center;justify-content:space-between;padding-top:24px;border-top:0.5px solid rgba(255,255,255,0.1);flex-wrap:gap;gap:16px}
+.footer-copy{font-size:12px;color:rgba(255,255,255,0.4)}
+.footer-legal{display:flex;gap:20px;flex-wrap:wrap}
+.footer-legal a{font-size:12px;color:rgba(255,255,255,0.4);transition:color 0.2s}
+.footer-legal a:hover{color:rgba(255,255,255,0.8)}
+.footer-reg{font-size:11px;color:rgba(255,255,255,0.4);margin-top:16px;line-height:1.6;padding:16px;background:rgba(255,255,255,0.04);border-radius:8px;border:0.5px solid rgba(255,255,255,0.1)}
+
+/* RESPONSIVE */
+@media(max-width:768px){
+  .nav-links{display:none}
+  .nav-menu{display:flex}
+  .hero-visual{display:none}
+  .hero-content{max-width:100%}
+  .stats-bar{grid-template-columns:repeat(2,1fr)}
+  .ps-grid,.features-grid,.steps-grid,.perf-grid,.faq-grid,.footer-grid{grid-template-columns:1fr}
+  .steps-grid::before{display:none}
+  section{padding:60px 5vw}
+}
+</style>
+</head>
+<body>
+
+<!-- NAV -->
+<nav>
+  <a href="/" class="nav-logo">D<span>A</span>lgo</a>
+  <div class="nav-links">
+    <a href="#features">Features</a>
+    <a href="#how">How it works</a>
+    <a href="#performance">Performance</a>
+
+    <a href="#faq">FAQ</a>
+  </div>
+  <div style="display:flex;gap:12px;align-items:center">
+    <a href="/login" style="font-size:13px;color:var(--muted)">Sign in</a>
+    <a href="/register" class="nav-cta">Start free</a>
+  </div>
+  <div class="nav-menu" aria-label="Menu">
+    <span></span><span></span><span></span>
+  </div>
+</nav>
+
+<!-- HERO -->
+<section class="hero">
+  <div class="hero-content">
+    <div class="hero-badge">
+      <span class="hero-badge-dot"></span>
+      Now live on NSE · Zerodha · Upstox · Angel One
+    </div>
+    <h1>Trade Smarter.<br><em>Automate Faster.</em></h1>
+    <p class="hero-sub">
+      Build, backtest, and deploy trading strategies on NSE.<br>
+      Connect your broker in 2 minutes. <strong>No coding required.</strong>
+    </p>
+    <div class="hero-btns">
+      <a href="/register" class="btn-primary">
+        &#9654; Start trading free
+      </a>
+      <a href="#how" class="btn-secondary">
+        See how it works
+      </a>
+    </div>
+    <div class="hero-trust">
+      <div class="trust-item">
+        <span class="trust-icon">&#10003;</span>
+        Bank-grade encryption
+      </div>
+      <div class="trust-item">
+        <span class="trust-icon">&#10003;</span>
+        We never hold your funds
+      </div>
+      <div class="trust-item">
+        <span class="trust-icon">&#10003;</span>
+        Your API keys are yours
+      </div>
+    </div>
+  </div>
+
+  <!-- Animated candlestick background -->
+  <div class="hero-visual">
+    <svg class="chart-svg" viewBox="0 0 560 380" xmlns="http://www.w3.org/2000/svg">
+      <defs>
+        <linearGradient id="chartGrad" x1="0" y1="0" x2="0" y2="1">
+          <stop offset="0%" stop-color="#3B82F6" stop-opacity="0.15"/>
+          <stop offset="100%" stop-color="#3B82F6" stop-opacity="0"/>
+        </linearGradient>
+      </defs>
+      <!-- Grid lines -->
+      <line x1="40" y1="60" x2="540" y2="60" stroke="#BFDBFE" stroke-opacity="0.8" stroke-width="0.5"/>
+      <line x1="40" y1="120" x2="540" y2="120" stroke="#BFDBFE" stroke-opacity="0.8" stroke-width="0.5"/>
+      <line x1="40" y1="180" x2="540" y2="180" stroke="#BFDBFE" stroke-opacity="0.8" stroke-width="0.5"/>
+      <line x1="40" y1="240" x2="540" y2="240" stroke="#BFDBFE" stroke-opacity="0.8" stroke-width="0.5"/>
+      <line x1="40" y1="300" x2="540" y2="300" stroke="#BFDBFE" stroke-opacity="0.8" stroke-width="0.5"/>
+      <!-- Area fill under line -->
+      <path d="M60,280 L100,240 L140,220 L180,200 L220,210 L260,170 L300,150 L340,130 L380,110 L420,90 L460,75 L500,60 L500,360 L60,360 Z" fill="url(#chartGrad)"/>
+      <!-- Price line -->
+      <polyline points="60,280 100,240 140,220 180,200 220,210 260,170 300,150 340,130 380,110 420,90 460,75 500,60" fill="none" stroke="#3B82F6" stroke-width="2"/>
+      <!-- Candles — green -->
+      <line x1="70" y1="270" x2="70" y2="295" stroke="#22C55E" stroke-width="1"/>
+      <rect x="64" y="270" width="12" height="18" rx="1" fill="#22C55E" fill-opacity="0.8"/>
+      <line x1="110" y1="228" x2="110" y2="255" stroke="#22C55E" stroke-width="1"/>
+      <rect x="104" y="230" width="12" height="18" rx="1" fill="#22C55E" fill-opacity="0.8"/>
+      <line x1="150" y1="212" x2="150" y2="235" stroke="#22C55E" stroke-width="1"/>
+      <rect x="144" y="214" width="12" height="16" rx="1" fill="#22C55E" fill-opacity="0.8"/>
+      <line x1="270" y1="162" x2="270" y2="185" stroke="#22C55E" stroke-width="1"/>
+      <rect x="264" y="164" width="12" height="16" rx="1" fill="#22C55E" fill-opacity="0.8"/>
+      <line x1="310" y1="142" x2="310" y2="165" stroke="#22C55E" stroke-width="1"/>
+      <rect x="304" y="144" width="12" height="15" rx="1" fill="#22C55E" fill-opacity="0.8"/>
+      <line x1="350" y1="122" x2="350" y2="145" stroke="#22C55E" stroke-width="1"/>
+      <rect x="344" y="124" width="12" height="15" rx="1" fill="#22C55E" fill-opacity="0.8"/>
+      <line x1="430" y1="82" x2="430" y2="105" stroke="#22C55E" stroke-width="1"/>
+      <rect x="424" y="84" width="12" height="14" rx="1" fill="#22C55E" fill-opacity="0.8"/>
+      <!-- Candles — red -->
+      <line x1="190" y1="193" x2="190" y2="218" stroke="#EF4444" stroke-width="1"/>
+      <rect x="184" y="196" width="12" height="16" rx="1" fill="#EF4444" fill-opacity="0.8"/>
+      <line x1="230" y1="204" x2="230" y2="225" stroke="#EF4444" stroke-width="1"/>
+      <rect x="224" y="206" width="12" height="15" rx="1" fill="#EF4444" fill-opacity="0.8"/>
+      <line x1="390" y1="103" x2="390" y2="124" stroke="#EF4444" stroke-width="1"/>
+      <rect x="384" y="106" width="12" height="14" rx="1" fill="#EF4444" fill-opacity="0.8"/>
+      <!-- BUY signal -->
+      <circle cx="260" cy="200" r="14" fill="rgba(34,197,94,0.15)" stroke="#22C55E" stroke-width="1"/>
+      <text x="260" y="205" text-anchor="middle" font-size="10" fill="#22C55E" font-family="Inter">BUY</text>
+      <!-- SELL signal -->
+      <circle cx="460" cy="65" r="14" fill="rgba(239,68,68,0.15)" stroke="#EF4444" stroke-width="1"/>
+      <text x="460" y="70" text-anchor="middle" font-size="10" fill="#EF4444" font-family="Inter">SELL</text>
+      <!-- Profit label -->
+      <rect x="370" y="30" width="100" height="24" rx="6" fill="rgba(34,197,94,0.12)" stroke="rgba(34,197,94,0.3)" stroke-width="0.5"/>
+      <text x="420" y="46" text-anchor="middle" font-size="12" fill="#22C55E" font-family="Inter,sans-serif">+2.1% this month</text>
+      <!-- Y-axis labels -->
+      <text x="30" y="64" text-anchor="end" font-size="10" fill="#475569" font-family="Inter">2450</text>
+      <text x="30" y="124" text-anchor="end" font-size="10" fill="#475569" font-family="Inter">2380</text>
+      <text x="30" y="184" text-anchor="end" font-size="10" fill="#475569" font-family="Inter">2310</text>
+      <text x="30" y="244" text-anchor="end" font-size="10" fill="#475569" font-family="Inter">2240</text>
+      <text x="30" y="304" text-anchor="end" font-size="10" fill="#475569" font-family="Inter">2170</text>
+    </svg>
+  </div>
+</section>
+
+<!-- STATS BAR -->
+<div class="stats-bar">
+  <div class="stat-item">
+    <div class="stat-num green">~2%</div>
+    <div class="stat-lbl">Avg monthly returns</div>
+  </div>
+  <div class="stat-item">
+    <div class="stat-num blue">94%+</div>
+    <div class="stat-lbl">Win rate in peak years</div>
+  </div>
+  <div class="stat-item">
+    <div class="stat-num amber">0</div>
+    <div class="stat-lbl">Emotional trades</div>
+  </div>
+  <div class="stat-item">
+    <div class="stat-num" style="color:#fff">24/7</div>
+    <div class="stat-lbl">Engine runs while you sleep</div>
+  </div>
+</div>
+
+<!-- PROBLEM → SOLUTION -->
+<section id="why">
+  <div class="section-head">
+    <div class="section-badge">Why DAlgo</div>
+    <h2>Manual trading is broken.<br>Here's the fix.</h2>
+    <p>Every trade you make manually comes with baggage. DAlgo removes it entirely.</p>
+  </div>
+  <div class="ps-grid">
+    <div class="ps-card problem">
+      <div class="ps-icon">&#128532;</div>
+      <h3>Manual trading</h3>
+      <ul class="ps-list">
+        <li><span>&#10007;</span> Emotion drives entries and exits</li>
+        <li><span>&#10007;</span> Missed signals while you're busy</li>
+        <li><span>&#10007;</span> Panic selling at the worst moment</li>
+        <li><span>&#10007;</span> No discipline, no consistency</li>
+        <li><span>&#10007;</span> Watching charts at 2AM</li>
+      </ul>
+    </div>
+    <div class="ps-card solution">
+      <div class="ps-icon">&#9889;</div>
+      <h3>DAlgo automated trading</h3>
+      <ul class="ps-list">
+        <li><span>&#10003;</span> Rules-based execution, zero emotion</li>
+        <li><span>&#10003;</span> Engine runs every 3–5 minutes all day</li>
+        <li><span>&#10003;</span> Built-in panic sell detection</li>
+        <li><span>&#10003;</span> Consistent strategy, every single day</li>
+        <li><span>&#10003;</span> Sleep well. DAlgo doesn't.</li>
+      </ul>
+    </div>
+  </div>
+</section>
+
+<!-- FEATURES -->
+<section id="features" style="background:var(--bg2)">
+  <div class="section-head">
+    <div class="section-badge">Features</div>
+    <h2>Everything you need.<br>Nothing you don't.</h2>
+    <p>Built for Indian markets. Designed for retail traders who want institutional discipline.</p>
+  </div>
+  <div class="features-grid">
+    <div class="feat-card">
+      <div class="feat-icon blue">&#127922;</div>
+      <h3>Three proven strategies</h3>
+      <p>Dip buying (Accumulator), intraday momentum (Catalyst), and breakout (Pivotal). Each with configurable entry, exit and capital rules. Copy a template, tune the parameters.</p>
+    </div>
+    <div class="feat-card">
+      <div class="feat-icon green">&#128200;</div>
+      <h3>Live backtesting</h3>
+      <p>Test your strategy against real NSE historical data. See P&L, win rate, drawdown, and per-trade breakdown instantly. Know it works before it goes live.</p>
+    </div>
+    <div class="feat-card">
+      <div class="feat-icon teal">&#128279;</div>
+      <h3>One-click broker connect</h3>
+      <p>Connect Zerodha, Upstox, or Angel One in 2 minutes. Enter your API key and the engine handles the rest. Your credentials never leave your control.</p>
+    </div>
+    <div class="feat-card">
+      <div class="feat-icon amber">&#128737;</div>
+      <h3>Built-in risk management</h3>
+      <p>Panic sell detection, falling knife guard, intraday circuit breaker, per-trade capital cap, daily buy/sell limits. Your capital is protected at every step.</p>
+    </div>
+    <div class="feat-card">
+      <div class="feat-icon blue">&#128248;</div>
+      <h3>No-loss auto mode</h3>
+      <p>The engine never sells below your average cost in auto mode. Every exit is evaluated against estimated net P&L after charges. Hold until profitable.</p>
+    </div>
+    <div class="feat-card">
+      <div class="feat-icon green">&#128203;</div>
+      <h3>Full trade journal</h3>
+      <p>Every order, every signal, every skip — logged with strategy attribution. Download monthly reports. Know exactly why every trade happened.</p>
+    </div>
+  </div>
+</section>
+
+<!-- HOW IT WORKS -->
+<section id="how" class="how-bg">
+  <div class="section-head">
+    <div class="section-badge">How it works</div>
+    <h2>From signup to live trading<br>in under 10 minutes.</h2>
+    <p>No technical expertise required. If you can use a smartphone, you can use DAlgo.</p>
+  </div>
+  <div class="steps-grid">
+    <div class="step">
+      <div class="step-num">1</div>
+      <h3>Register and verify</h3>
+      <p>Create your account. Complete a quick KYC. Our team reviews and activates your account — usually within 24 hours.</p>
+    </div>
+    <div class="step">
+      <div class="step-num">2</div>
+      <h3>Connect your broker</h3>
+      <p>Enter your Zerodha, Upstox, or Angel One API key. The engine connects to your account. You keep full control at all times.</p>
+    </div>
+    <div class="step">
+      <div class="step-num">3</div>
+      <h3>Enable strategies and go</h3>
+      <p>Pick your strategies, set your capital rules, switch to Auto mode. DAlgo scans the market every few minutes and places orders on your behalf.</p>
+    </div>
+  </div>
+</section>
+
+<!-- PERFORMANCE -->
+<section id="performance">
+  <div class="section-head">
+    <div class="section-badge">Track record</div>
+    <h2>Real numbers. Real trades.</h2>
+    <p>These are verified P&L figures from live accounts over 6 years of NSE equity trading.</p>
+  </div>
+  <div class="perf-grid">
+    <div class="perf-card">
+      <div class="perf-row">
+        <span class="perf-label">Total realised P&L (FY2020–2026)</span>
+        <span class="perf-val green">+₹59.3 Lakhs</span>
+      </div>
+      <div class="perf-row">
+        <span class="perf-label">Best year return on capital</span>
+        <span class="perf-val green">20.8%</span>
+      </div>
+      <div class="perf-row">
+        <span class="perf-label">Average monthly return</span>
+        <span class="perf-val green">~2%</span>
+      </div>
+      <div class="perf-row">
+        <span class="perf-label">Peak win rate</span>
+        <span class="perf-val blue">94–100%</span>
+      </div>
+      <div class="perf-row">
+        <span class="perf-label">Strategy</span>
+        <span class="perf-val amber">NSE cash equity, CNC only</span>
+      </div>
+      <div class="perf-row">
+        <span class="perf-label">Instruments traded</span>
+        <span class="perf-val" style="color:#fff">Blue-chip NSE only</span>
+      </div>
+    </div>
+    <div class="perf-content">
+      <h2>No F&O. No short selling.<br>No sleepless nights.</h2>
+      <p>DAlgo trades only NSE cash equity on delivery (CNC). No futures, no options, no leverage. Blue-chip stocks that always come back — bought on dips, sold at targets.</p>
+      <p>The engine applies the same rules every single day. No overrides, no gut calls, no panic. Just consistent, rules-based execution.</p>
+      <a href="/register" class="btn-primary" style="display:inline-flex">See your strategy's backtest &#8594;</a>
+      <div class="perf-disclaimer">
+        Past performance is not indicative of future results. All returns shown are from live trading accounts and are net of brokerage and applicable charges. Trading in equity markets involves risk of capital loss. DAlgo is a software platform and is not a SEBI-registered investment advisor. Please read our Risk Disclosure before trading.
+      </div>
+    </div>
+  </div>
+</section>
+
+<!-- BROKER INTEGRATIONS -->
+<section class="brokers-bg">
+  <div class="section-head">
+    <div class="section-badge">Integrations</div>
+    <h2>Works with your broker.</h2>
+    <p>Connect your existing broker account. We support all major NSE-connected brokers with live API access.</p>
+  </div>
+  <div class="broker-logos">
+    <div class="broker-pill">
+      <span class="broker-dot" style="background:#E8401C"></span>
+      Zerodha · Kite Connect
+    </div>
+    <div class="broker-pill">
+      <span class="broker-dot" style="background:#6633CC"></span>
+      Upstox · API v2
+    </div>
+    <div class="broker-pill">
+      <span class="broker-dot" style="background:#E8401C"></span>
+      Angel One · SmartAPI
+    </div>
+    <div class="broker-pill">
+      <span class="broker-dot" style="background:#0066CC"></span>
+      Alice Blue · Ant API
+    </div>
+    <div class="broker-pill">
+      <span class="broker-dot" style="background:#00C853"></span>
+      Dhan · HQ API
+    </div>
+  </div>
+  <p style="text-align:center;font-size:12px;color:var(--subtle);margin-top:20px">More brokers added regularly. Your broker not listed? <a href="/contact" style="color:#3B82F6">Let us know.</a></p>
+</section>
+
+
+<!-- FAQ -->
+<section id="faq" class="faq-bg">
+  <div class="section-head">
+    <div class="section-badge">FAQ</div>
+    <h2>Common questions answered.</h2>
+  </div>
+  <div class="faq-grid">
+    <div class="faq-item">
+      <h4>Is my money safe with DAlgo?</h4>
+      <p>We never hold your funds. All orders go directly from your broker account to NSE. DAlgo only has API access to place orders — your money stays in your Zerodha, Upstox, or Angel One account at all times.</p>
+    </div>
+    <div class="faq-item">
+      <h4>Do I need to know how to code?</h4>
+      <p>Not at all. DAlgo comes with three proven strategy templates. You pick one, set your capital rules, and the engine handles everything. If you do know Python, you can customise further.</p>
+    </div>
+    <div class="faq-item">
+      <h4>Will DAlgo ever sell at a loss?</h4>
+      <p>In auto mode, the engine never sells below your average cost unless you explicitly enable the end-of-day square-off feature. The no-loss rule is the foundation of how DAlgo works.</p>
+    </div>
+    <div class="faq-item">
+      <h4>What happens if the market crashes?</h4>
+      <p>DAlgo has a built-in circuit breaker. If Nifty drops more than a configured threshold, the engine pauses all new buys for the day. Panic sell detection also protects against catching falling knives.</p>
+    </div>
+    <div class="faq-item">
+      <h4>How is DAlgo different from a PMS or advisory?</h4>
+      <p>DAlgo is a software platform, not an investment advisor. We don't manage your money — we execute the strategies you configure. You are always in full control of every parameter and can switch to manual mode anytime.</p>
+    </div>
+    <div class="faq-item">
+      <h4>Which markets and segments does DAlgo support?</h4>
+      <p>Currently NSE cash equity (CNC delivery) only. No F&O, no intraday MIS, no BSE at launch. This is intentional — delivery-only trading is our core philosophy.</p>
+    </div>
+  </div>
+</section>
+
+<!-- FINAL CTA -->
+<section class="cta-section">
+  <h2>Stop trading with emotions.<br>Start trading with <em>DAlgo.</em></h2>
+  <p>Join traders who let rules — not feelings — drive their portfolio.</p>
+  <a href="/register" class="btn-primary" style="font-size:16px;padding:16px 40px">
+    Create your free account &#8594;
+  </a>
+  <div class="cta-small">No credit card required · Setup in under 10 minutes · Cancel anytime</div>
+</section>
+
+<!-- FOOTER -->
+<footer>
+  <div class="footer-grid">
+    <div class="footer-brand">
+      <div class="nav-logo" style="font-size:24px;color:#fff">D<span style="color:#F59E0B">A</span>lgo</div>
+      <p>India's AI-powered algorithmic trading platform. Rules-based, emotion-free, NSE equity trading for retail investors.</p>
+      <p style="margin-top:12px;font-size:12px;color:rgba(255,255,255,0.4)">
+        &#169; 2026 DAlgo Technologies Pvt. Ltd.<br>
+        All rights reserved.
+      </p>
+    </div>
+    <div class="footer-col">
+      <h5>Product</h5>
+      <ul>
+        <li><a href="#features">Features</a></li>
+        <li><a href="#how">How it works</a></li>
+
+        <li><a href="/backtest">Backtesting</a></li>
+        <li><a href="/changelog">Changelog</a></li>
+      </ul>
+    </div>
+    <div class="footer-col">
+      <h5>Company</h5>
+      <ul>
+        <li><a href="/about">About us</a></li>
+        <li><a href="/blog">Blog</a></li>
+        <li><a href="/careers">Careers</a></li>
+        <li><a href="/contact">Contact</a></li>
+        <li><a href="/press">Press kit</a></li>
+      </ul>
+    </div>
+    <div class="footer-col">
+      <h5>Support</h5>
+      <ul>
+        <li><a href="/docs">Documentation</a></li>
+        <li><a href="/faq">FAQ</a></li>
+        <li><a href="/status">System status</a></li>
+        <li><a href="mailto:support@dalgo.online">support@dalgo.online</a></li>
+      </ul>
+    </div>
+  </div>
+
+  <div class="footer-reg">
+    <strong style="color:var(--muted)">Risk Disclosure:</strong> Trading in equity markets involves substantial risk of loss and is not suitable for all investors. Past performance is not indicative of future results. DAlgo Technologies Pvt. Ltd. is a technology platform and is not registered as a stockbroker, sub-broker, or investment advisor with SEBI. DAlgo does not provide investment advice or recommendations. All trading decisions, strategies, and parameters are set by the user. Please consult a SEBI-registered investment advisor before making investment decisions. By using DAlgo, you confirm that you have read and understood our Terms of Service, Privacy Policy, and Risk Disclosure.
+  </div>
+
+  <div class="footer-bottom" style="margin-top:24px">
+    <div class="footer-copy" style="color:rgba(255,255,255,0.4)">Built with &#9829; for Indian retail traders</div>
+    <div class="footer-legal">
+      <a href="/privacy">Privacy policy</a>
+      <a href="/terms">Terms of service</a>
+      <a href="/risk">Risk disclosure</a>
+      <a href="/cookies">Cookie policy</a>
+      <a href="/refund">Refund policy</a>
+      <a href="/grievance">Grievance redressal</a>
+    </div>
+  </div>
+</footer>
+
+</body>
+</html>
