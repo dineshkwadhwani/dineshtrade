@@ -1,16 +1,29 @@
+import { getSession, getProfile } from '@/lib/dalgoAuth'
 import LoginClient from './LoginClient'
-import { getPasswordHint } from '@/lib/auth'
-import { isMarketOpen, getISTDateTime } from '@/lib/market'
-import { getSession } from '@/lib/auth'
-import { redirect } from 'next/navigation'
 
+// Server Component — safe to use lib/dalgoAuth.ts's getSession()/getProfile()
+// here (they use next/headers' cookies(), which works in Server Components /
+// Route Handlers, just not in middleware.ts — that's why Task 7 is separate).
+//
+// No redirect-by-role here: /admin, /manager, /sso don't exist as pages yet
+// (that's Task 7+ territory), so there is nowhere real to send an
+// already-logged-in user. If a valid session exists, the page just renders
+// LoginClient pre-populated with the profile so it shows the "signed in"
+// state instead of the form.
 export default async function LoginPage() {
   const session = await getSession()
-  if (session) redirect('/dashboard')
+  const profile = session ? await getProfile() : null
 
-  const hint = getPasswordHint()
-  const market = isMarketOpen()
-  const datetime = getISTDateTime()
-
-  return <LoginClient hint={hint} market={market} datetime={datetime} />
+  return (
+    <>
+      {/* Scoped to this page only — not touching app/globals.css or
+          app/layout.tsx. Next.js hoists <link> tags rendered anywhere in the
+          component tree into <head> automatically. */}
+      <link
+        rel="stylesheet"
+        href="https://fonts.googleapis.com/css2?family=Sora:wght@600;700&family=Inter:wght@400;500&display=swap"
+      />
+      <LoginClient initialProfile={profile} />
+    </>
+  )
 }

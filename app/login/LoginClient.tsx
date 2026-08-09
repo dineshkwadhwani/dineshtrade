@@ -1,187 +1,218 @@
 'use client'
-import { useState, useEffect } from 'react'
-import { useRouter } from 'next/navigation'
+import { useEffect, useState } from 'react'
+import type { Profile, ProfileRole } from '@/lib/dalgoAuth'
 
 interface Props {
-  hint: { date: string; time: string; hint: string }
-  market: { open: boolean; status: string }
-  datetime: { date: string; time: string; dayName: string }
+  initialProfile: Profile | null
 }
 
-const TICKER_STOCKS = [
-  { sym: 'BAJFINANCE', val: '910.45', up: true },
-  { sym: 'RELIANCE',   val: '1,421.30', up: true },
-  { sym: 'ICICIBANK',  val: '1,232.10', up: false },
-  { sym: 'HDFCBANK',   val: '752.80',  up: true },
-  { sym: 'TATASTEEL',  val: '338.90',  up: true },
-  { sym: 'BAJAJ-AUTO', val: '9,245.00', up: true },
-  { sym: 'TCS',        val: '3,421.50', up: false },
-  { sym: 'MARUTI',     val: '12,840.00', up: true },
-  { sym: 'SBIN',       val: '815.40',  up: true },
-  { sym: 'INFY',       val: '1,161.25', up: false },
-]
+const DISCLAIMER =
+  'DAlgo is a software platform that enables automated trading. We are not a ' +
+  'SEBI-registered investment advisor. All trading decisions are yours.'
 
-export default function LoginClient({ hint, market, datetime }: Props) {
+// Plain font-family stacks — the page loads Sora/Inter via a scoped <link>
+// tag (see page.tsx), not next/font, so there's no CSS custom property to
+// reference here.
+const FONT_SORA = "'Sora', sans-serif"
+const FONT_INTER = "'Inter', sans-serif"
+
+// Duplicated from app/api/dalgo/auth/route.ts's REDIRECT_BY_ROLE on purpose:
+// that map lives in a server route file (imports next/server types), which
+// isn't something a client component should pull in just to reuse a 4-line
+// object. Kept in sync by hand — small enough that this is the pragmatic
+// choice over a shared non-server module for just this one map.
+const REDIRECT_BY_ROLE: Record<ProfileRole, string> = {
+  superadmin: '/admin',
+  account_manager: '/manager',
+  broking_company: '/manager',
+  customer: '/sso',
+}
+
+function CardShell({ children }: { children: React.ReactNode }) {
+  return (
+    <div style={{ minHeight: '100vh', display: 'flex', background: '#F8FAFF' }}>
+      <div
+        className="hidden md:flex"
+        style={{
+          flex: 1,
+          flexDirection: 'column',
+          justifyContent: 'center',
+          padding: '64px',
+          background: 'linear-gradient(160deg, #1E3A8A 0%, #1D4ED8 100%)',
+          color: '#fff',
+        }}
+      >
+        <div style={{ fontFamily: FONT_SORA, fontWeight: 700, fontSize: 40, letterSpacing: '-0.02em' }}>
+          <span style={{ color: '#FFFFFF' }}>D</span>
+          <span style={{ color: '#F59E0B' }}>A</span>
+          <span style={{ color: '#FFFFFF' }}>lgo</span>
+        </div>
+        <p style={{ marginTop: 16, fontFamily: FONT_INTER, fontSize: 18, color: 'rgba(255,255,255,0.85)', maxWidth: 360 }}>
+          Trade Smarter. Automate Faster.
+        </p>
+      </div>
+
+      <div
+        className="flex-1 flex flex-col items-center justify-center"
+        style={{ padding: '32px', fontFamily: FONT_INTER }}
+      >
+        <div
+          style={{
+            width: '100%',
+            maxWidth: 400,
+            background: '#FFFFFF',
+            border: '1px solid #BFDBFE',
+            borderRadius: 16,
+            padding: 40,
+            boxShadow: '0 4px 24px rgba(30,58,138,0.06)',
+          }}
+        >
+          <div
+            className="md:hidden"
+            style={{ fontFamily: FONT_SORA, fontWeight: 700, fontSize: 26, marginBottom: 24, textAlign: 'center' }}
+          >
+            <span style={{ color: '#1E3A8A' }}>D</span>
+            <span style={{ color: '#F59E0B' }}>A</span>
+            <span style={{ color: '#1E3A8A' }}>lgo</span>
+          </div>
+          {children}
+          <p style={{ fontFamily: FONT_INTER, fontSize: 11, color: '#94A3B8', marginTop: 24, marginBottom: 0, lineHeight: 1.6 }}>
+            {DISCLAIMER}
+          </p>
+        </div>
+      </div>
+    </div>
+  )
+}
+
+export default function LoginClient({ initialProfile }: Props) {
+  const [email, setEmail] = useState('')
   const [password, setPassword] = useState('')
   const [error, setError] = useState('')
   const [loading, setLoading] = useState(false)
-  const [currentTime, setCurrentTime] = useState(datetime.time)
-  const router = useRouter()
 
-  // Live clock
+  // Already logged in when the page loaded (page.tsx's server-side
+  // getSession()/getProfile() found a valid session) — redirect immediately
+  // instead of showing the form. No dedicated "signed in" card anymore per
+  // your note; worst case is a brief flash of the form before navigation.
   useEffect(() => {
-    const t = setInterval(() => {
-      const now = new Date()
-      const ist = new Date(now.toLocaleString('en-US', { timeZone: 'Asia/Kolkata' }))
-      const hh = String(ist.getHours()).padStart(2,'0')
-      const mm = String(ist.getMinutes()).padStart(2,'0')
-      setCurrentTime(`${hh}:${mm} IST`)
-    }, 1000)
-    return () => clearInterval(t)
-  }, [])
+    if (initialProfile) {
+      window.location.href = REDIRECT_BY_ROLE[initialProfile.role]
+    }
+  }, [initialProfile])
 
-  async function handleLogin(e: React.FormEvent) {
+  async function handleSubmit(e: React.FormEvent) {
     e.preventDefault()
-    if (!password) return
-    setLoading(true)
     setError('')
+    setLoading(true)
     try {
-      const res = await fetch('/api/auth', {
+      const res = await fetch('/api/dalgo/auth', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ password })
+        body: JSON.stringify({ email, password }),
       })
-      if (res.ok) {
-        router.push('/dashboard')
-      } else {
-        setError('Invalid access code. Check the hint below.')
-        setPassword('')
+      const data = await res.json()
+      if (!res.ok) {
+        setError(data.error || 'Login failed. Please try again.')
+        setLoading(false)
+        return
       }
+      window.location.href = data.redirectTo
     } catch {
-      setError('Connection error. Try again.')
-    } finally {
+      setError('Connection error. Please try again.')
       setLoading(false)
     }
   }
 
-  const doubled = [...TICKER_STOCKS, ...TICKER_STOCKS]
-
   return (
-    <div className="min-h-screen flex flex-col overflow-hidden relative">
+    <CardShell>
+      <h1 style={{ fontFamily: FONT_SORA, fontWeight: 700, fontSize: 22, color: '#1E3A8A', margin: 0 }}>
+        Welcome back
+      </h1>
+      <p style={{ fontFamily: FONT_INTER, fontSize: 14, color: '#475569', marginTop: 6, marginBottom: 24 }}>
+        Log in to your DAlgo account.
+      </p>
 
-      {/* Radial blue glow */}
-      <div className="absolute inset-0 pointer-events-none">
-        <div className="absolute top-0 left-1/2 -translate-x-1/2 w-[600px] h-[400px] rounded-full"
-          style={{ background:'radial-gradient(ellipse, rgba(93,169,255,0.16) 0%, transparent 65%)' }} />
-        <div className="absolute bottom-0 right-0 w-[300px] h-[300px] rounded-full"
-          style={{ background:'radial-gradient(circle, rgba(93,169,255,0.08) 0%, transparent 65%)' }} />
-        {/* Dot pattern */}
-        <div className="absolute inset-0 opacity-40"
-          style={{ backgroundImage:'radial-gradient(circle, rgba(125,190,255,0.08) 1px, transparent 1px)', backgroundSize:'28px 28px' }} />
-      </div>
+      <form onSubmit={handleSubmit}>
+        <label
+          htmlFor="dalgo-login-email"
+          style={{ display: 'block', fontFamily: FONT_INTER, fontSize: 13, fontWeight: 500, color: '#1E3A8A', marginBottom: 6 }}
+        >
+          Email
+        </label>
+        <input
+          id="dalgo-login-email"
+          type="email"
+          required
+          autoComplete="email"
+          autoFocus
+          value={email}
+          onChange={e => { setEmail(e.target.value); setError('') }}
+          style={{
+            width: '100%',
+            padding: '10px 14px',
+            marginBottom: 16,
+            border: '1px solid #BFDBFE',
+            borderRadius: 8,
+            fontFamily: FONT_INTER,
+            fontSize: 14,
+            color: '#0F172A',
+            outline: 'none',
+          }}
+        />
 
-      {/* Main content */}
-      <div className="flex-1 flex flex-col items-center justify-center px-6 py-10 relative z-10">
+        <label
+          htmlFor="dalgo-login-password"
+          style={{ display: 'block', fontFamily: FONT_INTER, fontSize: 13, fontWeight: 500, color: '#1E3A8A', marginBottom: 6 }}
+        >
+          Password
+        </label>
+        <input
+          id="dalgo-login-password"
+          type="password"
+          required
+          autoComplete="current-password"
+          value={password}
+          onChange={e => { setPassword(e.target.value); setError('') }}
+          style={{
+            width: '100%',
+            padding: '10px 14px',
+            border: error ? '1px solid #EF4444' : '1px solid #BFDBFE',
+            borderRadius: 8,
+            fontFamily: FONT_INTER,
+            fontSize: 14,
+            color: '#0F172A',
+            outline: 'none',
+          }}
+        />
 
-        {/* Monogram */}
-        <div className="mb-1 animate-fade-up">
-          <div className="text-center">
-            <div className="font-serif text-[88px] leading-none tracking-tight accent-text select-none"
-              style={{ fontFamily:'Cormorant Garamond, Georgia, serif', fontWeight:300 }}>
-              DW
-            </div>
-            <div className="text-[9px] tracking-[0.45em] uppercase mt-[-6px]"
-              style={{ color:'rgba(147,208,255,0.68)', fontFamily:'Outfit, sans-serif' }}>
-              Dinesh Wadhwani
-            </div>
-          </div>
-        </div>
-
-        {/* Divider */}
-        <div className="w-12 h-px my-4 animate-fade-up"
-          style={{ background:'linear-gradient(90deg, transparent, #7fd1ff, transparent)', animationDelay:'0.1s' }} />
-
-        {/* Welcome */}
-        <div className="text-center mb-1 animate-fade-up" style={{ animationDelay:'0.15s' }}>
-          <p className="text-lg mb-[2px]"
-            style={{ fontFamily:'Cormorant Garamond, Georgia, serif', fontWeight:300 }}>
-            Welcome, <span style={{ color: 'var(--dt-accent-display)' }}>Dinesh</span>
+        {error && (
+          <p style={{ fontFamily: FONT_INTER, color: '#EF4444', fontSize: 13, marginTop: 10, marginBottom: 0 }}>
+            {error}
           </p>
-          <p className="text-[10px] tracking-widest uppercase mt-1"
-            style={{ color:'var(--dt-text-muted)', fontFamily:'JetBrains Mono, monospace' }}>
-            {datetime.dayName} · {hint.date} · {currentTime}
-          </p>
-        </div>
+        )}
 
-        {/* Market status */}
-        <div className="flex items-center gap-2 mt-2 mb-7 animate-fade-up" style={{ animationDelay:'0.2s' }}>
-          <span className={`w-[6px] h-[6px] rounded-full animate-pulse-dot ${market.open ? 'bg-[#52b788]' : 'bg-[#e05a5e]'}`} />
-          <span className={`text-[10px] tracking-widest uppercase ${market.open ? 'text-[#52b788]' : 'text-[#e05a5e]/70'}`}
-            style={{ fontFamily:'JetBrains Mono, monospace' }}>
-            NSE {market.status}
-          </span>
-        </div>
-
-        {/* Login form */}
-        <form onSubmit={handleLogin} className="w-full max-w-[360px] animate-fade-up" style={{ animationDelay:'0.25s' }}>
-          <p className="text-[9px] tracking-widest uppercase text-center mb-2"
-            style={{ color:'var(--dt-text-muted)', fontFamily:'JetBrains Mono, monospace' }}>
-            Access Code
-          </p>
-
-          <div className="dt-login-surface w-full rounded-xl mb-3">
-            <input
-              type="password"
-              value={password}
-              onChange={e => { setPassword(e.target.value); setError('') }}
-              placeholder="••••••••••"
-              className="dt-login-input w-full text-center text-[22px] tracking-[0.2em] py-4 px-4 rounded-xl transition-all duration-200"
-              style={{
-                border: error ? '1px solid rgba(224,90,94,0.5)' : undefined,
-                fontFamily:'JetBrains Mono, monospace',
-              }}
-              autoComplete="off"
-              inputMode="numeric"
-              maxLength={10}
-            />
-          </div>
-
-          {error && (
-            <p className="text-[#e05a5e] text-[11px] text-center mb-3 tracking-wide">{error}</p>
-          )}
-
-          <button
-            type="submit"
-            disabled={loading || password.length < 10}
-            className="w-full py-[17px] rounded-xl font-bold tracking-[0.2em] uppercase text-[12px] transition-all duration-200 disabled:opacity-40"
-            style={{
-              background: 'linear-gradient(135deg, #3aa8ff, #7fd1ff, #cceeff, #7fd1ff, #3aa8ff)',
-              backgroundSize: '300% 100%',
-              color: '#072749',
-              fontFamily:'Syne, Outfit, sans-serif',
-            }}>
-            {loading ? 'Verifying…' : 'Enter Trading Desk →'}
-          </button>
-        </form>
-      </div>
-
-      {/* Ticker strip */}
-      <div className="relative z-10 border-t py-3 overflow-hidden"
-        style={{ borderColor:'var(--dt-border)', background:'var(--dt-bg-nav)' }}>
-        <div className="flex animate-ticker whitespace-nowrap" style={{ width:'max-content' }}>
-          {doubled.map((s, i) => (
-            <span key={i} className="flex items-center gap-2 mx-4">
-              <span className="text-[9px] tracking-wider" style={{ color:'var(--dt-text-muted)', fontFamily:'JetBrains Mono, monospace' }}>
-                {s.sym}
-              </span>
-              <span className={`text-[11px] font-medium ${s.up ? 'text-[#52b788]' : 'text-[#e05a5e]'}`}
-                style={{ fontFamily:'JetBrains Mono, monospace' }}>
-                {s.up ? '▲' : '▼'} {s.val}
-              </span>
-            </span>
-          ))}
-        </div>
-      </div>
-    </div>
+        <button
+          type="submit"
+          disabled={loading}
+          style={{
+            width: '100%',
+            marginTop: 20,
+            padding: '12px 0',
+            background: '#3B82F6',
+            color: '#FFFFFF',
+            fontFamily: FONT_INTER,
+            fontWeight: 600,
+            fontSize: 14,
+            border: 'none',
+            borderRadius: 8,
+            cursor: loading ? 'not-allowed' : 'pointer',
+            opacity: loading ? 0.7 : 1,
+          }}
+        >
+          {loading ? 'Logging in…' : 'Log In'}
+        </button>
+      </form>
+    </CardShell>
   )
 }
