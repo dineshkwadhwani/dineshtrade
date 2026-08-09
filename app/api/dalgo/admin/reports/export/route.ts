@@ -2,6 +2,16 @@ import { NextRequest, NextResponse } from 'next/server'
 import { requireRole, AuthError } from '@/lib/dalgoAuth'
 import { getReportsRows } from '@/lib/dalgoAdmin'
 
+// A GET handler on a static path (no [param] segment) — Next's build tries
+// to statically render exactly this shape, calls requireRole() (which reads
+// the session cookie via lib/dalgoAuth.ts's getSession(), i.e. next/headers
+// cookies()), and throws its internal "Dynamic server usage" signal. Locally
+// that's caught by this file's own try/catch and just logged as a harmless
+// build-time note (the build still exits 0) — but was reported as an actual
+// EC2 build failure, so declaring force-dynamic here removes the implicit
+// static-render attempt (and the ambiguity around it) entirely.
+export const dynamic = 'force-dynamic'
+
 // GET /api/dalgo/admin/reports/export — Task 6.14.
 // SuperAdmin exports across all customers (optionally filtered); an Account
 // Manager's export is always forced to their own assigned customers,

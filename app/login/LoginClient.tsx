@@ -4,6 +4,7 @@ import type { Profile, ProfileRole } from '@/lib/dalgoAuth'
 
 interface Props {
   initialProfile: Profile | null
+  initialError?: string
 }
 
 const DISCLAIMER =
@@ -85,10 +86,10 @@ function CardShell({ children }: { children: React.ReactNode }) {
   )
 }
 
-export default function LoginClient({ initialProfile }: Props) {
+export default function LoginClient({ initialProfile, initialError }: Props) {
   const [email, setEmail] = useState('')
   const [password, setPassword] = useState('')
-  const [error, setError] = useState('')
+  const [error, setError] = useState(initialError ?? '')
   const [loading, setLoading] = useState(false)
 
   // Already logged in when the page loaded (page.tsx's server-side

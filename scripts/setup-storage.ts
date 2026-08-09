@@ -57,6 +57,11 @@ function log(msg: string): void {
 async function main(): Promise<void> {
   log('=== DAlgo KYC storage bucket setup ===\n')
 
+  // Suppresses dotenv's own promotional "tip" line — see the matching
+  // comment in scripts/migrate-to-supabase.ts for why DOTENV_CONFIG_QUIET
+  // (not DOTENV_CONFIG_DOTENV_TIPS, which doesn't exist in the package) is
+  // the flag that actually works.
+  process.env.DOTENV_CONFIG_QUIET = 'true'
   loadEnv({ path: resolve(process.cwd(), '.env.local') })
   const { getSupabaseAdmin } = await import('../lib/supabase')
   const admin = getSupabaseAdmin()

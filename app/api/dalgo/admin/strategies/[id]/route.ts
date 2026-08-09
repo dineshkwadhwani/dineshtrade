@@ -4,6 +4,15 @@ import { getSupabaseAdmin } from '@/lib/supabase'
 import { writeAuditLog } from '@/lib/audit'
 import { sendStrategyUpdated } from '@/lib/email'
 
+// Reads the session cookie via requireRole()/getSession() (lib/dalgoAuth.ts,
+// next/headers cookies()) on every request — force-dynamic makes that
+// explicit instead of relying on Next's implicit dynamic-usage detection,
+// which only fires (and only gets a chance to fall back gracefully) for
+// static-path GET routes probed during the build's static-generation pass;
+// this route is either a non-GET method or otherwise not guaranteed to hit
+// that same path, so making it explicit removes the ambiguity outright.
+export const dynamic = 'force-dynamic'
+
 // PUT /api/dalgo/admin/strategies/[id] — Task 6.9, spec §7.5.
 // SuperAdmin only. Edits a platform strategy template's params/exits/
 // gift_nifty_gate, then pushes the same values onto every customer's own

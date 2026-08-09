@@ -932,11 +932,15 @@ export async function sendTokenMissingAlert(to: string, customerName: string, am
 // sendCustomerReassigned() which needs a CC recipient (the old AM) and so
 // goes through sendViaResend() directly, same as sendTokenMissingAlert().
 
-export async function sendAccountManagerWelcome(to: string, name: string): Promise<void> {
+export async function sendAccountManagerWelcome(
+  to: string,
+  name: string,
+  tempPassword: string
+): Promise<void> {
   const subject = 'Welcome to DAlgo — set your password'
   const text =
     `You have been added as an Account Manager on DAlgo.\n` +
-    `Log in at www.dalgo.online with your email and temporary password: DAlgo@2026! ` +
+    `Log in at www.dalgo.online with your email and temporary password: ${tempPassword} ` +
     `— please change this immediately.`
   await deliver(to, subject, text)
 }

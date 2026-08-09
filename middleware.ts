@@ -52,6 +52,17 @@ const PUBLIC_EXACT = new Set([
   '/api/dalgo/contact', // public /contact page form submission — no session exists yet (Phase 7, Task 7.10)
   '/api/auth', // V1 auth route stays public too
   '/favicon.ico',
+  // /sso is the SSO-handoff landing page (Phase 8, Task 8's fix) — a
+  // customer arrives here straight from the main instance's login with a
+  // one-time token in the URL and, by definition, NO session cookie on this
+  // domain yet (establishing one is /sso's entire job). It was previously
+  // listed under ANY_AUTHENTICATED_EXACT below, which required a session
+  // cookie to already exist — that unconditionally bounced every real
+  // ?token=xxx request to plain /login (Step 2 below runs before role
+  // checks), so /sso could never actually be reached. Public here exactly
+  // like /api/dalgo/auth above; the page's own one-time-JWT validation
+  // (lib/dalgoAuth.ts validateSSOToken()) is the real gate, not middleware.
+  '/sso',
 ])
 const PUBLIC_PREFIXES = ['/_next', '/public']
 
@@ -78,8 +89,6 @@ const CUSTOMER_EXACT = new Set([
   '/skipped-orders',
 ])
 
-const ANY_AUTHENTICATED_EXACT = new Set(['/sso'])
-
 function isPublic(pathname: string): boolean {
   if (PUBLIC_EXACT.has(pathname)) return true
   return PUBLIC_PREFIXES.some(prefix => pathname.startsWith(prefix))
@@ -94,7 +103,6 @@ function requiredAccess(pathname: string): ProfileRole | 'any' | null {
   if (matchesPrefixRule(pathname, SUPERADMIN_PREFIXES)) return 'superadmin'
   if (matchesPrefixRule(pathname, ACCOUNT_MANAGER_PREFIXES)) return 'account_manager'
   if (CUSTOMER_EXACT.has(pathname)) return 'customer'
-  if (ANY_AUTHENTICATED_EXACT.has(pathname)) return 'any'
   if (pathname.startsWith('/api/')) return 'any' // per-route role checks happen inside each API route, not here
   return null
 }
@@ -143,8 +151,8 @@ export async function middleware(request: NextRequest) {
     return NextResponse.redirect(new URL('/login', request.url))
   }
 
-  // /sso and /api/* — any authenticated role is enough, no specific role
-  // check needed here.
+  // /api/* — any authenticated role is enough, no specific role check
+  // needed here (/sso moved to PUBLIC_EXACT above — it has no session yet).
   if (access === 'any') {
     return NextResponse.next()
   }

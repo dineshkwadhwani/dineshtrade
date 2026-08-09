@@ -331,3 +331,61 @@ export async function validateSSOToken(token: string): Promise<{ customerId: str
 
   return { customerId: payload.customerId }
 }
+
+// Turns a validated SSO handoff into a real Supabase session for that
+// customer, without knowing (or needing) their password.
+//
+// validateSSOToken() above only proves "the main instance really did just
+// authenticate this customerId" — it doesn't carry a Supabase session, since
+// the JWT it verifies is signed with SHARED_SSO_SECRET, not Supabase's own
+// GoTrue key. The customer instance's SESSION_COOKIE, per this file's header
+// comment and middleware.ts, MUST be a genuine Supabase Auth access token
+// (middleware verifies it via supabase.auth.getUser(), i.e. asks Supabase's
+// own Auth API) — so a self-signed token would simply be rejected there.
+//
+// The standard Supabase-native way to mint a session for a known user without
+// their password is admin.generateLink({type:'magiclink'}) (creates a
+// one-time email-verification token server-side, no email actually needs to
+// be sent) immediately redeemed via verifyOtp() using the anon client — this
+// returns a real session with a Supabase-issued access/refresh token pair.
+export async function completeSsoLogin(customerId: string): Promise<LoginResult> {
+  assertServer()
+
+  const admin = getSupabaseAdmin()
+  const { data: profile, error: profileError } = await admin
+    .from('profiles')
+    .select('id, role, status, full_name, email')
+    .eq('id', customerId)
+    .maybeSingle()
+
+  if (profileError || !profile) {
+    throw new AuthError('No profile exists for this customer.', 403)
+  }
+  if (profile.status !== 'active') {
+    throw new AuthError(`Account is not active (status: ${profile.status}).`, 403)
+  }
+
+  const { data: linkData, error: linkError } = await admin.auth.admin.generateLink({
+    type: 'magiclink',
+    email: profile.email,
+  })
+  if (linkError || !linkData?.properties?.hashed_token) {
+    throw new AuthError(`Failed to establish session: ${linkError?.message ?? 'no token returned'}`, 500)
+  }
+
+  const client = createEphemeralAnonClient() // same reasoning as login() above — throwaway client, not the shared singleton
+  const { data: verified, error: verifyError } = await client.auth.verifyOtp({
+    token_hash: linkData.properties.hashed_token,
+    type: 'magiclink',
+  })
+  if (verifyError || !verified.session) {
+    throw new AuthError(`Failed to establish session: ${verifyError?.message ?? 'no session returned'}`, 500)
+  }
+
+  return {
+    accessToken: verified.session.access_token,
+    refreshToken: verified.session.refresh_token,
+    expiresAt: verified.session.expires_at ?? 0,
+    profile: profile as Profile,
+  }
+}

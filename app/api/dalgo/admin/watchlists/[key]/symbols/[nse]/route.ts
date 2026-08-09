@@ -3,6 +3,15 @@ import { requireRole, AuthError } from '@/lib/dalgoAuth'
 import { getSupabaseAdmin } from '@/lib/supabase'
 import { writeAuditLog } from '@/lib/audit'
 
+// Reads the session cookie via requireRole()/getSession() (lib/dalgoAuth.ts,
+// next/headers cookies()) on every request — force-dynamic makes that
+// explicit instead of relying on Next's implicit dynamic-usage detection,
+// which only fires (and only gets a chance to fall back gracefully) for
+// static-path GET routes probed during the build's static-generation pass;
+// this route is either a non-GET method or otherwise not guaranteed to hit
+// that same path, so making it explicit removes the ambiguity outright.
+export const dynamic = 'force-dynamic'
+
 // DELETE /api/dalgo/admin/watchlists/[key]/symbols/[nse] — Task 6.15.
 // SuperAdmin only.
 export async function DELETE(_req: NextRequest, { params }: { params: { key: string; nse: string } }) {

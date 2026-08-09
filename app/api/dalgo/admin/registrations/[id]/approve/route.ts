@@ -4,6 +4,15 @@ import { getSupabaseAdmin } from '@/lib/supabase'
 import { writeAuditLog } from '@/lib/audit'
 import { sendIdentityApproved } from '@/lib/email'
 
+// Reads the session cookie via requireRole()/getSession() (lib/dalgoAuth.ts,
+// next/headers cookies()) on every request — force-dynamic makes that
+// explicit instead of relying on Next's implicit dynamic-usage detection,
+// which only fires (and only gets a chance to fall back gracefully) for
+// static-path GET routes probed during the build's static-generation pass;
+// this route is either a non-GET method or otherwise not guaranteed to hit
+// that same path, so making it explicit removes the ambiguity outright.
+export const dynamic = 'force-dynamic'
+
 // POST /api/dalgo/admin/registrations/[id]/approve — Task 6.3, spec §4.5
 // Step 1 approval. SuperAdmin can approve any registration; an Account
 // Manager can only approve one assigned to them (spec §3.1 access matrix:

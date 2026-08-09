@@ -136,6 +136,12 @@ interface SeedAccountResult {
 async function main(): Promise<void> {
   log(DRY_RUN ? '=== DAlgo migration — DRY RUN (no writes) ===\n' : '=== DAlgo migration ===\n')
 
+  // Suppresses dotenv's own promotional "tip" line (e.g. the vestauth ad
+  // surfaced during Phase 8's verification pass) — DOTENV_CONFIG_QUIET is
+  // the real flag dotenv@17 checks (node_modules/dotenv/lib/main.js); there
+  // is no DOTENV_CONFIG_DOTENV_TIPS var in the package, so that name would
+  // silently do nothing.
+  process.env.DOTENV_CONFIG_QUIET = 'true'
   loadEnv({ path: resolve(process.cwd(), '.env.local') })
   const { getSupabaseAdmin } = await import('../lib/supabase')
   const admin = getSupabaseAdmin()

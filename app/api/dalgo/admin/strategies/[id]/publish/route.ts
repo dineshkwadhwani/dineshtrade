@@ -3,6 +3,15 @@ import { requireRole, AuthError } from '@/lib/dalgoAuth'
 import { getSupabaseAdmin } from '@/lib/supabase'
 import { writeAuditLog } from '@/lib/audit'
 
+// Reads the session cookie via requireRole()/getSession() (lib/dalgoAuth.ts,
+// next/headers cookies()) on every request — force-dynamic makes that
+// explicit instead of relying on Next's implicit dynamic-usage detection,
+// which only fires (and only gets a chance to fall back gracefully) for
+// static-path GET routes probed during the build's static-generation pass;
+// this route is either a non-GET method or otherwise not guaranteed to hit
+// that same path, so making it explicit removes the ambiguity outright.
+export const dynamic = 'force-dynamic'
+
 // PUT /api/dalgo/admin/strategies/[id]/publish — Task 6.9. SuperAdmin only.
 // `[id]` is platform_strategies.id (a stable text id like "accumulator", not
 // a uuid). Unpublishing does NOT touch existing customer_strategies copies —

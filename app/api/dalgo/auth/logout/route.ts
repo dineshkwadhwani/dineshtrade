@@ -1,6 +1,15 @@
 import { NextResponse } from 'next/server'
 import { SESSION_COOKIE } from '@/lib/dalgoAuth'
 
+// Reads the session cookie via requireRole()/getSession() (lib/dalgoAuth.ts,
+// next/headers cookies()) on every request — force-dynamic makes that
+// explicit instead of relying on Next's implicit dynamic-usage detection,
+// which only fires (and only gets a chance to fall back gracefully) for
+// static-path GET routes probed during the build's static-generation pass;
+// this route is either a non-GET method or otherwise not guaranteed to hit
+// that same path, so making it explicit removes the ambiguity outright.
+export const dynamic = 'force-dynamic'
+
 // POST /api/dalgo/auth/logout — Task 6.1.
 // Clears the dalgo_access_token cookie and returns 200. Does not call
 // Supabase's own signOut() — the cookie IS the credential this app checks

@@ -10,9 +10,21 @@ import LoginClient from './LoginClient'
 // already-logged-in user. If a valid session exists, the page just renders
 // LoginClient pre-populated with the profile so it shows the "signed in"
 // state instead of the form.
-export default async function LoginPage() {
+export default async function LoginPage({
+  searchParams,
+}: {
+  searchParams: { error?: string }
+}) {
   const session = await getSession()
   const profile = session ? await getProfile() : null
+
+  // ?error=invalid_sso — bounced back here from app/sso/page.tsx (missing,
+  // invalid, expired, or already-used SSO token). Keyed by code, not a raw
+  // message, so a bad/forged query param can't be used to inject arbitrary
+  // text onto the login page.
+  const initialError = searchParams.error === 'invalid_sso'
+    ? 'Your sign-in link has expired or was already used. Please log in again.'
+    : ''
 
   return (
     <>
@@ -23,7 +35,7 @@ export default async function LoginPage() {
         rel="stylesheet"
         href="https://fonts.googleapis.com/css2?family=Sora:wght@600;700&family=Inter:wght@400;500&display=swap"
       />
-      <LoginClient initialProfile={profile} />
+      <LoginClient initialProfile={profile} initialError={initialError} />
     </>
   )
 }

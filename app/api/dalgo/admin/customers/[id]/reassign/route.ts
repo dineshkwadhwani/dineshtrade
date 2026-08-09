@@ -4,6 +4,15 @@ import { getSupabaseAdmin } from '@/lib/supabase'
 import { writeAuditLog } from '@/lib/audit'
 import { sendCustomerReassigned } from '@/lib/email'
 
+// Reads the session cookie via requireRole()/getSession() (lib/dalgoAuth.ts,
+// next/headers cookies()) on every request — force-dynamic makes that
+// explicit instead of relying on Next's implicit dynamic-usage detection,
+// which only fires (and only gets a chance to fall back gracefully) for
+// static-path GET routes probed during the build's static-generation pass;
+// this route is either a non-GET method or otherwise not guaranteed to hit
+// that same path, so making it explicit removes the ambiguity outright.
+export const dynamic = 'force-dynamic'
+
 // POST /api/dalgo/admin/customers/[id]/reassign — Task 6.5.
 // SuperAdmin only (spec §3.5: "SuperAdmin can move customers between Account
 // Managers" — an AM cannot reassign their own customers away).
