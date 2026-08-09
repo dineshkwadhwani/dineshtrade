@@ -1,7 +1,7 @@
 # DineshTrade — Project Context
 
-**Last Updated:** 04 Aug 2026
-**Version:** 2.6
+**Last Updated:** 09 Aug 2026
+**Version:** 2.7
 **Purpose:** This file gives Claude (or any AI assistant) full context of everything discussed so far about this project. Start any new conversation by uploading this file.
 
 ---
@@ -530,17 +530,58 @@ Recommended sequencing: account-scoping first (on the existing JSON store, prove
 
 ---
 
-## 12. OPEN ISSUES / KNOWN BUGS (as of 04 Aug 2026)
+## 12. OPEN ISSUES / KNOWN BUGS (as of 09 Aug 2026)
 
-- **Open, root cause known, fix deferred:** `reconcileManualSells()` in `lib/cronReconcile.ts` can create phantom sell/rebuy cycles that corrupt `positions.json` and the journal (see Phase 9 above). Worked around via a full account reset (2026-08-05 7:30 AM); underlying fix not yet built.
-- **Resolved:** Holdings/Today's Positions sold-today-lot visibility, attribution, and P&L display bugs (see Phase 9).
-- **Resolved:** position store read-triggered and concurrent-write race conditions (see Phase 9).
+- **Open, root cause known, fix deferred:** `reconcileManualSells()` in `lib/cronReconcile.ts` can create phantom sell/rebuy cycles that corrupt `positions.json` and the journal (see Phase 9 above). Worked around via a full account reset (2026-08-05 7:30 AM); underlying fix not yet built. Recommend prioritizing in next session.
+- **Resolved (Phase 10, 09 Aug 2026):** Holdings/Today's Positions sold-today-lot visibility, attribution, and P&L display bugs (see Phase 9 & 10).
+- **Resolved (Phase 10, 09 Aug 2026):** position store read-triggered and concurrent-write race conditions (see Phase 9).
+- **Resolved (Phase 10, 09 Aug 2026):** Trade Report P&L calculation and reconciliation logic (see Phase 9 & 10).
 
 - **Resolved:** holdings display now derives weighted average from currently open lots and exposes per-lot price/qty breakdown for UI rendering.
 - **Resolved:** mixed-root positions (e.g. BSE) now preserve lot-level `strategyId` and evaluate per-lot exits by that lot's own strategy instead of the row-level fallback.
 - **Resolved:** no-loss preflight now accepts `buyPricePerShare` and evaluates SELL gate 8 against each lot's own entry price when exiting a single lot.
 - **Login with Kite button**: clicking navigates to `/api/zerodha/login` which should redirect to Kite OAuth. If it "refreshes" instead, check `ZERODHA_ENVIRONMENT` and `PROD_ZERODHA_API_KEY_DINESH` env vars on EC2.
 - **Light mode**: attribute selector overrides apply after React hydration. SSR-rendered pages may flash before light mode applies.
+
+### Phase 10 — verified live 09 Aug 2026
+
+#### Trade Report defect fix — verified
+
+- Trade report P&L calculation now correctly uses incurred charges for closed legs and excludes projected charges for still-open positions.
+- Updated in `lib/tradeReport.ts` to reconcile when `toDate` is today: report open trades are validated against live tracked positions plus broker live qty to prevent positions from appearing as fully closed due to journal pairing gaps.
+- `mergeTodayOrders()` now uses both orderId matching and shape-based fallback to prevent duplicate rows when real SELLs have divergent IDs.
+- `closeStaleOpenTrades()` now no-ops when `openQtyByKey` is empty (historical/non-today runs), preventing synthetic force-closure at `toDate` from inflating closed trades.
+- Stale synthetic no-id BUY rows are pruned when they occur at/after same-day earliest real SELL for account+symbol, preventing duplicate closed trades on later runs with `toDate=today`.
+
+#### Current Holdings & Today's Positions — multiple-row display fixed
+
+- Holdings and Today's Positions now correctly render when a stock is bought/sold multiple times in a single day or across strategies.
+- Per-lot handling ensures each lot tracks its own source `strategyId`, so multi-strategy positions display with correct strategy badges.
+- Holdings uses weighted average from currently open lots and shows correct current strategy (most recent lot).
+- Today's Positions correctly handles:
+  - Multiple distinct closed-today trades under different strategies (rebuilt from journal, not Kite net)
+  - Same-day round trips (sell old lot + buy new lot, same symbol)
+  - Negative quantity display for pure sells out of settled holdings (matches real Kite Positions tab)
+  - Re-entry-relative P&L display for sold-today rows (`exitPrice − current LTP` vs entry-to-current)
+
+#### Retrace exit behavior — strategy parameter support confirmed live
+
+- `retraceAfterHit` (boolean, default `true`): allows exits if T1/T2 was hit intraday and then price retraced below trigger but remains above entry.
+- `retractPercentAllowed` (number, percentage points): max allowed retracement below target that still permits retrace-after-hit exit.
+  - Example: `T1=1.5` and `retractPercentAllowed=0.25` means sell only if current gain `≥ 1.25`.
+  - If absent, behavior falls back to legacy logic (full retrace allowed while still above entry).
+- Implemented for **all three strategy types:**
+  - `DipParams` (Accumulator)
+  - `MomentumParams` (Catalyst)
+  - `PivotalParams` (Breakout)
+- Documented in `lib/strategyConfig.ts` (lines 97–108 for Dip, 133–145 for Momentum, 158–170 for Pivotal).
+- Fields are editable per-strategy in Settings → Strategies accordion.
+
+#### Summary
+
+- All defects identified in Phase 9 (Holdings/Positions display, Trade Report P&L, position store races) are now fully resolved and live.
+- Strategy parameter support for retrace control is confirmed functional across all strategy types.
+- Next session: complete the deferred `reconcileManualSells()` root-cause fix to prevent phantom sell/rebuy cycles from recurring.
 
 ---
 
