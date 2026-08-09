@@ -99,6 +99,13 @@ export interface EODSummaryData {
   realizedPnl?: Record<string, number>   // per-account realized P&L for the day
 }
 
+// Phase 7, Task 7.10 — public /contact form submission.
+export interface ContactFormData {
+  name: string
+  email: string
+  message: string
+}
+
 // ──────── DISPATCH ────────
 //
 // Keeps returning Promise<EmailResult> — app/api/health/route.ts,
@@ -115,6 +122,7 @@ export function sendEmail(type: 'eod_summary',    data: EODSummaryData):    Prom
 export function sendEmail(type: 'daily_report',   data: DailyReport):       Promise<EmailResult>
 export function sendEmail(type: 'monthly_report', data: MonthlyReportData): Promise<EmailResult>
 export function sendEmail(type: 'test',           data?: undefined):        Promise<EmailResult>
+export function sendEmail(type: 'contact_form',   data: ContactFormData):    Promise<EmailResult>
 export function sendEmail(type: string, data?: any): Promise<EmailResult> {
   const to = process.env.NOTIFY_TO || process.env.FROM_EMAIL || ''
   switch (type) {
@@ -124,6 +132,11 @@ export function sendEmail(type: string, data?: any): Promise<EmailResult> {
     case 'daily_report':   return sendViaResend(to, dailyReportSubject(data), dailyReportText(data), dailyReportHTML(data))
     case 'monthly_report': return sendViaResend(to, monthlyReportSubject(data), monthlyReportText(data), monthlyReportHTML(data))
     case 'test':           return sendViaResend(to, '[DineshTrade] Resend test — wiring works', testBody())
+    // Contact form's `to` is always the same NOTIFY_TO / FROM_EMAIL fallback
+    // as every other admin-facing email above — spec §7.10 asks for
+    // dinesh.k.wadhwani@gmail.com specifically, which is already what
+    // NOTIFY_TO resolves to in every deployed environment.
+    case 'contact_form':   return sendViaResend(to, contactFormSubject(data), contactFormBody(data))
     default: return Promise.resolve({ ok: false, error: `Unknown email type: ${type}` })
   }
 }
@@ -136,6 +149,7 @@ export const sendEODSummary    = (d: EODSummaryData)    => sendEmail('eod_summar
 export const sendDailyReport   = (d: DailyReport)       => sendEmail('daily_report', d)
 export const sendMonthlyReport = (d: MonthlyReportData) => sendEmail('monthly_report', d)
 export const sendTestEmail     = ()                     => sendEmail('test')
+export const sendContactForm   = (d: ContactFormData)   => sendEmail('contact_form', d)
 
 // ──────── DELIVERY ────────
 
@@ -831,6 +845,21 @@ function testBody(): string {
     '',
     'You can safely ignore this email. It confirms that DineshTrade can send mail',
     'on your behalf using the Resend API key in .env.local.',
+  ].join('\n')
+}
+
+// ── Contact form (Phase 7, Task 7.10) ──
+
+function contactFormSubject(d: ContactFormData): string {
+  return `DAlgo Contact Form: ${d.name}`
+}
+
+function contactFormBody(d: ContactFormData): string {
+  return [
+    row('Name',  d.name),
+    row('Email', d.email),
+    divider('Message'),
+    d.message,
   ].join('\n')
 }
 

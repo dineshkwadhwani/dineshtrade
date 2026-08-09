@@ -49,6 +49,7 @@ const PUBLIC_EXACT = new Set([
   '/api/dalgo/auth', // critical — the login endpoint itself must be public
   '/api/dalgo/register', // customer/broking-company self-registration — no session exists yet
   '/api/dalgo/upload-url', // Aadhar upload URL generation — called from the registration form pre-signup
+  '/api/dalgo/contact', // public /contact page form submission — no session exists yet (Phase 7, Task 7.10)
   '/api/auth', // V1 auth route stays public too
   '/favicon.ico',
 ])
