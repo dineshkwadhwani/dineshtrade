@@ -7,6 +7,13 @@ import { cookies } from 'next/headers'
 import { verifySession } from '@/lib/auth'
 import { buildDailyReport } from '@/lib/retrospective'
 
+// Reads the session cookie via cookies() (next/headers) on every request —
+// force-dynamic makes that explicit instead of relying on Next's implicit
+// dynamic-usage detection, which reportedly failed the production build on
+// EC2 for a sibling route (app/api/dalgo/admin/reports/export) with the same
+// underlying pattern.
+export const dynamic = 'force-dynamic'
+
 const YMD = /^\d{4}-\d{2}-\d{2}$/
 
 export async function GET(_req: Request, { params }: { params: { date: string } }) {

@@ -13,6 +13,13 @@ import { verifySession } from '@/lib/auth'
 import { getAccountSecrets, getEnvironment } from '@/lib/accounts'
 import { getState } from '@/lib/state'
 
+// Reads the session cookie via cookies() (next/headers) on every request —
+// force-dynamic makes that explicit instead of relying on Next's implicit
+// dynamic-usage detection, which reportedly failed the production build on
+// EC2 for a sibling route (app/api/dalgo/admin/reports/export) with the same
+// underlying pattern.
+export const dynamic = 'force-dynamic'
+
 const KITE_BASE = 'https://api.kite.trade'
 
 async function kiteCall(path: string, apiKey: string, accessToken: string) {

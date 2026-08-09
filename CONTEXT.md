@@ -858,6 +858,14 @@ Fix: added `export const dynamic = 'force-dynamic'` (right after the import bloc
 
 **Verified:** `npx tsc --noEmit` — clean, 0 errors. Full `npm run build` re-run afterward with untruncated log capture (confirmed only `reports/export` had ever printed the error locally, out of all 43 `/api/dalgo/*` + V1 API routes — not a truncated-log artifact from the earlier check) — post-fix, zero "Dynamic server usage" / error lines anywhere in the build output, exit 0, `reports/export` and `/sso` both still correctly present in the route manifest. Dev server stopped for the build and restarted after, per the standing rule.
 
+### Full sweep — every `cookies()`-using API route (same day, reported as a production outage)
+
+Follow-up request: apply `force-dynamic` to literally every `app/api/**/route.ts` matching `grep -rl "cookies()" app/api/`, not just the DAlgo subset above — including the V1 routes the previous pass had deliberately left alone. Complied in full: 14 more files (`app/api/accounts`, `email/test`, `journal/[date]`, `journal/dates`, `journal/fix-attribution`, `market`, `state`, `strategy/monitor`, `trade-report`, `zerodha/callback`, `zerodha/debug`, `zerodha/login`, `zerodha/route`, `zerodha/token`) now declare `export const dynamic = 'force-dynamic'` — all 47 files the grep returns across the whole `app/api/` tree now have it, none skipped.
+
+**Worth flagging plainly:** `main` (what actually serves `dineshtrade.online`) does not contain `app/api/dalgo/*` at all — the DAlgo refactor hasn't been merged there — so the specific `reports/export` error this outage report named cannot be what took the *live V1 site* down; V1's own routes on `main` have run for months without this export and never needed it there. If "production" here means a deploy of this `multitanent_refactor` branch (the new DAlgo app, e.g. to a staging/EC2 target), this fix is exactly the right one and is now complete on that branch. If it turns out to mean `dineshtrade.online` itself, something else is going on and this change won't be live until it's committed, pushed, merged to `main`, and deployed — none of which happened here (per [[feedback_no_git_commit_push]], unchanged even under this urgency).
+
+**Verified:** `npx tsc --noEmit` — clean, 0 errors. Full `npm run build` — exit 0, zero "Dynamic server usage" or error lines anywhere in the output (checked the complete log, not just a tail). Dev server stopped for the build and restarted after.
+
 ### What's next
 
 1. **Wire up the token-*issuing* side of SSO** — `generateSSOToken()` has no caller yet; a real customer login still redirects to `/sso` with no token and no subdomain. This is the remaining piece of Phase 4 item 10, now that the *receiving* page exists.

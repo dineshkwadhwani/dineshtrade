@@ -5,6 +5,13 @@ import { getState, saveState, clearState, SessionState } from '@/lib/state'
 import { isAccountConfigured } from '@/lib/accounts'
 import { ensureCronStarted } from '@/lib/cron'
 
+// Reads the session cookie via cookies() (next/headers) on every request —
+// force-dynamic makes that explicit instead of relying on Next's implicit
+// dynamic-usage detection, which reportedly failed the production build on
+// EC2 for a sibling route (app/api/dalgo/admin/reports/export) with the same
+// underlying pattern.
+export const dynamic = 'force-dynamic'
+
 async function requireAuth(): Promise<boolean> {
   const token = cookies().get('dt_session')?.value
   if (!token) return false

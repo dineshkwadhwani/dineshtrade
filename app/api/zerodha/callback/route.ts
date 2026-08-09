@@ -5,6 +5,13 @@ import { verifySession } from '@/lib/auth'
 import { getAccountSecrets } from '@/lib/accounts'
 import { saveState } from '@/lib/state'
 
+// Reads the session cookie via cookies() (next/headers) on every request —
+// force-dynamic makes that explicit instead of relying on Next's implicit
+// dynamic-usage detection, which reportedly failed the production build on
+// EC2 for a sibling route (app/api/dalgo/admin/reports/export) with the same
+// underlying pattern.
+export const dynamic = 'force-dynamic'
+
 function normalizedBase(req: NextRequest): URL {
   const configured = process.env.APP_BASE_URL || process.env.PUBLIC_BASE_URL || process.env.NEXT_PUBLIC_APP_URL
   if (configured) {

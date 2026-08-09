@@ -3,6 +3,13 @@ import { cookies } from 'next/headers'
 import { verifySession } from '@/lib/auth'
 import { buildLiveTradeReport } from '@/lib/tradeReport'
 
+// Reads the session cookie via cookies() (next/headers) on every request —
+// force-dynamic makes that explicit instead of relying on Next's implicit
+// dynamic-usage detection, which reportedly failed the production build on
+// EC2 for a sibling route (app/api/dalgo/admin/reports/export) with the same
+// underlying pattern.
+export const dynamic = 'force-dynamic'
+
 export async function POST(req: Request) {
   const session = cookies().get('dt_session')?.value
   if (!session || !(await verifySession(session))) {
