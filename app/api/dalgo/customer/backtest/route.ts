@@ -6,6 +6,7 @@ import { getActiveStrategies, getStrategyById, type Strategy } from '@/lib/strat
 import { rehydrateForCustomer } from '@/lib/strategyConfigStore'
 import { getWatchlist } from '@/lib/watchlistStore'
 import { withCustomer } from '@/lib/supabase'
+import { loadBrokerAccountCreds } from '@/lib/kite'
 
 export const dynamic = 'force-dynamic'
 
@@ -30,22 +31,30 @@ export async function POST(req: NextRequest) {
     const days = typeof body.days === 'number' ? body.days : 60
     const initialCapital = typeof body.initialCapital === 'number' ? body.initialCapital : 50000
 
-    // Pre-load strategy snapshot + watchlist from the target customer's context.
-    const [resolvedStrategySnapshot, resolvedStrategySnapshots, targetWatchlist] = await withCustomer(targetCustomerId, async () => {
-      await rehydrateForCustomer()
-      const snap = strategySnapshot ?? (strategyId ? getStrategyById(strategyId) ?? undefined : undefined)
-      const snaps = strategySnapshots ?? (runAllActive ? getActiveStrategies() : undefined)
-      const wl = await getWatchlist()
-      return [snap, snaps, wl] as const
-    })
+    // Load target customer's strategy + watchlist, and primary customer's Kite creds, in parallel.
+    const [[resolvedStrategySnapshot, resolvedStrategySnapshots, targetWatchlist], primaryCreds] = await Promise.all([
+      withCustomer(targetCustomerId, async () => {
+        await rehydrateForCustomer()
+        const snap = strategySnapshot ?? (strategyId ? getStrategyById(strategyId) ?? undefined : undefined)
+        const snaps = strategySnapshots ?? (runAllActive ? getActiveStrategies() : undefined)
+        const wl = await getWatchlist()
+        return [snap, snaps, wl] as const
+      }),
+      // Read from broker_accounts (OAuth flow) — not the legacy state.kiteTokens path.
+      loadBrokerAccountCreds(primaryCustomerId),
+    ])
 
-    // Run in the primary customer's context so firstConnectedCreds() reads the Connect-plan Kite tokens.
-    // Strategy and watchlist are injected as overrides — they come from the target customer above.
+    if (!primaryCreds) {
+      return NextResponse.json({ error: 'Primary account Kite token not found. Please reconnect via Settings → Connection.' }, { status: 400 })
+    }
+
+    // Run in primary customer's context; strategy + watchlist overrides inject the target customer's data.
     const result = await withCustomer(primaryCustomerId, () => runStrategyBacktest({
       days, initialCapital, strategyId, runAllActive,
       strategySnapshot: resolvedStrategySnapshot,
       strategySnapshots: resolvedStrategySnapshots,
       watchlistOverride: targetWatchlist,
+      credsOverride: primaryCreds,
     }))
 
     const historyEntry = buildBacktestHistoryEntry({

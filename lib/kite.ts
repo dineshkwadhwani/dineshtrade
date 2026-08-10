@@ -5,6 +5,8 @@
 
 import { getAccountSecrets, isAccountConfigured } from '@/lib/accounts'
 import { getState } from '@/lib/state'
+import { getSupabaseAdmin } from '@/lib/supabase'
+import { decrypt } from '@/lib/encryption'
 
 export const KITE_BASE = 'https://api.kite.trade'
 
@@ -34,6 +36,29 @@ export async function resolveAccountCreds(account: string): Promise<KiteResolveR
   const accessToken = state.kiteTokens[account]
   if (!accessToken) return { ok: false, error: `${account} not connected — paste today's Kite access token in Settings` }
   return { ok: true, apiKey: secrets.apiKey, accessToken }
+}
+
+/** Loads Kite creds from broker_accounts (OAuth flow) for a specific customer. */
+export async function loadBrokerAccountCreds(customerId: string): Promise<KiteCreds | null> {
+  try {
+    const admin = getSupabaseAdmin()
+    const env = process.env.ZERODHA_ENVIRONMENT === 'PROD' ? 'PROD' : 'TEST'
+    const primaryAccount = process.env[`${env}_ZERODHA_ACCOUNT1`] || 'DINESH'
+    const envApiKey = process.env[`${env}_ZERODHA_API_KEY_${primaryAccount}`] || ''
+    const { data } = await admin
+      .from('broker_accounts')
+      .select('access_token_enc, api_key_enc')
+      .eq('customer_id', customerId)
+      .eq('broker_name', 'zerodha')
+      .eq('active', true)
+      .maybeSingle()
+    if (!data?.access_token_enc) return null
+    const accessToken = decrypt(data.access_token_enc)
+    const apiKey = data.api_key_enc ? (() => { try { return decrypt(data.api_key_enc!) } catch { return envApiKey } })() : envApiKey
+    return { apiKey, accessToken }
+  } catch {
+    return null
+  }
 }
 
 export interface KiteResponse<T = any> {
