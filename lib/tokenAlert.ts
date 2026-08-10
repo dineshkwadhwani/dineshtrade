@@ -81,3 +81,36 @@ export async function checkAndSendTokenAlert(): Promise<void> {
     console.error('[tokenAlert] failed:', String(err).slice(0, 300))
   }
 }
+
+// Fires mid-tick when the primary account token is missing or expired.
+// Alerts every customer in the list plus their assigned Account Managers.
+// Primary account must have a Connect plan — if its token is missing, market
+// data cannot be fetched for ANY customer, so the entire tick is skipped.
+export async function sendPrimaryTokenMissingAlert(primaryCustomerId: string, allCustomerIds: string[]): Promise<void> {
+  try {
+    const admin = getSupabaseAdmin()
+    const { data: profiles } = await admin
+      .from('profiles')
+      .select('id, email, full_name, assigned_account_manager_id')
+      .in('id', allCustomerIds)
+
+    const amIds = [...new Set((profiles ?? [])
+      .map(p => p.assigned_account_manager_id)
+      .filter((id): id is string => !!id))]
+    const amEmails: Record<string, string> = {}
+    if (amIds.length > 0) {
+      const { data: ams } = await admin.from('profiles').select('id, email').in('id', amIds)
+      for (const am of ams ?? []) amEmails[am.id] = am.email
+    }
+
+    for (const profile of profiles ?? []) {
+      const amEmail = profile.assigned_account_manager_id ? amEmails[profile.assigned_account_manager_id] : undefined
+      const isPrimary = profile.id === primaryCustomerId
+      const result = await sendTokenMissingAlert(profile.email, profile.full_name || 'there', amEmail)
+      if (!result.ok) console.error(`[tokenAlert] primaryMissing send to ${profile.email} failed:`, result.error)
+    }
+    console.log(`[tokenAlert] primary-missing alert sent to ${profiles?.length ?? 0} customer(s)`)
+  } catch (err) {
+    console.error('[tokenAlert] sendPrimaryTokenMissingAlert failed:', String(err).slice(0, 300))
+  }
+}

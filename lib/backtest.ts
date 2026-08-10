@@ -1,5 +1,5 @@
 import { getState } from './state'
-import { getWatchlist } from './watchlistStore'
+import { getWatchlist, type Watchlist } from './watchlistStore'
 import { computeEMA, consecutiveDownDays, deviationPct } from './ema'
 import { getHistoricalCandles, resolveAccountCreds, type HistoricalCandle, type KiteCreds } from './kite'
 import { getInstrumentToken, getInstrumentTokens } from './instruments'
@@ -12,6 +12,10 @@ export interface BacktestOptions {
   runAllActive?: boolean
   strategySnapshot?: Strategy | null
   strategySnapshots?: Strategy[] | null
+  /** Pre-loaded Kite creds — skips reading from the customer Supabase context (use primary customer's creds). */
+  credsOverride?: KiteCreds
+  /** Pre-loaded watchlist — skips reading from the customer Supabase context (use target customer's watchlist). */
+  watchlistOverride?: Watchlist
 }
 
 export interface BacktestTrade {
@@ -215,8 +219,16 @@ async function firstConnectedCreds(): Promise<KiteCreds | null> {
   return null
 }
 
-function uniqueUniverseFromWatchlist(strategy: Strategy): Promise<string[]> {
-  return getWatchlist().then(wl => {
+/** Returns the first connected Kite creds for the current customer context. Exported so callers can pre-fetch creds. */
+export async function getBacktestKiteCreds(): Promise<KiteCreds | null> { return firstConnectedCreds() }
+
+function resolveBacktestCreds(options: BacktestOptions): Promise<KiteCreds | null> {
+  return options.credsOverride ? Promise.resolve(options.credsOverride) : firstConnectedCreds()
+}
+
+function uniqueUniverseFromWatchlist(strategy: Strategy, watchlistOverride?: Watchlist): Promise<string[]> {
+  const wlPromise = watchlistOverride ? Promise.resolve(watchlistOverride) : getWatchlist()
+  return wlPromise.then(wl => {
     const seen = new Set<string>()
     const out: string[] = []
     for (const key of strategy.watchlist || ['listA']) {
@@ -313,8 +325,8 @@ function recordBacktestSell(counter: Map<string, DayTradeCounts>, date: string):
   getDayTradeCounts(counter, date).sells += 1
 }
 
-async function buildSectorBySymbol(): Promise<Map<string, string>> {
-  const watchlist = await getWatchlist()
+async function buildSectorBySymbol(watchlistOverride?: Watchlist): Promise<Map<string, string>> {
+  const watchlist = watchlistOverride ?? await getWatchlist()
   const sectorBySymbol = new Map<string, string>()
   for (const entries of Object.values(watchlist.lists)) {
     for (const entry of entries) {
@@ -608,7 +620,7 @@ async function runAllActiveBacktest(options: BacktestOptions = {}): Promise<Stra
   const strategyById = new Map(activeStrategies.map(strategy => [strategy.id, strategy]))
   const resolveActiveStrategy = (strategyId: string): Strategy | null => strategyById.get(strategyId) || getStrategyById(strategyId)
 
-  const creds = await firstConnectedCreds()
+  const creds = await resolveBacktestCreds(options)
   if (!creds) throw new Error('No Kite account connected — historical candles require a connected Kite account')
 
   const days = clampInt(options.days, 60, 10, 180)
@@ -622,7 +634,7 @@ async function runAllActiveBacktest(options: BacktestOptions = {}): Promise<Stra
   const maxDipEmaPeriod = dipEmaPeriods.reduce((max, period) => Math.max(max, period), 20)
   const maxVolumeAvgDays = momentumStrategies.reduce((max, strategy) => Math.max(max, clampInt((strategy.params as MomentumParams).volumeAvgDays, 10, 1, 60)), 10)
 
-  const strategySymbolsEntries = await Promise.all(activeStrategies.map(async strategy => [strategy.id, await uniqueUniverseFromWatchlist(strategy)] as const))
+  const strategySymbolsEntries = await Promise.all(activeStrategies.map(async strategy => [strategy.id, await uniqueUniverseFromWatchlist(strategy, options.watchlistOverride)] as const))
   const strategySymbols = new Map<string, string[]>(strategySymbolsEntries)
   const allSymbols = Array.from(new Set(strategySymbolsEntries.flatMap(([, symbols]) => symbols)))
   const momentumSymbols = new Set(momentumStrategies.flatMap(strategy => strategySymbols.get(strategy.id) || []))
@@ -715,7 +727,7 @@ async function runAllActiveBacktest(options: BacktestOptions = {}): Promise<Stra
     momentumStrategies.length > 0 ? `${backtestDates[0]} 09:15:00` : undefined,
     momentumStrategies.length > 0 ? toIntraday : undefined,
   )
-  const sectorBySymbol = await buildSectorBySymbol()
+  const sectorBySymbol = await buildSectorBySymbol(options.watchlistOverride)
 
   let cash = startingCapital
   let peakEquity = startingCapital
@@ -1512,7 +1524,7 @@ export async function runStrategy1Backtest(options: BacktestOptions = {}): Promi
   if (!strategy) throw new Error(`Unknown strategy: ${strategyId}`)
   if (strategy.type !== 'dip') throw new Error(`Backtest currently supports dip strategies only; got ${strategy.type}`)
 
-  const creds = await firstConnectedCreds()
+  const creds = await resolveBacktestCreds(options)
   if (!creds) throw new Error('No Kite account connected — historical candles require a connected Kite account')
 
   const days = clampInt(options.days, 60, 10, 180)
@@ -1530,7 +1542,7 @@ export async function runStrategy1Backtest(options: BacktestOptions = {}): Promi
   const t2Pct = strategy.exits?.t2Pct ?? 8
   const capital = getCapital()
 
-  const symbols = await uniqueUniverseFromWatchlist(strategy)
+  const symbols = await uniqueUniverseFromWatchlist(strategy, options.watchlistOverride)
   const tokens = await getInstrumentTokens(creds, symbols)
 
   let skippedNoToken = 0
@@ -1573,7 +1585,7 @@ export async function runStrategy1Backtest(options: BacktestOptions = {}): Promi
   const backtestDateSet = new Set(backtestDates)
   const dateIndex = new Map(allDates.map((date, idx) => [date, idx]))
   const benchmark = await loadHistoricalBenchmark(creds, from, to)
-  const sectorBySymbol = await buildSectorBySymbol()
+  const sectorBySymbol = await buildSectorBySymbol(options.watchlistOverride)
 
   let cash = startingCapital
   let peakEquity = startingCapital
@@ -1916,7 +1928,7 @@ async function runMomentumBacktest(options: BacktestOptions = {}): Promise<Strat
   if (!strategy) throw new Error(`Unknown strategy: ${strategyId}`)
   if (strategy.type !== 'momentum') throw new Error(`Backtest currently supports momentum strategies only here; got ${strategy.type}`)
 
-  const creds = await firstConnectedCreds()
+  const creds = await resolveBacktestCreds(options)
   if (!creds) throw new Error('No Kite account connected — historical candles require a connected Kite account')
 
   const days = clampInt(options.days, 60, 10, 180)
@@ -1944,7 +1956,7 @@ async function runMomentumBacktest(options: BacktestOptions = {}): Promise<Strat
   const scanEndMin = hhmmToMinutes(scanEndHHMM)
   const sessionMinutes = 375
 
-  const symbols = await uniqueUniverseFromWatchlist(strategy)
+  const symbols = await uniqueUniverseFromWatchlist(strategy, options.watchlistOverride)
   const tokens = await getInstrumentTokens(creds, symbols)
 
   let skippedNoToken = 0

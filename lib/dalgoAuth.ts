@@ -32,6 +32,7 @@ export type ProfileStatus =
   | 'pending'
   | 'under_review'
   | 'identity_verified'
+  | 'broker_setup_complete'
   | 'active'
   | 'suspended'
   | 'rejected'
@@ -42,6 +43,8 @@ export interface Profile {
   status: ProfileStatus
   full_name: string
   email: string
+  subdomain?: string | null
+  instance_ip?: string | null
 }
 
 export interface DalgoSession {
@@ -128,8 +131,11 @@ export async function login(email: string, password: string): Promise<LoginResul
   if (profileError || !profile) {
     throw new AuthError('No profile exists for this account.', 403)
   }
-  if (profile.status !== 'active') {
-    throw new AuthError(`Account is not active (status: ${profile.status}).`, 403)
+  if (profile.status === 'pending') {
+    throw new AuthError('ACCOUNT_PENDING', 403)
+  }
+  if (profile.status !== 'active' && profile.status !== 'identity_verified' && profile.status !== 'broker_setup_complete') {
+    throw new AuthError('Your account has been suspended. Please contact support.', 403)
   }
 
   return {
@@ -173,7 +179,7 @@ export async function getProfile(): Promise<Profile | null> {
   const admin = getSupabaseAdmin()
   const { data, error } = await admin
     .from('profiles')
-    .select('id, role, status, full_name, email')
+    .select('id, role, status, full_name, email, subdomain, instance_ip')
     .eq('id', session.userId)
     .maybeSingle()
 

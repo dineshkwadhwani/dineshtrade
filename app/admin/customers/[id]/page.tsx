@@ -1,12 +1,43 @@
+export const dynamic = 'force-dynamic'
+
 import { notFound } from 'next/navigation'
 import { getCustomerFullDetail, listAccountManagers } from '@/lib/dalgoAdmin'
+import { getSupabaseAdmin } from '@/lib/supabase'
 import { PageHeader } from '@/components/dalgo/ui'
 import CustomerDetailClient from './CustomerDetailClient'
+import SettingsClient from '@/app/(app)/settings/SettingsClient'
 
-// Task 6.5 — SuperAdmin customer detail.
 export default async function AdminCustomerDetailPage({ params }: { params: { id: string } }) {
-  const [detail, managers] = await Promise.all([getCustomerFullDetail(params.id), listAccountManagers()])
+  const admin = getSupabaseAdmin()
+  const customerId = params.id
+
+  const [detail, managers, brokerRes, stateRes, strategiesRes, capitalRes, fixedRulesRes, watchlistRes] = await Promise.all([
+    getCustomerFullDetail(customerId),
+    listAccountManagers(),
+    admin.from('broker_accounts').select('api_key_enc, access_token_enc, token_captured_at').eq('customer_id', customerId).eq('broker_name', 'zerodha').maybeSingle(),
+    admin.from('customer_state').select('cron_mode').eq('customer_id', customerId).maybeSingle(),
+    admin.from('customer_strategies').select('id, name, type, active, scan_interval_min, color, watchlist_keys, strategy_key, params, exits, gift_nifty_gate').eq('customer_id', customerId).order('name'),
+    admin.from('customer_capital_config').select('*').eq('customer_id', customerId).maybeSingle(),
+    admin.from('platform_fixed_rules').select('rule_key, value, description, rule_name').order('rule_key'),
+    admin.from('customer_watchlists').select('list_key, name, symbols').eq('customer_id', customerId).order('list_key'),
+  ])
+
   if (!detail) notFound()
+
+  const cronMode = stateRes.data?.cron_mode ?? 'manual'
+  const strategies = strategiesRes.data ?? []
+  const watchlists = (watchlistRes.data ?? []).map(r => ({ ...r, symbols: Array.isArray(r.symbols) ? r.symbols : [] }))
+  const broker = brokerRes.data
+  let savedApiKey = ''
+  let isConnected = false
+  if (broker?.api_key_enc) {
+    try {
+      const { decrypt } = await import('@/lib/encryption')
+      const full = decrypt(broker.api_key_enc)
+      savedApiKey = full.slice(0, 4) + '••••' + full.slice(-4)
+    } catch { /* ignore */ }
+  }
+  if (broker?.access_token_enc) isConnected = true
 
   return (
     <div>
@@ -17,6 +48,25 @@ export default async function AdminCustomerDetailPage({ params }: { params: { id
         canActivate
         canEditCapital
       />
+
+      {/* Customer settings — admin can manage on behalf */}
+      <div style={{ marginTop: 24 }}>
+        <h2 style={{ fontFamily: "'Sora', sans-serif", fontSize: 16, fontWeight: 700, color: '#1E3A8A', margin: '0 0 16px', padding: '0 0 10px', borderBottom: '1px solid #BFDBFE' }}>
+          Customer Settings (acting on behalf)
+        </h2>
+        <SettingsClient
+          savedApiKey={savedApiKey}
+          isConnected={isConnected}
+          tokenCapturedAt={broker?.token_captured_at ?? null}
+          cronMode={cronMode}
+          kiteLoginUrl={`/api/dalgo/setup/kite-login`}
+          strategies={strategies}
+          capitalConfig={capitalRes.data}
+          fixedRules={fixedRulesRes.data ?? []}
+          watchlists={watchlists}
+          targetCustomerId={customerId}
+        />
+      </div>
     </div>
   )
 }

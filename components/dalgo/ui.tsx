@@ -272,7 +272,7 @@ export const dangerButtonStyle: React.CSSProperties = {
 }
 
 export function statusTone(status: string): StatusTone {
-  if (status === 'active' || status === 'identity_verified' || status === 'connected' || status === 'auto') {
+  if (status === 'active' || status === 'identity_verified' || status === 'broker_setup_complete' || status === 'connected' || status === 'auto') {
     return 'green'
   }
   if (status === 'rejected' || status === 'suspended' || status === 'missing' || status === 'expired') {
@@ -295,6 +295,7 @@ export const STATUS_LABELS: Record<string, string> = {
   pending: 'Pending',
   under_review: 'Under Review',
   identity_verified: 'Identity Verified',
+  broker_setup_complete: 'Broker Connected',
   active: 'Active',
   suspended: 'Suspended',
   rejected: 'Rejected',

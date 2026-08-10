@@ -51,13 +51,20 @@ export async function POST(req: NextRequest, { params }: { params: { id: string 
       .maybeSingle()
 
     const before = { assigned_to: registration.assigned_to }
+    const now = new Date().toISOString()
     const { error: updateError } = await admin
       .from('registrations')
-      .update({ assigned_to: assignedTo, updated_at: new Date().toISOString() })
+      .update({ assigned_to: assignedTo, updated_at: now })
       .eq('id', params.id)
     if (updateError) {
       return NextResponse.json({ error: 'Failed to assign registration.' }, { status: 500 })
     }
+
+    // Keep profile in sync so AM's "My Customers" list works
+    await admin
+      .from('profiles')
+      .update({ assigned_account_manager_id: assignedTo, updated_at: now })
+      .eq('id', registration.profile_id)
 
     await writeAuditLog({
       actor,

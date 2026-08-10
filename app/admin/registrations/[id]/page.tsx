@@ -1,3 +1,5 @@
+export const dynamic = 'force-dynamic'
+
 import { notFound } from 'next/navigation'
 import { getRegistrationById } from '@/lib/dalgoAdmin'
 import { getFileUrl } from '@/lib/storage'

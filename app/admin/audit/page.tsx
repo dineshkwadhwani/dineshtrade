@@ -1,3 +1,5 @@
+export const dynamic = 'force-dynamic'
+
 import Link from 'next/link'
 import { getSupabaseAdmin } from '@/lib/supabase'
 import { PageHeader, SectionCard, Table, Th, Td, EmptyState, secondaryButtonStyle } from '@/components/dalgo/ui'

@@ -146,13 +146,43 @@ export async function getOrders(creds: KiteCreds): Promise<KiteOrder[]> {
 
 // /quote?i=NSE:SYM1&i=NSE:SYM2 — live LTPs (paid plan). Kite expects REPEATED
 // i= params, not a comma-separated single value (which silently returns {}).
+//
+// Per-tick cache: cron pre-fetches all watchlist symbols using the primary
+// account's Connect plan credentials and calls setTickQuoteCache(). Subsequent
+// calls from secondary customers (Personal plan, no live-quotes API) return
+// from cache — zero additional Kite API calls.
+let _tickQuoteCache: { quotes: Record<string, KiteQuoteEntry>; expiresAt: number } | null = null
+
+export function setTickQuoteCache(quotes: Record<string, KiteQuoteEntry>): void {
+  _tickQuoteCache = { quotes, expiresAt: Date.now() + 10 * 60 * 1000 }
+}
+
+export function clearTickQuoteCache(): void {
+  _tickQuoteCache = null
+}
+
+async function _fetchQuotesDirect(creds: KiteCreds, symbols: string[]): Promise<Record<string, KiteQuoteEntry>> {
+  const query = symbols.map(s => `i=${encodeURIComponent(`NSE:${s.toUpperCase()}`)}`).join('&')
+  const r = await kiteRequest<{ data?: Record<string, KiteQuoteEntry> }>(`/quote?${query}`, creds)
+  return r.data?.data || {}
+}
+
 export async function getQuotes(creds: KiteCreds, symbols: string[]): Promise<Record<string, KiteQuoteEntry>> {
   if (symbols.length === 0) return {}
-  const query = symbols.map(s => `i=${encodeURIComponent(`NSE:${s.toUpperCase()}`)}`).join('&')
-  const r = await kiteRequest<{ data?: Record<string, KiteQuoteEntry> }>(
-    `/quote?${query}`, creds,
-  )
-  return r.data?.data || {}
+  const cache = _tickQuoteCache
+  if (cache && Date.now() < cache.expiresAt) {
+    const result: Record<string, KiteQuoteEntry> = {}
+    const missing: string[] = []
+    for (const sym of symbols) {
+      const key = `NSE:${sym.toUpperCase()}`
+      if (cache.quotes[key]) { result[key] = cache.quotes[key] }
+      else { missing.push(sym) }
+    }
+    if (missing.length === 0) return result
+    const fresh = await _fetchQuotesDirect(creds, missing)
+    return { ...result, ...fresh }
+  }
+  return _fetchQuotesDirect(creds, symbols)
 }
 
 // /instruments/historical/{token}/{interval} — daily candles.

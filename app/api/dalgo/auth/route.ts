@@ -1,14 +1,27 @@
 import { NextRequest, NextResponse } from 'next/server'
-import { login, AuthError, SESSION_COOKIE, type ProfileRole } from '@/lib/dalgoAuth'
+import { login, AuthError, SESSION_COOKIE, generateSSOToken, type ProfileRole } from '@/lib/dalgoAuth'
+import { createSession } from '@/lib/auth'
 
 const REDIRECT_BY_ROLE: Record<ProfileRole, string> = {
   superadmin: '/admin',
   account_manager: '/manager',
   broking_company: '/manager',
-  // /admin, /manager, /sso don't exist as pages yet — the client just
-  // navigates there once login succeeds; they'll 404 until those pages are
-  // built in a later task.
   customer: '/sso',
+}
+
+async function resolveRedirect(role: ProfileRole, status: string, customerId: string, subdomain?: string | null): Promise<string> {
+  if (role === 'customer' && status === 'identity_verified') return '/setup'
+  if (role === 'customer' && status === 'broker_setup_complete') return '/setup?connected=true'
+  if (role === 'customer' && status === 'active') {
+    if (subdomain && process.env.NODE_ENV === 'production') {
+      // Production: generate SSO token and cross-domain redirect to customer EC2
+      const token = await generateSSOToken(customerId)
+      return `https://${subdomain}.dalgo.online/sso?token=${token}`
+    }
+    // Dev or no subdomain: go straight to dashboard on this instance
+    return '/dashboard'
+  }
+  return REDIRECT_BY_ROLE[role]
 }
 
 export async function POST(req: NextRequest) {
@@ -28,7 +41,7 @@ export async function POST(req: NextRequest) {
 
   try {
     const result = await login(email, password)
-    const redirectTo = REDIRECT_BY_ROLE[result.profile.role]
+    const redirectTo = await resolveRedirect(result.profile.role, result.profile.status, result.profile.id, result.profile.subdomain)
 
     // Session expires at midnight IST — same pattern as the existing
     // /api/auth route's dt_session cookie (see app/api/auth/route.ts).
@@ -46,6 +59,17 @@ export async function POST(req: NextRequest) {
       expires: midnight,
       path: '/',
     })
+    // Also set V1 dt_session for active customers so /dashboard works
+    if (result.profile.role === 'customer' && result.profile.status === 'active') {
+      const v1Token = await createSession()
+      res.cookies.set('dt_session', v1Token, {
+        httpOnly: true,
+        secure: process.env.NODE_ENV === 'production',
+        sameSite: 'lax',
+        expires: midnight,
+        path: '/',
+      })
+    }
     return res
   } catch (err) {
     if (err instanceof AuthError) {

@@ -13,7 +13,7 @@
 // version has one this component would need to hide. The platform-wide audit
 // trail lives at /admin/audit (Task 6.13).
 
-import { useState } from 'react'
+import { useState, useEffect } from 'react'
 import { useRouter } from 'next/navigation'
 import type { CustomerFullDetail } from '@/lib/dalgoAdmin'
 import { COLORS, FONT_INTER } from '@/components/dalgo/theme'
@@ -64,6 +64,7 @@ const inputStyle: React.CSSProperties = {
   padding: '7px 9px',
   borderRadius: 6,
   border: `1px solid ${COLORS.border}`,
+  color: COLORS.body,
   width: '100%',
 }
 
@@ -83,6 +84,15 @@ export default function CustomerDetailClient({ detail, accountManagers, canActiv
   const { profile, instance, amName, strategies, capitalConfig } = detail
   const [reassignBusy, setReassignBusy] = useState(false)
   const [activateBusy, setActivateBusy] = useState(false)
+  const [subdomain, setSubdomain] = useState<string>(profile.subdomain ?? '')
+  const [instanceIp, setInstanceIp] = useState<string>(profile.instance_ip ?? '')
+  const [savingInstance, setSavingInstance] = useState(false)
+
+  // Sync from server props — handles cases where useState initial value is stale
+  useEffect(() => {
+    setSubdomain(profile.subdomain ?? '')
+    setInstanceIp(profile.instance_ip ?? '')
+  }, [profile.id, profile.subdomain, profile.instance_ip])
   const [editingCapital, setEditingCapital] = useState(false)
   const [capitalDraft, setCapitalDraft] = useState<Record<string, string>>(
     Object.fromEntries(CAPITAL_FIELDS.map(f => [f.key, String(capitalConfig?.[f.key] ?? '')]))
@@ -127,8 +137,27 @@ export default function CustomerDetailClient({ detail, accountManagers, canActiv
     }
   }
 
+  async function handleSaveInstanceDetails() {
+    if (!subdomain.trim()) { alert('Subdomain is required.'); return }
+    setSavingInstance(true)
+    try {
+      const res = await fetch(`/api/dalgo/admin/customers/${profile.id}/instance-details`, {
+        method: 'PUT',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ subdomain: subdomain.trim(), instance_ip: instanceIp.trim() || null }),
+      })
+      if (!res.ok) {
+        const body = await res.json().catch(() => ({}))
+        alert(body.error || 'Failed to save.')
+      } else {
+        router.refresh()
+      }
+    } finally {
+      setSavingInstance(false)
+    }
+  }
+
   async function handleSaveCapital() {
-    setSavingCapital(true)
     try {
       const res = await fetch(`/api/dalgo/admin/customers/${profile.id}/capital`, {
         method: 'PUT',
@@ -178,15 +207,49 @@ export default function CustomerDetailClient({ detail, accountManagers, canActiv
             </select>
           )}
         </div>
+
+        {/* Subdomain + IP — mandatory before activation */}
+        <div style={{ marginTop: 16, display: 'flex', gap: 10, flexWrap: 'wrap', alignItems: 'flex-end' }}>
+          <div>
+            <div style={{ fontSize: 11, color: COLORS.muted, textTransform: 'uppercase', letterSpacing: '0.04em', marginBottom: 4 }}>
+              Subdomain <span style={{ color: '#EF4444' }}>*</span>
+            </div>
+            <div style={{ display: 'flex', alignItems: 'center', gap: 6 }}>
+              <input
+                value={subdomain}
+                onChange={e => setSubdomain(e.target.value)}
+                placeholder="e.g. dinesh"
+                style={{ ...inputStyle, width: 140, color: COLORS.body }}
+              />
+              <span style={{ fontSize: 13, color: COLORS.muted }}>.dalgo.online</span>
+            </div>
+          </div>
+          <div>
+            <div style={{ fontSize: 11, color: COLORS.muted, textTransform: 'uppercase', letterSpacing: '0.04em', marginBottom: 4 }}>EC2 IP (optional)</div>
+            <input
+              value={instanceIp}
+              onChange={e => setInstanceIp(e.target.value)}
+              placeholder="e.g. 3.111.255.172"
+              style={{ ...inputStyle, width: 160, color: COLORS.body }}
+            />
+          </div>
+          <button
+            onClick={handleSaveInstanceDetails}
+            disabled={savingInstance}
+            style={{ ...primaryButtonStyle, opacity: savingInstance ? 0.6 : 1 }}
+          >
+            {savingInstance ? 'Saving…' : 'Save'}
+          </button>
+        </div>
       </SectionCard>
 
       {/* ---- Section 2: Instance Health ---- */}
       <SectionCard
         title="Instance Health"
         actions={
-          canActivate && profile.status === 'identity_verified' ? (
+          canActivate && (profile.status === 'identity_verified' || profile.status === 'broker_setup_complete') ? (
             <button onClick={handleActivate} disabled={activateBusy} style={{ ...primaryButtonStyle, opacity: activateBusy ? 0.6 : 1 }}>
-              {activateBusy ? 'Activating…' : 'Activate Account'}
+              {activateBusy ? 'Activating…' : profile.status === 'broker_setup_complete' ? '✓ Broker Ready — Activate Account' : 'Activate Account'}
             </button>
           ) : undefined
         }
@@ -207,107 +270,7 @@ export default function CustomerDetailClient({ detail, accountManagers, canActiv
         )}
       </SectionCard>
 
-      {/* ---- Section 3: Strategies (read only) ---- */}
-      <SectionCard title="Strategies">
-        {strategies.length === 0 ? (
-          <EmptyState>No strategies configured yet.</EmptyState>
-        ) : (
-          <Table>
-            <thead>
-              <tr>
-                <Th>Name</Th>
-                <Th>Type</Th>
-                <Th>Active</Th>
-                <Th align="right">Scan Interval (min)</Th>
-              </tr>
-            </thead>
-            <tbody>
-              {strategies.map(s => (
-                <tr key={s.id}>
-                  <Td>{s.name}</Td>
-                  <Td>
-                    <Badge tone="teal">{s.type}</Badge>
-                  </Td>
-                  <Td>
-                    <Badge tone={s.active ? 'green' : 'grey'}>{s.active ? 'Active' : 'Inactive'}</Badge>
-                  </Td>
-                  <Td align="right">{s.scan_interval_min}</Td>
-                </tr>
-              ))}
-            </tbody>
-          </Table>
-        )}
-      </SectionCard>
-
-      {/* ---- Section 4: Capital Config ---- */}
-      <SectionCard
-        title="Capital Config"
-        actions={
-          canEditCapital && isManualMode && !editingCapital ? (
-            <button onClick={() => setEditingCapital(true)} style={secondaryButtonStyle}>
-              Edit
-            </button>
-          ) : undefined
-        }
-      >
-        {!capitalConfig ? (
-          <EmptyState>No capital config yet.</EmptyState>
-        ) : !isManualMode ? (
-          <>
-            <div
-              style={{
-                background: COLORS.statusAmberBg,
-                border: `1px solid ${COLORS.statusAmberText}55`,
-                color: COLORS.statusAmberText,
-                borderRadius: 8,
-                padding: 12,
-                fontSize: 13,
-                marginBottom: 16,
-              }}
-            >
-              Switch customer to Manual mode to edit capital configuration. This prevents configuration changes
-              during live trading.
-            </div>
-            <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(160px, 1fr))', gap: 14 }}>
-              {CAPITAL_FIELDS.map(f => (
-                <Field key={f.key} label={f.label} value={String(capitalConfig[f.key] ?? '—')} />
-              ))}
-            </div>
-          </>
-        ) : editingCapital ? (
-          <>
-            <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(180px, 1fr))', gap: 14, marginBottom: 16 }}>
-              {CAPITAL_FIELDS.map(f => (
-                <div key={f.key}>
-                  <label style={{ fontSize: 11, color: COLORS.muted, textTransform: 'uppercase', letterSpacing: '0.04em' }}>
-                    {f.label}
-                  </label>
-                  <input
-                    type="number"
-                    value={capitalDraft[f.key]}
-                    onChange={e => setCapitalDraft(prev => ({ ...prev, [f.key]: e.target.value }))}
-                    style={{ ...inputStyle, marginTop: 4 }}
-                  />
-                </div>
-              ))}
-            </div>
-            <div style={{ display: 'flex', gap: 8 }}>
-              <button onClick={handleSaveCapital} disabled={savingCapital} style={{ ...primaryButtonStyle, opacity: savingCapital ? 0.6 : 1 }}>
-                {savingCapital ? 'Saving…' : 'Save'}
-              </button>
-              <button onClick={() => setEditingCapital(false)} disabled={savingCapital} style={secondaryButtonStyle}>
-                Cancel
-              </button>
-            </div>
-          </>
-        ) : (
-          <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(160px, 1fr))', gap: 14 }}>
-            {CAPITAL_FIELDS.map(f => (
-              <Field key={f.key} label={f.label} value={String(capitalConfig[f.key] ?? '—')} />
-            ))}
-          </div>
-        )}
-      </SectionCard>
+      {/* Strategies and Capital Config are managed in the tabs below */}
     </div>
   )
 }

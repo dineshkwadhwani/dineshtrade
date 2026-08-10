@@ -1,3 +1,5 @@
+export const dynamic = 'force-dynamic'
+
 import Link from 'next/link'
 import { getProfile } from '@/lib/dalgoAuth'
 import { getManagerDashboardStats, listCustomers } from '@/lib/dalgoAdmin'

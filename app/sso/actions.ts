@@ -12,6 +12,7 @@
 
 import { cookies } from 'next/headers'
 import { validateSSOToken, completeSsoLogin, AuthError, SESSION_COOKIE } from '@/lib/dalgoAuth'
+import { createSession } from '@/lib/auth'
 
 export type SsoResult = { ok: true } | { ok: false; error: string }
 
@@ -32,6 +33,16 @@ export async function completeSso(token: string): Promise<SsoResult> {
     midnight.setHours(0, 0, 0, 0)
 
     cookies().set(SESSION_COOKIE, session.accessToken, {
+      httpOnly: true,
+      secure: process.env.NODE_ENV === 'production',
+      sameSite: 'lax',
+      expires: midnight,
+      path: '/',
+    })
+
+    // Also set V1 dt_session so the customer can access the trading dashboard
+    const v1Token = await createSession()
+    cookies().set('dt_session', v1Token, {
       httpOnly: true,
       secure: process.env.NODE_ENV === 'production',
       sameSite: 'lax',

@@ -1,3 +1,5 @@
+export const dynamic = 'force-dynamic'
+
 import { notFound, redirect } from 'next/navigation'
 import { getProfile } from '@/lib/dalgoAuth'
 import { getRegistrationById } from '@/lib/dalgoAdmin'

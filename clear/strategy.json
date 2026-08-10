@@ -1,0 +1,227 @@
+{
+  "version": "2.0",
+  "_comment": "Schema 2.0 — multi-strategy framework. The top-level `capital` and `strategies` are the new source of truth. The remaining keys (capital_legacy, limits, targets, strategy2_momentum, ema, strategy1_reactive, sources) are kept for backwards-compatibility with existing consumers in Phase 1; they will be removed in Phase 3 once all callers migrate to lib/strategyConfig.ts.",
+  "capital": {
+    "source": "live",
+    "perTrade": 20000,
+    "maxBuysPerDay": 6,
+    "maxSellsPerDay": 20,
+    "deliveryDpCharge": 15.34,
+    "circuitBreakerPct": -5,
+    "intradayCircuitTripPct": -3,
+    "intradayCircuitResumePct": -2,
+    "panicDropPct": 10,
+    "panicWindowMin": 10,
+    "maxDeployPct": 100,
+    "sharedPool": true,
+    "maxPositions": 35,
+    "maxBuysPerSymbol": 3,
+    "minDropBetweenBuysPct": 10
+  },
+  "strategies": [
+    {
+      "id": "accumulator",
+      "name": "Accumulator",
+      "type": "dip",
+      "active": true,
+      "color": "#52b788",
+      "scanIntervalMin": 15,
+      "watchlist": [
+        "listA"
+      ],
+      "params": {
+        "emaPeriod": 20,
+        "entryBelowPct": 5,
+        "strongBuyBelowPct": 8,
+        "minDownDays": 3,
+        "capitulationFloorPct": 12,
+        "tranche2AboveEMAPct": 3,
+        "reactiveDrop": 2,
+        "reactiveIntervalMin": 30,
+        "firesOnAnyMode": true,
+        "maxPerSector": 3,
+        "retraceAfterHit": false,
+        "retractPercentAllowed": 0.25
+      },
+      "exits": {
+        "t1Pct": 3,
+        "t2Pct": 5
+      },
+      "giftNiftyGate": {
+        "enabled": true,
+        "minPct": null,
+        "maxPct": -0.5
+      }
+    },
+    {
+      "id": "catalyst",
+      "name": "Catalyst (Momentum)",
+      "type": "momentum",
+      "active": true,
+      "color": "#c9a84c",
+      "scanIntervalMin": 5,
+      "watchlist": [
+        "listA"
+      ],
+      "params": {
+        "minDayGainPct": 0.5,
+        "maxDayGainPct": 0.75,
+        "consecutiveCandles": 3,
+        "emaProximityPct": 3,
+        "volumeAvgDays": 10,
+        "scanStartHHMM": "09:15",
+        "scanEndHHMM": "15:00",
+        "deliveryHandoffDays": 30,
+        "exitSameDayTime": "15:15",
+        "exitSameDayOnPositive": true,
+        "squareOffEOD": false,
+        "recentHighDays": 20,
+        "ceilingBufferPct": 2,
+        "retraceAfterHit": true,
+        "retractPercentAllowed": 0.5
+      },
+      "exits": {
+        "t1Pct": 1.5,
+        "t2Pct": 2
+      },
+      "giftNiftyGate": {
+        "enabled": false,
+        "minPct": null,
+        "maxPct": null
+      }
+    },
+    {
+      "id": "market_boom",
+      "name": "Market Boom",
+      "type": "momentum",
+      "active": true,
+      "color": "#60a5fa",
+      "scanIntervalMin": 3,
+      "watchlist": [
+        "listA"
+      ],
+      "params": {
+        "minDayGainPct": 0.25,
+        "maxDayGainPct": 0.5,
+        "consecutiveCandles": 2,
+        "emaProximityPct": 5,
+        "volumeAvgDays": 5,
+        "scanStartHHMM": "09:15",
+        "scanEndHHMM": "15:15",
+        "deliveryHandoffDays": 30,
+        "exitSameDayTime": "15:10",
+        "exitSameDayOnPositive": true,
+        "squareOffEOD": false,
+        "recentHighDays": 20,
+        "ceilingBufferPct": 5,
+        "retraceAfterHit": true,
+        "retractPercentAllowed": 0.25
+      },
+      "exits": {
+        "t1Pct": 1,
+        "t2Pct": 1.5
+      },
+      "giftNiftyGate": {
+        "enabled": false,
+        "minPct": 1,
+        "maxPct": null
+      }
+    },
+    {
+      "id": "new_pivotal",
+      "name": "New Pivotal Strategy",
+      "type": "pivotal",
+      "active": true,
+      "color": "#f97316",
+      "scanIntervalMin": 5,
+      "watchlist": [
+        "listA"
+      ],
+      "params": {
+        "consolidationDays": 10,
+        "consolidationMaxRangePct": 6,
+        "volumeAvgDays": 10,
+        "minVolumeSurgeRatio": 1.2,
+        "minDayGainPct": 1,
+        "maxDayGainPct": 4,
+        "breakoutConfirmCandles": 2,
+        "scanStartHHMM": "10:00",
+        "scanEndHHMM": "13:00",
+        "minProjectedVolumeCheckHHMM": "10:00",
+        "dayEndExecutionTime": "15:10",
+        "deliveryHandoffDays": 15,
+        "pivotalListId": "pivotalA",
+        "retraceAfterHit": true,
+        "retractPercentAllowed": 1
+      },
+      "exits": {
+        "t1Pct": 2,
+        "t2Pct": 3.5
+      },
+      "giftNiftyGate": {
+        "enabled": false,
+        "minPct": 0.5,
+        "maxPct": null
+      }
+    }
+  ],
+  "capital_legacy": {
+    "total": 50000,
+    "perTrade": 5000,
+    "maxPositions": 10
+  },
+  "limits": {
+    "maxBuysPerDay": 3,
+    "maxSellsPerDay": 3,
+    "circuitBreakerPct": -5
+  },
+  "targets": {
+    "intraday_t1_pct": 1.5,
+    "intraday_t2_pct": 2,
+    "delivery_ema_pct": 4,
+    "strategy1_tranche2_above_ema_pct": 3
+  },
+  "strategy2_momentum": {
+    "minDayGainPct": 0.5,
+    "maxDayGainPct": 1.5,
+    "emaProximityPct": 3,
+    "consecutiveCandles": 3,
+    "scanStartHHMM": "09:30",
+    "scanEndHHMM": "14:30",
+    "volumeAvgDays": 10
+  },
+  "ema": {
+    "period": 20,
+    "entryBelowPct": 5,
+    "strongBuyBelowPct": 8,
+    "minDownDays": 3
+  },
+  "strategy1_reactive": {
+    "dropPct": 3,
+    "scanStartHHMM": "09:15",
+    "scanEndHHMM": "14:00",
+    "intervalMin": 30,
+    "firesOnAnyMode": true
+  },
+  "sources": {
+    "brokerRecommendations": [
+      {
+        "name": "ICICI Direct",
+        "url": "https://www.icicidirect.com/research/equity/stock-picks"
+      },
+      {
+        "name": "HDFC Securities",
+        "url": "https://www.hdfcsec.com/research/equity-research"
+      },
+      {
+        "name": "Moneycontrol",
+        "url": "https://www.moneycontrol.com/stocks/marketstats/recos/"
+      },
+      {
+        "name": "Motilal Oswal",
+        "url": "https://www.motilaloswal.com/markets/equity"
+      }
+    ]
+  },
+  "_updatedAt": "2026-08-06T05:07:21.986Z"
+}

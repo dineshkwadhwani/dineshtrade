@@ -10,6 +10,7 @@ const STATUS_LABEL: Record<ProfileStatus, string> = {
   pending: 'Pending',
   under_review: 'Under review',
   identity_verified: 'Identity verified',
+  broker_setup_complete: 'Broker connected',
   active: 'Active',
   suspended: 'Suspended',
   rejected: 'Rejected',
@@ -19,6 +20,7 @@ const STATUS_COLOR: Record<ProfileStatus, { bg: string; text: string }> = {
   pending: { bg: '#FEF3C7', text: '#92400E' },
   under_review: { bg: '#DBEAFE', text: '#1E3A8A' },
   identity_verified: { bg: '#D1FAE5', text: '#065F46' },
+  broker_setup_complete: { bg: '#D1FAE5', text: '#065F46' },
   active: { bg: '#D1FAE5', text: '#065F46' },
   suspended: { bg: '#FEE2E2', text: '#991B1B' },
   rejected: { bg: '#FEE2E2', text: '#991B1B' },
@@ -64,10 +66,8 @@ export default async function PendingPage() {
   const session = await getSession()
   const profile = session ? await getProfile() : null
 
-  // Approved — they should log in properly instead of sitting on this page.
-  if (profile?.status === 'active') {
-    redirect('/login')
-  }
+  if (profile?.status === 'active') redirect('/login')
+  if (profile?.status === 'identity_verified' || profile?.status === 'broker_setup_complete') redirect('/setup')
 
   return (
     <>

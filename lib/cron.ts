@@ -19,7 +19,7 @@ import { resolve } from 'path'
 dotenv.config({ path: resolve(process.cwd(), '.env.local') })
 
 import cron, { ScheduledTask } from 'node-cron'
-import { getBackendInfo, getState } from './state'
+import { getBackendInfo, getState, saveState } from './state'
 import { isMarketOpen } from './market'
 import { getAccountList } from './accounts'
 import { type EODLineItem } from './email'
@@ -39,8 +39,12 @@ import { reconcileManualSells } from './cronReconcile'
 import { journalMonitorHeartbeat } from './journal'
 import { getFixedRules } from './fixedRules'
 import { isHeartbeatDbEnabled, updateInstanceStatus, checkKiteTokenStatus } from './instanceStatus'
-import { checkAndSendTokenAlert } from './tokenAlert'
+import { checkAndSendTokenAlert, sendPrimaryTokenMissingAlert } from './tokenAlert'
 import { listPositions } from './positions'
+import { getSupabaseAdmin, withCustomer } from './supabase'
+import { decrypt } from './encryption'
+import { getQuotes, setTickQuoteCache, clearTickQuoteCache } from './kite'
+import { rehydrateForCustomer } from './strategyConfigStore'
 
 // Re-export record functions and getDayStats so external callers that were
 // using @/lib/cron keep working without any import-path change.
@@ -66,6 +70,94 @@ let sellCadenceWatcher: ReturnType<typeof setInterval> | null = null
 // start/stop individual tasks when the user toggles a strategy in Settings
 // (Phase 4). For Phase 3 the registry is populated once at startCron() time.
 const strategyTasks = new Map<string, ScheduledTask>()
+
+// ──────── MULTI-CUSTOMER SUPPORT ────────
+
+// Parses CUSTOMER_IDS env var. Returns an array of UUIDs.
+function parseCustomerIds(): string[] {
+  return (process.env.CUSTOMER_IDS || '')
+    .split(',')
+    .map(id => id.trim())
+    .filter(Boolean)
+}
+
+// Loads the Zerodha access token from broker_accounts for a customer.
+// Returns null if no active row or no token yet captured.
+async function loadKiteToken(customerId: string): Promise<{ apiKey: string; accessToken: string } | null> {
+  try {
+    const admin = getSupabaseAdmin()
+    const env = process.env.ZERODHA_ENVIRONMENT === 'PROD' ? 'PROD' : 'TEST'
+    const primaryAccount = process.env[`${env}_ZERODHA_ACCOUNT1`] || 'DINESH'
+    const apiKey = process.env[`${env}_ZERODHA_API_KEY_${primaryAccount}`] || ''
+    const { data } = await admin
+      .from('broker_accounts')
+      .select('access_token_enc, api_key_enc')
+      .eq('customer_id', customerId)
+      .eq('broker_name', 'zerodha')
+      .eq('active', true)
+      .maybeSingle()
+    if (!data?.access_token_enc) return null
+    const accessToken = decrypt(data.access_token_enc)
+    // Use per-customer api_key from broker_accounts if available, else fall back to env
+    const customerApiKey = data.api_key_enc ? (() => { try { return decrypt(data.api_key_enc!) } catch { return apiKey } })() : apiKey
+    return { apiKey: customerApiKey, accessToken }
+  } catch (err) {
+    console.error(`[cron] loadKiteToken(${customerId}) failed:`, err)
+    return null
+  }
+}
+
+// Builds the union of all watchlist symbols across all customers.
+// Uses primary customer's context since watchlists are customer-scoped.
+async function collectAllWatchlistSymbols(customerIds: string[]): Promise<string[]> {
+  const symbolSet = new Set<string>()
+  const admin = getSupabaseAdmin()
+  for (const customerId of customerIds) {
+    try {
+      const { data: rows } = await admin
+        .from('customer_watchlists')
+        .select('symbols')
+        .eq('customer_id', customerId)
+      for (const row of rows ?? []) {
+        const entries: { nse?: string }[] = Array.isArray(row.symbols) ? row.symbols : []
+        for (const e of entries) {
+          if (e.nse) symbolSet.add(e.nse.toUpperCase())
+        }
+      }
+    } catch (err) {
+      console.error(`[cron] collectAllWatchlistSymbols(${customerId}) failed:`, err)
+    }
+  }
+  return Array.from(symbolSet)
+}
+
+// Runs the full tick for one customer inside their async context.
+// Loads their own Kite token (for order placement), seeds state.kiteTokens,
+// then runs tick(). Market data (quotes) is already in the per-tick cache
+// from the primary account pre-fetch — no extra Kite data API calls needed.
+async function runCustomerTick(customerId: string): Promise<void> {
+  await withCustomer(customerId, async () => {
+    const env = process.env.ZERODHA_ENVIRONMENT === 'PROD' ? 'PROD' : 'TEST'
+    const primaryAccount = process.env[`${env}_ZERODHA_ACCOUNT1`] || 'DINESH'
+    const credentials = await loadKiteToken(customerId)
+    if (credentials) {
+      await saveState({ kiteTokens: { [primaryAccount]: credentials.accessToken } }).catch(err =>
+        console.error(`[cron] customer=${customerId} saveState kiteTokens failed:`, err)
+      )
+    }
+    // Refresh this customer's strategy config from Supabase before the tick runs
+    await rehydrateForCustomer()
+    await tick()
+  })
+}
+
+async function runCustomerEOD(customerId: string): Promise<void> {
+  await withCustomer(customerId, () => dailyRetrospective())
+}
+
+async function runCustomerTokenAlert(customerId: string): Promise<void> {
+  await withCustomer(customerId, () => checkAndSendTokenAlert())
+}
 
 // ──────── TICK ────────
 
@@ -268,54 +360,95 @@ export async function startCron(): Promise<void> {
     console.log('[cron] disabled (set CRON_ENABLED=true to enable)')
     return
   }
-  // Task 5.2 — every customer EC2 cron process must know which single
-  // customer it is scoped to. All Supabase-backed stores (positions, state,
-  // journal, watchlists, strategies, ...) already call getCustomerId()
-  // internally and throw on every read/write if this is unset (Phase 4) —
-  // this guard just fails fast and loudly at startup instead of on the
-  // first store call, with a message that names the actual problem.
-  if (!process.env.CUSTOMER_ID) {
-    throw new Error('[cron] CUSTOMER_ID env var is required when CRON_ENABLED=true')
+
+  const customerIds = parseCustomerIds()
+  if (customerIds.length === 0) {
+    throw new Error('[cron] CUSTOMER_IDS is required when CRON_ENABLED=true')
   }
+
   started = true
   const backend = getBackendInfo()
-  console.log(`[cron] state backend=${backend.backend}${backend.path ? ` path=${backend.path}` : ''} · customer=${process.env.CUSTOMER_ID}`)
+  console.log(`[cron] state backend=${backend.backend}${backend.path ? ` path=${backend.path}` : ''} · Running for ${customerIds.length} customer(s): ${customerIds.join(', ')}`)
 
-  // Core tick: SELL monitors + reactive dip scan only. BUY scans live on
-  // per-strategy schedules below. Interval sourced from Fixed Rules'
-  // sellMonitorCadenceMin (Task 5.6) — falls back to 5 min on any read
-  // failure (getFixedRules() itself never throws).
+  // Core tick: loop over all customers sequentially on each fire.
   const tickExpr = await buildTickExpr()
   tickTask = cron.schedule(tickExpr, () => {
-    tick().catch(err => console.error('[cron tick] error:', err))
+    ;(async () => {
+      clearTickQuoteCache()
+
+      // §6.7 — Primary account (first in CUSTOMER_IDS) must have a Connect
+      // plan. It fetches market data for ALL customers. If its token is missing,
+      // skip the entire tick and alert everyone.
+      const primaryId = customerIds[0]
+      const primaryCreds = await loadKiteToken(primaryId)
+      if (!primaryCreds) {
+        console.error(`[cron tick] primary customer ${primaryId} has no Kite token — skipping tick for all ${customerIds.length} customer(s)`)
+        sendPrimaryTokenMissingAlert(primaryId, customerIds).catch(err =>
+          console.error('[cron tick] sendPrimaryTokenMissingAlert failed:', err))
+        return
+      }
+
+      // Pre-fetch live quotes for the union of ALL customers' watchlist symbols
+      // using the primary's Connect plan API. Sets the module-level cache so
+      // secondary customers' getQuotes() calls return from cache at zero cost.
+      try {
+        const allSymbols = await collectAllWatchlistSymbols(customerIds)
+        if (allSymbols.length > 0) {
+          const quotes = await getQuotes(primaryCreds, allSymbols)
+          setTickQuoteCache(quotes)
+          console.log(`[cron tick] pre-fetched ${Object.keys(quotes).length} quote(s) for ${allSymbols.length} symbol(s) using primary account`)
+        }
+      } catch (err) {
+        console.error('[cron tick] pre-fetch quotes failed (continuing with empty cache):', err)
+      }
+
+      for (const customerId of customerIds) {
+        try {
+          await runCustomerTick(customerId)
+        } catch (err) {
+          console.error(`[cron] Customer ${customerId} tick failed:`, err)
+        }
+      }
+    })().catch(err => console.error('[cron tick] loop error:', err))
   }, { timezone: 'Asia/Kolkata' })
   tickTask.start()
 
-  // Watches for sellMonitorCadenceMin changes every 5 min and restarts the
-  // core tick task in place — no process restart needed for a Fixed Rules edit.
   sellCadenceWatcher = setInterval(() => {
     checkSellCadence().catch(err => console.error('[cron] sell cadence watcher failed:', err))
   }, 5 * 60 * 1000)
 
-  // Daily retrospective email
+  // Daily retrospective — run for each customer
   eodTask = cron.schedule('35 15 * * 1-5', () => {
-    dailyRetrospective().catch(err => console.error('[cron retro] error:', err))
+    ;(async () => {
+      for (const customerId of customerIds) {
+        try {
+          await runCustomerEOD(customerId)
+        } catch (err) {
+          console.error(`[cron] Customer ${customerId} EOD failed:`, err)
+        }
+      }
+    })().catch(err => console.error('[cron retro] loop error:', err))
   }, { timezone: 'Asia/Kolkata' })
   eodTask.start()
 
-  // Task 5.5 — 9:00 AM IST weekday token-status alert (this customer only).
+  // Token alert — run for each customer
   tokenAlertTask = cron.schedule('0 9 * * 1-5', () => {
-    checkAndSendTokenAlert().catch(err => console.error('[cron tokenAlert] error:', err))
+    ;(async () => {
+      for (const customerId of customerIds) {
+        try {
+          await runCustomerTokenAlert(customerId)
+        } catch (err) {
+          console.error(`[cron] Customer ${customerId} token alert failed:`, err)
+        }
+      }
+    })().catch(err => console.error('[cron tokenAlert] loop error:', err))
   }, { timezone: 'Asia/Kolkata' })
   tokenAlertTask.start()
 
-  // Per-strategy BUY-scan tasks. Each active strategy registers its own cron
-  // at its scanIntervalMin. Inactive strategies are skipped here; toggling
-  // active=true in strategy.json + a process restart will pick them up. Phase
-  // 4 will add hot-toggle without restart.
+  // Per-strategy BUY-scan tasks. Each active strategy runs inside ALL customers' contexts.
   const active = getActiveStrategies()
   for (const strategy of active) {
-    registerStrategyTask(strategy)
+    registerStrategyTask(strategy, customerIds)
   }
   const summary = active.map(s => `${s.id}@${s.scanIntervalMin}m`).join(', ')
   console.log(`[cron] starting — core tick every ${currentSellCadenceMin} min · retro 15:35 IST · token alert 09:00 IST · per-strategy: ${summary || 'none'}`)
@@ -335,28 +468,26 @@ export function ensureCronStarted(): void {
   })
 }
 
-function registerStrategyTask(strategy: Strategy): void {
+function registerStrategyTask(strategy: Strategy, customerIds: string[]): void {
   if (strategyTasks.has(strategy.id)) return
   const interval = Math.max(1, strategy.scanIntervalMin)
   const expr = `*/${interval} 9-15 * * 1-5`
   const task = cron.schedule(expr, () => {
     console.log(`[cron strategy:${strategy.id}] callback fired (${expr})`)
-    try {
-      // Always re-resolve the strategy by id each tick — picks up any post-save
-      // params/watchlist/exits without needing to restart the cron task.
+    ;(async () => {
       const fresh = getStrategyById(strategy.id)
-      if (!fresh) {
-        console.log(`[cron strategy:${strategy.id}] skipped — strategy missing in runtime config`)
+      if (!fresh || !fresh.active) {
+        console.log(`[cron strategy:${strategy.id}] skipped — strategy missing or inactive`)
         return
       }
-      if (!fresh.active) {
-        console.log(`[cron strategy:${strategy.id}] skipped — strategy inactive in runtime config`)
-        return
+      for (const customerId of customerIds) {
+        try {
+          await withCustomer(customerId, () => runStrategyTaskBody(fresh))
+        } catch (err) {
+          console.error(`[cron strategy:${strategy.id}] Customer ${customerId} failed:`, err)
+        }
       }
-      runStrategyTaskBody(fresh).catch(err => console.error(`[cron strategy:${strategy.id}] error:`, err))
-    } catch (err) {
-      console.error(`[cron strategy:${strategy.id}] callback setup failed:`, err)
-    }
+    })().catch(err => console.error(`[cron strategy:${strategy.id}] error:`, err))
   }, { timezone: 'Asia/Kolkata' })
   task.start()
   strategyTasks.set(strategy.id, task)
@@ -369,13 +500,13 @@ function registerStrategyTask(strategy: Strategy): void {
 // scanIntervalMin changes → restart (stop + register).
 export function reloadCronStrategies(): { added: string[]; removed: string[]; restarted: string[] } {
   if (!started) return { added: [], removed: [], restarted: [] }
+  const customerIds = parseCustomerIds()
   const active = getActiveStrategies()
   const activeIds = new Set(active.map(s => s.id))
   const added: string[] = []
   const removed: string[] = []
   const restarted: string[] = []
 
-  // Remove tasks for strategies that are no longer active
   Array.from(strategyTasks.keys()).forEach(id => {
     if (!activeIds.has(id)) {
       strategyTasks.get(id)!.stop()
@@ -384,19 +515,15 @@ export function reloadCronStrategies(): { added: string[]; removed: string[]; re
     }
   })
 
-  // Add or restart per the new active list
   for (const s of active) {
     const existing = strategyTasks.get(s.id)
     if (!existing) {
-      registerStrategyTask(s)
+      registerStrategyTask(s, customerIds)
       added.push(s.id)
     } else {
-      // Restart so any scanIntervalMin change takes effect. The task body
-      // re-resolves the strategy each fire anyway, but the cron expression
-      // (which encodes the interval) must be rebuilt.
       existing.stop()
       strategyTasks.delete(s.id)
-      registerStrategyTask(s)
+      registerStrategyTask(s, customerIds)
       restarted.push(s.id)
     }
   }

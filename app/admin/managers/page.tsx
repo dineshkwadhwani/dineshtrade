@@ -1,3 +1,5 @@
+export const dynamic = 'force-dynamic'
+
 import { listAccountManagers } from '@/lib/dalgoAdmin'
 import { PageHeader, SectionCard } from '@/components/dalgo/ui'
 import ManagersClient from './ManagersClient'

@@ -66,8 +66,29 @@ export function getSupabaseAdmin(): SupabaseClient {
 
 // ---- Customer scoping ----------------------------------------------------
 // Every customer-scoped store (positions, state, journal, watchlists, ...)
-// filters by this on every read and write. One customer per process — see
-// docs/DALGO_REFACTOR_SPEC_v2.md §5.6.
+// filters by this on every read and write.
+//
+// Multi-customer support: the cron runs one EC2 process that serves N customers.
+// withCustomer(id, fn) sets the active customer for the duration of fn via
+// AsyncLocalStorage — all downstream store calls automatically see the right ID
+// without any signature changes. Falls back to CUSTOMER_IDS[0] (or the legacy
+// CUSTOMER_ID) when called outside a withCustomer context (e.g. API routes,
+// which are always scoped to the single session user).
+import { AsyncLocalStorage } from 'async_hooks'
+
+const customerStorage = new AsyncLocalStorage<string>()
+
 export function getCustomerId(): string {
-  return requireEnv(process.env.CUSTOMER_ID, 'CUSTOMER_ID')
+  const fromContext = customerStorage.getStore()
+  if (fromContext) return fromContext
+  // Fall back to env for API routes and single-customer setups
+  const fromEnv = process.env.CUSTOMER_IDS?.split(',')[0]?.trim() || process.env.CUSTOMER_ID
+  if (!fromEnv) throw new Error('[lib/supabase] No customer context — set CUSTOMER_IDS env var')
+  return fromEnv
+}
+
+// Runs fn inside a customer-scoped async context. Used by the multi-customer
+// cron loop so each customer's tick reads/writes to their own Supabase rows.
+export function withCustomer<T>(customerId: string, fn: () => Promise<T>): Promise<T> {
+  return customerStorage.run(customerId, fn)
 }

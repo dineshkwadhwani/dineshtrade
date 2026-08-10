@@ -26,3 +26,16 @@ export async function POST() {
   })
   return res
 }
+
+// GET — used by plain <a href> links (e.g. the Log out button on /setup)
+export async function GET() {
+  const res = NextResponse.redirect(new URL('/', process.env.NEXT_PUBLIC_APP_URL || 'http://localhost:3000'))
+  res.cookies.set(SESSION_COOKIE, '', {
+    httpOnly: true,
+    secure: process.env.NODE_ENV === 'production',
+    sameSite: 'lax',
+    expires: new Date(0),
+    path: '/',
+  })
+  return res
+}

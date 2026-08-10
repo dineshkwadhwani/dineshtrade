@@ -17,16 +17,15 @@ const DISCLAIMER =
 const FONT_SORA = "'Sora', sans-serif"
 const FONT_INTER = "'Inter', sans-serif"
 
-// Duplicated from app/api/dalgo/auth/route.ts's REDIRECT_BY_ROLE on purpose:
-// that map lives in a server route file (imports next/server types), which
-// isn't something a client component should pull in just to reuse a 4-line
-// object. Kept in sync by hand — small enough that this is the pragmatic
-// choice over a shared non-server module for just this one map.
-const REDIRECT_BY_ROLE: Record<ProfileRole, string> = {
-  superadmin: '/admin',
-  account_manager: '/manager',
-  broking_company: '/manager',
-  customer: '/sso',
+// Status-aware redirect — mirrors resolveRedirect() in app/api/dalgo/auth/route.ts.
+function resolveClientRedirect(profile: Profile): string {
+  if (profile.role === 'customer') {
+    if (profile.status === 'identity_verified' || profile.status === 'broker_setup_complete') return '/setup'
+    if (profile.status === 'active') return '/dashboard'
+    return '/pending'
+  }
+  if (profile.role === 'superadmin') return '/admin'
+  return '/manager'
 }
 
 function CardShell({ children }: { children: React.ReactNode }) {
@@ -48,7 +47,7 @@ function CardShell({ children }: { children: React.ReactNode }) {
           <span style={{ color: '#F59E0B' }}>A</span>
           <span style={{ color: '#FFFFFF' }}>lgo</span>
         </div>
-        <p style={{ marginTop: 16, fontFamily: FONT_INTER, fontSize: 18, color: 'rgba(255,255,255,0.85)', maxWidth: 360 }}>
+        <p style={{ marginTop: 16, fontFamily: FONT_INTER, fontSize: 18, color: '#FFFFFF', opacity: 0.85, maxWidth: 360 }}>
           Trade Smarter. Automate Faster.
         </p>
       </div>
@@ -98,7 +97,7 @@ export default function LoginClient({ initialProfile, initialError }: Props) {
   // your note; worst case is a brief flash of the form before navigation.
   useEffect(() => {
     if (initialProfile) {
-      window.location.href = REDIRECT_BY_ROLE[initialProfile.role]
+      window.location.href = resolveClientRedirect(initialProfile)
     }
   }, [initialProfile])
 
@@ -114,7 +113,10 @@ export default function LoginClient({ initialProfile, initialError }: Props) {
       })
       const data = await res.json()
       if (!res.ok) {
-        setError(data.error || 'Login failed. Please try again.')
+        const msg = data.error === 'ACCOUNT_PENDING'
+          ? 'Your account is under review. You will be notified once it is approved.'
+          : (data.error || 'Login failed. Please try again.')
+        setError(msg)
         setLoading(false)
         return
       }
@@ -214,6 +216,10 @@ export default function LoginClient({ initialProfile, initialError }: Props) {
           {loading ? 'Logging in…' : 'Log In'}
         </button>
       </form>
+      <p style={{ fontFamily: FONT_INTER, fontSize: 13, color: '#475569', textAlign: 'center', marginTop: 16, marginBottom: 0 }}>
+        Don't have an account?{' '}
+        <a href="/register" style={{ color: '#3B82F6' }}>Register</a>
+      </p>
     </CardShell>
   )
 }

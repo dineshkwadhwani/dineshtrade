@@ -7,7 +7,6 @@
 // duplicating the nav chrome.
 
 import { useState } from 'react'
-import Link from 'next/link'
 import { usePathname, useRouter } from 'next/navigation'
 import { COLORS, FONT_INTER, FONT_SORA } from './theme'
 import { Badge, ROLE_LABELS } from './ui'
@@ -76,9 +75,9 @@ export default function DalgoShell({ profile, navItems, logoHref, children }: Pr
           borderBottom: `1px solid ${COLORS.border}`,
         }}
       >
-        <Link href={logoHref} style={{ textDecoration: 'none' }}>
+        <a href={logoHref} style={{ textDecoration: 'none', display: 'flex', alignItems: 'center' }}>
           <Logo />
-        </Link>
+        </a>
         <div style={{ display: 'flex', alignItems: 'center', gap: 12 }}>
           <div className="hidden sm:block" style={{ textAlign: 'right' }}>
             <div style={{ fontSize: 13, fontWeight: 500, color: COLORS.heading }}>{profile.full_name}</div>
@@ -121,7 +120,7 @@ export default function DalgoShell({ profile, navItems, logoHref, children }: Pr
           {navItems.map(item => {
             const active = isActive(pathname, item.href, navItems[0].href)
             return (
-              <Link
+              <a
                 key={item.href}
                 href={item.href}
                 style={{
@@ -137,7 +136,7 @@ export default function DalgoShell({ profile, navItems, logoHref, children }: Pr
                 }}
               >
                 {item.label}
-              </Link>
+              </a>
             )
           })}
         </nav>
@@ -165,7 +164,7 @@ export default function DalgoShell({ profile, navItems, logoHref, children }: Pr
         {navItems.map(item => {
           const active = isActive(pathname, item.href, navItems[0].href)
           return (
-            <Link
+            <a
               key={item.href}
               href={item.href}
               style={{
@@ -181,7 +180,7 @@ export default function DalgoShell({ profile, navItems, logoHref, children }: Pr
               }}
             >
               {item.label}
-            </Link>
+            </a>
           )
         })}
       </nav>

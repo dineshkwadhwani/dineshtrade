@@ -47,9 +47,14 @@ const PUBLIC_EXACT = new Set([
   '/about',
   '/contact',
   '/api/dalgo/auth', // critical — the login endpoint itself must be public
+  '/api/dalgo/auth/logout', // GET logout clears cookie and redirects to /; must be reachable without a valid session
   '/api/dalgo/register', // customer/broking-company self-registration — no session exists yet
   '/api/dalgo/upload-url', // Aadhar upload URL generation — called from the registration form pre-signup
   '/api/dalgo/contact', // public /contact page form submission — no session exists yet (Phase 7, Task 7.10)
+  '/api/dalgo/setup/broker', // broker credential setup — session-gated inside the route, not via middleware (identity_verified customers have a session but not active status)
+  '/api/dalgo/setup/kite-login', // initiates Kite OAuth — reads session cookie inside the route
+  '/api/dalgo/setup/kite-callback', // Kite OAuth callback — validates via cookie set by kite-login
+  '/api/zerodha/callback', // Kite OAuth callback — self-authenticates via dalgo_kite_pending or dt_session cookie; no DAlgo JWT needed
   '/api/auth', // V1 auth route stays public too
   '/favicon.ico',
   // /sso is the SSO-handoff landing page (Phase 8, Task 8's fix) — a
@@ -65,6 +70,11 @@ const PUBLIC_EXACT = new Set([
   '/sso',
 ])
 const PUBLIC_PREFIXES = ['/_next', '/public']
+
+// Static assets in /public are served at the root — allow all common extensions
+function isStaticAsset(pathname: string): boolean {
+  return /\.(png|jpg|jpeg|gif|webp|svg|ico|woff|woff2|ttf|otf|mp4|pdf)$/i.test(pathname)
+}
 
 const SUPERADMIN_PREFIXES = ['/admin']
 const ACCOUNT_MANAGER_PREFIXES = ['/manager']
@@ -82,6 +92,7 @@ const CUSTOMER_EXACT = new Set([
   '/trade-report',
   '/settings',
   '/health',
+  '/setup',
   // Bridge entries: still-live V1 pages with no DAlgo route-map equivalent
   // yet (/orders above is meant to replace /trades). Remove once /orders
   // and its skipped-signals view actually exist.
@@ -91,7 +102,8 @@ const CUSTOMER_EXACT = new Set([
 
 function isPublic(pathname: string): boolean {
   if (PUBLIC_EXACT.has(pathname)) return true
-  return PUBLIC_PREFIXES.some(prefix => pathname.startsWith(prefix))
+  if (PUBLIC_PREFIXES.some(prefix => pathname.startsWith(prefix))) return true
+  return isStaticAsset(pathname)
 }
 
 function matchesPrefixRule(pathname: string, prefixes: string[]): boolean {

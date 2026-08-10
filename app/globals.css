@@ -1,171 +1,77 @@
-@import url('https://fonts.googleapis.com/css2?family=Cormorant+Garamond:ital,wght@0,300;0,400;0,600;1,300;1,400&family=Outfit:wght@300;400;500;600;700&family=JetBrains+Mono:wght@300;400;500&family=Noto+Sans+Symbols+2:wght@400;600&display=swap');
+@import url('https://fonts.googleapis.com/css2?family=Sora:wght@400;600;700&family=Inter:wght@300;400;500;600;700&family=JetBrains+Mono:wght@300;400;500&family=Noto+Sans+Symbols+2:wght@400;600&display=swap');
 @tailwind base;
 @tailwind components;
 @tailwind utilities;
 
-/* ─── Design tokens — DEFAULT = dark, high contrast ─────────────────── */
+/* ─── Design tokens — DAlgo light theme ─────────────────────────────── */
 :root {
-  --accent:#5da9ff;--accent-light:#9cd0ff;--accent-dark:#2c72d9;
-  --obsidian:#061426;--up:#52b788;--dn:#e05a5e;
-  --dt-success:#52b788;
-  --dt-danger:#e05a5e;
-  --dt-warning:#f59e0b;
-  --dt-info:#60a5fa;
+  --accent:#3B82F6;--accent-light:#93C5FD;--accent-dark:#1D4ED8;
+  --obsidian:#1E3A8A;--up:#16A34A;--dn:#DC2626;
+  --dt-success:#16A34A;
+  --dt-danger:#DC2626;
+  --dt-warning:#D97706;
+  --dt-info:#3B82F6;
 
-  --dt-bg:            #0a2d56;
-  --dt-bg-card:       #0e396d;
-  --dt-bg-card-2:     #13457f;
-  --dt-bg-nav:        rgba(6,20,38,0.95);
-  --dt-text-primary:  rgba(255,255,255,0.95);
-  --dt-text-secondary:rgba(255,255,255,0.75);
-  --dt-text-muted:    rgba(255,255,255,0.52);
-  --dt-border:        rgba(255,255,255,0.12);
-  --dt-border-accent:   rgba(93,169,255,0.35);
-  --dt-surface:       rgba(255,255,255,0.05);
-  --dt-surface-2:     rgba(255,255,255,0.09);
-  --dt-accent-display:  #5da9ff;
-  --dt-nav-border:    rgba(93,169,255,0.24);
-  --dt-scrollbar-bg:  #0b1e36;
-  --dt-scrollbar-thumb: rgba(93,169,255,0.32);
-  --dt-focus-ring: 0 0 0 2px rgba(93,169,255,0.35);
+  --dt-bg:            #F8FAFF;
+  --dt-bg-card:       #FFFFFF;
+  --dt-bg-card-2:     #EFF6FF;
+  --dt-bg-nav:        rgba(255,255,255,0.97);
+  --dt-text-primary:  #1E3A8A;
+  --dt-text-secondary:#475569;
+  --dt-text-muted:    #94A3B8;
+  --dt-border:        #BFDBFE;
+  --dt-border-accent: rgba(59,130,246,0.35);
+  --dt-surface:       rgba(59,130,246,0.06);
+  --dt-surface-2:     rgba(59,130,246,0.10);
+  --dt-accent-display:#3B82F6;
+  --dt-nav-border:    #BFDBFE;
+  --dt-scrollbar-bg:  #EFF6FF;
+  --dt-scrollbar-thumb: rgba(59,130,246,0.32);
+  --dt-focus-ring: 0 0 0 2px rgba(59,130,246,0.35);
 }
 
-/* ─── Light mode ─────────────────────────────────────────────────────── */
+/* ─── Light mode (same as root — single theme now) ───────────────────── */
 html.light {
-  --dt-bg:            #eef6ff;
-  --dt-bg-card:       #f9fcff;
-  --dt-bg-card-2:     #e9f3ff;
-  --dt-bg-nav:        rgba(238,246,255,0.97);
-  --dt-text-primary:  #10233d;
-  --dt-text-secondary:#26486f;
-  --dt-text-muted:    #4f7298;
-  --dt-border:        rgba(33,85,145,0.20);
-  --dt-border-accent:   rgba(72,145,231,0.34);
-  --dt-surface:       rgba(59,130,246,0.08);
-  --dt-surface-2:     rgba(59,130,246,0.13);
-  --dt-accent-display:  #2f7fe3;
-  --dt-nav-border:    rgba(72,145,231,0.28);
-  --dt-scrollbar-bg:  #dcecff;
-  --dt-scrollbar-thumb: rgba(72,145,231,0.46);
-  --dt-focus-ring: 0 0 0 2px rgba(72,145,231,0.35);
+  --dt-bg:            #F8FAFF;
+  --dt-bg-card:       #FFFFFF;
+  --dt-bg-card-2:     #EFF6FF;
+  --dt-bg-nav:        rgba(255,255,255,0.97);
+  --dt-text-primary:  #1E3A8A;
+  --dt-text-secondary:#475569;
+  --dt-text-muted:    #94A3B8;
+  --dt-border:        #BFDBFE;
+  --dt-border-accent: rgba(59,130,246,0.35);
+  --dt-surface:       rgba(59,130,246,0.06);
+  --dt-surface-2:     rgba(59,130,246,0.10);
+  --dt-accent-display:#3B82F6;
+  --dt-nav-border:    #BFDBFE;
+  --dt-scrollbar-bg:  #EFF6FF;
+  --dt-scrollbar-thumb: rgba(59,130,246,0.32);
+  --dt-focus-ring: 0 0 0 2px rgba(59,130,246,0.35);
 }
 
 /* ─── Global base ────────────────────────────────────────────────────── */
 *{box-sizing:border-box;}
 body {
-  background:
-    radial-gradient(900px 500px at 18% -10%, rgba(125,190,255,0.22), transparent 60%),
-    radial-gradient(700px 380px at 88% 120%, rgba(93,169,255,0.16), transparent 65%),
-    linear-gradient(160deg, #0b2f5c 0%, #0a2d56 48%, #082346 100%);
+  background: #F8FAFF;
   color: var(--dt-text-primary);
-  font-family:'Outfit',system-ui,sans-serif;
-  -webkit-font-smoothing:antialiased;
+  font-family: 'Inter', system-ui, sans-serif;
+  -webkit-font-smoothing: antialiased;
   transition: background 0.2s ease, color 0.2s ease;
 }
 html.light body {
-  background:
-    radial-gradient(920px 540px at 14% -8%, rgba(147,208,255,0.32), transparent 62%),
-    radial-gradient(780px 440px at 92% 112%, rgba(93,169,255,0.22), transparent 66%),
-    linear-gradient(155deg, #f5fbff 0%, #eef6ff 52%, #e5f1ff 100%);
+  background: #F8FAFF;
 }
 html::before {
-  content: '$';
-  position: fixed;
-  top: 10vh;
-  left: 3vw;
-  z-index: 0;
-  pointer-events: none;
-  font-family: 'JetBrains Mono', monospace;
-  font-size: clamp(22px, 2.7vw, 44px);
-  font-weight: 600;
-  white-space: pre;
-  color: rgba(110, 255, 205, 0.08);
-  animation: symbol-drift 40s linear infinite;
-  text-shadow:
-    88vw 2vh 0 rgba(110, 255, 205, 0.075),
-    1vw 56vh 0 rgba(110, 255, 205, 0.07);
+  content: '';
+  display: none;
 }
 html::after {
-  content: '₹';
-  position: fixed;
-  top: 8vh;
-  left: 92vw;
-  z-index: 2;
-  pointer-events: none;
-  font-family: 'Noto Sans Symbols 2', 'Noto Sans', 'Arial Unicode MS', 'Segoe UI Symbol', system-ui, sans-serif;
-  font-size: clamp(24px, 2.9vw, 46px);
-  font-weight: 600;
-  white-space: pre;
-  color: rgba(93, 201, 255, 0.2);
-  animation: symbol-drift-2 46s linear infinite reverse;
-  text-shadow:
-    -76vw 46vh 0 rgba(93, 201, 255, 0.17),
-    -14vw 64vh 0 rgba(93, 201, 255, 0.16);
+  content: '';
+  display: none;
 }
-body::before {
-  content: 'AI   DIGITAL   ALGO   QUANT   SIGNAL   AI   MODELS   DATA   AI   DIGITAL   ALGO   EXECUTION';
-  position: fixed;
-  inset: 10% -16% auto -16%;
-  z-index: 0;
-  pointer-events: none;
-  font-family: 'JetBrains Mono', monospace;
-  font-size: clamp(28px, 4.6vw, 66px);
-  font-weight: 500;
-  letter-spacing: 0.22em;
-  white-space: nowrap;
-  color: rgba(168,216,255,0.07);
-  transform: rotate(-9deg);
-  animation: keyword-drift-1 31s linear infinite, keyword-flicker 14s steps(8, end) infinite;
-  text-shadow:
-    0 110px 0 rgba(156,208,255,0.05),
-    0 220px 0 rgba(156,208,255,0.045),
-    0 330px 0 rgba(156,208,255,0.04);
-}
-body::after {
-  content: 'ALGO   AI   DIGITAL   RISK   SCAN   AI   STRATEGY   EXECUTION   ALGO   DIGITAL   SIGNAL';
-  position: fixed;
-  inset: auto -18% 8% -18%;
-  z-index: 0;
-  pointer-events: none;
-  font-family: 'JetBrains Mono', monospace;
-  font-size: clamp(24px, 3.6vw, 52px);
-  font-weight: 500;
-  letter-spacing: 0.28em;
-  white-space: nowrap;
-  color: rgba(125,190,255,0.055);
-  transform: rotate(7deg);
-  animation: keyword-drift-2 37s linear infinite reverse, keyword-flicker 17s steps(10, end) infinite;
-  text-shadow:
-    0 -92px 0 rgba(125,190,255,0.035),
-    0 -184px 0 rgba(125,190,255,0.03),
-    0 -276px 0 rgba(125,190,255,0.025);
-}
-html.light body::before {
-  color: rgba(36,105,184,0.08);
-  text-shadow:
-    0 110px 0 rgba(36,105,184,0.06),
-    0 220px 0 rgba(36,105,184,0.048),
-    0 330px 0 rgba(36,105,184,0.04);
-}
-html.light body::after {
-  color: rgba(36,105,184,0.07);
-  text-shadow:
-    0 -92px 0 rgba(36,105,184,0.05),
-    0 -184px 0 rgba(36,105,184,0.04),
-    0 -276px 0 rgba(36,105,184,0.032);
-}
-html.light::before {
-  color: rgba(0, 154, 205, 0.1);
-  text-shadow:
-    88vw 2vh 0 rgba(0, 154, 205, 0.09),
-    1vw 56vh 0 rgba(0, 154, 205, 0.085);
-}
-html.light::after {
-  color: rgba(35, 128, 196, 0.22);
-  text-shadow:
-    -76vw 46vh 0 rgba(35, 128, 196, 0.18),
-    -14vw 64vh 0 rgba(35, 128, 196, 0.17);
-}
+body::before { content: ''; display: none; }
+body::after  { content: ''; display: none; }
 body > * { position: relative; z-index: 1; }
 .accent-text{background:linear-gradient(135deg,#2b6ad1 0%,#5da9ff 30%,#9cd0ff 55%,#5da9ff 75%,#1e4f9a 100%);-webkit-background-clip:text;-webkit-text-fill-color:transparent;background-clip:text;}
 html.light .accent-text{background:linear-gradient(135deg,#1d4fb0 0%,#2d73d9 35%,#4f98ff 55%,#2d73d9 75%,#1d4fb0 100%);-webkit-background-clip:text;-webkit-text-fill-color:transparent;background-clip:text;}
@@ -398,8 +304,30 @@ html.light .dt-login-surface {
 /* ══ BLANKET: every app element gets readable light-mode text ═════════
   Includes portal-rendered overlays/modals mounted under <body>.
   Semantic restores below keep green/red/gold/blue meaning intact. */
+/* DAlgo logo amber — must come before the blanket rule */
+[style*="color: rgb(245, 159, 11"],
+[style*="color:#F59E0B"],
+[style*="color: #F59E0B"]                            { color: #F59E0B !important; }
+/* White text on dark backgrounds — must survive light-mode blanket */
+[style*="color: rgb(255, 255, 255"],
+[style*="color:#FFFFFF"],
+[style*="color: #FFFFFF"],
+[style*="color:#fff"],
+[style*="color: #fff"]                               { color: #FFFFFF !important; }
 html.light body,
 html.light body * { color: var(--dt-text-primary) !important; }
+
+/* DAlgo logo amber restore — beats the blanket rule above */
+html.light [style*="#F59E0B"],
+html.light [style*="rgb(245, 158, 11"],
+html.light [style*="rgb(245, 159, 11"]               { color: #F59E0B !important; }
+
+/* White text restore — dark-background elements (hero panels, modals) */
+html.light [style*="color: rgb(255, 255, 255"],
+html.light [style*="color:#FFFFFF"],
+html.light [style*="color: #FFFFFF"],
+html.light [style*="color:#fff"],
+html.light [style*="color: #fff"]                    { color: #FFFFFF !important; }
 
 /* Restore body-level base (nav, ticker, etc. outside main) */
 html.light body { color: var(--dt-text-primary); }

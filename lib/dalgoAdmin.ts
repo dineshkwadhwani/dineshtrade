@@ -29,6 +29,8 @@ export interface ProfileRow {
   status: ProfileStatus
   assigned_account_manager_id: string | null
   broking_company_id: string | null
+  subdomain: string | null
+  instance_ip: string | null
   created_at: string
   updated_at: string
 }

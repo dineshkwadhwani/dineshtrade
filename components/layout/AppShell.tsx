@@ -22,7 +22,6 @@ const NAV_GROUPS: NavGroup[] = [
     items: [
       { href: '/dashboard', label: 'Dashboard', icon: '▦' },
       { href: '/settings', label: 'Settings', icon: '⚙' },
-      { href: '/health', label: 'Health Check', icon: '⬡' },
     ],
   },
   {
@@ -52,7 +51,7 @@ const NAV_GROUPS: NavGroup[] = [
   },
 ]
 
-export default function AppShell({ children }: { children: React.ReactNode }) {
+export default function AppShell({ children, fullName }: { children: React.ReactNode; fullName?: string }) {
   const pathname = usePathname()
   const searchParams = useSearchParams()
   const router = useRouter()
@@ -95,7 +94,11 @@ export default function AppShell({ children }: { children: React.ReactNode }) {
   useEffect(() => { setMenuOpen(false) }, [pathname])
 
   async function handleLogout() {
-    await fetch('/api/auth', { method: 'DELETE' })
+    // Clear both V1 dt_session and DAlgo dalgo_access_token
+    await Promise.all([
+      fetch('/api/auth', { method: 'DELETE' }),
+      fetch('/api/dalgo/auth/logout', { method: 'POST' }),
+    ])
     router.push('/login')
   }
 
@@ -107,15 +110,10 @@ export default function AppShell({ children }: { children: React.ReactNode }) {
       <nav className="dt-topnav sticky top-0 z-50">
         <div className="max-w-7xl mx-auto px-4 h-14 flex items-center justify-between">
 
-          <Link href="/dashboard" className="flex items-center gap-2">
-            <span className="accent-text text-2xl leading-none select-none"
-              style={{ fontFamily: 'Cormorant Garamond, Georgia, serif', fontWeight: 300 }}>
-              DW
-            </span>
-            <span className="text-[11px] tracking-[0.2em] uppercase hidden sm:block"
-              style={{ color: 'var(--dt-accent-display)', fontFamily: 'JetBrains Mono, monospace', opacity: 0.7 }}>
-              DineshTrade
-            </span>
+          <Link href="/dashboard" style={{ textDecoration: 'none', display: 'flex', alignItems: 'center' }}>
+            <span style={{ fontFamily: "'Sora', sans-serif", fontWeight: 800, fontSize: 22, color: '#1E3A8A', letterSpacing: '-0.01em' }}>D</span>
+            <span style={{ fontFamily: "'Sora', sans-serif", fontWeight: 800, fontSize: 22, color: '#F59E0B', letterSpacing: '-0.01em' }}>A</span>
+            <span style={{ fontFamily: "'Sora', sans-serif", fontWeight: 800, fontSize: 22, color: '#1E3A8A', letterSpacing: '-0.01em' }}>lgo</span>
           </Link>
 
           <div className="relative" ref={menuRef}>
@@ -123,9 +121,13 @@ export default function AppShell({ children }: { children: React.ReactNode }) {
               onClick={() => setMenuOpen(o => !o)}
               aria-haspopup="menu"
               aria-expanded={menuOpen}
-              className="dt-avatar-button w-9 h-9 rounded-full flex items-center justify-center text-[13px] font-bold border transition-all"
-              style={{ background: menuOpen ? 'rgba(93,169,255,0.2)' : undefined }}>
-              DW
+              style={{
+                width: 36, height: 36, borderRadius: '50%', border: '1px solid #BFDBFE',
+                background: menuOpen ? '#DBEAFE' : '#EFF6FF',
+                color: '#1E3A8A', fontFamily: "'Inter', sans-serif", fontWeight: 700, fontSize: 13,
+                cursor: 'pointer', display: 'flex', alignItems: 'center', justifyContent: 'center',
+              }}>
+              {(fullName ?? 'T').charAt(0).toUpperCase()}
             </button>
 
             {menuOpen && (
@@ -135,7 +137,7 @@ export default function AppShell({ children }: { children: React.ReactNode }) {
                 {/* Identity */}
                 <div className="px-3 py-2 border-b" style={{ borderColor: 'var(--dt-border)' }}>
                   <p className="flex items-center gap-2 text-[11px]" style={{ color: 'var(--dt-text-primary)' }}>
-                    <span>Dinesh Wadhwani</span>
+                    <span>{fullName ?? 'Trader'}</span>
                     <span
                       className="text-[8px] tracking-[0.18em] uppercase"
                       style={{ color: 'var(--dt-accent-display)', fontFamily: 'JetBrains Mono, monospace', opacity: 0.7 }}>

@@ -124,10 +124,17 @@ function capitalToRow(customerId: string, capital: any): Record<string, unknown>
   }
 }
 
-// ─── In-memory cache (see module header for why this must stay sync) ──────
+// ─── Per-customer in-memory cache ────────────────────────────────────────
+// Keyed by customerId so multi-customer EC2s don't bleed across ticks.
 
-let cache: any = migrateLegacyIds(bundled).cfg
-let hydrated = false
+const cacheMap = new Map<string, any>()
+const hydratedSet = new Set<string>()
+
+// Returns the current customer's ID for cache keying, falls back to 'default'
+// so the cache still works in API routes where no customer context is set.
+function cacheKey(): string {
+  try { return getCustomerId() } catch { return 'default' }
+}
 
 async function hydrate(): Promise<void> {
   try {
@@ -141,32 +148,29 @@ async function hydrate(): Promise<void> {
     if (strategiesRes.error) throw strategiesRes.error
 
     const strategies = (strategiesRes.data || [])
-      .filter(row => !!row.strategy_key)   // rows without a strategy_key predate Phase 4 — skip until re-saved
+      .filter(row => !!row.strategy_key)
       .map(rowToStrategy)
     const capital = rowToCapital(capitalRes.data)
 
-    // Fall back to bundled seed values for anything not yet in Supabase
-    // (e.g. a brand-new customer before activation seeds these rows).
     const next = migrateLegacyIds({
       capital: capital ?? bundledConfig().capital,
       strategies: strategies.length > 0 ? strategies : bundledConfig().strategies,
     }).cfg
-    cache = next
-    hydrated = true
+    cacheMap.set(customerId, next)
+    hydratedSet.add(customerId)
   } catch (err) {
     console.warn('[strategyConfigStore] Supabase hydration failed, serving bundled config:', String(err).slice(0, 200))
   }
 }
 
-// Kick off hydration immediately on module load — by the time any real
-// request or cron tick reads getRuntimeStrategyConfig() (never
-// sub-millisecond after process boot), this has almost always resolved.
+// Kick off hydration for the startup customer immediately.
 void hydrate()
 
 // ─── Public API ─────────────────────────────────────────────────────────────
 
 export function getRuntimeStrategyConfig(): any {
-  return cache
+  const key = cacheKey()
+  return cacheMap.get(key) ?? migrateLegacyIds(bundled).cfg
 }
 
 export async function saveRuntimeStrategyConfig(next: any): Promise<void> {
@@ -209,23 +213,30 @@ export async function saveRuntimeStrategyConfig(next: any): Promise<void> {
     }
   }
 
-  cache = migrateLegacyIds(next).cfg
-  hydrated = true
+  const key = cacheKey()
+  cacheMap.set(key, migrateLegacyIds(next).cfg)
+  hydratedSet.add(key)
 }
 
 export function invalidateStrategyConfigCache(): void {
-  // Can't synchronously drop `cache` to null the way the old file backend
-  // did (Supabase reads are async, and getRuntimeStrategyConfig() must stay
-  // sync) — instead, force a fresh hydration in the background. In practice
-  // this is a no-op safety net: saveRuntimeStrategyConfig() already updates
-  // `cache` synchronously with the exact saved value, so the only case this
-  // actually matters is if something changed the DB without going through
-  // this module.
   void hydrate()
+}
+
+// Called at the start of each customer's cron tick to refresh their strategy
+// config from Supabase before buy/sell scans run. Returns immediately if the
+// config for this customer has already been hydrated in this process.
+export async function rehydrateForCustomer(): Promise<void> {
+  const key = cacheKey()
+  if (!hydratedSet.has(key)) {
+    await hydrate()
+  } else {
+    // Refresh in background on every tick so strategy edits take effect without restart
+    void hydrate()
+  }
 }
 
 // Exposed for diagnostics/tests — true once the first Supabase read has
 // completed (successfully or not).
 export function isStrategyConfigHydrated(): boolean {
-  return hydrated
+  return hydratedSet.has(cacheKey())
 }

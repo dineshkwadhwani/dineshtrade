@@ -1,3 +1,5 @@
+export const dynamic = 'force-dynamic'
+
 import { getReportsRows, listCustomers, listAccountManagers } from '@/lib/dalgoAdmin'
 import { PageHeader, SectionCard, Table, Th, Td, EmptyState } from '@/components/dalgo/ui'
 import ReportsFiltersClient from './ReportsFiltersClient'

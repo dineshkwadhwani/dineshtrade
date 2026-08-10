@@ -1,3 +1,5 @@
+export const dynamic = 'force-dynamic'
+
 import { getProfile } from '@/lib/dalgoAuth'
 import { listRegistrations } from '@/lib/dalgoAdmin'
 import { PageHeader, SectionCard } from '@/components/dalgo/ui'

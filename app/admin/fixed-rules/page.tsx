@@ -1,3 +1,5 @@
+export const dynamic = 'force-dynamic'
+
 import { getSupabaseAdmin } from '@/lib/supabase'
 import { PageHeader, SectionCard } from '@/components/dalgo/ui'
 import FixedRulesClient, { type FixedRuleRow } from './FixedRulesClient'

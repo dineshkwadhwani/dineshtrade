@@ -630,7 +630,7 @@ Existing `lib/kite.ts` → becomes `lib/broker/ZerodhaAdapter.ts`:
 ### 6.6 Broker Roadmap
 | Broker | API | V1 Status |
 |---|---|---|
-| Zerodha | Kite Connect (₹500/mo customer's key) | ✅ Build now |
+| Zerodha | Kite Connect | ✅ Build now |
 | Upstox | Upstox API v2 | V2 stub |
 | Angel One | SmartAPI (free) | V2 stub |
 | Alice Blue | Ant API 3.0 (free) | V3 stub |
@@ -638,6 +638,81 @@ Existing `lib/kite.ts` → becomes `lib/broker/ZerodhaAdapter.ts`:
 | 5paisa | 5paisa API (free) | V3 stub |
 
 SuperAdmin enables/disables brokers via Settings → Brokers. V1: only Zerodha selectable, others "Coming Soon".
+
+### 6.7 Zerodha Kite Connect Plan Architecture (Cost Optimised)
+
+Zerodha offers three Kite Connect plan types:
+- **Connect** — ₹500/month. Full API access: historical data, live quotes, WebSockets, order placement.
+- **Personal** — Free. Order placement and reports only. No historical data, no live quotes.
+- **Publisher** — Free. No API access. HTML buttons only.
+
+**Key insight:** Market data (quotes, historical candles, GIFT Nifty) is identical for all customers — NSE prices are the same regardless of whose API key fetches them. Only order placement requires each customer's own credentials.
+
+**DAlgo architecture leverages this:**
+
+| Account | Zerodha Plan | Cost | Purpose |
+|---|---|---|---|
+| Primary (Dinesh) | Connect | ₹500/month | Fetches ALL market data for all customers |
+| Family account 2 (Kiran) | Personal | Free | Order placement only |
+| Family account 3 (Sonia) | Personal | Free | Order placement only |
+| Family account 4 (Jaya) | Personal | Free | Order placement only |
+
+**Cost saving: 4 accounts for ₹500/month instead of ₹2,000/month (75% reduction)**
+
+**Primary account rules:**
+- The first UUID in `CUSTOMER_IDS` is always the primary account
+- Primary account MUST have a Connect plan (historical data + quotes)
+- All market data fetched using primary account's credentials
+- If primary account token is missing → entire tick skipped for ALL customers
+  → alert email sent to all customers and their Account Managers
+
+**Per-customer account rules:**
+- Each customer uses their OWN broker credentials for order placement
+- BUY orders → placed via customer's own API key → hits their own Zerodha account
+- SELL orders → placed via customer's own API key → hits their own Zerodha account
+- Holdings check → via customer's own API key
+- Margins check → via customer's own API key
+
+**Cron tick flow with multiple customers:**
+```
+1. Load primary customer's broker (first in CUSTOMER_IDS)
+2. Fetch shared market data ONCE:
+   - Live quotes for all watchlist symbols
+   - Historical candles for EMA calculations
+   - GIFT Nifty reading
+   - Nifty 50 intraday data
+
+3. Loop ALL customers in CUSTOMER_IDS:
+   For each customer:
+   a. Load their broker credentials from broker_accounts
+   b. Construct their own IBroker instance
+   c. Check their own holdings and positions
+   d. Run buy scan using shared market data + their own broker for orders
+   e. Run sell monitor using shared market data + their own broker for orders
+   f. Run EOD logic using their own broker
+   g. Write heartbeat to customer_instances for this customer
+
+4. One customer failure never stops others (try/catch per customer)
+```
+
+**Environment variable:**
+```bash
+# Single customer
+CUSTOMER_IDS=dinesh-uuid
+
+# Multiple customers — first is always primary (Connect plan)
+CUSTOMER_IDS=dinesh-uuid,kiran-uuid,sonia-uuid,jaya-uuid
+```
+
+**Zerodha callback URL:**
+All customers use the same callback URL regardless of plan:
+```
+https://www.dalgo.online/api/zerodha/callback
+```
+The callback identifies the customer via their `dalgo_access_token` session cookie,
+exchanges the `request_token` for an `access_token`, encrypts it, and saves to
+`broker_accounts` in Supabase. The customer's EC2 reads the token from Supabase
+on every cron tick — it doesn't matter which server saved it.
 
 ---
 

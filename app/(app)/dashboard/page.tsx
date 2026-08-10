@@ -1,339 +1,163 @@
-'use client'
-import { useState, useEffect } from 'react'
-import Link from 'next/link'
+export const dynamic = 'force-dynamic'
 
-interface MarketData {
-  globalIndices: Array<{ name: string; value: string; change: string; direction: string }>
-  giftNifty: { value: string; change: string; direction: string; impliedOpen: string; signal: string }
-  indiaOutlook: { bias: string; expectedRange: string; keyFactors: string[]; support: string; resistance: string; strategy: string }
-  topRecommendations: Array<{ symbol: string; name: string; action: string; source: string; reason: string }>
-  headline: string
+import { getSupabaseAdmin } from '@/lib/supabase'
+import { getProfile } from '@/lib/dalgoAuth'
+import { isMarketOpen } from '@/lib/market'
+
+const C = {
+  bg: '#F8FAFF', card: '#FFFFFF', border: '#BFDBFE', heading: '#1E3A8A',
+  body: '#475569', muted: '#94A3B8', primary: '#3B82F6',
+  green: '#16A34A', greenBg: '#DCFCE7', red: '#DC2626', redBg: '#FEE2E2',
+  amber: '#D97706', amberBg: '#FEF3C7',
 }
+const SORA = "'Sora', sans-serif"
+const INTER = "'Inter', sans-serif"
 
-interface AccountDisplay { name: string; displayName: string; initials: string; color: string; note: string }
-
-function fmtPnl(v: number): string {
-  const abs = Math.round(Math.abs(v)).toLocaleString('en-IN')
-  return v >= 0 ? `+₹${abs}` : `-₹${abs}`
-}
-
-function StatCard({ label, value, sub, color = '#c9a84c', up }: any) {
+function Card({ children, style }: { children: React.ReactNode; style?: React.CSSProperties }) {
   return (
-    <div className="dt-card rounded-xl p-4">
-      <p className="dt-text-muted text-[10px] tracking-widest uppercase mb-2" style={{ fontFamily:'JetBrains Mono, monospace' }}>{label}</p>
-      <p className="text-xl font-semibold" style={{ color, fontFamily:'JetBrains Mono, monospace' }}>{value}</p>
-      {sub && <p className="dt-text-muted text-[11px] mt-1">{sub}</p>}
+    <div style={{ background: C.card, border: `1px solid ${C.border}`, borderRadius: 12, padding: 20, boxShadow: '0 2px 8px rgba(30,58,138,0.04)', ...style }}>
+      {children}
     </div>
   )
 }
 
-// localStorage key — scoped to today's IST date so it auto-rotates daily.
-function todayISTKey(): string {
-  const ist = new Date(new Date().toLocaleString('en-US', { timeZone: 'Asia/Kolkata' }))
-  const y = ist.getFullYear()
-  const m = String(ist.getMonth() + 1).padStart(2, '0')
-  const d = String(ist.getDate()).padStart(2, '0')
-  return `dineshtrade:dailyReport:${y}-${m}-${d}`
+function Label({ children }: { children: React.ReactNode }) {
+  return <p style={{ fontSize: 11, fontWeight: 600, color: C.muted, textTransform: 'uppercase', letterSpacing: '0.06em', margin: '0 0 4px', fontFamily: INTER }}>{children}</p>
 }
 
-// Clear any older daily-report keys (yesterday and earlier) on the side.
-function pruneOldCache(currentKey: string) {
-  try {
-    for (let i = localStorage.length - 1; i >= 0; i--) {
-      const k = localStorage.key(i)
-      if (k && k.startsWith('dineshtrade:dailyReport:') && k !== currentKey) {
-        localStorage.removeItem(k)
-      }
-    }
-  } catch {}
+function Stat({ label, value, sub }: { label: string; value: React.ReactNode; sub?: string }) {
+  return (
+    <div>
+      <Label>{label}</Label>
+      <p style={{ fontSize: 22, fontWeight: 700, color: C.heading, margin: 0, fontFamily: SORA }}>{value}</p>
+      {sub && <p style={{ fontSize: 12, color: C.muted, margin: '2px 0 0', fontFamily: INTER }}>{sub}</p>}
+    </div>
+  )
 }
 
-export default function DashboardPage() {
-  const [market, setMarket] = useState<MarketData | null>(null)
-  const [loading, setLoading] = useState(true)
-  const [error, setError] = useState('')
-  const [lastUpdated, setLastUpdated] = useState('')
-  const [fromCache, setFromCache] = useState(false)
-
-  async function fetchMarket(opts: { force?: boolean } = {}) {
-    const cacheKey = todayISTKey()
-
-    // Cache check — unless caller forced a fresh fetch
-    if (!opts.force) {
-      try {
-        const cached = localStorage.getItem(cacheKey)
-        if (cached) {
-          const parsed = JSON.parse(cached)
-          if (parsed?.data?.giftNifty && parsed?.data?.indiaOutlook) {
-            setMarket(parsed.data)
-            setLastUpdated(parsed.generatedAt
-              ? new Date(parsed.generatedAt).toLocaleTimeString('en-IN', { timeZone:'Asia/Kolkata' })
-              : 'cached')
-            setFromCache(true)
-            setLoading(false)
-            return
-          }
-        }
-      } catch {}
-    }
-
-    setLoading(true)
-    setError('')
-    setFromCache(false)
-    try {
-      const res = await fetch('/api/market')
-      const json = await res.json()
-      const d = json.data
-      if (json.success && d?.giftNifty && d?.indiaOutlook && Array.isArray(d?.globalIndices)) {
-        setMarket(d)
-        setLastUpdated(new Date().toLocaleTimeString('en-IN', { timeZone:'Asia/Kolkata' }))
-        try {
-          localStorage.setItem(cacheKey, JSON.stringify({ data: d, generatedAt: json.generatedAt || new Date().toISOString() }))
-          pruneOldCache(cacheKey)
-        } catch {}
-      } else {
-        setError(json?.error || `Market briefing unavailable (HTTP ${res.status})`)
-      }
-    } catch {
-      setError('Network error while fetching market briefing')
-    }
-    finally { setLoading(false) }
+function Badge({ children, tone }: { children: React.ReactNode; tone: 'green' | 'red' | 'amber' | 'blue' }) {
+  const map = {
+    green: { color: C.green, bg: C.greenBg },
+    red: { color: C.red, bg: C.redBg },
+    amber: { color: C.amber, bg: C.amberBg },
+    blue: { color: C.primary, bg: '#DBEAFE' },
   }
+  const { color, bg } = map[tone]
+  return (
+    <span style={{ display: 'inline-block', padding: '3px 10px', borderRadius: 999, fontSize: 12, fontWeight: 600, color, background: bg, fontFamily: INTER }}>
+      {children}
+    </span>
+  )
+}
 
-  useEffect(() => { fetchMarket() }, [])
+function fmt(n: number | null | undefined, decimals = 0) {
+  if (n == null) return '—'
+  return n.toLocaleString('en-IN', { maximumFractionDigits: decimals })
+}
+
+export default async function DashboardPage() {
+  const profile_session = await getProfile()
+  if (!profile_session) return null
+  const customerId = profile_session.id
+  const admin = getSupabaseAdmin()
+
+  const [capitalRes, instanceRes, strategiesRes, stateRes] = await Promise.all([
+    admin.from('customer_capital_config').select('*').eq('customer_id', customerId).maybeSingle(),
+    admin.from('customer_instances').select('kite_token_status, cron_mode, open_positions_count, todays_buy_count, todays_sell_count').eq('customer_id', customerId).maybeSingle(),
+    admin.from('customer_strategies').select('id, name, type, scan_interval_min').eq('customer_id', customerId).eq('active', true).order('name'),
+    admin.from('customer_state').select('cron_mode, daily_buy_count, daily_sell_count, gift_nifty_change_pct').eq('customer_id', customerId).maybeSingle(),
+  ])
+
+  const cap = capitalRes.data
+  const instance = instanceRes.data
+  const strategies = strategiesRes.data ?? []
+  const state = stateRes.data
+
+  const market = isMarketOpen()
+  const firstName = profile_session.full_name?.split(' ')[0] ?? 'there'
+  const hour = new Date().toLocaleString('en-US', { timeZone: 'Asia/Kolkata', hour: 'numeric', hour12: false })
+  const greeting = parseInt(hour) < 12 ? 'Good morning' : parseInt(hour) < 17 ? 'Good afternoon' : 'Good evening'
+
+  const cronMode = instance?.cron_mode ?? state?.cron_mode ?? 'manual'
+  const tokenStatus = instance?.kite_token_status ?? 'missing'
+  const openPositions = instance?.open_positions_count ?? 0
+  const buysToday = instance?.todays_buy_count ?? state?.daily_buy_count ?? 0
+  const sellsToday = instance?.todays_sell_count ?? state?.daily_sell_count ?? 0
 
   return (
-    <div className="space-y-6 pb-4">
-
-      {/* Header */}
-      <div className="flex items-center justify-between">
-        <div>
-          <h1 className="dt-text-primary text-2xl font-light" style={{ fontFamily:'Cormorant Garamond, serif' }}>
-            Morning <span className="accent-text">Briefing</span>
-          </h1>
-          {lastUpdated && (
-            <p className="text-[10px] mt-1" style={{ color:'rgba(147,208,255,0.78)', fontFamily:'JetBrains Mono, monospace' }}>
-              Updated {lastUpdated} IST{fromCache ? ' · cached' : ''}
-            </p>
-          )}
-        </div>
-        <button onClick={() => fetchMarket({ force: true })} disabled={loading}
-          className="dt-banner-accent px-4 py-2 rounded-lg text-[11px] font-medium tracking-wider transition-all disabled:opacity-40"
-          style={{ color:'#7fd1ff' }}>
-          {loading ? '↻ Loading…' : '↻ Refresh'}
-        </button>
+    <div style={{ fontFamily: INTER }}>
+      {/* Welcome banner */}
+      <div style={{ marginBottom: 24 }}>
+        <h1 style={{ fontFamily: SORA, fontSize: 24, fontWeight: 700, color: C.heading, margin: '0 0 4px' }}>
+          {greeting}, {firstName} 👋
+        </h1>
+        <p style={{ color: C.muted, fontSize: 14, margin: 0 }}>
+          {new Date().toLocaleDateString('en-IN', { weekday: 'long', day: 'numeric', month: 'long', year: 'numeric', timeZone: 'Asia/Kolkata' })}
+        </p>
       </div>
 
-      <AccountSummary />
-
-      {loading && !market && (
-        <div className="flex items-center justify-center py-16">
-          <div className="text-center">
-            <div className="text-3xl mb-3 animate-spin">↻</div>
-            <p className="text-[12px]" style={{ color:'rgba(147,208,255,0.78)', fontFamily:'JetBrains Mono, monospace' }}>Fetching live market data…</p>
-          </div>
+      {/* Status row */}
+      <div style={{ display: 'flex', gap: 10, flexWrap: 'wrap', marginBottom: 20 }}>
+        <div style={{ display: 'flex', alignItems: 'center', gap: 6 }}>
+          <Label>Market</Label>
+          <Badge tone={market.open ? 'green' : 'red'}>{market.open ? 'Open' : 'Closed'}</Badge>
         </div>
-      )}
-
-      {!loading && !market && error && (
-        <div className="rounded-xl p-4" style={{ background:'rgba(224,90,94,0.08)', border:'1px solid rgba(224,90,94,0.35)' }}>
-          <p className="text-[12px]" style={{ color:'#e05a5e', fontFamily:'JetBrains Mono, monospace' }}>
-            {error}
-          </p>
+        <div style={{ display: 'flex', alignItems: 'center', gap: 6, marginLeft: 12 }}>
+          <Label>Cron</Label>
+          <Badge tone={cronMode === 'auto' ? 'green' : 'amber'}>{cronMode === 'auto' ? 'AUTO' : 'MANUAL'}</Badge>
         </div>
+        <div style={{ display: 'flex', alignItems: 'center', gap: 6, marginLeft: 12 }}>
+          <Label>Zerodha</Label>
+          <Badge tone={tokenStatus === 'connected' ? 'green' : 'red'}>
+            {tokenStatus === 'connected' ? 'Connected' : tokenStatus === 'expired' ? 'Expired' : 'Not connected'}
+          </Badge>
+        </div>
+      </div>
+
+      {/* Stats grid */}
+      <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(140px, 1fr))', gap: 16, marginBottom: 20 }}>
+        <Card><Stat label="Open Positions" value={openPositions} /></Card>
+        <Card><Stat label="Buys Today" value={buysToday} /></Card>
+        <Card><Stat label="Sells Today" value={sellsToday} /></Card>
+        {cap && <Card><Stat label="Per Trade" value={`₹${fmt(cap.per_trade)}`} sub={`Max ${cap.max_positions} positions`} /></Card>}
+      </div>
+
+      {/* Capital config */}
+      {cap && (
+        <Card style={{ marginBottom: 20 }}>
+          <h2 style={{ fontFamily: SORA, fontSize: 16, fontWeight: 600, color: C.heading, margin: '0 0 16px' }}>Capital Configuration</h2>
+          <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(160px, 1fr))', gap: 16 }}>
+            <Stat label="Per Trade" value={`₹${fmt(cap.per_trade)}`} />
+            <Stat label="Max Positions" value={cap.max_positions} />
+            <Stat label="Max Buys/Day" value={cap.max_buys_per_day} />
+            <Stat label="Max Sells/Day" value={cap.max_sells_per_day} />
+            <Stat label="Max Deploy" value={`${cap.max_deploy_pct ?? 100}%`} />
+            <Stat label="Circuit Breaker" value={`${cap.circuit_breaker_pct ?? -5}%`} />
+          </div>
+        </Card>
       )}
 
-      {market && (
-        <>
-          <h2 className="text-[11px] tracking-widest uppercase pt-2"
-            style={{ color:'rgba(127,209,255,0.82)', fontFamily:'JetBrains Mono, monospace' }}>
-            Morning Briefing
-          </h2>
-          {/* Headline */}
-          <div className="dt-card-accent rounded-xl px-4 py-3">
-            <p className="dt-text-secondary text-sm" style={{ fontFamily:'Cormorant Garamond, serif', fontSize:'16px', fontStyle:'italic' }}>
-              {market.headline}
-            </p>
-          </div>
-
-          {/* GIFT Nifty + India Outlook */}
-          <div className="grid grid-cols-2 gap-4">
-            <div className="rounded-xl p-4 col-span-2 sm:col-span-1"
-              style={{ background: market.giftNifty.direction === 'up' ? 'rgba(82,183,136,0.06)' : 'rgba(224,90,94,0.06)',
-                       border: `1px solid ${market.giftNifty.direction === 'up' ? 'rgba(82,183,136,0.2)' : 'rgba(224,90,94,0.2)'}` }}>
-              <p className="dt-text-muted text-[10px] tracking-widest uppercase mb-2" style={{ fontFamily:'JetBrains Mono, monospace' }}>GIFT Nifty</p>
-              <p className="text-3xl font-light" style={{ fontFamily:'JetBrains Mono, monospace', color: market.giftNifty.direction === 'up' ? '#52b788' : '#e05a5e' }}>
-                {market.giftNifty.value}
-              </p>
-              <p className="text-sm mt-1" style={{ color: market.giftNifty.direction === 'up' ? '#52b788' : '#e05a5e', fontFamily:'JetBrains Mono, monospace' }}>
-                {market.giftNifty.direction === 'up' ? '▲' : '▼'} {market.giftNifty.change}
-              </p>
-              <p className="dt-text-secondary text-[11px] mt-2">{market.giftNifty.impliedOpen}</p>
-            </div>
-
-            <div className="dt-card rounded-xl p-4 col-span-2 sm:col-span-1">
-              <p className="dt-text-muted text-[10px] tracking-widest uppercase mb-2" style={{ fontFamily:'JetBrains Mono, monospace' }}>India Outlook</p>
-              <p className="text-lg font-medium mb-1" style={{ color:'#b7e7ff', textTransform:'capitalize' }}>{market.indiaOutlook.bias}</p>
-              <p className="dt-text-secondary text-[11px] mb-2" style={{ fontFamily:'JetBrains Mono, monospace' }}>Range: {market.indiaOutlook.expectedRange}</p>
-              <div className="flex gap-3 text-[10px]" style={{ fontFamily:'JetBrains Mono, monospace' }}>
-                <span style={{ color:'#52b788' }}>S: {market.indiaOutlook.support}</span>
-                <span style={{ color:'#e05a5e' }}>R: {market.indiaOutlook.resistance}</span>
-              </div>
-            </div>
-          </div>
-
-          {/* Global Indices */}
-          <div>
-            <h2 className="text-[11px] tracking-widest uppercase mb-3" style={{ color:'rgba(127,209,255,0.82)', fontFamily:'JetBrains Mono, monospace' }}>Global Indices</h2>
-            <div className="grid grid-cols-3 gap-2 sm:grid-cols-4 lg:grid-cols-5">
-              {market.globalIndices.map((idx, i) => (
-                <div key={i} className="dt-surface rounded-lg p-3"
-                  style={{ border:`1px solid ${idx.direction === 'up' ? 'rgba(82,183,136,0.15)' : idx.direction === 'down' ? 'rgba(224,90,94,0.15)' : 'rgba(255,255,255,0.06)'}` }}>
-                  <p className="dt-text-muted text-[9px] truncate mb-1" style={{ fontFamily:'JetBrains Mono, monospace' }}>{idx.name}</p>
-                  <p className="text-[13px] font-medium" style={{ fontFamily:'JetBrains Mono, monospace', color: idx.direction === 'up' ? '#52b788' : idx.direction === 'down' ? '#e05a5e' : 'rgba(255,255,255,0.7)' }}>
-                    {idx.direction === 'up' ? '▲' : idx.direction === 'down' ? '▼' : '─'} {idx.change}
-                  </p>
-                  <p className="dt-text-muted text-[10px] mt-0.5" style={{ fontFamily:'JetBrains Mono, monospace' }}>{idx.value}</p>
-                </div>
-              ))}
-            </div>
-          </div>
-
-          {/* Strategy */}
-          <div className="dt-card-accent rounded-xl p-4">
-            <p className="text-[10px] tracking-widest uppercase mb-2" style={{ color:'rgba(127,209,255,0.78)', fontFamily:'JetBrains Mono, monospace' }}>Today's Strategy</p>
-            <p className="dt-text-secondary text-sm">{market.indiaOutlook.strategy}</p>
-          </div>
-
-          {/* Top Recommendations */}
-          {market.topRecommendations?.length > 0 && (
-            <div>
-              <h2 className="text-[11px] tracking-widest uppercase mb-3" style={{ color:'rgba(127,209,255,0.82)', fontFamily:'JetBrains Mono, monospace' }}>Broker Picks Today</h2>
-              <div className="space-y-2">
-                {market.topRecommendations.map((rec, i) => (
-                  <div key={i} className="dt-surface rounded-lg px-4 py-3 flex items-center justify-between"
-                    style={{ border:'1px solid rgba(82,183,136,0.15)' }}>
-                    <div>
-                      <span className="text-sm font-semibold text-white" style={{ fontFamily:'JetBrains Mono, monospace' }}>{rec.symbol}</span>
-                      <span className="dt-text-muted text-[11px] ml-2">{rec.name}</span>
-                      <p className="dt-text-muted text-[11px] mt-0.5">{rec.reason}</p>
-                    </div>
-                    <div className="text-right">
-                      <span className="text-[10px] px-2 py-0.5 rounded" style={{ background:'rgba(82,183,136,0.15)', color:'#52b788' }}>{rec.action}</span>
-                      <p className="dt-text-muted text-[9px] mt-1" style={{ fontFamily:'JetBrains Mono, monospace' }}>{rec.source}</p>
-                    </div>
-                  </div>
-                ))}
-              </div>
-            </div>
-          )}
-        </>
-      )}
-    </div>
-  )
-}
-
-function AccountSummary() {
-  const [accounts, setAccounts] = useState<AccountDisplay[]>([])
-  const [connected, setConnected] = useState<string[]>([])
-  const [active, setActive] = useState<string | null>(null)
-  const [margins, setMargins] = useState<any>(null)
-  const [holdings, setHoldings] = useState<any[]>([])
-  const [loading, setLoading] = useState(false)
-  const [loaded, setLoaded] = useState(false)
-
-  useEffect(() => {
-    Promise.all([
-      fetch('/api/accounts').then(r => r.json()),
-      fetch('/api/state').then(r => r.json()),
-    ]).then(([a, s]) => {
-      setAccounts(a.accounts || [])
-      const conn: string[] = s.accountsWithToken || []
-      setConnected(conn)
-      if (conn.length > 0) setActive(conn[0])
-    }).catch(() => {})
-      .finally(() => setLoaded(true))
-  }, [])
-
-  useEffect(() => {
-    if (!active) { setMargins(null); setHoldings([]); return }
-    setLoading(true)
-    Promise.all([
-      fetch(`/api/zerodha?account=${encodeURIComponent(active)}&action=margins`).then(r => r.json()),
-      fetch(`/api/zerodha?account=${encodeURIComponent(active)}&action=holdings`).then(r => r.json()),
-    ]).then(([m, h]) => {
-      setMargins(m?.data || null)
-      setHoldings(Array.isArray(h?.data) ? h.data : [])
-    }).catch(() => {})
-      .finally(() => setLoading(false))
-  }, [active])
-
-  const connectedAccounts = accounts.filter(a => connected.includes(a.name))
-  const activeAcc = accounts.find(a => a.name === active)
-
-  if (!loaded || connectedAccounts.length === 0) return null
-
-  const available = margins?.equity?.available?.live_balance ?? margins?.equity?.available?.cash ?? null
-  // Kite splits long qty across `quantity` (T+1 settled) and `t1_quantity`
-  // (bought today, still settling). Sum both to reflect the actual long position.
-  const totals = holdings.reduce((acc, h: any) => {
-    const q = (h.quantity || 0) + (h.t1_quantity || 0)
-    acc.invested += (h.average_price || 0) * q
-    acc.pnl      += (h.pnl || 0)
-    acc.dayPnl   += (h.day_change || 0) * q
-    return acc
-  }, { invested:0, pnl:0, dayPnl:0 })
-
-  return (
-    <div className="space-y-3 pt-1">
-      <div className="flex items-center justify-between gap-3 flex-wrap">
-        <h2 className="text-[11px] tracking-widest uppercase"
-          style={{ color:'rgba(127,209,255,0.82)', fontFamily:'JetBrains Mono, monospace' }}>
-          Portfolio Snapshot
+      {/* Active strategies */}
+      <Card>
+        <h2 style={{ fontFamily: SORA, fontSize: 16, fontWeight: 600, color: C.heading, margin: '0 0 12px' }}>
+          Active Strategies ({strategies.length})
         </h2>
-        {connectedAccounts.length > 1 && (
-          <div className="flex gap-2 flex-wrap">
-            {connectedAccounts.map(acc => {
-              const isActive = active === acc.name
-              return (
-                <button key={acc.name} onClick={() => setActive(acc.name)}
-                  className="flex items-center gap-2 px-3 py-1.5 rounded-lg text-[11px] transition-all"
-                  style={{
-                    background: isActive ? `${acc.color}15` : 'rgba(255,255,255,0.02)',
-                    border: `1px solid ${isActive ? acc.color + '55' : 'rgba(255,255,255,0.08)'}`,
-                    color: isActive ? acc.color : 'rgba(255,255,255,0.45)',
-                  }}>
-                  <span style={{ fontWeight: 500 }}>{acc.initials}</span>
-                  <span>{acc.displayName}</span>
-                </button>
-              )
-            })}
+        {strategies.length === 0 ? (
+          <p style={{ color: C.muted, fontSize: 14 }}>No active strategies configured.</p>
+        ) : (
+          <div style={{ display: 'flex', flexDirection: 'column', gap: 8 }}>
+            {strategies.map(s => (
+              <div key={s.id} style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', padding: '8px 12px', background: C.bg, borderRadius: 8 }}>
+                <div>
+                  <p style={{ margin: 0, fontSize: 14, fontWeight: 600, color: C.heading }}>{s.name}</p>
+                  <p style={{ margin: 0, fontSize: 12, color: C.muted }}>{s.type}</p>
+                </div>
+                <Badge tone="blue">Every {s.scan_interval_min}m</Badge>
+              </div>
+            ))}
           </div>
         )}
-      </div>
-
-      <div className="grid grid-cols-2 sm:grid-cols-4 gap-3">
-        <StatCard
-          label="Available Funds"
-          value={available !== null ? `₹${Math.round(available).toLocaleString('en-IN')}` : (loading ? '…' : '—')}
-          color={activeAcc?.color || '#c9a84c'} />
-        <StatCard
-          label="Invested"
-          value={holdings.length > 0 ? `₹${Math.round(totals.invested).toLocaleString('en-IN')}` : (loading ? '…' : '—')} />
-        <StatCard
-          label="Today's P&L"
-          value={holdings.length > 0 ? fmtPnl(totals.dayPnl) : (loading ? '…' : '—')}
-          color={holdings.length > 0 ? (totals.dayPnl >= 0 ? '#52b788' : '#e05a5e') : '#c9a84c'} />
-        <StatCard
-          label="Overall P&L"
-          value={holdings.length > 0 ? fmtPnl(totals.pnl) : (loading ? '…' : '—')}
-          color={holdings.length > 0 ? (totals.pnl >= 0 ? '#52b788' : '#e05a5e') : '#c9a84c'} />
-      </div>
-
-      <Link href="/holdings" className="inline-block text-[11px] mt-1 hover:underline"
-        style={{ color:'rgba(127,209,255,0.88)', fontFamily:'JetBrains Mono, monospace' }}>
-        View all holdings →
-      </Link>
+      </Card>
     </div>
   )
 }

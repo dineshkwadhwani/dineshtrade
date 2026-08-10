@@ -33,9 +33,9 @@ export async function POST(_req: NextRequest, { params }: { params: { id: string
     if (actor.role === 'account_manager' && customer.assigned_account_manager_id !== actor.id) {
       return NextResponse.json({ error: 'This customer is not assigned to you.' }, { status: 403 })
     }
-    if (customer.status !== 'identity_verified') {
+    if (customer.status !== 'identity_verified' && customer.status !== 'broker_setup_complete') {
       return NextResponse.json(
-        { error: `Customer must be identity_verified to activate (current status: ${customer.status}).` },
+        { error: `Customer must have completed broker setup to activate (current status: ${customer.status}).` },
         { status: 400 }
       )
     }
@@ -71,13 +71,60 @@ export async function POST(_req: NextRequest, { params }: { params: { id: string
       return NextResponse.json({ error: 'Failed to activate customer.' }, { status: 500 })
     }
 
+    // Seed platform strategy templates (inactive) if the customer has none yet
+    const { data: existingStrats } = await admin
+      .from('customer_strategies')
+      .select('id')
+      .eq('customer_id', params.id)
+      .limit(1)
+    if (!existingStrats?.length) {
+      const { data: templates } = await admin
+        .from('platform_strategies')
+        .select('*')
+        .eq('published', true)
+      for (const t of templates ?? []) {
+        const { error: upsertErr } = await admin.from('customer_strategies').upsert({
+          customer_id: params.id,
+          platform_strategy_id: t.id,
+          strategy_key: t.id,
+          name: t.name,
+          type: t.type,
+          active: false,
+          color: t.color ?? '#3B82F6',
+          scan_interval_min: t.scan_interval_min ?? 5,
+          watchlist_keys: t.watchlist_keys ?? ['listA'],
+          params: t.params,
+          exits: t.exits,
+          gift_nifty_gate: t.gift_nifty_gate ?? null,
+          updated_at: now,
+        }, { onConflict: 'customer_id,name' })
+        if (upsertErr) console.error(`[activate] seed strategy ${t.name} failed:`, upsertErr.message)
+      }
+      console.log(`[activate] seeded ${templates?.length ?? 0} strategy template(s) for ${customer.full_name}`)
+    }
+
+    // Seed platform watchlists if the customer has none yet
+    const { data: existingWatchlists } = await admin
+      .from('customer_watchlists').select('id').eq('customer_id', params.id).limit(1)
+    if (!existingWatchlists?.length) {
+      const { data: platformLists } = await admin.from('platform_watchlists').select('list_key, name, symbols')
+      for (const list of platformLists ?? []) {
+        const { error: wErr } = await admin.from('customer_watchlists').upsert({
+          customer_id: params.id, list_key: list.list_key, name: list.name,
+          symbols: list.symbols, updated_at: now,
+        }, { onConflict: 'customer_id,list_key' })
+        if (wErr) console.error(`[activate] seed watchlist ${list.list_key} failed:`, wErr.message)
+      }
+      console.log(`[activate] seeded ${platformLists?.length ?? 0} watchlist(s) for ${customer.full_name}`)
+    }
+
     await writeAuditLog({
       actor,
       action: 'customer.activate',
       targetType: 'customer',
       targetId: params.id,
       targetName: customer.full_name,
-      before: { status: 'identity_verified' },
+      before: { status: customer.status },
       after: { status: 'active' },
     })
 
