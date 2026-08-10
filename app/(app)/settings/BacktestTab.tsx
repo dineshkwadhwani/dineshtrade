@@ -6,9 +6,9 @@ const INTER = "'Inter', sans-serif"
 const SORA = "'Sora', sans-serif"
 
 type Strategy = { id: string; name: string; type: string }
-type BacktestSummary = { totalTrades: number; closedTrades: number; openTrades: number; wins: number; losses: number; winRate: number; realizedPnl: number; unrealizedMtm: number; netPnl: number; totalCharges: number; maxDrawdownPct: number; avgHoldDays: number }
-type BacktestTrade = { symbol: string; entryDate: string; exitDate: string | null; entryPrice: number; exitPrice: number | null; quantity: number; netPnl: number; status: 'closed' | 'open' | 'target1' | 'target2' | 'handoff' }
-type HistoryEntry = { runId: string; timestamp: string; strategyName: string; strategyType: string; netProfitRupees: number; netProfitPct: number; winRate: number; closedTrades: number; openTrades: number; avgHoldDays: number }
+type BacktestSummary = { tradesClosed: number; tradesOpen: number; wins: number; losses: number; winRate: number | null; realizedPnl: number; unrealizedPnl: number; totalPnl: number; netTotalPnl?: number; totalCharges?: number; maxDrawdownPct: number; avgHoldDays: number | null }
+type BacktestTrade = { symbol: string; entryDate: string; exitDate?: string; entryPrice: number; exitPrice?: number; qty: number; realizedPnl: number; netRealizedPnl?: number; status: 'closed' | 'open' }
+type HistoryEntry = { runId: string; timestamp: string; strategyName: string; strategyType: string; netProfitRupees: number; netProfitPct: number; winRate: number | null; closedTrades: number; openTrades: number; avgHoldDays: number | null }
 
 function fmt(n: number, d = 2) { return n.toLocaleString('en-IN', { maximumFractionDigits: d, minimumFractionDigits: d }) }
 function fmtPct(n: number) { return (n >= 0 ? '+' : '') + fmt(n) + '%' }
@@ -108,15 +108,15 @@ export default function BacktestTab({ strategies, targetCustomerId }: {
         <div style={{ display: 'flex', flexDirection: 'column', gap: 16 }}>
           {/* Summary stats */}
           <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(130px, 1fr))', gap: 10 }}>
-            <StatCard label="Net P&L" value={`₹${fmt(s.netPnl)}`} tone={s.netPnl >= 0 ? 'green' : 'red'} />
+            <StatCard label="Net P&L" value={`₹${fmt(s.netTotalPnl ?? s.totalPnl)}`} tone={(s.netTotalPnl ?? s.totalPnl) >= 0 ? 'green' : 'red'} />
             <StatCard label="Realized P&L" value={`₹${fmt(s.realizedPnl)}`} tone={s.realizedPnl >= 0 ? 'green' : 'red'} />
-            <StatCard label="Open MTM" value={`₹${fmt(s.unrealizedMtm)}`} tone={s.unrealizedMtm >= 0 ? 'green' : 'red'} />
-            <StatCard label="Win Rate" value={`${fmt(s.winRate * 100, 1)}%`} tone={s.winRate >= 0.7 ? 'green' : s.winRate >= 0.5 ? 'amber' : 'red'} />
-            <StatCard label="Closed Trades" value={s.closedTrades} />
-            <StatCard label="Open Trades" value={s.openTrades} />
+            <StatCard label="Open MTM" value={`₹${fmt(s.unrealizedPnl)}`} tone={s.unrealizedPnl >= 0 ? 'green' : 'red'} />
+            <StatCard label="Win Rate" value={s.winRate != null ? `${fmt(s.winRate, 1)}%` : '—'} tone={s.winRate != null && s.winRate >= 70 ? 'green' : s.winRate != null && s.winRate >= 50 ? 'amber' : 'red'} />
+            <StatCard label="Closed Trades" value={s.tradesClosed} />
+            <StatCard label="Open Trades" value={s.tradesOpen} />
             <StatCard label="Max Drawdown" value={`${fmt(s.maxDrawdownPct, 1)}%`} tone={s.maxDrawdownPct > 20 ? 'red' : s.maxDrawdownPct > 10 ? 'amber' : 'green'} />
-            <StatCard label="Avg Hold Days" value={`${fmt(s.avgHoldDays, 1)}d`} />
-            <StatCard label="Charges" value={`₹${fmt(s.totalCharges)}`} />
+            <StatCard label="Avg Hold Days" value={s.avgHoldDays != null ? `${fmt(s.avgHoldDays, 1)}d` : '—'} />
+            <StatCard label="Charges" value={`₹${fmt(s.totalCharges ?? 0)}`} />
           </div>
 
           {/* AI Analysis */}
@@ -149,10 +149,10 @@ export default function BacktestTab({ strategies, targetCustomerId }: {
                         <td style={{ padding: '7px 12px', fontWeight: 600, color: C.heading }}>{t.symbol}</td>
                         <td style={{ padding: '7px 12px', color: C.muted }}>{fmtDate(t.entryDate)}</td>
                         <td style={{ padding: '7px 12px', color: C.muted }}>{t.exitDate ? fmtDate(t.exitDate) : '—'}</td>
-                        <td style={{ padding: '7px 12px', color: C.body }}>{t.quantity}</td>
+                        <td style={{ padding: '7px 12px', color: C.body }}>{t.qty}</td>
                         <td style={{ padding: '7px 12px', color: C.body }}>₹{fmt(t.entryPrice)}</td>
                         <td style={{ padding: '7px 12px', color: C.body }}>{t.exitPrice ? `₹${fmt(t.exitPrice)}` : '—'}</td>
-                        <td style={{ padding: '7px 12px', fontWeight: 600, color: t.netPnl >= 0 ? C.green : C.red }}>₹{fmt(t.netPnl)}</td>
+                        <td style={{ padding: '7px 12px', fontWeight: 600, color: (t.netRealizedPnl ?? t.realizedPnl) >= 0 ? C.green : C.red }}>₹{fmt(t.netRealizedPnl ?? t.realizedPnl)}</td>
                         <td style={{ padding: '7px 12px' }}>
                           <span style={{ padding: '2px 7px', borderRadius: 4, fontSize: 11, fontWeight: 600, background: t.status === 'closed' ? C.greenBg : C.bg, color: t.status === 'closed' ? C.green : C.muted }}>
                             {t.status}
@@ -192,9 +192,9 @@ export default function BacktestTab({ strategies, targetCustomerId }: {
                     <td style={{ padding: '8px 12px', fontWeight: 600, color: C.heading }}>{h.strategyName}</td>
                     <td style={{ padding: '8px 12px', fontWeight: 600, color: h.netProfitRupees >= 0 ? C.green : C.red }}>₹{fmt(h.netProfitRupees)} <span style={{ fontSize: 11 }}>({fmtPct(h.netProfitPct)})</span></td>
                     <td style={{ padding: '8px 12px', color: C.body }}>₹{fmt(h.netProfitRupees)}</td>
-                    <td style={{ padding: '8px 12px', color: h.winRate >= 0.7 ? C.green : h.winRate >= 0.5 ? C.amber : C.red, fontWeight: 600 }}>{fmt(h.winRate * 100, 1)}%</td>
+                    <td style={{ padding: '8px 12px', color: h.winRate != null && h.winRate >= 70 ? C.green : h.winRate != null && h.winRate >= 50 ? C.amber : C.red, fontWeight: 600 }}>{h.winRate != null ? `${fmt(h.winRate, 1)}%` : '—'}</td>
                     <td style={{ padding: '8px 12px', color: C.body }}>{h.closedTrades}C / {h.openTrades}O</td>
-                    <td style={{ padding: '8px 12px', color: C.body }}>{fmt(h.avgHoldDays, 1)}d</td>
+                    <td style={{ padding: '8px 12px', color: C.body }}>{h.avgHoldDays != null ? `${fmt(h.avgHoldDays, 1)}d` : '—'}</td>
                   </tr>
                 ))}
               </tbody>
