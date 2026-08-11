@@ -12,7 +12,6 @@ interface BriefingData {
   indiaOutlook?: IndiaOutlook
   topRecommendations?: BriefingRec[]
 }
-
 const C = {
   card: '#FFFFFF', border: '#BFDBFE', heading: '#1E3A8A', body: '#475569', muted: '#94A3B8',
   green: '#16A34A', greenBg: '#DCFCE7', red: '#DC2626', redBg: '#FEE2E2', amber: '#D97706', amberBg: '#FEF3C7',
@@ -27,6 +26,7 @@ function dirArrow(d: string) { return d === 'up' ? '▲' : d === 'down' ? '▼' 
 // shows a Refresh button to re-fetch mid-day (force=true bypasses the DB cache).
 export default function DashboardBriefing({ privileged = false }: { privileged?: boolean }) {
   const [data, setData] = useState<BriefingData | null>(null)
+  const [source, setSource] = useState<'ai' | 'mock' | null>(null)
   const [loading, setLoading] = useState(true)
   const [refreshing, setRefreshing] = useState(false)
 
@@ -37,8 +37,11 @@ export default function DashboardBriefing({ privileged = false }: { privileged?:
     try {
       const r = await fetch(url, { cache: 'no-store' })
       const d = await r.json()
+      if (d.error) console.warn('[DashboardBriefing] API error:', d.error)
       setData(d.data ?? null)
-    } catch {
+      setSource(d.source ?? null)
+    } catch (e) {
+      console.error('[DashboardBriefing] fetch failed:', e)
       setData(null)
     }
   }
@@ -62,7 +65,21 @@ export default function DashboardBriefing({ privileged = false }: { privileged?:
     )
   }
 
-  if (!data) return null
+  if (!data) {
+    if (!privileged) return null
+    return (
+      <div style={{ background: C.card, border: `1px solid ${C.border}`, borderRadius: 12, padding: 20, boxShadow: '0 2px 8px rgba(30,58,138,0.04)', marginTop: 16, display: 'flex', alignItems: 'center', justifyContent: 'space-between', flexWrap: 'wrap', gap: 12 }}>
+        <div>
+          <p style={{ margin: '0 0 2px', fontFamily: SORA, fontWeight: 600, fontSize: 14, color: C.heading }}>Market Briefing</p>
+          <p style={{ margin: 0, fontSize: 12, color: C.muted, fontFamily: INTER }}>No briefing for today yet. Click Fetch to pull live data from AI.</p>
+        </div>
+        <button onClick={() => { setLoading(true); load(true).finally(() => setLoading(false)) }}
+          style={{ padding: '8px 20px', borderRadius: 8, border: 'none', cursor: 'pointer', fontFamily: INTER, fontWeight: 600, fontSize: 13, background: '#3B82F6', color: '#fff' }}>
+          Fetch
+        </button>
+      </div>
+    )
+  }
 
   return (
     <>
@@ -70,7 +87,12 @@ export default function DashboardBriefing({ privileged = false }: { privileged?:
       {data.globalIndices && data.globalIndices.length > 0 && (
         <div style={{ background: C.card, border: `1px solid ${C.border}`, borderRadius: 12, padding: 20, boxShadow: '0 2px 8px rgba(30,58,138,0.04)', marginTop: 16 }}>
           <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginBottom: 14 }}>
-            <h2 style={{ fontFamily: SORA, fontSize: 16, fontWeight: 600, color: C.heading, margin: 0 }}>World Indices</h2>
+            <div style={{ display: 'flex', alignItems: 'center', gap: 10 }}>
+              <h2 style={{ fontFamily: SORA, fontSize: 16, fontWeight: 600, color: C.heading, margin: 0 }}>World Indices</h2>
+              {source === 'mock' && (
+                <span style={{ fontSize: 10, fontWeight: 600, fontFamily: INTER, padding: '2px 7px', borderRadius: 999, background: C.amberBg, color: C.amber }}>INDICATIVE</span>
+              )}
+            </div>
             {privileged && (
               <button onClick={handleRefresh} disabled={refreshing}
                 style={{ padding: '5px 14px', borderRadius: 6, border: `1px solid ${C.border}`, cursor: refreshing ? 'not-allowed' : 'pointer', fontFamily: INTER, fontWeight: 600, fontSize: 12, background: '#fff', color: C.heading, opacity: refreshing ? 0.6 : 1 }}>

@@ -128,12 +128,10 @@ async function callGemini(model: string, opts: AICallOpts, useWebSearch: boolean
       maxOutputTokens: opts.maxTokens || 3000,
     },
   }
-  // Disable Gemini 2.5 internal thinking tokens where supported. Some legacy
-  // aliases (e.g. gemini-flash-latest) reject thinkingConfig with
-  // INVALID_ARGUMENT, so we attach it selectively and keep a retry fallback.
-  if (model.includes('2.5')) {
-    body.generationConfig.thinkingConfig = { thinkingBudget: 0 }
-  }
+  // Disable thinking tokens where the model supports it. Thinking models that
+  // don't support thinkingConfig return INVALID_ARGUMENT — the retry block
+  // below removes thinkingConfig and retries in that case.
+  body.generationConfig.thinkingConfig = { thinkingBudget: 0 }
   if (useWebSearch) body.tools = [{ google_search: {} }]
 
   const url = `https://generativelanguage.googleapis.com/v1beta/models/${encodeURIComponent(model)}:generateContent`

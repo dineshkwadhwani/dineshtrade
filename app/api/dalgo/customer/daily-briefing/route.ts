@@ -1,30 +1,26 @@
 // GET /api/dalgo/customer/daily-briefing
 // Returns today's market briefing (global indices, GIFT Nifty, India outlook,
-// broker tips) from the platform_daily_briefing table.
+// broker tips). Behaviour:
+//   1. DB hit first — return cached AI row for today if it exists.
+//   2. Before 08:30 IST (and no force): call AI anyway; if AI succeeds cache + return,
+//      if AI fails return mock data (always visible, never cached).
+//   3. force=true: bypass DB + in-memory cache, re-fetch from AI, overwrite DB on success.
 //
-// If no row exists for today (IST date) and current IST time is >= 08:30,
-// fetches fresh data from AI via getMarketBriefing(), stores it on success
-// (real AI data only — mock/fallback data is NOT persisted so the section
-// stays hidden on days the AI is unavailable), then returns it.
-//
-// Returns { data: null } when data is unavailable for any reason.
-// Requires dalgo_access_token (prevents unauthenticated AI spend).
+// AI results are stored in platform_daily_briefing so subsequent loads are instant.
+// Mock/fallback results are NEVER stored — next load retries AI.
+// Requires dalgo_access_token.
 
 import { NextResponse } from 'next/server'
 import { getProfile } from '@/lib/dalgoAuth'
 import { getSupabaseAdmin } from '@/lib/supabase'
 import { getMarketBriefing, clearMarketBriefingCache } from '@/lib/marketBriefing'
+import { MOCK_MARKET_DATA } from '@/lib/marketMock'
 
 export const dynamic = 'force-dynamic'
 
 function istDateKey(): string {
   const d = new Date(new Date().toLocaleString('en-US', { timeZone: 'Asia/Kolkata' }))
   return `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}-${String(d.getDate()).padStart(2, '0')}`
-}
-
-function istHourMinute(): { h: number; m: number } {
-  const d = new Date(new Date().toLocaleString('en-US', { timeZone: 'Asia/Kolkata' }))
-  return { h: d.getHours(), m: d.getMinutes() }
 }
 
 export async function GET(req: Request) {
@@ -34,10 +30,9 @@ export async function GET(req: Request) {
   const admin = getSupabaseAdmin()
   const today = istDateKey()
   const url = new URL(req.url)
-  const peek  = url.searchParams.get('peek')  === 'true'
   const force = url.searchParams.get('force') === 'true'
 
-  // Skip DB lookup on force-refresh; otherwise return cached row if it exists
+  // Return cached AI row immediately (skip on force-refresh)
   if (!force) {
     const { data: existing } = await admin
       .from('platform_daily_briefing')
@@ -50,35 +45,25 @@ export async function GET(req: Request) {
     }
   }
 
-  // peek=true — privileged callers just want to know if data exists; skip AI trigger
-  if (peek) {
-    return NextResponse.json({ data: null, reason: 'not_fetched_yet' })
-  }
-
-  // Not yet stored — check 08:30 IST gate
-  const { h, m } = istHourMinute()
-  if (h < 8 || (h === 8 && m < 30)) {
-    return NextResponse.json({ data: null, reason: 'before_830' })
-  }
-
-  // Fetch from AI (clear in-memory cache on force so the AI is actually called)
+  // Fetch from AI (clear in-memory cache on force)
   if (force) clearMarketBriefingCache()
   let result
   try {
     result = await getMarketBriefing()
   } catch {
-    return NextResponse.json({ data: null, reason: 'ai_error' })
+    // AI threw — return mock so world indices are always visible
+    return NextResponse.json({ data: MOCK_MARKET_DATA, source: 'mock', date: today })
   }
 
-  // Only persist genuine AI results — mock/fallback is not stored
-  if (!result.ok || result.source !== 'ai' || !result.data) {
-    return NextResponse.json({ data: null, reason: 'ai_unavailable' })
+  if (result.ok && result.source === 'ai' && result.data) {
+    // Cache real AI data so subsequent loads are instant
+    await admin.from('platform_daily_briefing').upsert(
+      { date_ist: today, data: result.data, source: 'ai' },
+      { onConflict: 'date_ist' },
+    )
+    return NextResponse.json({ data: result.data, source: 'ai', date: today })
   }
 
-  await admin.from('platform_daily_briefing').upsert(
-    { date_ist: today, data: result.data, source: 'ai' },
-    { onConflict: 'date_ist' },
-  )
-
-  return NextResponse.json({ data: result.data, source: 'ai', date: today })
+  // AI unavailable — return mock so world indices are always visible (not cached)
+  return NextResponse.json({ data: result.data ?? MOCK_MARKET_DATA, source: 'mock', date: today })
 }

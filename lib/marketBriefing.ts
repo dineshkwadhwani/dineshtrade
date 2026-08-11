@@ -123,12 +123,12 @@ export async function getMarketBriefing(): Promise<BriefingResult> {
 
 async function fetchBriefingFresh(): Promise<BriefingResult> {
   try {
-    let result = await callAI({ prompt: buildPrompt(), useWebSearch: true, maxTokens: 3000 })
+    let result = await callAI({ prompt: buildPrompt(), useWebSearch: true, maxTokens: 8000 })
     if (!result.ok) {
       // Compatibility fallback for providers/models that reject web-search
       // tools after a model switch. Better to provide a best-effort briefing
       // than leave the dashboard empty.
-      result = await callAI({ prompt: buildPrompt(), useWebSearch: false, maxTokens: 3000 })
+      result = await callAI({ prompt: buildPrompt(), useWebSearch: false, maxTokens: 8000 })
     }
     if (!result.ok) {
       return {
