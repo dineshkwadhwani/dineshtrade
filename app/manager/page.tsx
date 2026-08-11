@@ -5,6 +5,7 @@ import { getProfile } from '@/lib/dalgoAuth'
 import { getManagerDashboardStats, listCustomers } from '@/lib/dalgoAdmin'
 import { PageHeader, StatGrid, StatCard, SectionCard, Table, Th, Td, Badge, EmptyState, statusTone, STATUS_LABELS } from '@/components/dalgo/ui'
 import { COLORS } from '@/components/dalgo/theme'
+import DashboardBriefing from '@/app/(app)/dashboard/DashboardBriefing'
 
 // Task 6.10 — Account Manager Dashboard. Shows only this AM's assigned
 // customers (see lib/dalgoAdmin.ts's {assignedTo} filter on every query).
@@ -78,6 +79,8 @@ export default async function ManagerDashboardPage() {
           </Table>
         )}
       </SectionCard>
+
+      <DashboardBriefing privileged />
     </div>
   )
 }

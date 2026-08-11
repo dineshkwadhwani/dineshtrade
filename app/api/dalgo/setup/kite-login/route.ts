@@ -37,6 +37,14 @@ export async function GET(req: NextRequest) {
   const apiKey = decrypt(brokerAccount.api_key_enc)
   const kiteUrl = `https://kite.zerodha.com/connect/login?v=3&api_key=${encodeURIComponent(apiKey)}`
 
-  // No extra cookie needed — dalgo_access_token JWT identifies the customer on callback
-  return NextResponse.redirect(kiteUrl)
+  // Set pending cookie so the callback knows which customer is completing OAuth
+  const res = NextResponse.redirect(kiteUrl)
+  res.cookies.set('dalgo_kite_pending', profile.id, {
+    httpOnly: true,
+    secure: process.env.NODE_ENV === 'production',
+    sameSite: 'lax',
+    maxAge: 600, // 10 minutes — enough for the OAuth round-trip
+    path: '/',
+  })
+  return res
 }

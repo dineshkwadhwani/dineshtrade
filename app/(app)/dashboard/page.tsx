@@ -3,6 +3,8 @@ export const dynamic = 'force-dynamic'
 import { getSupabaseAdmin } from '@/lib/supabase'
 import { getProfile } from '@/lib/dalgoAuth'
 import { isMarketOpen } from '@/lib/market'
+import DashboardLiveTiles from './DashboardLiveTiles'
+import DashboardBriefing from './DashboardBriefing'
 
 const C = {
   bg: '#F8FAFF', card: '#FFFFFF', border: '#BFDBFE', heading: '#1E3A8A',
@@ -61,11 +63,12 @@ export default async function DashboardPage() {
   const customerId = profile_session.id
   const admin = getSupabaseAdmin()
 
-  const [capitalRes, instanceRes, strategiesRes, stateRes] = await Promise.all([
+  const [capitalRes, instanceRes, strategiesRes, stateRes, positionsRes] = await Promise.all([
     admin.from('customer_capital_config').select('*').eq('customer_id', customerId).maybeSingle(),
-    admin.from('customer_instances').select('kite_token_status, cron_mode, open_positions_count, todays_buy_count, todays_sell_count').eq('customer_id', customerId).maybeSingle(),
+    admin.from('customer_instances').select('kite_token_status, cron_mode, todays_buy_count, todays_sell_count').eq('customer_id', customerId).maybeSingle(),
     admin.from('customer_strategies').select('id, name, type, scan_interval_min').eq('customer_id', customerId).eq('active', true).order('name'),
     admin.from('customer_state').select('cron_mode, daily_buy_count, daily_sell_count, gift_nifty_change_pct').eq('customer_id', customerId).maybeSingle(),
+    admin.from('customer_positions').select('symbol', { count: 'exact', head: true }).eq('customer_id', customerId),
   ])
 
   const cap = capitalRes.data
@@ -80,7 +83,7 @@ export default async function DashboardPage() {
 
   const cronMode = instance?.cron_mode ?? state?.cron_mode ?? 'manual'
   const tokenStatus = instance?.kite_token_status ?? 'missing'
-  const openPositions = instance?.open_positions_count ?? 0
+  const openPositions = positionsRes.count ?? 0
   const buysToday = instance?.todays_buy_count ?? state?.daily_buy_count ?? 0
   const sellsToday = instance?.todays_sell_count ?? state?.daily_sell_count ?? 0
 
@@ -119,7 +122,7 @@ export default async function DashboardPage() {
         <Card><Stat label="Open Positions" value={openPositions} /></Card>
         <Card><Stat label="Buys Today" value={buysToday} /></Card>
         <Card><Stat label="Sells Today" value={sellsToday} /></Card>
-        {cap && <Card><Stat label="Per Trade" value={`₹${fmt(cap.per_trade)}`} sub={`Max ${cap.max_positions} positions`} /></Card>}
+        <DashboardLiveTiles />
       </div>
 
       {/* Capital config */}
@@ -158,6 +161,9 @@ export default async function DashboardPage() {
           </div>
         )}
       </Card>
+
+      {/* World Indices + Broker Tips — fetched once daily after 08:30 IST, stored in DB */}
+      <DashboardBriefing />
     </div>
   )
 }

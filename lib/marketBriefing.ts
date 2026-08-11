@@ -74,6 +74,8 @@ Schema (replace every <…> with today's researched value):
   "topRecommendations": [
     { "symbol": "<NSE_TRADINGSYMBOL>", "name": "<full_company_name>", "cmp": "<live_price_inr>", "action": "BUY", "source": "<broker_or_publication_name>", "reason": "<short_reason_from_today_broker_call>" },
     { "symbol": "<NSE_TRADINGSYMBOL>", "name": "<full_company_name>", "cmp": "<live_price_inr>", "action": "BUY", "source": "<broker_or_publication_name>", "reason": "<short_reason_from_today_broker_call>" },
+    { "symbol": "<NSE_TRADINGSYMBOL>", "name": "<full_company_name>", "cmp": "<live_price_inr>", "action": "BUY", "source": "<broker_or_publication_name>", "reason": "<short_reason_from_today_broker_call>" },
+    { "symbol": "<NSE_TRADINGSYMBOL>", "name": "<full_company_name>", "cmp": "<live_price_inr>", "action": "BUY", "source": "<broker_or_publication_name>", "reason": "<short_reason_from_today_broker_call>" },
     { "symbol": "<NSE_TRADINGSYMBOL>", "name": "<full_company_name>", "cmp": "<live_price_inr>", "action": "BUY", "source": "<broker_or_publication_name>", "reason": "<short_reason_from_today_broker_call>" }
   ],
   "headline": "<one_sentence_summary_of_today_market_mood>"

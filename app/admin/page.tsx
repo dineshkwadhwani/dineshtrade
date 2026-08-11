@@ -4,6 +4,7 @@ import Link from 'next/link'
 import { getProfile } from '@/lib/dalgoAuth'
 import { getDashboardStats, getCustomerHealthRows, getRecentRegistrations } from '@/lib/dalgoAdmin'
 import { PageHeader, StatGrid, StatCard, SectionCard, Table, Th, Td, Badge, StatusDot, EmptyState, statusTone, STATUS_LABELS, primaryButtonStyle, secondaryButtonStyle } from '@/components/dalgo/ui'
+import DashboardBriefing from '@/app/(app)/dashboard/DashboardBriefing'
 
 // Task 6.2 — SuperAdmin Dashboard. Server Component: getProfile()/role are
 // already enforced by app/admin/layout.tsx, so this only needs the data.
@@ -131,6 +132,8 @@ export default async function AdminDashboardPage() {
           </Table>
         )}
       </SectionCard>
+
+      <DashboardBriefing privileged />
     </div>
   )
 }
