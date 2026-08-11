@@ -20,6 +20,7 @@ import { FONT_LINK_HREF } from '@/components/dalgo/theme'
 // renders.
 const ADMIN_NAV: DalgoNavItem[] = [
   { label: 'Dashboard', href: '/admin' },
+  { label: 'Trading Engine', href: '/admin/engine' },
   { label: 'Customers', href: '/admin/customers' },
   { label: 'Registrations', href: '/admin/registrations' },
   { label: 'Account Managers', href: '/admin/managers' },

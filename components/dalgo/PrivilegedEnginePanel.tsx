@@ -1,9 +1,9 @@
 'use client'
 import { useEffect, useState } from 'react'
 
-// ─── Palette (DAlgo V2 light mode) ───────────────────────────────────────────
+// ─── Palette ─────────────────────────────────────────────────────────────────
 const C = {
-  bg: '#F8FAFF', card: '#FFFFFF', border: '#BFDBFE', heading: '#1E3A8A',
+  card: '#FFFFFF', border: '#BFDBFE', heading: '#1E3A8A',
   body: '#475569', muted: '#94A3B8', primary: '#3B82F6',
   green: '#16A34A', greenBg: '#DCFCE7', red: '#DC2626', redBg: '#FEE2E2',
   amber: '#D97706', amberBg: '#FEF3C7', surface: '#F1F5FE',
@@ -13,6 +13,14 @@ const INTER = "'Inter', sans-serif"
 const MONO = "'JetBrains Mono', monospace"
 
 // ─── Types ────────────────────────────────────────────────────────────────────
+export interface CustomerOption {
+  id: string
+  name: string
+  email: string
+  kiteStatus?: string
+  cronMode?: string
+}
+
 interface EngineStatus {
   cronMode: 'auto' | 'manual'
   kiteConnected: boolean
@@ -20,8 +28,6 @@ interface EngineStatus {
   marketStatus: string
   buyCap: number
   sellCap: number
-  perTrade: number
-  maxPositions: number
   buysToday: number
   sellsToday: number
   strategies: Array<{ id: string; name: string; type: string; scanIntervalMin: number; active: boolean }>
@@ -85,14 +91,13 @@ function strategyBadgeStyle(strategyId: string, strategyType?: string) {
   const type = strategyType ?? (strategyId === 'accumulator' ? 'dip' : strategyId === 'catalyst' ? 'momentum' : 'pivotal')
   if (type === 'dip') return { color: '#166534', bg: '#DCFCE7' }
   if (type === 'momentum') return { color: '#1D4ED8', bg: '#EFF6FF' }
-  if (type === 'pivotal') return { color: '#92400E', bg: '#FFFBEB' }
-  return { color: C.body, bg: C.surface }
+  return { color: '#92400E', bg: '#FFFBEB' }
 }
 
-function strategyLabel(strategyId: string, name?: string): string {
-  if (strategyId === 'accumulator') return `📊 ${name ?? 'Accumulator'}`
-  if (strategyId === 'catalyst') return `⚡ ${name ?? 'Catalyst'}`
-  return `🔶 ${name ?? strategyId}`
+function strategyLabel(id: string, name?: string): string {
+  if (id === 'accumulator') return `📊 ${name ?? 'Accumulator'}`
+  if (id === 'catalyst') return `⚡ ${name ?? 'Catalyst'}`
+  return `🔶 ${name ?? id}`
 }
 
 // ─── Sub-components ───────────────────────────────────────────────────────────
@@ -130,9 +135,7 @@ function RecCard({ rec, canBuy, onExecute }: {
         <div>
           <div style={{ display: 'flex', alignItems: 'center', gap: 8, flexWrap: 'wrap', marginBottom: 4 }}>
             <span style={{ fontFamily: MONO, fontWeight: 700, fontSize: 16, color: C.heading }}>{rec.symbol}</span>
-            {rec.confidence === 'high' && (
-              <span style={{ fontSize: 10, fontWeight: 700, padding: '2px 8px', borderRadius: 999, background: C.amberBg, color: C.amber, fontFamily: INTER }}>HIGH CONF</span>
-            )}
+            {rec.confidence === 'high' && <span style={{ fontSize: 10, fontWeight: 700, padding: '2px 8px', borderRadius: 999, background: C.amberBg, color: C.amber, fontFamily: INTER }}>HIGH CONF</span>}
             <span style={{ fontSize: 10, fontWeight: 600, padding: '2px 8px', borderRadius: 999, background: badge.bg, color: badge.color, fontFamily: INTER }}>
               {strategyLabel(rec.strategy)}
             </span>
@@ -145,7 +148,7 @@ function RecCard({ rec, canBuy, onExecute }: {
           </p>
           {rec.dayChangePct != null && (
             <p style={{ margin: '2px 0 0', fontSize: 11, fontFamily: MONO, color: rec.dayChangePct > 0 ? C.green : rec.dayChangePct < 0 ? C.red : C.body }}>
-              {rec.dayChangePct > 0 ? '▲' : rec.dayChangePct < 0 ? '▼' : '—'} {Math.abs(rec.dayChangePct).toFixed(2)}%
+              {rec.dayChangePct > 0 ? '▲' : '▼'} {Math.abs(rec.dayChangePct).toFixed(2)}%
             </p>
           )}
           <p style={{ margin: '2px 0 0', fontSize: 11, color: C.muted, fontFamily: INTER }}>Qty: {rec.suggestedQty}</p>
@@ -179,13 +182,7 @@ function RecCard({ rec, canBuy, onExecute }: {
             {busy ? 'Placing order…' : !canBuy ? '🔒 Market closed' : '▶ Execute BUY'}
           </button>
         ) : (
-          <div style={{
-            padding: '10px 14px', borderRadius: 8,
-            background: result.ok ? C.greenBg : C.redBg,
-            border: `1px solid ${result.ok ? C.green : C.red}`,
-            color: result.ok ? C.green : C.red,
-            fontFamily: INTER, fontSize: 13, fontWeight: 600,
-          }}>
+          <div style={{ padding: '10px 14px', borderRadius: 8, background: result.ok ? C.greenBg : C.redBg, border: `1px solid ${result.ok ? C.green : C.red}`, color: result.ok ? C.green : C.red, fontFamily: INTER, fontSize: 13, fontWeight: 600 }}>
             {result.ok ? '✓' : '✗'} {result.msg}
           </div>
         )}
@@ -211,47 +208,59 @@ function OrderRow({ order, isLast }: { order: KiteOrder; isLast: boolean }) {
   )
 }
 
-// ─── Main Page ────────────────────────────────────────────────────────────────
-export default function EnginePage() {
+// ─── Main Panel ───────────────────────────────────────────────────────────────
+export default function PrivilegedEnginePanel({ customers }: { customers: CustomerOption[] }) {
+  const [selectedId, setSelectedId] = useState<string>(customers[0]?.id ?? '')
   const [status, setStatus] = useState<EngineStatus | null>(null)
   const [scan, setScan] = useState<ScanResult | null>(null)
   const [orders, setOrders] = useState<KiteOrder[]>([])
   const [scanning, setScanning] = useState(false)
-  const [togglingMode, setTogglingMode] = useState(false)
+
+  const selectedCustomer = customers.find(c => c.id === selectedId)
+
+  function qs() {
+    return selectedId ? `?targetCustomerId=${encodeURIComponent(selectedId)}` : ''
+  }
 
   async function loadStatus() {
+    if (!selectedId) return
     try {
-      const r = await fetch('/api/dalgo/customer/engine/status', { cache: 'no-store' })
+      const r = await fetch(`/api/dalgo/customer/engine/status${qs()}`, { cache: 'no-store' })
       const d = await r.json()
       if (!d.error) setStatus(d)
     } catch {}
   }
 
   async function loadOrders() {
+    if (!selectedId) return
     try {
-      const r = await fetch('/api/dalgo/customer/engine/orders', { cache: 'no-store' })
+      const r = await fetch(`/api/dalgo/customer/engine/orders${qs()}`, { cache: 'no-store' })
       const d = await r.json()
       if (Array.isArray(d.orders)) setOrders(d.orders)
     } catch {}
   }
 
   useEffect(() => {
+    setStatus(null); setScan(null); setOrders([])
+    if (!selectedId) return
     loadStatus()
     loadOrders()
     const id = setInterval(loadOrders, 30_000)
     return () => clearInterval(id)
   // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [])
+  }, [selectedId])
 
   async function handleScan() {
-    setScanning(true)
-    setScan(null)
+    setScanning(true); setScan(null)
     try {
-      const r = await fetch('/api/dalgo/customer/engine/scan', { method: 'POST', cache: 'no-store' })
+      const r = await fetch('/api/dalgo/customer/engine/scan', {
+        method: 'POST', cache: 'no-store',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ targetCustomerId: selectedId }),
+      })
       const d = await r.json()
       setScan(d)
-      loadOrders()
-      loadStatus()
+      loadOrders(); loadStatus()
     } catch (e) {
       setScan({ mode: 'error', recommendations: [], message: String(e), error: String(e), generatedAt: new Date().toISOString() })
     } finally {
@@ -259,25 +268,11 @@ export default function EnginePage() {
     }
   }
 
-  async function toggleMode() {
-    if (!status) return
-    const next = status.cronMode === 'auto' ? 'manual' : 'auto'
-    setTogglingMode(true)
-    try {
-      const r = await fetch('/api/dalgo/customer/mode', {
-        method: 'PATCH', headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ mode: next }),
-      })
-      if (r.ok) setStatus(s => s ? { ...s, cronMode: next } : s)
-    } finally {
-      setTogglingMode(false)
-    }
-  }
-
   async function executeOrder(rec: Recommendation): Promise<{ ok: boolean; msg: string }> {
     const r = await fetch('/api/dalgo/customer/engine/order', {
       method: 'POST', headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify({
+        targetCustomerId: selectedId,
         symbol: rec.symbol, quantity: rec.suggestedQty, price: rec.price,
         strategyId: rec.strategy, target1: rec.target1, target2: rec.target2,
         source: rec.source, reason: rec.reason, tag: `dt-${rec.strategy}`,
@@ -285,8 +280,7 @@ export default function EnginePage() {
     })
     const data = await r.json()
     if (!r.ok) return { ok: false, msg: data.reason ?? data.error ?? `HTTP ${r.status}` }
-    loadOrders()
-    loadStatus()
+    loadOrders(); loadStatus()
     return { ok: true, msg: `Order placed${data.orderId ? ` · ${data.orderId}` : ''}` }
   }
 
@@ -303,24 +297,58 @@ export default function EnginePage() {
     return acc
   }, {}) ?? {}
 
-  const modeColor = status?.cronMode === 'auto' ? C.green : C.amber
-  const modeBg = status?.cronMode === 'auto' ? C.greenBg : C.amberBg
+  if (customers.length === 0) {
+    return <p style={{ fontSize: 14, color: C.muted, fontFamily: INTER }}>No customers assigned.</p>
+  }
 
   return (
     <div style={{ fontFamily: INTER }}>
-      {/* ── Page header ── */}
-      <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', flexWrap: 'wrap', gap: 12, marginBottom: 24 }}>
-        <h1 style={{ fontFamily: SORA, fontSize: 24, fontWeight: 700, color: C.heading, margin: 0 }}>
-          Trading <span style={{ color: C.primary }}>Engine</span>
-        </h1>
-        <div style={{ display: 'flex', alignItems: 'center', gap: 10, flexWrap: 'wrap' }}>
-          <span style={{ display: 'inline-flex', alignItems: 'center', gap: 6, padding: '5px 12px', borderRadius: 999, background: modeBg, border: `1px solid ${modeColor}40`, fontFamily: INTER, fontSize: 12, fontWeight: 700, color: modeColor }}>
-            {status?.cronMode === 'auto' ? '⚡ Auto Mode' : '✋ Manual Mode'}
-          </span>
-          <button onClick={toggleMode} disabled={togglingMode || !status} style={{ padding: '6px 14px', borderRadius: 8, border: `1px solid ${C.border}`, background: C.card, color: C.heading, fontFamily: INTER, fontSize: 12, fontWeight: 600, cursor: 'pointer', opacity: togglingMode ? 0.5 : 1 }}>
-            {togglingMode ? '…' : status?.cronMode === 'auto' ? 'Switch to Manual' : 'Switch to Auto'}
-          </button>
-          <button onClick={handleScan} disabled={scanning || !status?.kiteConnected} title={!status?.kiteConnected ? 'Connect Kite in Settings first' : undefined} style={{ padding: '8px 20px', borderRadius: 8, border: 'none', background: scanning || !status?.kiteConnected ? C.surface : `linear-gradient(135deg, ${C.primary}, #60A5FA)`, color: scanning || !status?.kiteConnected ? C.muted : '#fff', fontFamily: INTER, fontWeight: 700, fontSize: 13, cursor: scanning || !status?.kiteConnected ? 'not-allowed' : 'pointer' }}>
+      {/* ── Customer selector ── */}
+      <div style={{ background: C.card, border: `1px solid ${C.border}`, borderRadius: 12, padding: '16px 20px', marginBottom: 20, boxShadow: '0 2px 8px rgba(30,58,138,0.04)' }}>
+        <p style={{ margin: '0 0 10px', fontSize: 11, fontWeight: 600, color: C.muted, textTransform: 'uppercase', letterSpacing: '0.06em', fontFamily: INTER }}>
+          Running engine for
+        </p>
+        <div style={{ display: 'flex', alignItems: 'center', gap: 12, flexWrap: 'wrap' }}>
+          <select
+            value={selectedId}
+            onChange={e => setSelectedId(e.target.value)}
+            style={{
+              padding: '8px 12px', borderRadius: 8, border: `1px solid ${C.border}`,
+              background: C.card, color: C.heading, fontFamily: SORA, fontWeight: 600, fontSize: 14,
+              cursor: 'pointer', minWidth: 240,
+            }}
+          >
+            {customers.map(c => (
+              <option key={c.id} value={c.id}>{c.name} — {c.email}</option>
+            ))}
+          </select>
+          {selectedCustomer && (
+            <div style={{ display: 'flex', gap: 8 }}>
+              {selectedCustomer.kiteStatus && (
+                <span style={{ fontSize: 11, fontWeight: 600, padding: '3px 10px', borderRadius: 999, fontFamily: INTER,
+                  color: selectedCustomer.kiteStatus === 'connected' ? C.green : C.red,
+                  background: selectedCustomer.kiteStatus === 'connected' ? C.greenBg : C.redBg,
+                }}>
+                  Kite: {selectedCustomer.kiteStatus}
+                </span>
+              )}
+              {selectedCustomer.cronMode && (
+                <span style={{ fontSize: 11, fontWeight: 600, padding: '3px 10px', borderRadius: 999, fontFamily: INTER,
+                  color: selectedCustomer.cronMode === 'auto' ? C.green : C.amber,
+                  background: selectedCustomer.cronMode === 'auto' ? C.greenBg : C.amberBg,
+                }}>
+                  {selectedCustomer.cronMode === 'auto' ? '⚡ Auto' : '✋ Manual'}
+                </span>
+              )}
+            </div>
+          )}
+          <button onClick={handleScan} disabled={scanning || !selectedId} style={{
+            padding: '8px 20px', borderRadius: 8, border: 'none', marginLeft: 'auto',
+            background: scanning ? C.surface : `linear-gradient(135deg, ${C.primary}, #60A5FA)`,
+            color: scanning ? C.muted : '#fff',
+            fontFamily: INTER, fontWeight: 700, fontSize: 13,
+            cursor: scanning ? 'not-allowed' : 'pointer',
+          }}>
             {scanning ? '↻ Scanning…' : '↻ Refresh & Scan'}
           </button>
         </div>
@@ -329,7 +357,7 @@ export default function EnginePage() {
       {/* ── Status tiles ── */}
       <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fill, minmax(160px, 1fr))', gap: 12, marginBottom: 20 }}>
         <StatTile label="Market" value={status?.marketOpen ? '🟢 Open' : status ? '🔴 Closed' : '…'} sub={status?.marketStatus ?? '—'} accent={status?.marketOpen ? C.green : C.red} />
-        <StatTile label="Kite" value={status == null ? '…' : status.kiteConnected ? 'Connected' : 'Disconnected'} sub={status?.kiteConnected ? 'Ready to trade' : 'Connect in Settings'} accent={status?.kiteConnected ? C.green : C.red} />
+        <StatTile label="Kite" value={status == null ? '…' : status.kiteConnected ? 'Connected' : 'Disconnected'} sub={status?.kiteConnected ? 'Ready to trade' : 'Not connected'} accent={status?.kiteConnected ? C.green : C.red} />
         <StatTile label="BUYs today" value={`${buysToday.length} / ${status?.buyCap ?? '—'}`} sub={status ? `${Math.max(0, status.buyCap - buysToday.length)} remaining` : undefined} accent={C.green} />
         <StatTile label="SELLs today" value={`${sellsToday.length} / ${status?.sellCap ?? '—'}`} sub={status ? `${Math.max(0, status.sellCap - sellsToday.length)} remaining` : undefined} accent={C.red} />
       </div>
@@ -338,67 +366,41 @@ export default function EnginePage() {
       {status?.cronMode === 'auto' && (
         <div style={{ background: C.greenBg, border: `1px solid ${C.green}40`, borderRadius: 12, padding: '12px 16px', marginBottom: 16 }}>
           <p style={{ margin: 0, fontSize: 13, color: C.green, fontFamily: INTER }}>
-            ⚡ Auto mode is on.{' '}
-            {activeStrategies.length > 0
-              ? `BUY scans: ${activeStrategies.map(s => `${s.name} every ${s.scanIntervalMin}m`).join(', ')}. SELL monitors every 5 min.`
-              : 'Strategies scan at configured intervals. SELL monitors every 5 min.'}
-            {' '}You can still use Refresh & Scan below for an immediate ad-hoc scan.
+            ⚡ Auto mode — scans running for this customer.
+            {activeStrategies.length > 0 && ` ${activeStrategies.map(s => `${s.name} every ${s.scanIntervalMin}m`).join(', ')}.`}
+            {' '}You can still run a manual scan above.
           </p>
           {status.instanceHealth && (
             <p style={{ margin: '6px 0 0', fontSize: 11, color: C.green, opacity: 0.7, fontFamily: MONO }}>
-              Last cron tick: {fmtLastTick(status.instanceHealth.lastCronTickAt)} · Kite token: {status.instanceHealth.kiteTokenStatus}
+              Last cron tick: {fmtLastTick(status.instanceHealth.lastCronTickAt)} · Token: {status.instanceHealth.kiteTokenStatus}
             </p>
           )}
-        </div>
-      )}
-
-      {/* ── Kite disconnected warning ── */}
-      {status && !status.kiteConnected && (
-        <div style={{ background: C.redBg, border: `1px solid ${C.red}40`, borderRadius: 12, padding: '12px 16px', marginBottom: 16 }}>
-          <p style={{ margin: 0, fontSize: 13, color: C.red, fontFamily: INTER }}>
-            ⚠ Kite not connected.{' '}
-            <a href="/settings" style={{ color: C.red, fontWeight: 700 }}>Go to Settings</a>{' '}
-            to connect your Kite account before scanning or placing orders.
-          </p>
         </div>
       )}
 
       {/* ── Scan results ── */}
       {scan && (
         <div style={{ marginBottom: 24 }}>
-          {/* Mode chip */}
           <div style={{ display: 'inline-flex', alignItems: 'center', gap: 8, padding: '6px 14px', borderRadius: 8, marginBottom: 14,
             background: scan.mode === 'dip' ? C.greenBg : scan.mode === 'catalyst' ? '#EFF6FF' : scan.mode === 'circuit' ? C.redBg : C.surface,
             border: `1px solid ${scan.mode === 'dip' ? C.green : scan.mode === 'catalyst' ? C.primary : scan.mode === 'circuit' ? C.red : C.border}40`,
           }}>
             <span style={{ fontSize: 13, fontWeight: 600, fontFamily: INTER, color: scan.mode === 'dip' ? C.green : scan.mode === 'catalyst' ? C.primary : scan.mode === 'circuit' ? C.red : C.body }}>
-              {scan.mode === 'dip' ? '📊 Dip Mode — Accumulator'
-                : scan.mode === 'catalyst' ? '⚡ Catalyst Mode — Momentum'
-                : scan.mode === 'circuit' ? '🚨 Circuit Breaker — No trades today'
-                : scan.mode === 'error' ? '⚠ Scan error' : scan.mode}
+              {scan.mode === 'dip' ? '📊 Dip Mode' : scan.mode === 'catalyst' ? '⚡ Catalyst Mode' : scan.mode === 'circuit' ? '🚨 Circuit Breaker' : scan.mode === 'error' ? '⚠ Error' : scan.mode}
             </span>
-            {scan.giftChangePct != null && (
-              <span style={{ fontSize: 11, color: C.muted, fontFamily: MONO }}>
-                GIFT Nifty {scan.giftChangePct > 0 ? '+' : ''}{scan.giftChangePct.toFixed(2)}%
-              </span>
-            )}
+            {scan.giftChangePct != null && <span style={{ fontSize: 11, color: C.muted, fontFamily: MONO }}>GIFT Nifty {scan.giftChangePct > 0 ? '+' : ''}{scan.giftChangePct.toFixed(2)}%</span>}
             <span style={{ fontSize: 11, color: C.muted, fontFamily: MONO }}>{fmtTime(scan.generatedAt)}</span>
           </div>
-
-          {scan.message && (
-            <p style={{ margin: '0 0 12px', fontSize: 12, color: C.muted, fontFamily: INTER, fontStyle: 'italic' }}>{scan.message}</p>
-          )}
+          {scan.message && <p style={{ margin: '0 0 12px', fontSize: 12, color: C.muted, fontFamily: INTER, fontStyle: 'italic' }}>{scan.message}</p>}
           {scan.error && (
             <div style={{ background: C.redBg, border: `1px solid ${C.red}40`, borderRadius: 8, padding: '10px 14px', marginBottom: 12 }}>
-              <p style={{ margin: 0, fontSize: 12, color: C.red, fontFamily: INTER }}>Scan error: {scan.error}</p>
+              <p style={{ margin: 0, fontSize: 12, color: C.red, fontFamily: INTER }}>Error: {scan.error}</p>
             </div>
           )}
-
           {scan.recommendations.length === 0 && !scan.error && (
             <p style={{ fontSize: 13, color: C.muted, fontFamily: INTER }}>No recommendations from this scan.</p>
           )}
-
-          {scan.recommendations.length > 0 && Object.entries(recsByStrategy).map(([stratId, recs]) => {
+          {Object.entries(recsByStrategy).map(([stratId, recs]) => {
             const stratInfo = activeStrategies.find(s => s.id === stratId)
             const badge = strategyBadgeStyle(stratId, stratInfo?.type)
             return (
@@ -410,9 +412,7 @@ export default function EnginePage() {
                   <span style={{ fontSize: 11, color: C.muted, fontFamily: MONO }}>{recs.length} rec{recs.length !== 1 ? 's' : ''}</span>
                 </div>
                 <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fill, minmax(320px, 1fr))', gap: 12 }}>
-                  {recs.map((rec, i) => (
-                    <RecCard key={i} rec={rec} canBuy={canBuy} onExecute={executeOrder} />
-                  ))}
+                  {recs.map((rec, i) => <RecCard key={i} rec={rec} canBuy={canBuy} onExecute={executeOrder} />)}
                 </div>
               </div>
             )
@@ -420,16 +420,11 @@ export default function EnginePage() {
         </div>
       )}
 
-      {/* ── Empty state ── */}
       {!scan && !scanning && (
-        <div style={{ padding: '20px 0', display: 'flex', alignItems: 'center', gap: 12 }}>
+        <div style={{ padding: '16px 0', display: 'flex', alignItems: 'center', gap: 12 }}>
           <span style={{ fontSize: 20, color: C.primary, opacity: 0.4 }}>⚡</span>
           <p style={{ margin: 0, fontSize: 13, color: C.muted, fontFamily: INTER }}>
-            {!status?.kiteConnected
-              ? 'Connect your Kite account in Settings to start scanning.'
-              : status?.cronMode === 'auto'
-              ? 'Auto mode running. Click Refresh & Scan for an immediate ad-hoc scan.'
-              : 'Press Refresh & Scan to run the strategy engine and see today\'s opportunities.'}
+            Select a customer above, then click Refresh &amp; Scan to run the strategy engine.
           </p>
         </div>
       )}
