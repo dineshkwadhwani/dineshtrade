@@ -144,8 +144,8 @@ function SymbolTile({ tile, canBuy, onBuy, marketOpen }: {
         <div style={{ flex: 1, marginBottom: 8 }}>
           {tile.rules.map(rule => (
             <div key={rule.id} style={{
-              display: 'flex', alignItems: 'baseline', justifyContent: 'space-between',
-              gap: 8, padding: '3px 0',
+              display: 'flex', alignItems: 'center', justifyContent: 'space-between',
+              gap: 6, padding: '3px 0',
               borderBottom: '1px solid #F1F5FE',
             }}>
               <span style={{
@@ -154,14 +154,16 @@ function SymbolTile({ tile, canBuy, onBuy, marketOpen }: {
               }}>
                 {rule.label}
               </span>
-              <div style={{ display: 'flex', alignItems: 'center', gap: 4, flexShrink: 0 }}>
-                <span style={{ fontSize: 10, fontFamily: MONO, color: rule.passed ? C.green : rule.skipped ? C.muted : C.red }}>
+              <div style={{ display: 'flex', alignItems: 'center', gap: 4, flexShrink: 0, maxWidth: '45%' }}
+                title={rule.actual + (rule.threshold ? ` · threshold: ${rule.threshold}` : '')}>
+                <span style={{
+                  fontSize: 10, fontFamily: MONO,
+                  color: rule.passed ? C.green : rule.skipped ? C.muted : C.red,
+                  overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap',
+                }}>
                   {rule.actual}
                 </span>
-                <span style={{
-                  fontSize: 11, fontWeight: 700,
-                  color: rule.passed ? C.green : rule.skipped ? C.muted : C.red,
-                }}>
+                <span style={{ fontSize: 11, fontWeight: 700, color: rule.passed ? C.green : rule.skipped ? C.muted : C.red, flexShrink: 0 }}>
                   {rule.passed ? '✓' : rule.skipped ? '○' : '✗'}
                 </span>
               </div>
