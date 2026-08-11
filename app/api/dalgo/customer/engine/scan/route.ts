@@ -7,20 +7,8 @@
 // context so getState().kiteTokens returns this customer's token, and
 // rehydrateForCustomer() loads their strategy config from customer_strategies.
 
-import { NextResponse } from 'next/server'
-import { getProfile, AuthError } from '@/lib/dalgoAuth'
-import { loadBrokerAccountCreds } from '@/lib/kite'
-import { withCustomer } from '@/lib/supabase'
-import { saveState } from '@/lib/state'
-import { rehydrateForCustomer } from '@/lib/strategyConfigStore'
-import { generateRecommendations } from '@/lib/strategyEngine'
-import { getCapital } from '@/lib/strategyConfig'
-import { istDateString } from '@/lib/journal'
 import { NextRequest, NextResponse } from 'next/server'
-
-export const dynamic = 'force-dynamic'
-
-export async function POST(req: NextRequest) {
+import { getProfile, AuthError } from '@/lib/dalgoAuth'
   try {
     const profile = await getProfile()
     if (!profile) return NextResponse.json({ error: 'Unauthorized' }, { status: 401 })
