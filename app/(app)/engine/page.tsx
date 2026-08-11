@@ -110,13 +110,14 @@ function SymbolTile({ tile, canBuy, onBuy, marketOpen }: {
     <div style={{
       background: C.card, border: `1px solid ${pct >= 75 ? '#86EFAC' : C.border}`,
       borderRadius: 10, overflow: 'hidden', boxShadow: '0 2px 6px rgba(30,58,138,0.04)',
+      display: 'flex', flexDirection: 'column',
     }}>
-      {/* Score bar at top */}
+      {/* Score bar */}
       <div style={{ height: 3, background: `linear-gradient(90deg, ${barColor} ${pct}%, #E2E8F0 ${pct}%)` }} />
 
-      <div style={{ padding: '10px 12px' }}>
-        {/* Symbol + price row */}
-        <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'flex-start', marginBottom: 8 }}>
+      <div style={{ padding: '10px 12px', flex: 1, display: 'flex', flexDirection: 'column' }}>
+        {/* Symbol + price */}
+        <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'flex-start', marginBottom: 6 }}>
           <div>
             <p style={{ margin: 0, fontFamily: MONO, fontWeight: 700, fontSize: 14, color: C.heading }}>{tile.symbol}</p>
             <p style={{ margin: 0, fontSize: 10, color: C.muted, fontFamily: INTER }}>{tile.name}</p>
@@ -129,32 +130,46 @@ function SymbolTile({ tile, canBuy, onBuy, marketOpen }: {
           </div>
         </div>
 
-        {/* Score indicator */}
+        {/* Score bar + count */}
         <div style={{ display: 'flex', alignItems: 'center', gap: 6, marginBottom: 8 }}>
-          <span style={{ fontSize: 10, fontWeight: 700, fontFamily: INTER, color: barColor }}>
-            {tile.score}/{tile.total} rules
-          </span>
-          <div style={{ flex: 1, height: 4, borderRadius: 2, background: '#E2E8F0', overflow: 'hidden' }}>
-            <div style={{ width: `${pct}%`, height: '100%', background: barColor, borderRadius: 2, transition: 'width 0.3s' }} />
+          <div style={{ flex: 1, height: 3, borderRadius: 2, background: '#E2E8F0', overflow: 'hidden' }}>
+            <div style={{ width: `${pct}%`, height: '100%', background: barColor, borderRadius: 2 }} />
           </div>
+          <span style={{ fontSize: 10, fontWeight: 700, fontFamily: INTER, color: barColor, flexShrink: 0 }}>
+            {tile.score}/{tile.total}
+          </span>
         </div>
 
-        {/* Rule pills */}
-        <div style={{ display: 'flex', flexWrap: 'wrap', gap: 3, marginBottom: 8 }}>
+        {/* Rules — one row per rule showing label + actual value + pass/fail */}
+        <div style={{ flex: 1, marginBottom: 8 }}>
           {tile.rules.map(rule => (
-            <span key={rule.id} title={`${rule.label}: ${rule.actual}${rule.threshold ? ` (threshold: ${rule.threshold})` : ''}`}
-              style={{
-                display: 'inline-block', padding: '2px 6px', borderRadius: 4, fontSize: 9, fontWeight: 600,
-                fontFamily: INTER, cursor: 'default',
-                background: rule.passed ? C.greenBg : rule.skipped ? C.surface : C.redBg,
-                color: rule.passed ? C.green : rule.skipped ? C.muted : C.red,
+            <div key={rule.id} style={{
+              display: 'flex', alignItems: 'baseline', justifyContent: 'space-between',
+              gap: 8, padding: '3px 0',
+              borderBottom: '1px solid #F1F5FE',
+            }}>
+              <span style={{
+                fontSize: 11, fontFamily: INTER, color: rule.passed ? C.body : rule.skipped ? C.muted : C.red,
+                flex: 1, minWidth: 0,
               }}>
-              {rule.passed ? '✓' : rule.skipped ? '○' : '✗'} {rule.id.replace(/_/g, ' ')}
-            </span>
+                {rule.label}
+              </span>
+              <div style={{ display: 'flex', alignItems: 'center', gap: 4, flexShrink: 0 }}>
+                <span style={{ fontSize: 10, fontFamily: MONO, color: rule.passed ? C.green : rule.skipped ? C.muted : C.red }}>
+                  {rule.actual}
+                </span>
+                <span style={{
+                  fontSize: 11, fontWeight: 700,
+                  color: rule.passed ? C.green : rule.skipped ? C.muted : C.red,
+                }}>
+                  {rule.passed ? '✓' : rule.skipped ? '○' : '✗'}
+                </span>
+              </div>
+            </div>
           ))}
         </div>
 
-        {/* Holding row (if any) */}
+        {/* Holding row */}
         {tile.holding && tile.holding.qty > 0 && (
           <div style={{ padding: '4px 8px', borderRadius: 6, background: tile.holding.pnl >= 0 ? C.greenBg : C.redBg, marginBottom: 8 }}>
             <p style={{ margin: 0, fontSize: 10, fontFamily: MONO, color: tile.holding.pnl >= 0 ? C.green : C.red }}>
@@ -163,21 +178,21 @@ function SymbolTile({ tile, canBuy, onBuy, marketOpen }: {
           </div>
         )}
 
-        {/* BUY button */}
+        {/* BUY button — pinned to bottom */}
         {!result ? (
           <button onClick={handleBuy} disabled={busy || !canBuy || !marketOpen} style={{
-            width: '100%', padding: '7px 0', borderRadius: 6,
+            width: '100%', padding: '8px 0', borderRadius: 6, marginTop: 'auto',
             border: canBuy && marketOpen ? `1px solid ${C.green}` : `1px solid ${C.border}`,
             background: canBuy && marketOpen ? C.greenBg : C.surface,
             color: canBuy && marketOpen ? C.green : C.muted,
-            fontFamily: INTER, fontWeight: 700, fontSize: 11,
+            fontFamily: INTER, fontWeight: 700, fontSize: 12,
             cursor: canBuy && marketOpen && !busy ? 'pointer' : 'not-allowed',
             opacity: busy ? 0.7 : 1,
           }}>
             {busy ? '…' : !marketOpen ? '🔒 Market closed' : '▶ BUY'}
           </button>
         ) : (
-          <div style={{ padding: '6px 8px', borderRadius: 6, background: result.ok ? C.greenBg : C.redBg, border: `1px solid ${result.ok ? C.green : C.red}`, color: result.ok ? C.green : C.red, fontFamily: INTER, fontSize: 11, fontWeight: 600 }}>
+          <div style={{ padding: '7px 8px', borderRadius: 6, background: result.ok ? C.greenBg : C.redBg, border: `1px solid ${result.ok ? C.green : C.red}`, color: result.ok ? C.green : C.red, fontFamily: INTER, fontSize: 12, fontWeight: 600, textAlign: 'center' }}>
             {result.ok ? '✓' : '✗'} {result.msg}
           </div>
         )}
@@ -415,7 +430,7 @@ export default function EnginePage() {
                   sorted by rule score — hover rule pills for details
                 </span>
               </div>
-              <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fill, minmax(240px, 1fr))', gap: 10 }}>
+              <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fill, minmax(280px, 1fr))', gap: 12, alignItems: 'start' }}>
                 {currentTiles.map(tile => (
                   <SymbolTile key={tile.symbol} tile={tile} canBuy={canBuy} marketOpen={marketOpen} onBuy={executeOrder} />
                 ))}
