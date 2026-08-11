@@ -432,7 +432,7 @@ export default function EnginePage() {
                   sorted by rule score — hover rule pills for details
                 </span>
               </div>
-              <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fill, minmax(280px, 1fr))', gap: 12, alignItems: 'start' }}>
+              <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fill, minmax(280px, 1fr))', gap: 12 }}>
                 {currentTiles.map(tile => (
                   <SymbolTile key={tile.symbol} tile={tile} canBuy={canBuy} marketOpen={marketOpen} onBuy={executeOrder} />
                 ))}
