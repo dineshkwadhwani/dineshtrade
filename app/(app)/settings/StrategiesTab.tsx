@@ -1,5 +1,6 @@
 'use client'
 import { useState } from 'react'
+import { createPortal } from 'react-dom'
 import { useRouter } from 'next/navigation'
 
 const C = { bg: '#F8FAFF', card: '#FFFFFF', border: '#BFDBFE', heading: '#1E3A8A', body: '#475569', muted: '#94A3B8', primary: '#3B82F6' }
@@ -112,12 +113,18 @@ function AccordionHeader({ title, subtitle, open, onClick, badge }: {
   )
 }
 
+function Portal({ children }: { children: React.ReactNode }) {
+  if (typeof document === 'undefined') return null
+  return createPortal(children, document.body)
+}
+
 function DiffModal({ title, diffs, labels, onCancel, onConfirm }: {
   title: string; diffs: { key: string; from: unknown; to: unknown }[]
   labels: Record<string, { label: string }>; onCancel: () => void; onConfirm: () => void
 }) {
   return (
-    <div style={{ position: 'fixed', inset: 0, background: 'rgba(0,0,0,0.45)', zIndex: 100, display: 'flex', alignItems: 'center', justifyContent: 'center', padding: 16 }}>
+    <Portal>
+    <div style={{ position: 'fixed', inset: 0, background: 'rgba(0,0,0,0.45)', zIndex: 1000, display: 'flex', alignItems: 'center', justifyContent: 'center', padding: 16 }}>
       <div style={{ background: C.card, borderRadius: 14, padding: 28, maxWidth: 480, width: '100%', boxShadow: '0 8px 32px rgba(0,0,0,0.18)' }}>
         <h3 style={{ fontFamily: SORA, fontWeight: 700, fontSize: 17, color: C.heading, margin: '0 0 14px' }}>Confirm changes — {title}</h3>
         <div style={{ display: 'flex', flexDirection: 'column', gap: 6, marginBottom: 20 }}>
@@ -136,6 +143,7 @@ function DiffModal({ title, diffs, labels, onCancel, onConfirm }: {
         </div>
       </div>
     </div>
+    </Portal>
   )
 }
 
@@ -441,7 +449,8 @@ function StrategyAccordion({ strategy, locked, open, onToggle, onSaved, targetCu
 
       {/* Activate disclaimer modal */}
       {showDisclaimer && (
-        <div style={{ position: 'fixed', inset: 0, background: 'rgba(0,0,0,0.45)', zIndex: 100, display: 'flex', alignItems: 'center', justifyContent: 'center', padding: 16 }}>
+        <Portal>
+        <div style={{ position: 'fixed', inset: 0, background: 'rgba(0,0,0,0.45)', zIndex: 1000, display: 'flex', alignItems: 'center', justifyContent: 'center', padding: 16 }}>
           <div style={{ background: C.card, borderRadius: 14, padding: 28, maxWidth: 520, width: '100%', boxShadow: '0 8px 32px rgba(0,0,0,0.18)' }}>
             <h3 style={{ fontFamily: SORA, fontWeight: 700, fontSize: 17, color: C.heading, margin: '0 0 14px' }}>Activate: {strategy.name}</h3>
             <div style={{ background: '#FEF3C7', border: '1px solid #FDE68A', borderRadius: 8, padding: '14px 16px', marginBottom: 20 }}>
@@ -455,6 +464,7 @@ function StrategyAccordion({ strategy, locked, open, onToggle, onSaved, targetCu
             </div>
           </div>
         </div>
+        </Portal>
       )}
     </div>
   )

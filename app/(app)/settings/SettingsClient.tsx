@@ -21,6 +21,7 @@ type TabId = typeof TABS[number]['id']
 
 interface Props {
   savedApiKey: string
+  savedApiSecret: string
   isConnected: boolean
   tokenCapturedAt: string | null
   cronMode: string
@@ -32,7 +33,7 @@ interface Props {
   targetCustomerId?: string
 }
 
-export default function SettingsClient({ savedApiKey, isConnected, tokenCapturedAt, cronMode, kiteLoginUrl, strategies, capitalConfig, fixedRules, watchlists, targetCustomerId }: Props) {
+export default function SettingsClient({ savedApiKey, savedApiSecret, isConnected, tokenCapturedAt, cronMode, kiteLoginUrl, strategies, capitalConfig, fixedRules, watchlists, targetCustomerId }: Props) {
   const router = useRouter()
   const [tab, setTab] = useState<TabId>('connection')
   const [apiKey, setApiKey] = useState('')
@@ -47,6 +48,10 @@ export default function SettingsClient({ savedApiKey, isConnected, tokenCaptured
   )
   const [disclaimer, setDisclaimer] = useState<{ strategyId: string; strategyName: string } | null>(null)
   const [strategyMsg, setStrategyMsg] = useState('')
+  const [resetConfirm, setResetConfirm] = useState('')
+  const [resetting, setResetting] = useState(false)
+  const [resetResult, setResetResult] = useState<{ seeded: { symbol: string; qty: number; avgPrice: number }[]; positionsRemoved: number } | null>(null)
+  const [resetError, setResetError] = useState('')
 
   async function handleSaveCreds(e: React.FormEvent) {
     e.preventDefault()
@@ -94,6 +99,21 @@ export default function SettingsClient({ savedApiKey, isConnected, tokenCaptured
     await applyStrategyToggle(strategyId, true, true)
   }
 
+  async function handleReset() {
+    setResetError(''); setResetResult(null); setResetting(true)
+    try {
+      const res = await fetch('/api/dalgo/customer/reset', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ confirm: 'RESET', ...(targetCustomerId ? { targetCustomerId } : {}) }),
+      })
+      const data = await res.json()
+      if (!res.ok) { setResetError(data.error || 'Reset failed.') }
+      else { setResetResult(data); setResetConfirm(''); router.refresh() }
+    } catch { setResetError('Connection error.') }
+    finally { setResetting(false) }
+  }
+
   return (
     <div style={{ fontFamily: INTER, maxWidth: 680 }}>
       <h1 style={{ fontFamily: SORA, fontSize: 22, fontWeight: 700, color: C.heading, margin: '0 0 24px' }}>Settings</h1>
@@ -138,13 +158,14 @@ export default function SettingsClient({ savedApiKey, isConnected, tokenCaptured
             <form onSubmit={handleSaveCreds} style={{ display: 'flex', flexDirection: 'column', gap: 12 }}>
               <h3 style={{ fontFamily: SORA, fontSize: 14, fontWeight: 600, color: C.heading, margin: 0 }}>Update API Credentials</h3>
               {savedApiKey && <p style={{ fontSize: 12, color: C.muted, margin: 0 }}>Current API Key: <code>{savedApiKey}</code></p>}
+              {savedApiSecret && <p style={{ fontSize: 12, color: C.muted, margin: '0' }}>Current API Secret: <code>{savedApiSecret}</code></p>}
               <div>
                 <label style={{ fontSize: 12, fontWeight: 600, color: C.heading, display: 'block', marginBottom: 4 }}>API Key</label>
-                <input type="text" value={apiKey} onChange={e => setApiKey(e.target.value)} placeholder="Kite Connect API key" autoComplete="off" style={inputStyle} />
+                <input type="text" value={apiKey} onChange={e => setApiKey(e.target.value)} placeholder="Kite Connect API key" autoComplete="new-password" style={inputStyle} />
               </div>
               <div>
                 <label style={{ fontSize: 12, fontWeight: 600, color: C.heading, display: 'block', marginBottom: 4 }}>API Secret</label>
-                <input type="password" value={apiSecret} onChange={e => setApiSecret(e.target.value)} placeholder="Kite Connect API secret" autoComplete="off" style={inputStyle} />
+                <input type="password" value={apiSecret} onChange={e => setApiSecret(e.target.value)} placeholder="Kite Connect API secret" autoComplete="new-password" style={inputStyle} />
               </div>
               {credsMsg && <p style={{ fontSize: 13, color: credsMsg.includes('saved') ? '#16A34A' : '#DC2626', margin: 0 }}>{credsMsg}</p>}
               <button type="submit" disabled={savingCreds} style={{ ...btnStyle, background: savingCreds ? '#93C5FD' : C.primary, color: '#fff', alignSelf: 'flex-start' }}>
@@ -165,6 +186,57 @@ export default function SettingsClient({ savedApiKey, isConnected, tokenCaptured
               ))}
             </div>
             {modeMsg && <p style={{ fontSize: 13, color: '#16A34A', margin: '8px 0 0' }}>{modeMsg}</p>}
+          </div>
+
+          <div style={{ background: C.card, border: '1px solid #FECACA', borderRadius: 12, padding: 24 }}>
+            <h2 style={{ fontFamily: SORA, fontSize: 16, fontWeight: 600, color: '#DC2626', margin: '0 0 8px' }}>Reset Positions</h2>
+            <div style={{ background: '#FEF2F2', border: '1px solid #FECACA', borderRadius: 8, padding: '12px 16px', marginBottom: 16 }}>
+              <p style={{ fontFamily: INTER, fontSize: 13, color: '#991B1B', margin: 0, lineHeight: 1.6 }}>
+                <strong>What this does:</strong> Wipes all tracked positions and journal records for this account, then
+                re-imports every open Zerodha holding/position as an <strong>Accumulator</strong> BUY entry.
+                Use this to sync the app with your actual Zerodha portfolio after manual trades or a fresh start.
+                <br /><strong>This cannot be undone.</strong> Must be in Manual mode.
+              </p>
+            </div>
+            {mode === 'auto' && (
+              <p style={{ fontFamily: INTER, fontSize: 13, color: '#D97706', marginBottom: 12 }}>
+                ⚠ Switch to <strong>Manual</strong> mode before resetting.
+              </p>
+            )}
+            {resetResult ? (
+              <div style={{ background: '#F0FDF4', border: '1px solid #BBF7D0', borderRadius: 8, padding: '12px 16px', marginBottom: 12 }}>
+                <p style={{ fontFamily: INTER, fontSize: 13, color: '#065F46', fontWeight: 600, margin: '0 0 6px' }}>
+                  ✓ Reset complete — {resetResult.seeded.length} position{resetResult.seeded.length !== 1 ? 's' : ''} imported as Accumulator
+                </p>
+                {resetResult.seeded.length > 0 && (
+                  <ul style={{ fontFamily: INTER, fontSize: 12, color: '#065F46', margin: 0, paddingLeft: 18, lineHeight: 1.8 }}>
+                    {resetResult.seeded.map(s => (
+                      <li key={s.symbol}>{s.symbol} — {s.qty} qty @ ₹{s.avgPrice.toFixed(2)}</li>
+                    ))}
+                  </ul>
+                )}
+                <button onClick={() => setResetResult(null)} style={{ ...btnStyle, background: 'none', border: 'none', color: '#065F46', padding: '4px 0', fontSize: 12, marginTop: 6 }}>Dismiss</button>
+              </div>
+            ) : (
+              <div style={{ display: 'flex', gap: 10, alignItems: 'center', flexWrap: 'wrap' }}>
+                <input
+                  type="text"
+                  value={resetConfirm}
+                  onChange={e => { setResetConfirm(e.target.value); setResetError('') }}
+                  placeholder='Type "RESET" to confirm'
+                  disabled={mode === 'auto' || resetting}
+                  style={{ ...inputStyle, width: 200, flex: 'none', fontSize: 13 }}
+                />
+                <button
+                  onClick={handleReset}
+                  disabled={resetConfirm !== 'RESET' || mode === 'auto' || resetting}
+                  style={{ ...btnStyle, background: (resetConfirm === 'RESET' && mode !== 'auto' && !resetting) ? '#DC2626' : '#D1D5DB', color: '#fff', fontSize: 13 }}
+                >
+                  {resetting ? 'Resetting…' : '↺ Reset Positions'}
+                </button>
+              </div>
+            )}
+            {resetError && <p style={{ fontFamily: INTER, fontSize: 13, color: '#DC2626', margin: '8px 0 0' }}>{resetError}</p>}
           </div>
         </div>
       )}

@@ -72,6 +72,7 @@ export default function SetupClient({ profile, initialHasCreds, initialIsConnect
   const [stage, setStage] = useState<Stage>(
     initialIsConnected ? 'done' : initialHasCreds ? 'connect' : 'credentials'
   )
+  const [reconnecting, setReconnecting] = useState(false)
   const [broker, setBroker] = useState('zerodha')
   const [apiKey, setApiKey] = useState('')
   const [apiSecret, setApiSecret] = useState('')
@@ -118,7 +119,7 @@ export default function SetupClient({ profile, initialHasCreds, initialIsConnect
             <span style={{ fontFamily: FONT_SORA, fontWeight: 800, fontSize: 22, color: '#1E3A8A' }}>lgo</span>
           </div>
 
-          {isActive ? (
+          {isActive && !reconnecting ? (
             <div style={{ textAlign: 'center' }}>
               <div style={{ fontSize: 56, marginBottom: 16 }}>🚀</div>
               <h1 style={{ fontFamily: FONT_SORA, fontWeight: 700, fontSize: 22, color: '#1E3A8A', margin: '0 0 12px' }}>
@@ -128,7 +129,31 @@ export default function SetupClient({ profile, initialHasCreds, initialIsConnect
                 Your account is active and trading is enabled.
                 Connect to your trading dashboard to start.
               </p>
+              {error && (
+                <div style={{ background: '#FEF2F2', border: '1px solid #FECACA', borderRadius: 8, padding: '10px 14px', marginBottom: 16, textAlign: 'left' }}>
+                  <p style={{ fontFamily: FONT_INTER, fontSize: 13, color: '#DC2626', margin: 0 }}>⚠ {error}</p>
+                </div>
+              )}
               <div style={{ display: 'flex', flexDirection: 'column', gap: 12 }}>
+                {initialHasCreds && (
+                  <a href="/api/dalgo/setup/kite-login" style={{
+                    display: 'block', padding: '13px 0', background: '#387ED1', color: '#fff',
+                    fontFamily: FONT_INTER, fontWeight: 600, fontSize: 15, textAlign: 'center',
+                    borderRadius: 8, textDecoration: 'none',
+                  }}>
+                    Connect to Kite →
+                  </a>
+                )}
+                <button onClick={() => { setError(''); setStage('credentials'); setReconnecting(true) }} style={{
+                  display: 'block', width: '100%', padding: '12px 0',
+                  background: initialHasCreds ? 'none' : '#1E3A8A',
+                  color: initialHasCreds ? '#475569' : '#fff',
+                  fontFamily: FONT_INTER, fontWeight: 600, fontSize: 14,
+                  border: initialHasCreds ? '1px solid #CBD5E1' : 'none',
+                  borderRadius: 8, cursor: 'pointer',
+                }}>
+                  🔄 {initialHasCreds ? 'Update Credentials & Reconnect' : 'Set Up Broker Credentials'}
+                </button>
                 <a href="/api/dalgo/auth/logout" style={{
                   display: 'block', padding: '12px 0', background: 'none',
                   border: '1px solid #CBD5E1', borderRadius: 8,

@@ -2,6 +2,7 @@ export const dynamic = 'force-dynamic'
 
 import { getSupabaseAdmin } from '@/lib/supabase'
 import { getProfile } from '@/lib/dalgoAuth'
+import StrategyTagButton from '@/components/app/StrategyTagButton'
 
 const C = { bg: '#F8FAFF', card: '#FFFFFF', border: '#BFDBFE', heading: '#1E3A8A', body: '#475569', muted: '#94A3B8' }
 const SORA = "'Sora', sans-serif"
@@ -23,11 +24,14 @@ export default async function PositionsPage() {
   const customerId = sessionProfile.id
   const admin = getSupabaseAdmin()
 
-  const { data: positions } = await admin
-    .from('customer_positions')
-    .select('id, symbol, strategy_tag, total_qty, remaining_qty, first_buy_price, first_buy_at, status, account')
-    .eq('customer_id', customerId)
-    .eq('status', 'open')
+  const [{ data: positions }, { data: strategyRows }] = await Promise.all([
+    admin.from('customer_positions').select('id, symbol, strategy_tag, total_qty, remaining_qty, first_buy_price, first_buy_at, status, account').eq('customer_id', customerId).eq('status', 'open').order('first_buy_at', { ascending: false }),
+    admin.from('customer_strategies').select('strategy_key, name, color, active').eq('customer_id', customerId),
+  ])
+
+  const activeStrategies = (strategyRows ?? [])
+    .filter((s: any) => s.active)
+    .map((s: any) => ({ id: s.strategy_key as string, label: s.name as string, color: (s.color as string) || '#6B7280' }))
     .order('first_buy_at', { ascending: false })
 
   const rows = positions ?? []
@@ -60,9 +64,7 @@ export default async function PositionsPage() {
                     <tr key={p.id} style={{ borderTop: `1px solid ${C.border}`, background: i % 2 === 0 ? C.card : C.bg }}>
                       <td style={{ padding: '10px 14px', fontWeight: 600, color: C.heading }}>{p.symbol}</td>
                       <td style={{ padding: '10px 14px' }}>
-                        <span style={{ padding: '2px 8px', borderRadius: 999, fontSize: 11, fontWeight: 600, background: strategyColor + '20', color: strategyColor }}>
-                          {tag}
-                        </span>
+                        <StrategyTagButton symbol={p.symbol} currentTag={tag} strategies={activeStrategies} />
                       </td>
                       <td style={{ padding: '10px 14px', color: C.muted, fontSize: 12 }}>{p.account || '—'}</td>
                       <td style={{ padding: '10px 14px', color: C.body }}>{p.remaining_qty} <span style={{ color: C.muted }}>/ {p.total_qty}</span></td>

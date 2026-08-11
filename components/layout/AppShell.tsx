@@ -51,7 +51,8 @@ const NAV_GROUPS: NavGroup[] = [
   },
 ]
 
-export default function AppShell({ children, fullName }: { children: React.ReactNode; fullName?: string }) {
+export default function AppShell({ children, fullName, tokenExpired }: { children: React.ReactNode; fullName?: string; tokenExpired?: boolean }) {
+  const [bannerDismissed, setBannerDismissed] = useState(false)
   const pathname = usePathname()
   const searchParams = useSearchParams()
   const router = useRouter()
@@ -206,6 +207,34 @@ export default function AppShell({ children, fullName }: { children: React.React
           </div>
         </div>
       </nav>
+
+      {tokenExpired && !bannerDismissed && (
+        <div
+          role="alert"
+          style={{
+            background: 'rgba(245,158,11,0.12)',
+            borderBottom: '1px solid rgba(245,158,11,0.35)',
+            color: 'rgba(245,158,11,1)',
+          }}
+          className="w-full px-4 py-2.5 flex items-center justify-center gap-3 text-[12px]"
+        >
+          <span style={{ fontSize: 15 }}>⚠</span>
+          <span>
+            Your Zerodha token has expired — automated trading is paused.{' '}
+            <Link href="/settings" className="underline font-semibold" style={{ color: 'rgba(245,158,11,1)' }}>
+              Go to Settings → Connection
+            </Link>{' '}
+            to reconnect.
+          </span>
+          <button
+            onClick={() => setBannerDismissed(true)}
+            aria-label="Dismiss"
+            style={{ marginLeft: 8, opacity: 0.6, lineHeight: 1, fontSize: 16, background: 'none', border: 'none', cursor: 'pointer', color: 'inherit' }}
+          >
+            ✕
+          </button>
+        </div>
+      )}
 
       <main className="flex-1 max-w-7xl w-full mx-auto px-4 py-6 animate-fade-up">
         {children}

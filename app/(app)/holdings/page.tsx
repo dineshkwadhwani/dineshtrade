@@ -3,6 +3,7 @@ export const dynamic = 'force-dynamic'
 import { getSupabaseAdmin } from '@/lib/supabase'
 import { getProfile } from '@/lib/dalgoAuth'
 import { decrypt } from '@/lib/encryption'
+import StrategyTagButton from '@/components/app/StrategyTagButton'
 
 const C = { bg: '#F8FAFF', card: '#FFFFFF', border: '#BFDBFE', heading: '#1E3A8A', body: '#475569', muted: '#94A3B8' }
 const SORA = "'Sora', sans-serif"
@@ -29,6 +30,10 @@ async function fetchHoldings(apiKey: string, accessToken: string): Promise<KiteH
   } catch { return [] }
 }
 
+function daysHeld(firstBuyAt: string): number {
+  return Math.floor((Date.now() - new Date(firstBuyAt).getTime()) / (1000 * 60 * 60 * 24))
+}
+
 function fmt(n: number, decimals = 2) {
   return n.toLocaleString('en-IN', { maximumFractionDigits: decimals, minimumFractionDigits: decimals })
 }
@@ -40,15 +45,22 @@ export default async function HoldingsPage() {
   const admin = getSupabaseAdmin()
   const env = process.env.ZERODHA_ENVIRONMENT === 'PROD' ? 'PROD' : 'TEST'
   const primaryAccount = process.env[`${env}_ZERODHA_ACCOUNT1`] || 'DINESH'
-  const apiKey = process.env[`${env}_ZERODHA_API_KEY_${primaryAccount}`] || ''
+  const envApiKey = process.env[`${env}_ZERODHA_API_KEY_${primaryAccount}`] || ''
 
-  const { data: brokerAccount } = await admin
-    .from('broker_accounts')
-    .select('access_token_enc')
-    .eq('customer_id', customerId)
-    .eq('broker_name', 'zerodha')
-    .eq('active', true)
-    .maybeSingle()
+  const [{ data: brokerAccount }, { data: trackedPositions }, { data: strategyRows }] = await Promise.all([
+    admin.from('broker_accounts').select('access_token_enc, api_key_enc').eq('customer_id', customerId).eq('broker_name', 'zerodha').eq('active', true).maybeSingle(),
+    admin.from('customer_positions').select('symbol, strategy_tag, first_buy_at, remaining_qty').eq('customer_id', customerId).eq('status', 'open'),
+    admin.from('customer_strategies').select('strategy_key, name, color, active').eq('customer_id', customerId),
+  ])
+
+  const activeStrategies = (strategyRows ?? [])
+    .filter((s: any) => s.active)
+    .map((s: any) => ({ id: s.strategy_key as string, label: s.name as string, color: (s.color as string) || '#6B7280' }))
+
+  // Build strategy lookup keyed by symbol
+  const strategyBySymbol = new Map<string, { tag: string; firstBuyAt: string }>(
+    (trackedPositions ?? []).map(p => [p.symbol.toUpperCase(), { tag: p.strategy_tag ?? 'accumulator', firstBuyAt: p.first_buy_at }])
+  )
 
   let holdings: KiteHolding[] = []
   let error = ''
@@ -57,6 +69,11 @@ export default async function HoldingsPage() {
   } else {
     try {
       const accessToken = decrypt(brokerAccount.access_token_enc)
+      // Use the customer's own stored API key (e.g. Personal App) if present,
+      // falling back to the env key (Connect App) for backward compatibility.
+      const apiKey = brokerAccount.api_key_enc
+        ? (() => { try { return decrypt(brokerAccount.api_key_enc!) } catch { return envApiKey } })()
+        : envApiKey
       holdings = await fetchHoldings(apiKey, accessToken)
     } catch {
       error = 'Failed to load holdings. Your Zerodha token may have expired.'
@@ -97,7 +114,7 @@ export default async function HoldingsPage() {
               <table style={{ width: '100%', borderCollapse: 'collapse', fontSize: 13 }}>
                 <thead>
                   <tr style={{ background: '#EFF6FF' }}>
-                    {['Symbol', 'Qty', 'T+1 Qty', 'Avg Price', 'LTP', 'P&L', 'P&L %'].map(h => (
+                    {['Symbol', 'Strategy', 'Qty', 'T+1', 'Avg Price', 'LTP', 'P&L', 'P&L %', 'Days'].map(h => (
                       <th key={h} style={{ padding: '10px 14px', textAlign: 'left', fontWeight: 600, color: C.heading, fontFamily: INTER, fontSize: 11, textTransform: 'uppercase', letterSpacing: '0.04em' }}>{h}</th>
                     ))}
                   </tr>
@@ -106,15 +123,25 @@ export default async function HoldingsPage() {
                   {holdings.map((h, i) => {
                     const pnlPct = h.average_price > 0 ? ((h.last_price - h.average_price) / h.average_price) * 100 : 0
                     const pnlColor = h.pnl >= 0 ? '#16A34A' : '#DC2626'
+                    const tracked = strategyBySymbol.get(h.tradingsymbol.toUpperCase())
+                    const tag = tracked?.tag ?? '—'
+                    const tagColor = tag === 'accumulator' ? '#7C3AED' : tag === 'catalyst' ? '#0EA5E9' : '#6B7280'
+                    const days = tracked?.firstBuyAt ? daysHeld(tracked.firstBuyAt) : null
                     return (
                       <tr key={h.tradingsymbol} style={{ borderTop: `1px solid ${C.border}`, background: i % 2 === 0 ? C.card : C.bg }}>
                         <td style={{ padding: '10px 14px', fontWeight: 600, color: C.heading }}>{h.tradingsymbol}</td>
+                        <td style={{ padding: '10px 14px' }}>
+                          {tag !== '—'
+                            ? <StrategyTagButton symbol={h.tradingsymbol} currentTag={tag} strategies={activeStrategies} />
+                            : <span style={{ color: '#94A3B8', fontSize: 12 }}>—</span>}
+                        </td>
                         <td style={{ padding: '10px 14px', color: C.body }}>{h.quantity}</td>
-                        <td style={{ padding: '10px 14px', color: C.muted }}>{h.t1_quantity}</td>
+                        <td style={{ padding: '10px 14px', color: C.muted }}>{h.t1_quantity || '—'}</td>
                         <td style={{ padding: '10px 14px', color: C.body }}>₹{fmt(h.average_price)}</td>
                         <td style={{ padding: '10px 14px', color: C.body }}>₹{fmt(h.last_price)}</td>
                         <td style={{ padding: '10px 14px', fontWeight: 600, color: pnlColor }}>₹{fmt(h.pnl)}</td>
                         <td style={{ padding: '10px 14px', fontWeight: 600, color: pnlColor }}>{pnlPct >= 0 ? '+' : ''}{fmt(pnlPct)}%</td>
+                        <td style={{ padding: '10px 14px', color: C.muted, fontSize: 12 }}>{days != null ? `${days}d` : '—'}</td>
                       </tr>
                     )
                   })}

@@ -15,7 +15,7 @@ export default async function SettingsPage() {
   const apiKey = process.env[`${env}_ZERODHA_API_KEY_${primaryAccount}`] || ''
 
   const [brokerRes, stateRes, strategiesRes, capitalRes, fixedRulesRes, watchlistRes] = await Promise.all([
-    admin.from('broker_accounts').select('api_key_enc, access_token_enc, token_captured_at').eq('customer_id', customerId).eq('broker_name', 'zerodha').maybeSingle(),
+    admin.from('broker_accounts').select('api_key_enc, api_secret_enc, access_token_enc, token_captured_at, token_expires_at').eq('customer_id', customerId).eq('broker_name', 'zerodha').maybeSingle(),
     admin.from('customer_state').select('cron_mode').eq('customer_id', customerId).maybeSingle(),
     admin.from('customer_strategies').select('id, name, type, active, scan_interval_min, color, watchlist_keys, strategy_key, params, exits, gift_nifty_gate').eq('customer_id', customerId).order('name'),
     admin.from('customer_capital_config').select('*').eq('customer_id', customerId).maybeSingle(),
@@ -25,14 +25,18 @@ export default async function SettingsPage() {
 
   const broker = brokerRes.data
   let savedApiKey = ''
+  let savedApiSecret = ''
   let isConnected = false
-  if (broker?.api_key_enc) {
+  function maskSecret(enc: string): string {
     try {
-      const full = decrypt(broker.api_key_enc)
-      savedApiKey = full.slice(0, 4) + '••••' + full.slice(-4)
-    } catch { /* ignore */ }
+      const full = decrypt(enc)
+      if (full.length <= 8) return '••••••••'
+      return full.slice(0, 4) + '•'.repeat(Math.max(4, full.length - 8)) + full.slice(-4)
+    } catch { return '' }
   }
-  if (broker?.access_token_enc) {
+  if (broker?.api_key_enc) savedApiKey = maskSecret(broker.api_key_enc)
+  if (broker?.api_secret_enc) savedApiSecret = maskSecret(broker.api_secret_enc)
+  if (broker?.access_token_enc && broker?.token_expires_at && new Date(broker.token_expires_at) > new Date()) {
     isConnected = true
   }
 
@@ -45,6 +49,7 @@ export default async function SettingsPage() {
   return (
     <SettingsClient
       savedApiKey={savedApiKey}
+      savedApiSecret={savedApiSecret}
       isConnected={isConnected}
       tokenCapturedAt={broker?.token_captured_at ?? null}
       cronMode={cronMode}

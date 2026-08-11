@@ -1,0 +1,52 @@
+// PATCH /api/dalgo/customer/positions/strategy
+// Changes the strategy tag on an open position.
+// Body: { symbol: string; strategyId: string; targetCustomerId?: string }
+
+import { NextRequest, NextResponse } from 'next/server'
+import { getProfile } from '@/lib/dalgoAuth'
+import { getSupabaseAdmin, withCustomer } from '@/lib/supabase'
+import { setStrategyId } from '@/lib/positions'
+import { rehydrateForCustomer } from '@/lib/strategyConfigStore'
+
+export const dynamic = 'force-dynamic'
+
+export async function PATCH(req: NextRequest) {
+  const profile = await getProfile()
+  if (!profile) return NextResponse.json({ error: 'No active session.' }, { status: 401 })
+
+  let body: Record<string, unknown>
+  try { body = await req.json() } catch { return NextResponse.json({ error: 'Invalid JSON.' }, { status: 400 }) }
+
+  const symbol = typeof body.symbol === 'string' ? body.symbol.trim().toUpperCase() : ''
+  const newStrategyId = typeof body.strategyId === 'string' ? body.strategyId.trim() : ''
+  if (!symbol) return NextResponse.json({ error: 'symbol is required.' }, { status: 400 })
+  if (!newStrategyId) return NextResponse.json({ error: 'strategyId is required.' }, { status: 400 })
+
+  const isPrivileged = profile.role === 'superadmin' || profile.role === 'account_manager'
+  const targetCustomerId = isPrivileged && typeof body.targetCustomerId === 'string'
+    ? body.targetCustomerId : profile.id
+
+  return withCustomer(targetCustomerId, async () => {
+    await rehydrateForCustomer()
+
+    // Validate against customer_strategies (any registered strategy key is valid, active or not)
+    const admin = getSupabaseAdmin()
+    const { data: rows } = await admin
+      .from('customer_strategies')
+      .select('strategy_key')
+      .eq('customer_id', targetCustomerId)
+    const validKeys = new Set((rows ?? []).map((r: any) => r.strategy_key as string))
+
+    if (!validKeys.has(newStrategyId)) {
+      return NextResponse.json({ error: `Unknown strategy: ${newStrategyId}` }, { status: 400 })
+    }
+
+    const env = process.env.ZERODHA_ENVIRONMENT === 'PROD' ? 'PROD' : 'TEST'
+    const account = (process.env[`${env}_ZERODHA_ACCOUNT1`] || 'DINESH').toUpperCase()
+
+    const changed = await setStrategyId(account, symbol, newStrategyId)
+    if (!changed) return NextResponse.json({ error: `Position not found or already tagged as "${newStrategyId}".` }, { status: 404 })
+
+    return NextResponse.json({ ok: true, symbol, strategyId: newStrategyId })
+  })
+}
