@@ -4,6 +4,7 @@ import { getSupabaseAdmin } from '@/lib/supabase'
 import { getProfile } from '@/lib/dalgoAuth'
 import { loadBrokerAccountCreds, getHoldings } from '@/lib/kite'
 import StrategyTagButton from '@/components/app/StrategyTagButton'
+import OrderButton from '@/components/app/OrderButton'
 
 const C = { bg: '#F8FAFF', card: '#FFFFFF', border: '#BFDBFE', heading: '#1E3A8A', body: '#475569', muted: '#94A3B8' }
 const SORA = "'Sora', sans-serif"
@@ -57,7 +58,7 @@ export default async function PositionsPage() {
             <table style={{ width: '100%', borderCollapse: 'collapse', fontSize: 13 }}>
               <thead>
                 <tr style={{ background: '#EFF6FF' }}>
-                  {['Symbol', 'Strategy', 'Account', 'Qty (Rem)', 'Avg Entry', 'LTP', 'Unreal. P&L', 'Days Held', 'Entry Date'].map(h => (
+                  {['Symbol', 'Strategy', 'Account', 'Qty (Rem)', 'Avg Entry', 'LTP', 'Unreal. P&L', 'Days Held', 'Entry Date', ''].map(h => (
                     <th key={h} style={{ padding: '10px 14px', textAlign: h === 'LTP' || h === 'Unreal. P&L' ? 'right' : 'left', fontWeight: 600, color: C.heading, fontSize: 11, textTransform: 'uppercase', letterSpacing: '0.04em' }}>{h}</th>
                   ))}
                 </tr>
@@ -83,6 +84,9 @@ export default async function PositionsPage() {
                       <td style={{ padding: '10px 14px', color: C.body }}>{daysHeld(p.first_buy_at)}d</td>
                       <td style={{ padding: '10px 14px', color: C.muted, fontSize: 12 }}>
                         {new Date(p.first_buy_at).toLocaleDateString('en-IN', { day: 'numeric', month: 'short', year: '2-digit' })}
+                      </td>
+                      <td style={{ padding: '10px 14px' }}>
+                        <OrderButton symbol={p.symbol} side="SELL" quantity={p.remaining_qty} price={ltp ?? p.first_buy_price} label="Square Off" size="sm" disabled={ltp == null} />
                       </td>
                     </tr>
                   )

@@ -23,6 +23,7 @@ export async function POST(req: NextRequest) {
 
     const body = await req.json().catch(() => ({}))
     const { symbol, quantity, price, strategyId, target1, target2, reason, source, tag } = body
+    const side: 'BUY' | 'SELL' = body.side === 'SELL' ? 'SELL' : 'BUY'
 
     // SA/AM can place orders on behalf of a customer
     const isPrivileged = profile.role === 'superadmin' || profile.role === 'account_manager'
@@ -61,7 +62,7 @@ export async function POST(req: NextRequest) {
       preflightResult = await runPreflight({
         account: primaryAccountName,
         symbol: symbolUpper,
-        side: 'BUY',
+        side,
         quantity: qty,
         pricePerShare,
         strategyId: strategyId ?? undefined,
@@ -75,7 +76,7 @@ export async function POST(req: NextRequest) {
         account: primaryAccountName,
         accountDisplayName: profile.full_name,
         symbol: symbolUpper,
-        side: 'BUY',
+        side,
         quantity: qty,
         price: pricePerShare,
         failedAt: 'preflight',
@@ -89,7 +90,7 @@ export async function POST(req: NextRequest) {
     // Place order via Kite
     const orderResult = await placeKiteOrder(creds, {
       symbol: symbolUpper,
-      side: 'BUY',
+      side,
       quantity: pre.adjustedQty ?? qty,
       tag: tag ?? (strategyId ? `dt-${strategyId}` : 'dt-manual'),
       product: 'CNC',
@@ -103,7 +104,7 @@ export async function POST(req: NextRequest) {
 
     const orderId = orderResult.data?.data?.order_id
     // Mark idempotency in customer's state so auto-mode won't double-buy today
-    if (orderId) {
+    if (orderId && side === 'BUY') {
       await withCustomer(targetCustomerId, async () => {
         await saveState({ kiteTokens: { [primaryAccountName]: creds.accessToken } })
         await markPlaced(primaryAccountName, symbolUpper, 'BUY', { price: pricePerShare, manual: true })
@@ -116,7 +117,7 @@ export async function POST(req: NextRequest) {
       accountDisplayName: profile.full_name,
       symbol: symbolUpper,
       symbolName: symbolUpper,
-      side: 'BUY',
+      side,
       quantity: pre.adjustedQty ?? qty,
       price: pricePerShare,
       orderId: orderId ?? '',

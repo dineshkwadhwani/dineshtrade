@@ -4,6 +4,7 @@ import { getSupabaseAdmin } from '@/lib/supabase'
 import { getProfile } from '@/lib/dalgoAuth'
 import { decrypt } from '@/lib/encryption'
 import StrategyTagButton from '@/components/app/StrategyTagButton'
+import OrderButton from '@/components/app/OrderButton'
 
 const C = { bg: '#F8FAFF', card: '#FFFFFF', border: '#BFDBFE', heading: '#1E3A8A', body: '#475569', muted: '#94A3B8' }
 const SORA = "'Sora', sans-serif"
@@ -114,7 +115,7 @@ export default async function HoldingsPage() {
               <table style={{ width: '100%', borderCollapse: 'collapse', fontSize: 13 }}>
                 <thead>
                   <tr style={{ background: '#EFF6FF' }}>
-                    {['Symbol', 'Strategy', 'Qty', 'T+1', 'Avg Price', 'LTP', 'P&L', 'P&L %', 'Days'].map(h => (
+                    {['Symbol', 'Strategy', 'Qty', 'T+1', 'Avg Price', 'LTP', 'P&L', 'P&L %', 'Days', ''].map(h => (
                       <th key={h} style={{ padding: '10px 14px', textAlign: 'left', fontWeight: 600, color: C.heading, fontFamily: INTER, fontSize: 11, textTransform: 'uppercase', letterSpacing: '0.04em' }}>{h}</th>
                     ))}
                   </tr>
@@ -142,6 +143,9 @@ export default async function HoldingsPage() {
                         <td style={{ padding: '10px 14px', fontWeight: 600, color: pnlColor }}>₹{fmt(h.pnl)}</td>
                         <td style={{ padding: '10px 14px', fontWeight: 600, color: pnlColor }}>{pnlPct >= 0 ? '+' : ''}{fmt(pnlPct)}%</td>
                         <td style={{ padding: '10px 14px', color: C.muted, fontSize: 12 }}>{days != null ? `${days}d` : '—'}</td>
+                        <td style={{ padding: '10px 14px' }}>
+                          <OrderButton symbol={h.tradingsymbol} side="SELL" quantity={h.quantity} price={h.last_price} size="sm" />
+                        </td>
                       </tr>
                     )
                   })}
