@@ -1,13 +1,13 @@
 // GET /api/dalgo/customer/daily-briefing
-// Returns today's market briefing (global indices, GIFT Nifty, India outlook,
-// broker tips). Behaviour:
-//   1. DB hit first — return cached AI row for today if it exists.
-//   2. Before 08:30 IST (and no force): call AI anyway; if AI succeeds cache + return,
-//      if AI fails return mock data (always visible, never cached).
-//   3. force=true: bypass DB + in-memory cache, re-fetch from AI, overwrite DB on success.
+// Fetches the daily market briefing EXACTLY ONCE per calendar day (IST).
+// On the first call of the day the AI is invoked; the result (real or mock
+// fallback) is stored in platform_daily_briefing and served from there for
+// every subsequent call — no AI spend for the rest of the day regardless of
+// how many times the page loads or the server restarts.
 //
-// AI results are stored in platform_daily_briefing so subsequent loads are instant.
-// Mock/fallback results are NEVER stored — next load retries AI.
+// force=true (SA/AM Refresh button): clears both the DB row and the in-memory
+// cache, then re-invokes AI. Use this to pull fresh real data mid-day.
+//
 // Requires dalgo_access_token.
 
 import { NextResponse } from 'next/server'
@@ -29,41 +29,51 @@ export async function GET(req: Request) {
 
   const admin = getSupabaseAdmin()
   const today = istDateKey()
-  const url = new URL(req.url)
-  const force = url.searchParams.get('force') === 'true'
+  const force = new URL(req.url).searchParams.get('force') === 'true'
+  const privileged = new URL(req.url).searchParams.get('privileged') === 'true'
 
-  // Return cached AI row immediately (skip on force-refresh)
+  // Serve from DB — covers every load after the first (zero AI spend)
   if (!force) {
     const { data: existing } = await admin
       .from('platform_daily_briefing')
-      .select('data, source')
+      .select('data, source, error')
       .eq('date_ist', today)
       .maybeSingle()
 
     if (existing) {
-      return NextResponse.json({ data: existing.data, source: existing.source, date: today })
+      const response: any = { data: existing.data, source: existing.source, date: today }
+      if (privileged && existing.error) response.error = existing.error
+      return NextResponse.json(response)
     }
   }
 
-  // Fetch from AI (clear in-memory cache on force)
+  // First call of the day (or force-refresh) — invoke AI
   if (force) clearMarketBriefingCache()
   let result
+  let errorMessage: string | null = null
   try {
     result = await getMarketBriefing()
-  } catch {
-    // AI threw — return mock so world indices are always visible
-    return NextResponse.json({ data: MOCK_MARKET_DATA, source: 'mock', date: today })
+  } catch (e) {
+    errorMessage = e instanceof Error ? e.message : String(e)
+    result = { ok: true as const, data: MOCK_MARKET_DATA, source: 'mock' as const, provider: undefined, model: undefined, webSearchUsed: false }
   }
 
-  if (result.ok && result.source === 'ai' && result.data) {
-    // Cache real AI data so subsequent loads are instant
-    await admin.from('platform_daily_briefing').upsert(
-      { date_ist: today, data: result.data, source: 'ai' },
-      { onConflict: 'date_ist' },
-    )
-    return NextResponse.json({ data: result.data, source: 'ai', date: today })
-  }
+  const data   = (result.ok && result.data) ? result.data : MOCK_MARKET_DATA
+  const source = (result.ok && result.source === 'ai') ? 'ai' : 'mock'
 
-  // AI unavailable — return mock so world indices are always visible (not cached)
-  return NextResponse.json({ data: result.data ?? MOCK_MARKET_DATA, source: 'mock', date: today })
+  // Persist result (AI or mock) — subsequent loads skip AI entirely
+  await admin.from('platform_daily_briefing').upsert(
+    { date_ist: today, data, source, error: errorMessage },
+    { onConflict: 'date_ist' },
+  )
+
+  // Clean up old records — keep only today's briefing
+  await admin
+    .from('platform_daily_briefing')
+    .delete()
+    .neq('date_ist', today)
+
+  const response: any = { data, source, date: today }
+  if (privileged && errorMessage) response.error = errorMessage
+  return NextResponse.json(response)
 }

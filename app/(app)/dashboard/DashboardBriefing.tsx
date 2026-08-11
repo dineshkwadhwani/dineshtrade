@@ -27,22 +27,25 @@ function dirArrow(d: string) { return d === 'up' ? '▲' : d === 'down' ? '▼' 
 export default function DashboardBriefing({ privileged = false }: { privileged?: boolean }) {
   const [data, setData] = useState<BriefingData | null>(null)
   const [source, setSource] = useState<'ai' | 'mock' | null>(null)
+  const [error, setError] = useState<string | null>(null)
   const [loading, setLoading] = useState(true)
   const [refreshing, setRefreshing] = useState(false)
 
   async function load(force = false) {
-    const url = force
-      ? '/api/dalgo/customer/daily-briefing?force=true'
-      : '/api/dalgo/customer/daily-briefing'
+    const params = new URLSearchParams()
+    if (force) params.set('force', 'true')
+    if (privileged) params.set('privileged', 'true')
+    const url = `/api/dalgo/customer/daily-briefing?${params.toString()}`
     try {
       const r = await fetch(url, { cache: 'no-store' })
       const d = await r.json()
-      if (d.error) console.warn('[DashboardBriefing] API error:', d.error)
       setData(d.data ?? null)
       setSource(d.source ?? null)
+      setError(d.error ?? null)
     } catch (e) {
       console.error('[DashboardBriefing] fetch failed:', e)
       setData(null)
+      setError(null)
     }
   }
 
@@ -71,7 +74,11 @@ export default function DashboardBriefing({ privileged = false }: { privileged?:
       <div style={{ background: C.card, border: `1px solid ${C.border}`, borderRadius: 12, padding: 20, boxShadow: '0 2px 8px rgba(30,58,138,0.04)', marginTop: 16, display: 'flex', alignItems: 'center', justifyContent: 'space-between', flexWrap: 'wrap', gap: 12 }}>
         <div>
           <p style={{ margin: '0 0 2px', fontFamily: SORA, fontWeight: 600, fontSize: 14, color: C.heading }}>Market Briefing</p>
-          <p style={{ margin: 0, fontSize: 12, color: C.muted, fontFamily: INTER }}>No briefing for today yet. Click Fetch to pull live data from AI.</p>
+          {error ? (
+            <p style={{ margin: 0, fontSize: 12, color: C.red, fontFamily: INTER }}>AI Error: {error}</p>
+          ) : (
+            <p style={{ margin: 0, fontSize: 12, color: C.muted, fontFamily: INTER }}>No briefing for today yet. Click Fetch to pull live data from AI.</p>
+          )}
         </div>
         <button onClick={() => { setLoading(true); load(true).finally(() => setLoading(false)) }}
           style={{ padding: '8px 20px', borderRadius: 8, border: 'none', cursor: 'pointer', fontFamily: INTER, fontWeight: 600, fontSize: 13, background: '#3B82F6', color: '#fff' }}>
@@ -83,6 +90,16 @@ export default function DashboardBriefing({ privileged = false }: { privileged?:
 
   return (
     <>
+      {/* Error banner for privileged users */}
+      {error && privileged && (
+        <div style={{ background: C.redBg, border: `1px solid ${C.red}`, borderRadius: 12, padding: 14, marginTop: 16, display: 'flex', alignItems: 'center', justifyContent: 'space-between' }}>
+          <div>
+            <p style={{ margin: 0, fontFamily: SORA, fontWeight: 600, fontSize: 13, color: C.red }}>⚠ AI Fetch Failed</p>
+            <p style={{ margin: '4px 0 0', fontSize: 12, color: C.red, fontFamily: INTER }}>{error}</p>
+            <p style={{ margin: '4px 0 0', fontSize: 11, color: C.red, opacity: 0.8, fontFamily: INTER }}>Showing fallback data. Check quota or API limits.</p>
+          </div>
+        </div>
+      )}
       {/* World Indices */}
       {data.globalIndices && data.globalIndices.length > 0 && (
         <div style={{ background: C.card, border: `1px solid ${C.border}`, borderRadius: 12, padding: 20, boxShadow: '0 2px 8px rgba(30,58,138,0.04)', marginTop: 16 }}>
@@ -129,7 +146,7 @@ export default function DashboardBriefing({ privileged = false }: { privileged?:
             {data.globalIndices.map(idx => (
               <div key={idx.name} style={{ padding: '10px 12px', background: '#F8FAFF', borderRadius: 8, border: '1px solid #E2E8F0' }}>
                 <p style={{ margin: '0 0 2px', fontSize: 11, fontWeight: 600, color: C.muted, fontFamily: INTER }}>{idx.name}</p>
-                <p style={{ margin: '0 0 2px', fontSize: 15, fontWeight: 700, color: C.heading, fontFamily: SORA }}>{idx.value}</p>
+                <p style={{ margin: '0 0 2px', fontSize: 15, fontWeight: 700, color: dirColor(idx.direction), fontFamily: SORA }}>{idx.value}</p>
                 <p style={{ margin: 0, fontSize: 12, fontWeight: 600, color: dirColor(idx.direction), fontFamily: INTER }}>
                   {dirArrow(idx.direction)} {idx.change}
                 </p>
