@@ -1,14 +1,21 @@
 // POST /api/dalgo/customer/engine/scan
-// Runs a manual strategy scan using the customer's Kite credentials and their
-// strategy config from Supabase. Primary customer's token is used for market
-// data (Connect plan quotes); customer's own token is used for order placement.
-//
-// Pattern mirrors lib/cron.ts::runCustomerTick — withCustomer scopes the state
-// context so getState().kiteTokens returns this customer's token, and
-// rehydrateForCustomer() loads their strategy config from customer_strategies.
+// Manual strategy scan using customer's strategy config from Supabase.
+// Primary customer's token fetches market data; target customer's config drives strategy.
+// SA/AM pass targetCustomerId in request body to run for any customer.
 
 import { NextRequest, NextResponse } from 'next/server'
 import { getProfile, AuthError } from '@/lib/dalgoAuth'
+import { loadBrokerAccountCreds } from '@/lib/kite'
+import { withCustomer } from '@/lib/supabase'
+import { saveState } from '@/lib/state'
+import { rehydrateForCustomer } from '@/lib/strategyConfigStore'
+import { generateRecommendations } from '@/lib/strategyEngine'
+import { getCapital } from '@/lib/strategyConfig'
+import { istDateString, appendJournal } from '@/lib/journal'
+
+export const dynamic = 'force-dynamic'
+
+export async function POST(req: NextRequest) {
   try {
     const profile = await getProfile()
     if (!profile) return NextResponse.json({ error: 'Unauthorized' }, { status: 401 })
@@ -39,18 +46,12 @@ import { getProfile, AuthError } from '@/lib/dalgoAuth'
 
     let result: Awaited<ReturnType<typeof generateRecommendations>>
 
-    // Scope to target customer: their strategy config + watchlists,
-    // primary account's token for live quote data.
     await withCustomer(targetCustomerId, async () => {
-      // Seed state.kiteTokens with primary's token so firstConnectedCreds()
-      // inside strategyEngine.ts finds a valid Kite connection.
       await saveState({ kiteTokens: { [primaryAccountName]: primaryCreds.accessToken } })
-      // Load this customer's strategy config from Supabase into the sync cache.
       await rehydrateForCustomer()
       result = await generateRecommendations()
     })
 
-    // Journal the manual scan
     const res = result!
     appendJournal({
       type: 'strategy_scan',
