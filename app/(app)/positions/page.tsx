@@ -32,7 +32,6 @@ export default async function PositionsPage() {
   const activeStrategies = (strategyRows ?? [])
     .filter((s: any) => s.active)
     .map((s: any) => ({ id: s.strategy_key as string, label: s.name as string, color: (s.color as string) || '#6B7280' }))
-    .order('first_buy_at', { ascending: false })
 
   const rows = positions ?? []
 
