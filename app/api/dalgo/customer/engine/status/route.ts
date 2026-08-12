@@ -61,7 +61,9 @@ export async function GET(req: Request) {
       kiteConnected = !!(broker?.access_token_enc) && (!broker.token_expires_at || new Date(broker.token_expires_at) > new Date())
     }
 
-    const cronMode: 'auto' | 'manual' = (instance?.cron_mode ?? state?.cron_mode ?? 'manual') as 'auto' | 'manual'
+    // customer_state is the live source (settings page writes here directly);
+    // customer_instances.cron_mode is only updated by heartbeat (may be stale).
+    const cronMode: 'auto' | 'manual' = (state?.cron_mode ?? instance?.cron_mode ?? 'manual') as 'auto' | 'manual'
     const buysToday = instance?.todays_buy_count ?? state?.daily_buy_count ?? 0
     const sellsToday = instance?.todays_sell_count ?? state?.daily_sell_count ?? 0
 

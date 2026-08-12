@@ -269,9 +269,10 @@ export default function EnginePage() {
   useEffect(() => {
     loadStatus()
     loadOrders()
+    loadTiles()  // auto-load on mount (V1 behaviour)
     const ordersId = setInterval(loadOrders, 30_000)
     const statusId = setInterval(loadStatus, 60_000)
-    // Refresh tiles every 5 min matching cron cadence, but only after first manual load
+    // After first load, refresh tiles every 5 min matching cron cadence
     const tilesId = setInterval(() => { if (tilesLoadedRef.current) loadTiles() }, 5 * 60 * 1000)
     return () => { clearInterval(ordersId); clearInterval(statusId); clearInterval(tilesId) }
   // eslint-disable-next-line react-hooks/exhaustive-deps
