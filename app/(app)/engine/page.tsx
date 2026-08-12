@@ -1,5 +1,5 @@
 'use client'
-import { useEffect, useState } from 'react'
+import { useEffect, useRef, useState } from 'react'
 
 const C = {
   card: '#FFFFFF', border: '#BFDBFE', heading: '#1E3A8A',
@@ -228,12 +228,22 @@ export default function EnginePage() {
   const [scanning, setScanning] = useState(false)
   const [activeTab, setActiveTab] = useState<string>('')
   const [togglingMode, setTogglingMode] = useState(false)
+  // Track the last cron tick timestamp to detect when a new tick fires
+  const lastTickRef = useRef<string | null>(null)
 
   async function loadStatus() {
     try {
       const r = await fetch('/api/dalgo/customer/engine/status', { cache: 'no-store' })
       const d = await r.json()
-      if (!d.error) setStatus(d)
+      if (!d.error) {
+        setStatus(d)
+        // Detect a new cron tick: if lastCronTickAt changed AND tiles are already showing, reload them
+        const newTick = d.instanceHealth?.lastCronTickAt ?? null
+        if (newTick && lastTickRef.current && newTick !== lastTickRef.current && tiles) {
+          loadTiles()
+        }
+        lastTickRef.current = newTick
+      }
     } catch {}
   }
 
@@ -264,8 +274,10 @@ export default function EnginePage() {
   useEffect(() => {
     loadStatus()
     loadOrders()
-    const id = setInterval(loadOrders, 30_000)
-    return () => clearInterval(id)
+    const ordersId = setInterval(loadOrders, 30_000)
+    // Poll status every 60s to detect new cron ticks and auto-refresh tiles
+    const statusId = setInterval(loadStatus, 60_000)
+    return () => { clearInterval(ordersId); clearInterval(statusId) }
   // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [])
 
