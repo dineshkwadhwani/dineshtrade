@@ -28,6 +28,7 @@ export default function DashboardBriefing({ privileged = false }: { privileged?:
   const [data, setData] = useState<BriefingData | null>(null)
   const [source, setSource] = useState<'ai' | 'mock' | null>(null)
   const [error, setError] = useState<string | null>(null)
+  const [fetchedAt, setFetchedAt] = useState<string | null>(null)
   const [loading, setLoading] = useState(true)
   const [refreshing, setRefreshing] = useState(false)
 
@@ -42,6 +43,7 @@ export default function DashboardBriefing({ privileged = false }: { privileged?:
       setData(d.data ?? null)
       setSource(d.source ?? null)
       setError(d.error ?? null)
+      setFetchedAt(d.fetchedAt ?? null)
     } catch (e) {
       console.error('[DashboardBriefing] fetch failed:', e)
       setData(null)
@@ -109,6 +111,11 @@ export default function DashboardBriefing({ privileged = false }: { privileged?:
               {source === 'mock' && (
                 <span style={{ fontSize: 10, fontWeight: 600, fontFamily: INTER, padding: '2px 7px', borderRadius: 999, background: C.amberBg, color: C.amber }}>INDICATIVE</span>
               )}
+              {fetchedAt && (
+                <span style={{ fontSize: 11, color: C.muted, fontFamily: INTER }}>
+                  as of {new Date(fetchedAt).toLocaleTimeString('en-IN', { hour: '2-digit', minute: '2-digit', hour12: true, timeZone: 'Asia/Kolkata' })} IST
+                </span>
+              )}
             </div>
             {privileged && (
               <button onClick={handleRefresh} disabled={refreshing}
@@ -158,7 +165,16 @@ export default function DashboardBriefing({ privileged = false }: { privileged?:
           {data.indiaOutlook && (
             <div style={{ marginTop: 12, padding: '8px 14px', background: '#F8FAFF', borderRadius: 8, border: '1px solid #E2E8F0' }}>
               <span style={{ fontSize: 11, fontWeight: 700, color: C.muted, fontFamily: INTER, textTransform: 'uppercase', letterSpacing: '0.05em' }}>India Outlook · </span>
-              <span style={{ fontSize: 12, color: C.body, fontFamily: INTER }}>{data.indiaOutlook.strategy || `Bias: ${data.indiaOutlook.bias}`}</span>
+              <span style={{ fontSize: 12, color: C.body, fontFamily: INTER }}>
+                {data.indiaOutlook.strategy || (() => {
+                  const raw = (data.indiaOutlook!.bias || '').toLowerCase()
+                  const dir = data.giftNifty?.direction
+                  if (raw === 'cautious') {
+                    return dir === 'up' ? 'Cautious Positive' : dir === 'down' ? 'Cautious Negative' : 'Cautious'
+                  }
+                  return raw.charAt(0).toUpperCase() + raw.slice(1)
+                })()}
+              </span>
               {data.indiaOutlook.expectedRange && (
                 <span style={{ fontSize: 11, color: C.muted, fontFamily: INTER }}> · Nifty {data.indiaOutlook.expectedRange}</span>
               )}

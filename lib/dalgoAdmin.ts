@@ -175,6 +175,17 @@ function minutesSince(iso: string | null): number | null {
   return (Date.now() - new Date(iso).getTime()) / 60000
 }
 
+// Compute real Kite token status from broker_accounts.token_expires_at.
+// Zerodha tokens expire at 06:00 AM IST daily — if token_expires_at has passed, it's expired.
+function computeKiteTokenStatus(
+  hasTokenEnc: boolean,
+  tokenExpiresAt: string | null,
+): 'connected' | 'missing' | 'expired' {
+  if (!hasTokenEnc) return 'missing'
+  if (!tokenExpiresAt) return 'connected'  // no expiry stored — assume still valid
+  return new Date(tokenExpiresAt) > new Date() ? 'connected' : 'expired'
+}
+
 export async function getCustomerHealthRows(filter?: { customerIds?: string[] }): Promise<CustomerHealthRow[]> {
   const admin = getSupabaseAdmin()
   let query = admin.from('customer_instances').select('*').eq('status', 'active')
@@ -185,23 +196,36 @@ export async function getCustomerHealthRows(filter?: { customerIds?: string[] })
   const { data: instances } = await query
   if (!instances || instances.length === 0) return []
 
-  const { data: profiles } = await admin
-    .from('profiles')
-    .select('id, full_name, email')
-    .in('id', instances.map(i => i.customer_id))
+  const customerIds = instances.map(i => i.customer_id)
+
+  const [{ data: profiles }, { data: brokerAccounts }] = await Promise.all([
+    admin.from('profiles').select('id, full_name, email').in('id', customerIds),
+    admin.from('broker_accounts')
+      .select('customer_id, access_token_enc, token_expires_at')
+      .in('customer_id', customerIds)
+      .eq('broker_name', 'zerodha')
+      .eq('active', true),
+  ])
+
   const byId = new Map((profiles ?? []).map(p => [p.id, p]))
+  const brokerByCustomer = new Map((brokerAccounts ?? []).map(b => [b.customer_id, b]))
 
   const marketOpen = isMarketOpen().open
 
   return instances.map(instance => {
     const profile = byId.get(instance.customer_id)
+    const broker = brokerByCustomer.get(instance.customer_id)
+    const realTokenStatus = computeKiteTokenStatus(
+      !!broker?.access_token_enc,
+      broker?.token_expires_at ?? null,
+    )
     const mins = minutesSince(instance.last_cron_tick_at)
     let lastTickDot: 'green' | 'red' | 'grey' = 'grey'
     if (marketOpen) {
       lastTickDot = mins !== null && mins < 6 ? 'green' : 'red'
     }
     return {
-      instance: instance as CustomerInstanceRow,
+      instance: { ...instance, kite_token_status: realTokenStatus } as CustomerInstanceRow,
       customerName: profile?.full_name ?? '(unknown)',
       customerEmail: profile?.email ?? '',
       lastTickDot,
@@ -313,26 +337,38 @@ export async function listCustomers(filter?: { assignedTo?: string }): Promise<C
   const { data: customers } = await query
   if (!customers || customers.length === 0) return []
 
+  const customerIds = customers.map(c => c.id)
   const amIds = Array.from(
     new Set(customers.map(c => c.assigned_account_manager_id).filter((x): x is string => !!x))
   )
-  const [{ data: managers }, { data: instances }] = await Promise.all([
+  const [{ data: managers }, { data: instances }, { data: brokerAccounts }] = await Promise.all([
     amIds.length > 0
       ? admin.from('profiles').select('id, full_name').in('id', amIds)
       : Promise.resolve({ data: [] as { id: string; full_name: string }[] }),
-    admin
-      .from('customer_instances')
-      .select('*')
-      .in('customer_id', customers.map(c => c.id)),
+    admin.from('customer_instances').select('*').in('customer_id', customerIds),
+    admin.from('broker_accounts')
+      .select('customer_id, access_token_enc, token_expires_at')
+      .in('customer_id', customerIds)
+      .eq('broker_name', 'zerodha')
+      .eq('active', true),
   ])
   const amById = new Map((managers ?? []).map(m => [m.id, m.full_name]))
   const instanceByCustomer = new Map((instances ?? []).map(i => [i.customer_id, i as CustomerInstanceRow]))
+  const brokerByCustomer = new Map((brokerAccounts ?? []).map(b => [b.customer_id, b]))
 
-  return (customers as ProfileRow[]).map(profile => ({
-    profile,
-    amName: profile.assigned_account_manager_id ? amById.get(profile.assigned_account_manager_id) ?? null : null,
-    instance: instanceByCustomer.get(profile.id) ?? null,
-  }))
+  return (customers as ProfileRow[]).map(profile => {
+    const instance = instanceByCustomer.get(profile.id) ?? null
+    const broker = brokerByCustomer.get(profile.id)
+    const realTokenStatus = computeKiteTokenStatus(
+      !!broker?.access_token_enc,
+      broker?.token_expires_at ?? null,
+    )
+    return {
+      profile,
+      amName: profile.assigned_account_manager_id ? amById.get(profile.assigned_account_manager_id) ?? null : null,
+      instance: instance ? { ...instance, kite_token_status: realTokenStatus } : null,
+    }
+  })
 }
 
 export interface CustomerFullDetail {

@@ -45,8 +45,11 @@ export default function DashboardLiveTiles() {
   const unrealizedPnl = (data?.portfolioValue != null && data?.investedValue != null)
     ? data.portfolioValue - data.investedValue
     : null
+  const unrealizedPct = (unrealizedPnl != null && data?.investedValue)
+    ? (unrealizedPnl / data.investedValue) * 100
+    : null
   const pnlStr = unrealizedPnl == null ? undefined
-    : `${unrealizedPnl >= 0 ? '+' : ''}₹${Math.abs(unrealizedPnl).toLocaleString('en-IN', { maximumFractionDigits: 0 })} unrealised`
+    : `${unrealizedPnl >= 0 ? '+' : ''}₹${Math.abs(unrealizedPnl).toLocaleString('en-IN', { maximumFractionDigits: 0 })}${unrealizedPct != null ? ` (${unrealizedPct >= 0 ? '+' : ''}${unrealizedPct.toFixed(2)}%)` : ''} unrealised`
   const pnlColor = unrealizedPnl == null ? C.muted : unrealizedPnl >= 0 ? '#16A34A' : '#DC2626'
 
   return (

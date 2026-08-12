@@ -918,13 +918,145 @@ export async function sendAccountActivated(to: string, name: string, instanceUrl
 // sendViaResend() directly (not deliver()) so the caller (lib/tokenAlert.ts)
 // can log the real send outcome.
 export async function sendTokenMissingAlert(to: string, customerName: string, amEmail?: string): Promise<EmailResult> {
-  const subject = 'Action required: Paste your Zerodha token before market opens at 9:15 AM'
+  const firstName = customerName.split(' ')[0]
+  const appUrl = process.env.NEXT_PUBLIC_APP_URL || 'https://dalgo.online'
+  const logoUrl = `${appUrl}/logolight.png`
+  const subject = 'Action Required: Reconnect Your Zerodha Account to Resume Trading'
+
   const text =
-    `Hi ${customerName}, your Zerodha access token is missing or expired. ` +
-    `Auto-trading cannot start until you paste a fresh token. ` +
-    `Log in at www.dalgo.online to update your token in Settings → Broker. ` +
-    `Market opens at 9:15 AM IST.`
-  return sendViaResend(to, subject, text, undefined, amEmail ? [amEmail] : undefined)
+    `Dear ${customerName},\n\n` +
+    `We noticed that your Zerodha broker connection has not been verified today. ` +
+    `As a result, your automated trading strategies are currently paused and no orders will be placed on your behalf until your session is reconnected.\n\n` +
+    `What you need to do:\n` +
+    `1. Log in to your DAlgo dashboard at ${appUrl}\n` +
+    `2. Go to Settings → Broker Connection\n` +
+    `3. Click "Login with Kite" to authorise today's session\n\n` +
+    `Once reconnected, your strategies will resume automatically.\n\n` +
+    `NSE trading hours are 9:15 AM – 3:30 PM IST. Please reconnect before the market opens to avoid missing any opportunities.\n\n` +
+    `If you need any assistance, please write to us at support@dalgo.online and we will be happy to help.\n\n` +
+    `Warm regards,\nTeam DAlgo\n${appUrl}`
+
+  const html = `<!DOCTYPE html>
+<html lang="en">
+<head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1"><title>${subject}</title></head>
+<body style="margin:0;padding:0;background:#F8FAFF;font-family:-apple-system,BlinkMacSystemFont,'Segoe UI',Helvetica,Arial,sans-serif;">
+<table width="100%" cellpadding="0" cellspacing="0" border="0" style="background:#F8FAFF;">
+<tr><td align="center" style="padding:40px 16px 32px;">
+<table width="600" cellpadding="0" cellspacing="0" border="0" style="max-width:600px;width:100%;background:#FFFFFF;border-radius:16px;border:1px solid #BFDBFE;box-shadow:0 4px 24px rgba(30,58,138,0.06);">
+
+  <!-- Header / Logo -->
+  <tr><td style="padding:32px 40px 24px;border-bottom:1px solid #EFF6FF;">
+    <table width="100%" cellpadding="0" cellspacing="0" border="0"><tr>
+      <td>
+        <img src="${logoUrl}" alt="DAlgo" width="100" height="auto" style="display:block;border:0;" />
+      </td>
+      <td align="right" style="vertical-align:middle;">
+        <span style="font-size:11px;color:#94A3B8;letter-spacing:0.06em;text-transform:uppercase;font-family:monospace;">Automated Trading Platform</span>
+      </td>
+    </tr></table>
+  </td></tr>
+
+  <!-- Alert banner -->
+  <tr><td style="padding:0 40px;">
+    <table width="100%" cellpadding="0" cellspacing="0" border="0" style="margin-top:28px;background:#FEF3C7;border:1px solid #FCD34D;border-radius:10px;">
+      <tr><td style="padding:16px 20px;">
+        <p style="margin:0;font-size:13px;font-weight:700;color:#92400E;">⚠&nbsp; Action Required — Broker Session Expired</p>
+        <p style="margin:6px 0 0;font-size:12px;color:#B45309;line-height:1.5;">Your Zerodha connection has not been verified today. Trading is currently paused.</p>
+      </td></tr>
+    </table>
+  </td></tr>
+
+  <!-- Body -->
+  <tr><td style="padding:28px 40px 0;">
+    <p style="margin:0 0 16px;font-size:16px;color:#1E3A8A;font-weight:600;">Dear ${firstName},</p>
+    <p style="margin:0 0 16px;font-size:14px;color:#475569;line-height:1.7;">
+      We noticed that your Zerodha broker connection has not been verified for today's trading session.
+      As a result, <strong style="color:#1E3A8A;">your automated strategies are currently paused</strong> and no orders
+      will be placed on your behalf until you reconnect.
+    </p>
+    <p style="margin:0 0 24px;font-size:14px;color:#475569;line-height:1.7;">
+      NSE trading hours are <strong style="color:#1E3A8A;">9:15 AM – 3:30 PM IST</strong>. Please reconnect before the market opens to ensure your strategies run without interruption.
+    </p>
+  </td></tr>
+
+  <!-- Steps -->
+  <tr><td style="padding:0 40px;">
+    <table width="100%" cellpadding="0" cellspacing="0" border="0" style="background:#EFF6FF;border-radius:10px;border:1px solid #BFDBFE;">
+      <tr><td style="padding:20px 24px;">
+        <p style="margin:0 0 14px;font-size:12px;font-weight:700;color:#1E3A8A;letter-spacing:0.06em;text-transform:uppercase;">How to reconnect</p>
+        <table width="100%" cellpadding="0" cellspacing="0" border="0">
+          <tr><td style="padding:6px 0;">
+            <table cellpadding="0" cellspacing="0" border="0"><tr>
+              <td style="width:28px;height:28px;background:#3B82F6;border-radius:50%;text-align:center;vertical-align:middle;">
+                <span style="font-size:12px;font-weight:700;color:#fff;">1</span>
+              </td>
+              <td style="padding-left:12px;font-size:13px;color:#475569;">Log in to your DAlgo dashboard</td>
+            </tr></table>
+          </td></tr>
+          <tr><td style="padding:6px 0;">
+            <table cellpadding="0" cellspacing="0" border="0"><tr>
+              <td style="width:28px;height:28px;background:#3B82F6;border-radius:50%;text-align:center;vertical-align:middle;">
+                <span style="font-size:12px;font-weight:700;color:#fff;">2</span>
+              </td>
+              <td style="padding-left:12px;font-size:13px;color:#475569;">Navigate to <strong style="color:#1E3A8A;">Settings → Broker Connection</strong></td>
+            </tr></table>
+          </td></tr>
+          <tr><td style="padding:6px 0;">
+            <table cellpadding="0" cellspacing="0" border="0"><tr>
+              <td style="width:28px;height:28px;background:#3B82F6;border-radius:50%;text-align:center;vertical-align:middle;">
+                <span style="font-size:12px;font-weight:700;color:#fff;">3</span>
+              </td>
+              <td style="padding-left:12px;font-size:13px;color:#475569;">Click <strong style="color:#1E3A8A;">Login with Kite</strong> to authorise today's session</td>
+            </tr></table>
+          </td></tr>
+        </table>
+      </td></tr>
+    </table>
+  </td></tr>
+
+  <!-- CTA button -->
+  <tr><td style="padding:28px 40px 0;text-align:center;">
+    <a href="${appUrl}/settings" style="display:inline-block;padding:14px 40px;background:linear-gradient(135deg,#3B82F6,#1D4ED8);color:#ffffff;font-size:14px;font-weight:700;text-decoration:none;border-radius:10px;letter-spacing:0.02em;">
+      Reconnect My Broker →
+    </a>
+  </td></tr>
+
+  <!-- Support -->
+  <tr><td style="padding:28px 40px 0;">
+    <p style="margin:0;font-size:13px;color:#475569;line-height:1.7;">
+      If you need any assistance, our team is here to help. Write to us at
+      <a href="mailto:support@dalgo.online" style="color:#3B82F6;text-decoration:none;font-weight:600;">support@dalgo.online</a>
+      and we will respond promptly.
+    </p>
+  </td></tr>
+
+  <!-- Signature -->
+  <tr><td style="padding:28px 40px 0;">
+    <p style="margin:0;font-size:14px;color:#1E3A8A;font-weight:600;">Warm regards,</p>
+    <p style="margin:4px 0 0;font-size:14px;color:#1E3A8A;font-weight:700;">Team DAlgo</p>
+    <a href="${appUrl}" style="font-size:12px;color:#3B82F6;text-decoration:none;">${appUrl}</a>
+  </td></tr>
+
+  <!-- Footer -->
+  <tr><td style="padding:24px 40px 32px;margin-top:24px;border-top:1px solid #EFF6FF;margin:24px 0 0;">
+    <table width="100%" cellpadding="0" cellspacing="0" border="0" style="border-top:1px solid #EFF6FF;padding-top:20px;">
+      <tr><td>
+        <p style="margin:0;font-size:11px;color:#94A3B8;line-height:1.6;">
+          This is an automated notification from DAlgo. You are receiving this because your account is set up for automated trading.
+          If you believe this is an error, please contact us at
+          <a href="mailto:support@dalgo.online" style="color:#94A3B8;">support@dalgo.online</a>.
+        </p>
+        <p style="margin:8px 0 0;font-size:11px;color:#CBD5E1;">© ${new Date().getFullYear()} DAlgo. All rights reserved.</p>
+      </td></tr>
+    </table>
+  </td></tr>
+
+</table>
+</td></tr>
+</table>
+</body></html>`
+
+  return sendViaResend(to, subject, text, html, amEmail ? [amEmail] : undefined)
 }
 
 // ── Phase 6 — Admin/Account Manager dashboard emails ──

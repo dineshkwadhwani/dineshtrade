@@ -192,14 +192,19 @@ async function absorbUntrackedPositions(
     }
 
     // No corresponding order in today's Kite order book — a genuine
-    // pre-existing or prior-day holding. Start tracking it so the SELL
-    // monitors can manage it going forward, but do NOT journal a BUY: there
-    // is no real order ID and no real "today" BUY event to record (fix req 1).
+    // pre-existing or prior-day holding bought outside DAlgo. Track it as
+    // accumulator and journal it so reports reflect the full portfolio.
     const inferredStrategy = 'accumulator'
     await recordBuy(inferredStrategy, account, symbol, live.qty, live.avgPrice)
     await setBuyHistoryForSymbol(account, symbol, [{ price: live.avgPrice }])
+    await journalOrder({
+      account, symbol, side: 'BUY',
+      qty: live.qty, price: live.avgPrice,
+      tag: `dt-${inferredStrategy}`, strategyId: inferredStrategy,
+      source: 'manual', orderId: undefined,
+    }).catch(err => console.error(`[reconcile] journalOrder (external holding) failed ${account} ${symbol}:`, err))
     markAbsorbedToday(account, symbol)
-    console.log(`[reconcile] ${account} ${symbol}: silently tracked pre-existing broker holding into ${inferredStrategy} @ ₹${live.avgPrice} (no order in today's book — not journaled)`)
+    console.log(`[reconcile] ${account} ${symbol}: tracked + journaled external holding into ${inferredStrategy} @ ₹${live.avgPrice}`)
   }
 }
 

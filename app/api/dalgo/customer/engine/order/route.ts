@@ -8,6 +8,8 @@ import { getProfile, AuthError } from '@/lib/dalgoAuth'
 import { loadBrokerAccountCreds, placeKiteOrder } from '@/lib/kite'
 import { getBroker } from '@/lib/broker'
 import { runPreflight, markPlaced } from '@/lib/preflight'
+import { recordBuy } from '@/lib/positions'
+import { journalOrder } from '@/lib/journal'
 import { withCustomer } from '@/lib/supabase'
 import { saveState } from '@/lib/state'
 import { rehydrateForCustomer } from '@/lib/strategyConfigStore'
@@ -103,12 +105,27 @@ export async function POST(req: NextRequest) {
     }
 
     const orderId = orderResult.data?.data?.order_id
-    // Mark idempotency in customer's state so auto-mode won't double-buy today
+    const filledQty = pre.adjustedQty ?? qty
+    const effectiveStrategyId = strategyId ?? 'accumulator'
+
+    // Gap 1 fix: record buy in position store + journal, same as auto-buy cron
     if (orderId && side === 'BUY') {
       await withCustomer(targetCustomerId, async () => {
         await saveState({ kiteTokens: { [primaryAccountName]: creds.accessToken } })
         await markPlaced(primaryAccountName, symbolUpper, 'BUY', { price: pricePerShare, manual: true })
-      }).catch(() => {})
+        await recordBuy(effectiveStrategyId, primaryAccountName, symbolUpper, filledQty, pricePerShare)
+        await journalOrder({
+          account: primaryAccountName,
+          symbol: symbolUpper,
+          side: 'BUY',
+          qty: filledQty,
+          price: pricePerShare,
+          tag: tag ?? `dt-${effectiveStrategyId}`,
+          strategyId: effectiveStrategyId,
+          source: 'manual',
+          orderId,
+        })
+      }).catch(err => console.error('[engine/order] post-buy position recording failed:', err))
     }
 
     // Notify on success

@@ -36,12 +36,12 @@ export async function GET(req: Request) {
   if (!force) {
     const { data: existing } = await admin
       .from('platform_daily_briefing')
-      .select('data, source, error')
+      .select('data, source, error, created_at')
       .eq('date_ist', today)
       .maybeSingle()
 
     if (existing) {
-      const response: any = { data: existing.data, source: existing.source, date: today }
+      const response: any = { data: existing.data, source: existing.source, date: today, fetchedAt: existing.created_at }
       if (privileged && existing.error) response.error = existing.error
       return NextResponse.json(response)
     }
@@ -63,7 +63,7 @@ export async function GET(req: Request) {
 
   // Persist result (AI or mock) — subsequent loads skip AI entirely
   await admin.from('platform_daily_briefing').upsert(
-    { date_ist: today, data, source, error: errorMessage },
+    { date_ist: today, data, source, error: errorMessage, created_at: new Date().toISOString() },
     { onConflict: 'date_ist' },
   )
 
@@ -73,7 +73,7 @@ export async function GET(req: Request) {
     .delete()
     .neq('date_ist', today)
 
-  const response: any = { data, source, date: today }
+  const response: any = { data, source, date: today, fetchedAt: new Date().toISOString() }
   if (privileged && errorMessage) response.error = errorMessage
   return NextResponse.json(response)
 }

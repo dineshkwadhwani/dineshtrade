@@ -9,6 +9,7 @@ import { FONT_LINK_HREF } from '@/components/dalgo/theme'
 const MANAGER_NAV: DalgoNavItem[] = [
   { label: 'Dashboard', href: '/manager' },
   { label: 'Trading Engine', href: '/manager/engine' },
+  { label: 'Health Check', href: '/manager/health' },
   { label: 'My Customers', href: '/manager/customers' },
   { label: 'Registrations', href: '/manager/registrations' },
   { label: 'Reports', href: '/manager/reports' },
