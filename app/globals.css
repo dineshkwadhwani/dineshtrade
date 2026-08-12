@@ -329,6 +329,21 @@ html.light [style*="color: #FFFFFF"],
 html.light [style*="color:#fff"],
 html.light [style*="color: #fff"]                    { color: #FFFFFF !important; }
 
+/* Register page marketing panel text must stay readable on dark gradient. */
+html.light .dt-register-marketing,
+html.light .dt-register-marketing * {
+  color: #FFFFFF !important;
+}
+html.light .dt-register-marketing .dt-register-soft {
+  color: rgba(255, 255, 255, 0.96) !important;
+}
+html.light .dt-register-marketing .dt-register-amber {
+  color: #F59E0B !important;
+}
+html.light .dt-register-marketing .dt-register-gold {
+  color: #FCD34D !important;
+}
+
 /* Restore body-level base (nav, ticker, etc. outside main) */
 html.light body { color: var(--dt-text-primary); }
 

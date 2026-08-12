@@ -1,5 +1,7 @@
 'use client'
 import { useState } from 'react'
+import Image from 'next/image'
+import TaglineRotator from '@/components/marketing/TaglineRotator'
 
 const FONT_SORA = "'Sora', sans-serif"
 const FONT_INTER = "'Inter', sans-serif"
@@ -19,6 +21,14 @@ const INDIAN_STATES = [
   'Uttarakhand', 'West Bengal',
   'Andaman and Nicobar Islands', 'Chandigarh', 'Dadra and Nagar Haveli and Daman and Diu',
   'Delhi', 'Jammu and Kashmir', 'Ladakh', 'Lakshadweep', 'Puducherry',
+]
+
+const MARKETING_LINES = [
+  'Precision automation for all market moods.',
+  'Bull, bear, or sideways: your rules stay in control.',
+  'Calm execution when markets get chaotic.',
+  'Disciplined entries. Smarter exits. Zero panic clicks.',
+  'Consistent process, not emotional trading.',
 ]
 
 type Mode = 'customer' | 'broking_company'
@@ -70,24 +80,208 @@ function aadharDisplayValue(digits: string, focused: boolean): string {
 }
 
 function CardShell({ children }: { children: React.ReactNode }) {
+  const [snapshotOpen, setSnapshotOpen] = useState(false)
+
+  const highlights = [
+    { metric: '2%+', label: 'Consistent monthly return target bands' },
+    { metric: '24x7', label: 'Panic-trade prevention and guardrails' },
+    { metric: 'Real-time', label: 'Free-fall filters with circuit protection' },
+  ]
+
+  const bullets = [
+    'Rules-first execution that helps remove emotional entries and exits.',
+    'Crash-mode protocols designed for sudden market drawdowns.',
+    'Broker-native flows with full account custody under your control.',
+    'Mobile-friendly control surfaces for quick checks and safe actions.',
+  ]
+
   return (
     <div style={{ minHeight: '100vh', display: 'flex', background: '#F8FAFF' }}>
       <div
-        className="hidden md:flex"
+        className="hidden md:flex dt-register-marketing"
         style={{
-          flex: 1, flexDirection: 'column', justifyContent: 'center', padding: '64px',
-          background: 'linear-gradient(160deg, #1E3A8A 0%, #1D4ED8 100%)', color: '#fff',
+          flex: 1,
+          flexDirection: 'column',
+          justifyContent: 'flex-start',
+          alignSelf: 'flex-start',
+          position: 'sticky',
+          top: 0,
+          minHeight: '100vh',
+          padding: '56px 56px 44px',
+          background:
+            'radial-gradient(520px 240px at 85% 5%, rgba(245,158,11,0.22), transparent 65%), linear-gradient(160deg, #1E3A8A 0%, #1D4ED8 100%)',
+          color: '#fff',
         }}
       >
         <div style={{ fontFamily: FONT_SORA, fontWeight: 700, fontSize: 40, letterSpacing: '-0.02em' }}>
           <span style={{ color: '#FFFFFF' }}>D</span>
-          <span style={{ color: '#F59E0B' }}>A</span>
+          <span className="dt-register-amber" style={{ color: '#F59E0B' }}>A</span>
           <span style={{ color: '#FFFFFF' }}>lgo</span>
         </div>
-        <p style={{ marginTop: 16, fontFamily: FONT_INTER, fontSize: 18, color: 'rgba(255,255,255,0.85)', maxWidth: 360 }}>
-          Trade Smarter. Automate Faster.
+        <p className="dt-register-soft" style={{ marginTop: 28, fontFamily: FONT_INTER, fontSize: 18, color: 'rgba(255,255,255,0.96)', maxWidth: 460, lineHeight: 1.5 }}>
+          <TaglineRotator lines={MARKETING_LINES} intervalMs={3600} />
         </p>
+
+        <div
+          style={{
+            marginTop: 24,
+            display: 'grid',
+            gridTemplateColumns: 'repeat(3, minmax(0, 1fr))',
+            gap: 10,
+            maxWidth: 500,
+          }}
+        >
+          {highlights.map(item => (
+            <div
+              key={item.label}
+              style={{
+                border: '1px solid rgba(255,255,255,0.25)',
+                borderRadius: 12,
+                background: 'rgba(255,255,255,0.1)',
+                padding: '10px 10px 9px',
+              }}
+            >
+                <div className="dt-register-gold" style={{ fontFamily: FONT_SORA, fontWeight: 700, color: '#FCD34D', fontSize: 17 }}>{item.metric}</div>
+                <div className="dt-register-soft" style={{ marginTop: 4, fontFamily: FONT_INTER, fontSize: 12, color: 'rgba(255,255,255,0.95)', lineHeight: 1.35 }}>
+                {item.label}
+              </div>
+            </div>
+          ))}
+        </div>
+
+        <div
+          style={{
+            marginTop: 18,
+            border: '1px solid rgba(255,255,255,0.24)',
+            borderRadius: 14,
+            background: 'rgba(15, 23, 42, 0.2)',
+            padding: '14px 14px 10px',
+            maxWidth: 520,
+          }}
+        >
+          {bullets.map(text => (
+            <div key={text} style={{ display: 'flex', alignItems: 'flex-start', gap: 9, marginBottom: 10 }}>
+              <span
+                aria-hidden="true"
+                style={{
+                  marginTop: 6,
+                  width: 7,
+                  height: 7,
+                  borderRadius: 999,
+                  background: '#F59E0B',
+                  boxShadow: '0 0 0 3px rgba(245,158,11,0.24)',
+                  flex: '0 0 auto',
+                }}
+              />
+              <span className="dt-register-soft" style={{ fontFamily: FONT_INTER, fontSize: 14, color: 'rgba(255,255,255,0.96)', lineHeight: 1.45 }}>{text}</span>
+            </div>
+          ))}
+        </div>
+
+        <div
+          style={{
+            marginTop: 18,
+            border: '1px solid rgba(255,255,255,0.2)',
+            borderRadius: 14,
+            background: 'rgba(15, 23, 42, 0.22)',
+            padding: 12,
+            maxWidth: 560,
+          }}
+        >
+          <div className="dt-register-soft" style={{ fontFamily: FONT_SORA, fontWeight: 600, fontSize: 13, marginBottom: 8, letterSpacing: '0.01em' }}>
+            Live strategy curve snapshot
+          </div>
+          <button
+            type="button"
+            onClick={() => setSnapshotOpen(true)}
+            aria-label="Open live strategy snapshot"
+            style={{
+              width: '100%',
+              borderRadius: 10,
+              overflow: 'hidden',
+              border: '1px solid rgba(255,255,255,0.18)',
+              background: 'transparent',
+              padding: 0,
+              cursor: 'zoom-in',
+            }}
+          >
+            <Image
+              src="/zerodha.png"
+              alt="Zerodha live performance chart"
+              width={960}
+              height={540}
+              style={{ width: '100%', height: 'auto', display: 'block' }}
+              priority
+            />
+          </button>
+          <div className="dt-register-soft" style={{ marginTop: 8, fontFamily: FONT_INTER, fontSize: 12, lineHeight: 1.4 }}>
+            Positive trend visualization used as an illustrative sample, not a guaranteed outcome.
+          </div>
+        </div>
       </div>
+
+      {snapshotOpen && (
+        <div
+          role="dialog"
+          aria-modal="true"
+          aria-label="Live strategy curve snapshot"
+          onClick={() => setSnapshotOpen(false)}
+          style={{
+            position: 'fixed',
+            inset: 0,
+            zIndex: 90,
+            background: 'rgba(2, 6, 23, 0.84)',
+            display: 'flex',
+            alignItems: 'center',
+            justifyContent: 'center',
+            padding: 20,
+          }}
+        >
+          <div
+            onClick={e => e.stopPropagation()}
+            style={{
+              position: 'relative',
+              width: 'min(1120px, 80vw)',
+              maxHeight: '88vh',
+              borderRadius: 14,
+              border: '1px solid rgba(255,255,255,0.24)',
+              background: '#0b1224',
+              overflow: 'hidden',
+              boxShadow: '0 24px 60px rgba(0,0,0,0.45)',
+            }}
+          >
+            <button
+              type="button"
+              onClick={() => setSnapshotOpen(false)}
+              aria-label="Close preview"
+              style={{
+                position: 'absolute',
+                top: 10,
+                right: 10,
+                width: 34,
+                height: 34,
+                borderRadius: 999,
+                border: '1px solid rgba(255,255,255,0.3)',
+                background: 'rgba(15, 23, 42, 0.85)',
+                color: '#FFFFFF',
+                fontSize: 20,
+                lineHeight: 1,
+                cursor: 'pointer',
+                zIndex: 2,
+              }}
+            >
+              ×
+            </button>
+            <Image
+              src="/zerodha.png"
+              alt="Zerodha live performance chart enlarged"
+              width={1280}
+              height={720}
+              style={{ width: '100%', height: 'auto', display: 'block' }}
+            />
+          </div>
+        </div>
+      )}
 
       <div className="flex-1 flex flex-col items-center justify-center" style={{ padding: '32px 16px', fontFamily: FONT_INTER }}>
         <div
