@@ -230,20 +230,14 @@ export default function EnginePage() {
   const [togglingMode, setTogglingMode] = useState(false)
   // Track the last cron tick timestamp to detect when a new tick fires
   const lastTickRef = useRef<string | null>(null)
+  // Gate: only auto-refresh tiles after they've been loaded at least once
+  const tilesLoadedRef = useRef(false)
 
   async function loadStatus() {
     try {
       const r = await fetch('/api/dalgo/customer/engine/status', { cache: 'no-store' })
       const d = await r.json()
-      if (!d.error) {
-        setStatus(d)
-        // Detect a new cron tick: if lastCronTickAt changed AND tiles are already showing, reload them
-        const newTick = d.instanceHealth?.lastCronTickAt ?? null
-        if (newTick && lastTickRef.current && newTick !== lastTickRef.current && tiles) {
-          loadTiles()
-        }
-        lastTickRef.current = newTick
-      }
+      if (!d.error) setStatus(d)
     } catch {}
   }
 
@@ -261,6 +255,7 @@ export default function EnginePage() {
       const r = await fetch('/api/dalgo/customer/engine/tiles', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: '{}', cache: 'no-store' })
       const d = await r.json()
       setTiles(d)
+      tilesLoadedRef.current = true
       if (!activeTab && d.recommendedTab) setActiveTab(d.recommendedTab)
       loadOrders()
       loadStatus()
@@ -275,9 +270,10 @@ export default function EnginePage() {
     loadStatus()
     loadOrders()
     const ordersId = setInterval(loadOrders, 30_000)
-    // Poll status every 60s to detect new cron ticks and auto-refresh tiles
     const statusId = setInterval(loadStatus, 60_000)
-    return () => { clearInterval(ordersId); clearInterval(statusId) }
+    // Refresh tiles every 5 min matching cron cadence, but only after first manual load
+    const tilesId = setInterval(() => { if (tilesLoadedRef.current) loadTiles() }, 5 * 60 * 1000)
+    return () => { clearInterval(ordersId); clearInterval(statusId); clearInterval(tilesId) }
   // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [])
 
