@@ -3,6 +3,7 @@ import { useEffect, useState } from 'react'
 
 export default function AppFooter() {
   const [startedAt, setStartedAt] = useState<string>('')
+  const [build, setBuild] = useState<string>('')
   const [loading, setLoading] = useState(true)
 
   useEffect(() => {
@@ -11,6 +12,9 @@ export default function AppFooter() {
       .then(data => {
         if (data.startedAt) {
           setStartedAt(data.startedAt)
+        }
+        if (data.build) {
+          setBuild(data.build)
         }
       })
       .catch(() => {})
@@ -39,13 +43,14 @@ export default function AppFooter() {
       <div className="space-y-1">
         <div>
           Created by <span className="dt-footer-emphasis">Dinesh Wadhwani</span> • 
-          <a href="mailto:dinesh.k.wadhwani@gmail.com" className="dt-footer-link ml-1">
-            dinesh.k.wadhwani@gmail.com
+          <a href="mailto:contact@thecoachdinesh.com" className="dt-footer-link ml-1">
+            contact@thecoachdinesh.com
           </a> • 
           <span className="ml-1 dt-footer-emphasis">+91 9767676738</span>
         </div>
         <div>
-          Version: {loading ? 'Loading...' : startedAt ? formatTime(startedAt) : 'Unknown'}
+          Version: {loading ? 'Loading...' : (build || 'v1.0.0')}
+          {startedAt ? ` • Started: ${formatTime(startedAt)}` : ''}
         </div>
       </div>
     </footer>
