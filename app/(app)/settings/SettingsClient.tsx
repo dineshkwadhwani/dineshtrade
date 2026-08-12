@@ -31,9 +31,10 @@ interface Props {
   fixedRules: { rule_key: string; value: string; description?: string | null; display_name?: string | null; rule_name?: string | null }[]
   watchlists: { list_key: string; name: string; symbols: { nse: string; name: string }[] }[]
   targetCustomerId?: string
+  justConnected?: boolean
 }
 
-export default function SettingsClient({ savedApiKey, savedApiSecret, isConnected, tokenCapturedAt, cronMode, kiteLoginUrl, strategies, capitalConfig, fixedRules, watchlists, targetCustomerId }: Props) {
+export default function SettingsClient({ savedApiKey, savedApiSecret, isConnected, tokenCapturedAt, cronMode, kiteLoginUrl, strategies, capitalConfig, fixedRules, watchlists, targetCustomerId, justConnected }: Props) {
   const router = useRouter()
   const [tab, setTab] = useState<TabId>('connection')
   const [apiKey, setApiKey] = useState('')
@@ -143,6 +144,11 @@ export default function SettingsClient({ savedApiKey, savedApiSecret, isConnecte
       {/* Connection tab */}
       {tab === 'connection' && (
         <div style={{ display: 'flex', flexDirection: 'column', gap: 20 }}>
+          {justConnected && (
+            <div style={{ background: '#DCFCE7', border: '1px solid #86EFAC', borderRadius: 10, padding: '12px 16px' }}>
+              <p style={{ margin: 0, fontSize: 13, fontWeight: 600, color: '#16A34A' }}>✓ Zerodha connected successfully — your token is active for today.</p>
+            </div>
+          )}
           <div style={{ background: C.card, border: `1px solid ${C.border}`, borderRadius: 12, padding: 24 }}>
             <h2 style={{ fontFamily: SORA, fontSize: 16, fontWeight: 600, color: C.heading, margin: '0 0 16px' }}>Zerodha Connection</h2>
             <div style={{ display: 'flex', alignItems: 'center', gap: 10, marginBottom: 16 }}>

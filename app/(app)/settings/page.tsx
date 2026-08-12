@@ -5,7 +5,8 @@ import { getProfile } from '@/lib/dalgoAuth'
 import { decrypt } from '@/lib/encryption'
 import SettingsClient from './SettingsClient'
 
-export default async function SettingsPage() {
+export default async function SettingsPage({ searchParams }: { searchParams: Record<string, string> }) {
+  const justConnected = searchParams?.connected === 'true'
   const sessionProfile = await getProfile()
   if (!sessionProfile) return null
   const customerId = sessionProfile.id
@@ -58,6 +59,7 @@ export default async function SettingsPage() {
       capitalConfig={capitalConfig}
       fixedRules={fixedRules}
       watchlists={watchlists}
+      justConnected={justConnected}
     />
   )
 }

@@ -121,7 +121,7 @@ export async function GET(req: NextRequest) {
         if (statusErr) console.error('[zerodha/callback] status update failed:', statusErr.message, '| code:', statusErr.code)
       }
 
-      const redirectTo = dalgoProfile.status === 'active' ? '/dashboard' : '/setup?connected=true'
+      const redirectTo = dalgoProfile.status === 'active' ? '/settings?connected=true' : '/setup?connected=true'
       return dalgoRedirect(redirectTo)
     } catch (e) {
       return dalgoRedirect('/setup?error=' + encodeURIComponent('Network error: ' + String(e).slice(0, 100)))
