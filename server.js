@@ -1,3 +1,6 @@
+// Load .env.local before anything else — cron-runtime needs these vars at module init time
+require('dotenv').config({ path: require('path').join(__dirname, '.env.local') })
+
 const { createServer } = require('http')
 const next = require('next')
 const { parse } = require('url')
