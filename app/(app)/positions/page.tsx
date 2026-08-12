@@ -44,7 +44,7 @@ export default async function PositionsPage() {
   return (
     <div style={{ fontFamily: INTER }}>
       <h1 style={{ fontFamily: SORA, fontSize: 22, fontWeight: 700, color: C.heading, margin: '0 0 4px' }}>
-        Today's Positions
+        Open Positions
       </h1>
       <p style={{ color: C.muted, fontSize: 14, margin: '0 0 20px' }}>
         {dayPositions.length} position{dayPositions.length !== 1 ? 's' : ''} traded today

@@ -86,7 +86,7 @@ export default async function HoldingsPage() {
 
   return (
     <div style={{ fontFamily: INTER }}>
-      <h1 style={{ fontFamily: SORA, fontSize: 22, fontWeight: 700, color: C.heading, margin: '0 0 4px' }}>Current Holdings</h1>
+      <h1 style={{ fontFamily: SORA, fontSize: 22, fontWeight: 700, color: C.heading, margin: '0 0 4px' }}>Holdings</h1>
       <p style={{ color: C.muted, fontSize: 14, margin: '0 0 20px' }}>Live portfolio from Zerodha</p>
 
       {error ? (

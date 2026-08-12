@@ -36,9 +36,9 @@ const NAV_GROUPS: NavGroup[] = [
     title: 'Trades',
     items: [
       { href: '/engine', label: 'Trading Engine', icon: '⚡' },
-      { href: '/holdings', label: 'Current Holdings', icon: '◐' },
-      { href: '/trades', label: "Today's Orders", icon: '≡', isActive: (pathname, view) => pathname === '/trades' && view !== 'retro' },
-      { href: '/positions', label: "Today's Positions", icon: '◈' },
+      { href: '/holdings', label: 'Holdings', icon: '◐' },
+      { href: '/trades', label: 'Orders', icon: '≡', isActive: (pathname, view) => pathname === '/trades' && view !== 'retro' },
+      { href: '/positions', label: 'Open Positions', icon: '◈' },
     ],
   },
   {

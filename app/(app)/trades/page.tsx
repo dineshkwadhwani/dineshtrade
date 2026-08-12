@@ -48,12 +48,12 @@ export default function TradesPage() {
       <div className="flex items-center justify-between flex-wrap gap-3">
         <h1 className="text-2xl font-light dt-text-primary" style={{ fontFamily:'Cormorant Garamond, serif' }}>
           {view === 'orders'
-            ? <>Today's <span className="accent-text">Orders</span></>
+            ? <>Orders</>
             : <span className="accent-text">Retrospective</span>}
         </h1>
         <div className="flex gap-1 rounded-lg p-1 dt-card">
           {[
-            { id:'orders' as View, label:"Today's Orders" },
+            { id:'orders' as View, label:'Orders' },
             { id:'retro'  as View, label:'Retrospective' },
           ].map(t => {
             const active = view === t.id
