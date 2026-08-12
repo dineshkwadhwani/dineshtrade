@@ -1,19 +1,14 @@
+// Today's intraday positions from Kite /portfolio/positions (day array).
+// Shows net qty of what was traded today: positive=net bought, negative=net sold.
 export const dynamic = 'force-dynamic'
 
-import { getSupabaseAdmin } from '@/lib/supabase'
 import { getProfile } from '@/lib/dalgoAuth'
-import { loadBrokerAccountCreds, getHoldings } from '@/lib/kite'
-import StrategyTagButton from '@/components/app/StrategyTagButton'
+import { loadBrokerAccountCreds, getPositions } from '@/lib/kite'
 import OrderButton from '@/components/app/OrderButton'
 
 const C = { bg: '#F8FAFF', card: '#FFFFFF', border: '#BFDBFE', heading: '#1E3A8A', body: '#475569', muted: '#94A3B8' }
 const SORA = "'Sora', sans-serif"
 const INTER = "'Inter', sans-serif"
-
-function daysHeld(firstBuyAt: string): number {
-  const diff = Date.now() - new Date(firstBuyAt).getTime()
-  return Math.floor(diff / (1000 * 60 * 60 * 24))
-}
 
 function fmt(n: number | null | undefined, decimals = 2) {
   if (n == null) return '—'
@@ -21,77 +16,133 @@ function fmt(n: number | null | undefined, decimals = 2) {
 }
 
 export default async function PositionsPage() {
-  const sessionProfile = await getProfile()
-  if (!sessionProfile) return null
-  const customerId = sessionProfile.id
-  const admin = getSupabaseAdmin()
+  const profile = await getProfile()
+  if (!profile) return null
 
-  const [positionsRes, strategyRes, kiteHoldings] = await Promise.all([
-    admin.from('customer_positions').select('id, symbol, strategy_tag, total_qty, remaining_qty, first_buy_price, first_buy_at, status, account').eq('customer_id', customerId).eq('status', 'open').order('first_buy_at', { ascending: false }),
-    admin.from('customer_strategies').select('strategy_key, name, color, active').eq('customer_id', customerId),
-    loadBrokerAccountCreds(customerId).then(creds => creds ? getHoldings(creds).catch(() => []) : []),
-  ])
+  const creds = await loadBrokerAccountCreds(profile.id)
 
-  // Build live price map from Kite holdings (last_price is always present)
-  const ltpBySymbol = new Map<string, number>(
-    kiteHoldings.map((h: { tradingsymbol: string; last_price: number }) => [h.tradingsymbol.toUpperCase(), h.last_price])
-  )
+  let dayPositions: Awaited<ReturnType<typeof getPositions>>['day'] = []
+  let error = ''
 
-  const activeStrategies = ((strategyRes.data ?? []) as any[])
-    .filter(s => s.active)
-    .map(s => ({ id: s.strategy_key as string, label: s.name as string, color: (s.color as string) || '#6B7280' }))
+  if (!creds) {
+    error = 'Zerodha not connected. Please connect your broker in Settings.'
+  } else {
+    try {
+      const result = await getPositions(creds)
+      // Only show positions with at least one buy or sell today
+      dayPositions = result.day.filter(
+        p => (p.day_buy_quantity ?? 0) > 0 || (p.day_sell_quantity ?? 0) > 0
+      )
+    } catch {
+      error = 'Failed to load positions. Your Zerodha token may have expired.'
+    }
+  }
 
-  const rows = positionsRes.data ?? []
+  // Net value = day buys - day sells for P&L context
+  const totalPnl = dayPositions.reduce((sum, p) => sum + (p.pnl ?? 0), 0)
 
   return (
     <div style={{ fontFamily: INTER }}>
-      <h1 style={{ fontFamily: SORA, fontSize: 22, fontWeight: 700, color: C.heading, margin: '0 0 4px' }}>Open Positions</h1>
-      <p style={{ color: C.muted, fontSize: 14, margin: '0 0 20px' }}>{rows.length} position{rows.length !== 1 ? 's' : ''} open</p>
+      <h1 style={{ fontFamily: SORA, fontSize: 22, fontWeight: 700, color: C.heading, margin: '0 0 4px' }}>
+        Today's Positions
+      </h1>
+      <p style={{ color: C.muted, fontSize: 14, margin: '0 0 20px' }}>
+        {dayPositions.length} position{dayPositions.length !== 1 ? 's' : ''} traded today
+        {dayPositions.length > 0 && (
+          <> · Day P&amp;L: <span style={{ color: totalPnl >= 0 ? '#16A34A' : '#DC2626', fontWeight: 600 }}>
+            {totalPnl >= 0 ? '+' : ''}₹{fmt(totalPnl, 0)}
+          </span></>
+        )}
+      </p>
 
-      {rows.length === 0 ? (
-        <div style={{ background: C.card, border: `1px solid ${C.border}`, borderRadius: 12, padding: 40, textAlign: 'center', color: C.muted }}>
-          No open positions.
+      {error && (
+        <div style={{ background: '#FEE2E2', border: '1px solid #FCA5A5', borderRadius: 12, padding: '14px 18px', color: '#DC2626', fontSize: 13 }}>
+          {error}
         </div>
-      ) : (
+      )}
+
+      {!error && dayPositions.length === 0 && (
+        <div style={{ background: C.card, border: `1px solid ${C.border}`, borderRadius: 12, padding: 40, textAlign: 'center', color: C.muted }}>
+          No trades today yet.
+        </div>
+      )}
+
+      {dayPositions.length > 0 && (
         <div style={{ background: C.card, border: `1px solid ${C.border}`, borderRadius: 12, overflow: 'hidden' }}>
           <div style={{ overflowX: 'auto' }}>
             <table style={{ width: '100%', borderCollapse: 'collapse', fontSize: 13 }}>
               <thead>
                 <tr style={{ background: '#EFF6FF' }}>
-                  {['Symbol', 'Strategy', 'Account', 'Qty (Rem)', 'Avg Entry', 'LTP', 'Unreal. P&L', 'Days Held', 'Entry Date', ''].map(h => (
-                    <th key={h} style={{ padding: '10px 14px', textAlign: h === 'LTP' || h === 'Unreal. P&L' ? 'right' : 'left', fontWeight: 600, color: C.heading, fontSize: 11, textTransform: 'uppercase', letterSpacing: '0.04em' }}>{h}</th>
+                  {['Symbol', 'Net Qty', 'Bought', 'Sold', 'Buy Price', 'Sell Price', 'LTP', 'Day P&L', ''].map(h => (
+                    <th key={h} style={{
+                      padding: '10px 14px',
+                      textAlign: h === 'Net Qty' || h === 'Bought' || h === 'Sold' || h === 'Buy Price' || h === 'Sell Price' || h === 'LTP' || h === 'Day P&L' ? 'right' : 'left',
+                      fontWeight: 600, color: C.heading, fontSize: 11, textTransform: 'uppercase', letterSpacing: '0.04em'
+                    }}>{h}</th>
                   ))}
                 </tr>
               </thead>
               <tbody>
-                {rows.map((p, i) => {
-                  const tag = p.strategy_tag ?? 'unknown'
-                  const ltp = ltpBySymbol.get(p.symbol.toUpperCase()) ?? null
-                  const pnl = ltp != null && p.remaining_qty ? (ltp - p.first_buy_price) * p.remaining_qty : null
+                {dayPositions.map((p, i) => {
+                  const netQty = p.quantity // Kite day position quantity = net of buys - sells
+                  const buyQty = p.day_buy_quantity ?? 0
+                  const sellQty = p.day_sell_quantity ?? 0
+                  const buyPrice = p.buy_price ?? p.day_buy_price ?? p.average_price ?? 0
+                  const sellPrice = p.sell_price ?? 0
+                  const ltp = p.last_price
+                  const pnl = p.pnl ?? 0
+                  const isNetLong = netQty > 0
+                  const canSquareOff = netQty !== 0
+                  const pnlColor = pnl >= 0 ? '#16A34A' : '#DC2626'
                   return (
-                    <tr key={p.id} style={{ borderTop: `1px solid ${C.border}`, background: i % 2 === 0 ? C.card : C.bg }}>
-                      <td style={{ padding: '10px 14px', fontWeight: 600, color: C.heading }}>{p.symbol}</td>
+                    <tr key={p.tradingsymbol} style={{ borderTop: `1px solid ${C.border}`, background: i % 2 === 0 ? C.card : C.bg }}>
+                      <td style={{ padding: '10px 14px', fontWeight: 700, color: C.heading }}>{p.tradingsymbol}</td>
+                      <td style={{ padding: '10px 14px', textAlign: 'right', fontWeight: 700, color: isNetLong ? '#16A34A' : netQty < 0 ? '#DC2626' : C.muted }}>
+                        {netQty > 0 ? `+${netQty}` : netQty}
+                      </td>
+                      <td style={{ padding: '10px 14px', textAlign: 'right', color: buyQty > 0 ? '#16A34A' : C.muted }}>
+                        {buyQty > 0 ? `+${buyQty}` : '—'}
+                      </td>
+                      <td style={{ padding: '10px 14px', textAlign: 'right', color: sellQty > 0 ? '#DC2626' : C.muted }}>
+                        {sellQty > 0 ? `−${sellQty}` : '—'}
+                      </td>
+                      <td style={{ padding: '10px 14px', textAlign: 'right', color: C.body }}>
+                        {buyPrice > 0 ? `₹${fmt(buyPrice)}` : '—'}
+                      </td>
+                      <td style={{ padding: '10px 14px', textAlign: 'right', color: C.body }}>
+                        {sellPrice > 0 ? `₹${fmt(sellPrice)}` : '—'}
+                      </td>
+                      <td style={{ padding: '10px 14px', textAlign: 'right', color: C.body }}>₹{fmt(ltp)}</td>
+                      <td style={{ padding: '10px 14px', textAlign: 'right', fontWeight: 600, color: pnlColor }}>
+                        {pnl >= 0 ? '+' : ''}₹{fmt(pnl, 0)}
+                      </td>
                       <td style={{ padding: '10px 14px' }}>
-                        <StrategyTagButton symbol={p.symbol} currentTag={tag} strategies={activeStrategies} />
-                      </td>
-                      <td style={{ padding: '10px 14px', color: C.muted, fontSize: 12 }}>{p.account || '—'}</td>
-                      <td style={{ padding: '10px 14px', color: C.body }}>{p.remaining_qty} <span style={{ color: C.muted }}>/ {p.total_qty}</span></td>
-                      <td style={{ padding: '10px 14px', color: C.body }}>₹{fmt(p.first_buy_price)}</td>
-                      <td style={{ padding: '10px 14px', color: C.body, textAlign: 'right' }}>{ltp != null ? `₹${fmt(ltp)}` : '—'}</td>
-                      <td style={{ padding: '10px 14px', textAlign: 'right', fontWeight: 600, color: pnl == null ? C.muted : pnl >= 0 ? '#16A34A' : '#DC2626' }}>
-                        {pnl == null ? '—' : `${pnl >= 0 ? '+' : ''}₹${fmt(Math.abs(pnl), 0)}`}
-                      </td>
-                      <td style={{ padding: '10px 14px', color: C.body }}>{daysHeld(p.first_buy_at)}d</td>
-                      <td style={{ padding: '10px 14px', color: C.muted, fontSize: 12 }}>
-                        {new Date(p.first_buy_at).toLocaleDateString('en-IN', { day: 'numeric', month: 'short', year: '2-digit' })}
-                      </td>
-                      <td style={{ padding: '10px 14px' }}>
-                        <OrderButton symbol={p.symbol} side="SELL" quantity={p.remaining_qty} price={ltp ?? p.first_buy_price} label="Square Off" size="sm" disabled={ltp == null} />
+                        {canSquareOff && (
+                          <OrderButton
+                            symbol={p.tradingsymbol}
+                            side={netQty > 0 ? 'SELL' : 'BUY'}
+                            quantity={Math.abs(netQty)}
+                            price={ltp}
+                            label="Square Off"
+                            size="sm"
+                          />
+                        )}
                       </td>
                     </tr>
                   )
                 })}
               </tbody>
+              {dayPositions.length > 1 && (
+                <tfoot>
+                  <tr style={{ borderTop: `2px solid ${C.border}`, background: '#EFF6FF' }}>
+                    <td colSpan={7} style={{ padding: '10px 14px', fontWeight: 700, color: C.heading }}>Total Day P&L</td>
+                    <td style={{ padding: '10px 14px', textAlign: 'right', fontWeight: 700, color: totalPnl >= 0 ? '#16A34A' : '#DC2626' }}>
+                      {totalPnl >= 0 ? '+' : ''}₹{fmt(totalPnl, 0)}
+                    </td>
+                    <td></td>
+                  </tr>
+                </tfoot>
+              )}
             </table>
           </div>
         </div>

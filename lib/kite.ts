@@ -100,6 +100,8 @@ export interface KitePosition {
   day_sell_quantity?: number
   day_buy_price?: number
   day_buy_value?: number
+  buy_price?: number      // average buy price for day positions
+  sell_price?: number     // average sell price for day positions
   average_price: number
   last_price: number
   close_price?: number   // previous trading day's close — used to compute today's %
