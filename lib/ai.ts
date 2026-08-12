@@ -39,7 +39,7 @@ export function getModel(provider: AIProvider): string {
   const raw = process.env[`${provider.toUpperCase()}_AI_MODEL`] || DEFAULTS[provider].model
   // Normalise legacy/alias names that the API rejects
   if (provider === 'gemini') {
-    if (raw === 'gemini-flash-latest' || raw === 'gemini-3.6-flash') return 'gemini-2.0-flash'
+    if (raw === 'gemini-flash-latest' || raw === 'gemini-3.6-flash' || raw === 'gemini-2.0-flash') return 'gemini-2.5-flash'
     if (raw === 'gemini-pro-latest') return 'gemini-1.5-pro'
   }
   return raw
