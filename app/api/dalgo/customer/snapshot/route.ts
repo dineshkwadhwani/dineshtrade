@@ -36,5 +36,12 @@ export async function GET() {
     }, 0).toFixed(2),
   )
 
-  return NextResponse.json({ portfolioValue, availableFunds })
+  const investedValue = Number(
+    holdings.reduce((sum, h) => {
+      const qty = (h.quantity || 0) + (h.t1_quantity || 0)
+      return sum + qty * (h.average_price || 0)
+    }, 0).toFixed(2),
+  )
+
+  return NextResponse.json({ portfolioValue, investedValue, availableFunds })
 }
