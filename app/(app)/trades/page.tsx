@@ -19,6 +19,8 @@ interface Order {
   exchange?: string
   status_message?: string
   tag?: string
+  strategy_tag?: string | null
+  source_mode?: 'manual' | 'auto' | string | null
 }
 
 type View = 'orders' | 'retro'
@@ -149,7 +151,8 @@ function OrdersView() {
                 <span className="col-span-1 text-center">Status</span>
               </div>
               {orders.map((o, i) => {
-                const strategyLabel = tagToStrategy(o.tag)
+                const strategyLabel = strategyBadgeForOrder(o)
+                const sourceLabel = sourceBadgeForOrder(o)
                 return (
                 <div key={o.order_id}
                   style={{ borderBottom: i < orders.length-1 ? '1px solid rgba(255,255,255,0.04)' : 'none' }}>
@@ -171,6 +174,16 @@ function OrdersView() {
                           {strategyLabel.label}
                         </span>
                       )}
+                      {sourceLabel && (
+                        <span className="flex-shrink-0 text-[9px] px-1.5 py-0.5 rounded tracking-wider"
+                          style={{
+                            background: sourceLabel.bg,
+                            color: sourceLabel.color,
+                            border: `1px solid ${sourceLabel.border}`,
+                          }}>
+                          {sourceLabel.label}
+                        </span>
+                      )}
                     </span>
                     <span className="col-span-1 text-center font-semibold" style={{ color: o.transaction_type === 'BUY' ? '#52b788' : '#e05a5e' }}
                       title={o.transaction_type}>
@@ -182,9 +195,9 @@ function OrdersView() {
                     <span className="col-span-2 text-right dt-text-secondary whitespace-nowrap">
                       {o.average_price ? `₹${o.average_price.toFixed(2)}` : '—'}
                     </span>
-                    <span className="col-span-1 text-center text-[14px] font-semibold" style={{ color: statusColor(o.status) }}
-                      title={o.status_message || o.status}>
-                      {statusGlyph(o.status)}
+                    <span className="col-span-1 text-center text-[14px] font-semibold" style={{ color: statusColor(o) }}
+                      title={isPartialFill(o) ? 'Partially filled' : (o.status_message || o.status)}>
+                      {statusGlyph(o)}
                     </span>
                   </div>
                   {/* Mobile: multiline layout */}
@@ -192,20 +205,34 @@ function OrdersView() {
                     <div className="flex items-start justify-between gap-2">
                       <div className="flex flex-col gap-1 min-w-0 flex-1">
                         <span className="font-semibold dt-text-primary truncate">{o.tradingsymbol}</span>
-                        {strategyLabel && (
-                          <span className="text-[9px] px-1.5 py-0.5 rounded tracking-wider w-fit"
-                            style={{
-                              background: strategyLabel.bg,
-                              color: strategyLabel.color,
-                              border: `1px solid ${strategyLabel.border}`,
-                            }}>
-                            {strategyLabel.label}
-                          </span>
+                        {(strategyLabel || sourceLabel) && (
+                          <div className="flex gap-1.5 flex-wrap">
+                            {strategyLabel && (
+                              <span className="text-[9px] px-1.5 py-0.5 rounded tracking-wider w-fit"
+                                style={{
+                                  background: strategyLabel.bg,
+                                  color: strategyLabel.color,
+                                  border: `1px solid ${strategyLabel.border}`,
+                                }}>
+                                {strategyLabel.label}
+                              </span>
+                            )}
+                            {sourceLabel && (
+                              <span className="text-[9px] px-1.5 py-0.5 rounded tracking-wider w-fit"
+                                style={{
+                                  background: sourceLabel.bg,
+                                  color: sourceLabel.color,
+                                  border: `1px solid ${sourceLabel.border}`,
+                                }}>
+                                {sourceLabel.label}
+                              </span>
+                            )}
+                          </div>
                         )}
                       </div>
-                      <span className="flex-shrink-0 text-[14px] font-semibold" style={{ color: statusColor(o.status) }}
-                        title={o.status_message || o.status}>
-                        {statusGlyph(o.status)}
+                      <span className="flex-shrink-0 text-[14px] font-semibold" style={{ color: statusColor(o) }}
+                        title={isPartialFill(o) ? 'Partially filled' : (o.status_message || o.status)}>
+                        {statusGlyph(o)}
                       </span>
                     </div>
                     <div className="flex justify-between gap-4 text-[11px]">
@@ -638,14 +665,22 @@ function rateColor(v: number | null, good: number, ok: number): string {
   return '#e05a5e'
 }
 
-function statusColor(s: string): string {
+function isPartialFill(o: Order): boolean {
+  return typeof o.filled_quantity === 'number' && o.filled_quantity > 0 && o.filled_quantity < o.quantity
+}
+
+function statusColor(o: Order): string {
+  if (isPartialFill(o)) return '#f59e0b'
+  const s = o.status
   if (s === 'COMPLETE') return '#52b788'
   if (s === 'REJECTED') return '#e05a5e'
   if (s === 'CANCELLED') return 'rgba(255,255,255,0.4)'
   return '#c9a84c'
 }
 
-function statusGlyph(s: string): string {
+function statusGlyph(o: Order): string {
+  if (isPartialFill(o)) return 'P'
+  const s = o.status
   if (s === 'COMPLETE') return '✓'
   if (s === 'REJECTED') return '✗'
   if (s === 'CANCELLED') return 'C'
@@ -689,6 +724,32 @@ function tagToStrategy(tag?: string): { label: string; color: string; bg: string
   const match = tag.match(/^dt-(.+)$/)
   if (match) return { label: match[1].toUpperCase().slice(0, 12), color: '#c9a84c', bg: 'rgba(201,168,76,0.1)', border: 'rgba(201,168,76,0.3)' }
   return { label: tag.slice(0, 12).toUpperCase(), color: 'rgba(255,255,255,0.5)', bg: 'rgba(255,255,255,0.05)', border: 'rgba(255,255,255,0.1)' }
+}
+
+function strategyBadgeFromStrategyTag(strategyTag?: string | null): { label: string; color: string; bg: string; border: string } | null {
+  if (!strategyTag) return null
+  const s = strategyTag.toLowerCase()
+  if (s === 'accumulator' || s === 's1') return { label: 'ACCUMULATOR', color: '#52b788', bg: 'rgba(82,183,136,0.1)', border: 'rgba(82,183,136,0.3)' }
+  if (s === 'catalyst' || s === 's2') return { label: 'CATALYST', color: '#c9a84c', bg: 'rgba(201,168,76,0.1)', border: 'rgba(201,168,76,0.3)' }
+  if (s === 'market_boom') return { label: 'MARKET BOOM', color: '#60a5fa', bg: 'rgba(96,165,250,0.12)', border: 'rgba(96,165,250,0.35)' }
+  if (s === 'new_pivotal') return { label: 'NEW PIVOTAL', color: '#f59e0b', bg: 'rgba(245,158,11,0.12)', border: 'rgba(245,158,11,0.35)' }
+  return { label: s.toUpperCase().slice(0, 12), color: '#c9a84c', bg: 'rgba(201,168,76,0.1)', border: 'rgba(201,168,76,0.3)' }
+}
+
+function strategyBadgeForOrder(o: Order): { label: string; color: string; bg: string; border: string } | null {
+  return strategyBadgeFromStrategyTag(o.strategy_tag) ?? tagToStrategy(o.tag)
+}
+
+function sourceBadgeForOrder(o: Order): { label: string; color: string; bg: string; border: string } | null {
+  const s = (o.source_mode || '').toLowerCase()
+  if (s === 'manual') return { label: 'MANUAL', color: '#a78bfa', bg: 'rgba(167,139,250,0.1)', border: 'rgba(167,139,250,0.3)' }
+  if (s === 'auto') return { label: 'AUTO', color: '#60a5fa', bg: 'rgba(96,165,250,0.12)', border: 'rgba(96,165,250,0.35)' }
+  if (o.tag) {
+    const t = o.tag.toLowerCase()
+    if (t === 'manual' || t === 'dt-manual') return { label: 'MANUAL', color: '#a78bfa', bg: 'rgba(167,139,250,0.1)', border: 'rgba(167,139,250,0.3)' }
+    if (t.startsWith('dt-')) return { label: 'AUTO', color: '#60a5fa', bg: 'rgba(96,165,250,0.12)', border: 'rgba(96,165,250,0.35)' }
+  }
+  return null
 }
 
 function AccountTabs({ accounts, connected, active, onSelect, loaded }: {

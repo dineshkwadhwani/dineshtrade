@@ -10,6 +10,8 @@ import OrderButton from '@/components/app/OrderButton'
 const C = { bg: '#F8FAFF', card: '#FFFFFF', border: '#BFDBFE', heading: '#1E3A8A', body: '#475569', muted: '#94A3B8' }
 const SORA = "'Sora', sans-serif"
 const INTER = "'Inter', sans-serif"
+const POSITIVE = '#52b788'
+const NEGATIVE = '#e05a5e'
 
 function daysHeld(firstBuyAt: string): number {
   return Math.floor((Date.now() - new Date(firstBuyAt).getTime()) / (1000 * 60 * 60 * 24))
@@ -30,6 +32,7 @@ interface DisplayHolding {
   t1_quantity: number
   average_price: number
   last_price: number
+  close_price: number | null
   pnl: number
   strategyTag: string | null
   firstBuyAt: string | null
@@ -71,8 +74,10 @@ export default async function HoldingsPage() {
   
   let holdings: DisplayHolding[] = []
   let offlineMode = false
+  let totalInvestment = 0
   let totalValue = 0
   let totalPnl = 0
+  let todaysPnl = 0
 
   if (tokenValid && broker) {
     // ── Mode 1: Kite live data ──────────────────────────────────────────
@@ -91,6 +96,7 @@ export default async function HoldingsPage() {
           t1_quantity: h.t1_quantity ?? 0,
           average_price: h.average_price,
           last_price: h.last_price,
+          close_price: h.close_price ?? null,
           pnl: h.pnl,
           strategyTag: tracked?.tag ?? null,
           firstBuyAt: tracked?.firstBuyAt ?? null,
@@ -132,6 +138,7 @@ export default async function HoldingsPage() {
           t1_quantity: 0,
           average_price: p.first_buy_price,
           last_price: ltp,
+          close_price: null,
           pnl,
           strategyTag: p.strategy_tag ?? null,
           firstBuyAt: p.first_buy_at ?? null,
@@ -140,8 +147,14 @@ export default async function HoldingsPage() {
       })
   }
 
+  totalInvestment = holdings.reduce((s, h) => s + h.average_price * (h.quantity + h.t1_quantity), 0)
   totalValue = holdings.reduce((s, h) => s + h.last_price * (h.quantity + h.t1_quantity), 0)
   totalPnl = holdings.reduce((s, h) => s + h.pnl, 0)
+  todaysPnl = holdings.reduce((s, h) => {
+    const qty = h.quantity + h.t1_quantity
+    if (!h.close_price || h.close_price <= 0 || qty <= 0) return s
+    return s + (h.last_price - h.close_price) * qty
+  }, 0)
 
   return (
     <div style={{ fontFamily: INTER }}>
@@ -174,12 +187,14 @@ export default async function HoldingsPage() {
           <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(180px, 1fr))', gap: 16, marginBottom: 20 }}>
             {[
               { label: 'Total Holdings', value: String(holdings.length) },
+              { label: 'Total Investment', value: `₹${fmt(totalInvestment)}` },
               { label: 'Portfolio Value', value: `₹${fmt(totalValue)}` },
               { label: 'Total P&L', value: `₹${fmt(totalPnl)}`, pnl: totalPnl },
+              { label: "Today's P/L", value: `₹${fmt(todaysPnl)}`, pnl: todaysPnl },
             ].map(s => (
               <div key={s.label} style={{ background: C.card, border: `1px solid ${C.border}`, borderRadius: 12, padding: 16 }}>
                 <p style={{ fontSize: 11, fontWeight: 600, color: C.muted, textTransform: 'uppercase', letterSpacing: '0.06em', margin: '0 0 4px' }}>{s.label}</p>
-                <p style={{ fontSize: 20, fontWeight: 700, margin: 0, fontFamily: SORA, color: s.pnl != null ? (s.pnl >= 0 ? '#16A34A' : '#DC2626') : C.heading }}>{s.value}</p>
+                <p style={{ fontSize: 20, fontWeight: 700, margin: 0, fontFamily: SORA, color: s.pnl != null ? (s.pnl >= 0 ? POSITIVE : NEGATIVE) : C.heading }}>{s.value}</p>
               </div>
             ))}
           </div>
@@ -190,7 +205,7 @@ export default async function HoldingsPage() {
               <table style={{ width: '100%', borderCollapse: 'collapse', fontSize: 13 }}>
                 <thead>
                   <tr style={{ background: '#EFF6FF' }}>
-                    {['Symbol', 'Strategy', 'Qty', offlineMode ? '' : 'T+1', 'Avg Price', 'LTP', 'P&L', 'P&L %', 'Days', ''].map(h => (
+                    {['Symbol', 'Strategy', 'Qty', 'Avg Price', 'LTP', 'P&L', 'P&L %', 'Today', 'Days', ''].map(h => (
                       <th key={h} style={{ padding: '10px 14px', textAlign: 'left', fontWeight: 600, color: C.heading, fontFamily: INTER, fontSize: 11, textTransform: 'uppercase', letterSpacing: '0.04em' }}>{h}</th>
                     ))}
                   </tr>
@@ -198,7 +213,9 @@ export default async function HoldingsPage() {
                 <tbody>
                   {holdings.map((h, i) => {
                     const pnlPct = h.average_price > 0 ? ((h.last_price - h.average_price) / h.average_price) * 100 : 0
-                    const pnlColor = h.pnl >= 0 ? '#16A34A' : '#DC2626'
+                    const pnlColor = h.pnl >= 0 ? POSITIVE : NEGATIVE
+                    const todayPct = h.close_price && h.close_price > 0 ? ((h.last_price - h.close_price) / h.close_price) * 100 : null
+                    const todayColor = (todayPct ?? 0) >= 0 ? POSITIVE : NEGATIVE
                     const days = h.firstBuyAt ? daysHeld(h.firstBuyAt) : null
                     return (
                       <tr key={h.symbol} style={{ borderTop: `1px solid ${C.border}`, background: i % 2 === 0 ? C.card : C.bg }}>
@@ -209,11 +226,13 @@ export default async function HoldingsPage() {
                             : <span style={{ color: '#94A3B8', fontSize: 12 }}>—</span>}
                         </td>
                         <td style={{ padding: '10px 14px', color: C.body }}>{h.quantity}</td>
-                        {!offlineMode && <td style={{ padding: '10px 14px', color: C.muted }}>{h.t1_quantity || '—'}</td>}
                         <td style={{ padding: '10px 14px', color: C.body }}>₹{fmt(h.average_price)}</td>
                         <td style={{ padding: '10px 14px', color: C.body }}>₹{fmt(h.last_price)}</td>
                         <td style={{ padding: '10px 14px', fontWeight: 600, color: pnlColor }}>₹{fmt(h.pnl)}</td>
                         <td style={{ padding: '10px 14px', fontWeight: 600, color: pnlColor }}>{pnlPct >= 0 ? '+' : ''}{fmt(pnlPct)}%</td>
+                        <td style={{ padding: '10px 14px', fontWeight: 600, color: todayPct == null ? C.muted : todayColor }}>
+                          {todayPct == null ? '—' : `${todayPct >= 0 ? '+' : ''}${fmt(todayPct)}%`}
+                        </td>
                         <td style={{ padding: '10px 14px', color: C.muted, fontSize: 12 }}>{days != null ? `${days}d` : '—'}</td>
                         <td style={{ padding: '10px 14px' }}>
                           {/* SELL button only when broker is connected and has live qty */}
@@ -227,9 +246,9 @@ export default async function HoldingsPage() {
                 </tbody>
                 <tfoot>
                   <tr style={{ borderTop: `2px solid ${C.border}`, background: '#EFF6FF' }}>
-                    <td colSpan={offlineMode ? 5 : 6} style={{ padding: '10px 14px', fontWeight: 700, color: C.heading, fontSize: 13 }}>Total</td>
-                    <td style={{ padding: '10px 14px', fontWeight: 700, color: totalPnl >= 0 ? '#16A34A' : '#DC2626' }}>₹{fmt(totalPnl)}</td>
-                    <td colSpan={3}></td>
+                    <td colSpan={5} style={{ padding: '10px 14px', fontWeight: 700, color: C.heading, fontSize: 13 }}>Total</td>
+                    <td style={{ padding: '10px 14px', fontWeight: 700, color: totalPnl >= 0 ? POSITIVE : NEGATIVE }}>₹{fmt(totalPnl)}</td>
+                    <td colSpan={4}></td>
                   </tr>
                 </tfoot>
               </table>

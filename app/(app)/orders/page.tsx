@@ -14,6 +14,18 @@ const STATUS_BADGE: Record<string, { color: string; bg: string }> = {
   CANCELLED: { color: '#94A3B8', bg: '#F1F5F9' },
 }
 
+const SOURCE_BADGE: Record<string, { color: string; bg: string }> = {
+  manual: { color: '#7c2d12', bg: '#ffedd5' },
+  auto: { color: '#1d4ed8', bg: '#dbeafe' },
+}
+
+const STRATEGY_BADGE: Record<string, { color: string; bg: string; label: string }> = {
+  accumulator: { color: '#14532d', bg: '#dcfce7', label: 'Accumulator' },
+  catalyst: { color: '#0f766e', bg: '#ccfbf1', label: 'Catalyst' },
+  market_boom: { color: '#7c3aed', bg: '#ede9fe', label: 'Market Boom' },
+  new_pivotal: { color: '#9a3412', bg: '#ffedd5', label: 'New Pivotal' },
+}
+
 export default async function OrdersPage() {
   const sessionProfile = await getProfile()
   if (!sessionProfile) return null
@@ -74,7 +86,54 @@ export default async function OrdersPage() {
                         <span style={{ padding: '2px 8px', borderRadius: 999, fontSize: 11, fontWeight: 600, background: sb.bg, color: sb.color }}>{o.status}</span>
                       </td>
                       <td style={{ padding: '10px 14px', color: C.muted, fontSize: 12 }}>{o.strategy_tag ?? '—'}</td>
-                      <td style={{ padding: '10px 14px', color: C.muted, fontSize: 12 }}>{o.source}</td>
+                      <td style={{ padding: '10px 14px' }}>
+                        {(() => {
+                          const strategyKey = (o.strategy_tag || '').toLowerCase()
+                          const strategyBadge = STRATEGY_BADGE[strategyKey]
+                          return strategyBadge ? (
+                            <span
+                              style={{
+                                padding: '2px 8px',
+                                borderRadius: 999,
+                                fontSize: 11,
+                                fontWeight: 600,
+                                background: strategyBadge.bg,
+                                color: strategyBadge.color,
+                                textTransform: 'uppercase',
+                                letterSpacing: '0.03em',
+                              }}
+                            >
+                              {strategyBadge.label}
+                            </span>
+                          ) : (
+                            <span style={{ color: C.muted, fontSize: 12 }}>—</span>
+                          )
+                        })()}
+                      </td>
+                      <td style={{ padding: '10px 14px' }}>
+                        {(() => {
+                          const sourceKey = (o.source || '').toLowerCase()
+                          const sourceBadge = SOURCE_BADGE[sourceKey]
+                          return sourceBadge ? (
+                            <span
+                              style={{
+                                padding: '2px 8px',
+                                borderRadius: 999,
+                                fontSize: 11,
+                                fontWeight: 700,
+                                background: sourceBadge.bg,
+                                color: sourceBadge.color,
+                                textTransform: 'uppercase',
+                                letterSpacing: '0.03em',
+                              }}
+                            >
+                              {sourceKey}
+                            </span>
+                          ) : (
+                            <span style={{ color: C.muted, fontSize: 12 }}>{o.source || '—'}</span>
+                          )
+                        })()}
+                      </td>
                     </tr>
                   )
                 })}
