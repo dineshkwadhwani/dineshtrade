@@ -58,6 +58,26 @@ let tickTask: ScheduledTask | null = null
 let eodTask: ScheduledTask | null = null
 let tokenAlertTask: ScheduledTask | null = null
 
+function envTrue(key: string): boolean {
+  return String(process.env[key] || '').trim().toLowerCase() === 'true'
+}
+
+// Test-only switches for validating AUTO cron behavior after market hours.
+const CRON_TEST_ALL_DAY = envTrue('CRON_TEST_ALL_DAY')
+const CRON_TEST_IGNORE_MARKET_HOURS = envTrue('CRON_TEST_IGNORE_MARKET_HOURS')
+
+function weekdayHoursField(): string {
+  return CRON_TEST_ALL_DAY ? '*' : '9-15'
+}
+
+function everyNWeekdayMinutesExpr(intervalMin: number): string {
+  return `*/${Math.max(1, intervalMin)} ${weekdayHoursField()} * * 1-5`
+}
+
+function atMinuteWeekdayExpr(minute: number, hour: number): string {
+  return CRON_TEST_ALL_DAY ? `${minute} * * * 1-5` : `${minute} ${hour} * * 1-5`
+}
+
 // Task 5.6 — sellMonitorCadenceMin drives the core tick's cron expression.
 // node-cron can't reschedule a live task in place, so we track the interval
 // this task was BUILT with and, on a periodic check, stop+recreate it if
@@ -192,9 +212,12 @@ async function tick(): Promise<void> {
   reportInstanceStatus(state).catch(err => console.error('[cron tick] instance status report failed:', err))
 
   const market = isMarketOpen()
-  if (!market.open) {
+  if (!market.open && !CRON_TEST_IGNORE_MARKET_HOURS) {
     console.log(`[cron tick] skipped — market closed (${market.status})`)
     return
+  }
+  if (!market.open && CRON_TEST_IGNORE_MARKET_HOURS) {
+    console.log(`[cron tick] test override — proceeding while market closed (${market.status})`)
   }
   if (state.mode !== 'auto') {
     console.log(`[cron tick] skipped — mode=${state.mode}`)
@@ -330,7 +353,7 @@ async function tick(): Promise<void> {
 async function buildTickExpr(): Promise<string> {
   const rules = await getFixedRules()
   currentSellCadenceMin = Math.max(1, Math.round(rules.sellMonitorCadenceMin) || 5)
-  return `*/${currentSellCadenceMin} 9-15 * * 1-5`
+  return everyNWeekdayMinutesExpr(currentSellCadenceMin)
 }
 
 // Re-reads Fixed Rules (cheap — getFixedRules() itself caches 5 min) and
@@ -345,7 +368,7 @@ async function checkSellCadence(): Promise<void> {
     console.log(`[cron] sellMonitorCadenceMin changed ${currentSellCadenceMin} → ${nextCadence} — restarting core tick task`)
     if (tickTask) tickTask.stop()
     currentSellCadenceMin = nextCadence
-    tickTask = cron.schedule(`*/${nextCadence} 9-15 * * 1-5`, () => {
+    tickTask = cron.schedule(everyNWeekdayMinutesExpr(nextCadence), () => {
       tick().catch(err => console.error('[cron tick] error:', err))
     }, { timezone: 'Asia/Kolkata' })
     tickTask.start()
@@ -418,7 +441,7 @@ export async function startCron(): Promise<void> {
   }, 5 * 60 * 1000)
 
   // Daily retrospective — run for each customer
-  eodTask = cron.schedule('35 15 * * 1-5', () => {
+  eodTask = cron.schedule(atMinuteWeekdayExpr(35, 15), () => {
     ;(async () => {
       for (const customerId of customerIds) {
         try {
@@ -432,7 +455,7 @@ export async function startCron(): Promise<void> {
   eodTask.start()
 
   // Token alert — run for each customer
-  tokenAlertTask = cron.schedule('0 9 * * 1-5', () => {
+  tokenAlertTask = cron.schedule(atMinuteWeekdayExpr(0, 9), () => {
     ;(async () => {
       for (const customerId of customerIds) {
         try {
@@ -451,7 +474,7 @@ export async function startCron(): Promise<void> {
     registerStrategyTask(strategy, customerIds)
   }
   const summary = active.map(s => `${s.id}@${s.scanIntervalMin}m`).join(', ')
-  console.log(`[cron] starting — core tick every ${currentSellCadenceMin} min · retro 15:35 IST · token alert 09:00 IST · per-strategy: ${summary || 'none'}`)
+  console.log(`[cron] starting — core tick every ${currentSellCadenceMin} min · retro 15:35 IST · token alert 09:00 IST · per-strategy: ${summary || 'none'} · testAllDay=${CRON_TEST_ALL_DAY} · ignoreMarketHours=${CRON_TEST_IGNORE_MARKET_HOURS}`)
 }
 
 export function ensureCronStarted(): void {
@@ -471,7 +494,7 @@ export function ensureCronStarted(): void {
 function registerStrategyTask(strategy: Strategy, customerIds: string[]): void {
   if (strategyTasks.has(strategy.id)) return
   const interval = Math.max(1, strategy.scanIntervalMin)
-  const expr = `*/${interval} 9-15 * * 1-5`
+  const expr = everyNWeekdayMinutesExpr(interval)
   const task = cron.schedule(expr, () => {
     console.log(`[cron strategy:${strategy.id}] callback fired (${expr})`)
     ;(async () => {
