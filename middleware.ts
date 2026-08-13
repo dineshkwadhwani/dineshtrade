@@ -49,6 +49,7 @@ const PUBLIC_EXACT = new Set([
   '/api/dalgo/auth', // critical — the login endpoint itself must be public
   '/api/dalgo/auth/logout', // GET logout clears cookie and redirects to /; must be reachable without a valid session
   '/api/dalgo/register', // customer/broking-company self-registration — no session exists yet
+  '/api/dalgo/register/resend-verification', // resend email confirmation link — no session yet
   '/api/dalgo/upload-url', // Aadhar upload URL generation — called from the registration form pre-signup
   '/api/dalgo/contact', // public /contact page form submission — no session exists yet (Phase 7, Task 7.10)
   '/api/dalgo/setup/broker', // broker credential setup — session-gated inside the route, not via middleware (identity_verified customers have a session but not active status)

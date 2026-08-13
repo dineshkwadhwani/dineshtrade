@@ -159,6 +159,28 @@ export default function RegisterClient() {
   const [fieldErrors, setFieldErrors] = useState<Record<string, string>>({})
   const [error, setError] = useState('')
   const [loading, setLoading] = useState(false)
+  const [submitted, setSubmitted] = useState(false)
+  const [submittedEmail, setSubmittedEmail] = useState('')
+  const [resending, setResending] = useState(false)
+  const [resendMsg, setResendMsg] = useState('')
+
+  async function handleResend() {
+    setResending(true)
+    setResendMsg('')
+    try {
+      const res = await fetch('/api/dalgo/register/resend-verification', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ email: submittedEmail }),
+      })
+      const data = await res.json().catch(() => ({}))
+      setResendMsg(res.ok ? 'Verification email resent — please check your inbox.' : (data.error || 'Failed to resend. Try again.'))
+    } catch {
+      setResendMsg('Connection error. Try again.')
+    } finally {
+      setResending(false)
+    }
+  }
 
   function update<K extends keyof FormState>(key: K, value: FormState[K]) {
     setForm(f => ({ ...f, [key]: value }))
@@ -258,6 +280,8 @@ export default function RegisterClient() {
         return
       }
       window.location.href = '/pending'
+      setSubmittedEmail(form.email)
+      setSubmitted(true)
     } catch {
       setError('Connection error. Please try again.')
       setLoading(false)
@@ -266,6 +290,50 @@ export default function RegisterClient() {
 
   return (
     <CardShell>
+      {submitted ? (
+        <div style={{ textAlign: 'center' }}>
+          <div style={{ fontSize: 52, marginBottom: 16 }}>📧</div>
+          <h1 style={{ fontFamily: FONT_SORA, fontWeight: 700, fontSize: 22, color: '#1E3A8A', margin: '0 0 12px' }}>
+            Check your email
+          </h1>
+          <p style={{ fontFamily: FONT_INTER, fontSize: 14, color: '#475569', lineHeight: 1.7, margin: '0 0 16px' }}>
+            We sent a verification link to<br />
+            <strong style={{ color: '#1E3A8A' }}>{submittedEmail}</strong>
+          </p>
+          <p style={{ fontFamily: FONT_INTER, fontSize: 14, color: '#475569', lineHeight: 1.7, margin: '0 0 24px' }}>
+            Please click the link in that email to verify your account.
+            Once verified, your application will be reviewed by our team.
+          </p>
+          <a
+            href="/login"
+            style={{
+              display: 'inline-block', padding: '11px 28px', background: '#1E3A8A', color: '#fff',
+              fontFamily: FONT_INTER, fontWeight: 600, fontSize: 14, borderRadius: 8, textDecoration: 'none',
+            }}
+          >
+            Go to Login
+          </a>
+          <div style={{ marginTop: 20 }}>
+            <button
+              onClick={handleResend}
+              disabled={resending}
+              style={{
+                background: 'none', border: 'none', fontFamily: FONT_INTER, fontSize: 13,
+                color: resending ? '#94A3B8' : '#3B82F6', cursor: resending ? 'default' : 'pointer',
+                textDecoration: 'underline', padding: 0,
+              }}
+            >
+              {resending ? 'Resending…' : "Didn't receive it? Resend verification email"}
+            </button>
+            {resendMsg && (
+              <p style={{ fontFamily: FONT_INTER, fontSize: 13, color: resendMsg.startsWith('Verification') ? '#065F46' : '#EF4444', marginTop: 8, marginBottom: 0 }}>
+                {resendMsg}
+              </p>
+            )}
+          </div>
+        </div>
+      ) : (
+      <>
       <h1 style={{ fontFamily: FONT_SORA, fontWeight: 700, fontSize: 22, color: '#1E3A8A', margin: 0 }}>
         Create your DAlgo account
       </h1>
@@ -435,6 +503,8 @@ export default function RegisterClient() {
           Already have an account? <a href="/login" style={{ color: '#3B82F6' }}>Log in</a>
         </p>
       </form>
+      </>
+      )}
     </CardShell>
   )
 }

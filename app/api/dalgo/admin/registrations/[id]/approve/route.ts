@@ -17,7 +17,22 @@ export const dynamic = 'force-dynamic'
 // Step 1 approval. SuperAdmin can approve any registration; an Account
 // Manager can only approve one assigned to them (spec §3.1 access matrix:
 // "Approve KYC Step 1 — Account Manager: Assigned").
-export async function POST(_req: NextRequest, { params }: { params: { id: string } }) {
+// Body: { subdomain: string } — AM-assigned subdomain stored on profiles.
+export async function POST(req: NextRequest, { params }: { params: { id: string } }) {
+  let subdomain: string
+  try {
+    const body = await req.json().catch(() => ({}))
+    subdomain = typeof body.subdomain === 'string' ? body.subdomain.trim().toLowerCase() : ''
+  } catch {
+    return NextResponse.json({ error: 'Invalid request body.' }, { status: 400 })
+  }
+  if (!subdomain || !/^[a-z0-9-]{2,30}$/.test(subdomain)) {
+    return NextResponse.json(
+      { error: 'Subdomain is required and must be 2–30 lowercase letters, numbers, or hyphens.' },
+      { status: 400 }
+    )
+  }
+
   try {
     const actor = await requireRole(['superadmin', 'account_manager'])
     const admin = getSupabaseAdmin()
@@ -46,6 +61,17 @@ export async function POST(_req: NextRequest, { params }: { params: { id: string
     const now = new Date().toISOString()
     const before = { step1_approved_at: registration.step1_approved_at, profile_status: customerProfile.status }
 
+    // Check subdomain uniqueness before updating
+    const { data: existing } = await admin
+      .from('profiles')
+      .select('id')
+      .eq('subdomain', subdomain)
+      .neq('id', registration.profile_id)
+      .maybeSingle()
+    if (existing) {
+      return NextResponse.json({ error: `Subdomain "${subdomain}" is already taken.` }, { status: 409 })
+    }
+
     const [{ error: regUpdateError }, { error: profileUpdateError }] = await Promise.all([
       admin
         .from('registrations')
@@ -53,7 +79,7 @@ export async function POST(_req: NextRequest, { params }: { params: { id: string
         .eq('id', params.id),
       admin
         .from('profiles')
-        .update({ status: 'identity_verified', updated_at: now })
+        .update({ status: 'identity_verified', subdomain, updated_at: now })
         .eq('id', registration.profile_id),
     ])
     if (regUpdateError || profileUpdateError) {
@@ -67,7 +93,7 @@ export async function POST(_req: NextRequest, { params }: { params: { id: string
       targetId: params.id,
       targetName: registration.full_name,
       before,
-      after: { step1_approved_at: now, step1_approved_by: actor.id, profile_status: 'identity_verified' },
+      after: { step1_approved_at: now, step1_approved_by: actor.id, profile_status: 'identity_verified', subdomain },
     })
 
     sendIdentityApproved(customerProfile.email, customerProfile.full_name).catch(err =>

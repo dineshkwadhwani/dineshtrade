@@ -24,6 +24,9 @@ export default async function SetupPage({ searchParams }: { searchParams: { conn
   const hasCreds = !!brokerAccount?.api_key_enc
   const isConnected = !!brokerAccount?.access_token_enc || searchParams.connected === 'true'
 
+  const appUrl = (process.env.APP_BASE_URL || process.env.NEXT_PUBLIC_APP_URL || 'https://dalgo.online').replace(/\/$/, '')
+  const callbackUrl = `${appUrl}/api/zerodha/callback`
+
   return (
     <SetupClient
       profile={{ id: profile.id, full_name: profile.full_name, email: profile.email }}
@@ -31,6 +34,7 @@ export default async function SetupPage({ searchParams }: { searchParams: { conn
       initialIsConnected={isConnected}
       initialError={searchParams.error ?? null}
       isActive={profile.status === 'active'}
+      callbackUrl={callbackUrl}
     />
   )
 }

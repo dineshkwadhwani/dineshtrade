@@ -124,7 +124,7 @@ export async function login(email: string, password: string): Promise<LoginResul
   const admin = getSupabaseAdmin()
   const { data: profile, error: profileError } = await admin
     .from('profiles')
-    .select('id, role, status, full_name, email')
+    .select('id, role, status, full_name, email, subdomain, instance_ip')
     .eq('id', data.user.id)
     .maybeSingle()
 

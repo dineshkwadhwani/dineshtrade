@@ -45,14 +45,29 @@ export default function RegistrationDetailClient({
   const [busy, setBusy] = useState(false)
   const [showRejectForm, setShowRejectForm] = useState(false)
   const [reason, setReason] = useState('')
+  const [subdomain, setSubdomain] = useState('')
+  const [subdomainError, setSubdomainError] = useState('')
 
   const isDecided = !!registration.step1_approved_at || !!registration.rejection_reason
 
+  function validateSubdomain(value: string): string {
+    if (!value.trim()) return 'Subdomain is required before approving.'
+    if (!/^[a-z0-9-]{2,30}$/.test(value.trim()))
+      return 'Use 2–30 lowercase letters, numbers, or hyphens only.'
+    return ''
+  }
+
   async function handleApprove() {
-    if (!confirm(`Approve identity verification for ${registration.full_name}?`)) return
+    const err = validateSubdomain(subdomain)
+    if (err) { setSubdomainError(err); return }
+    if (!confirm(`Approve identity verification for ${registration.full_name}?\nSubdomain: ${subdomain.trim()}.dalgo.online`)) return
     setBusy(true)
     try {
-      const res = await fetch(`/api/dalgo/admin/registrations/${registration.id}/approve`, { method: 'POST' })
+      const res = await fetch(`/api/dalgo/admin/registrations/${registration.id}/approve`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ subdomain: subdomain.trim().toLowerCase() }),
+      })
       if (!res.ok) {
         const body = await res.json().catch(() => ({}))
         alert(body.error || 'Failed to approve.')
@@ -198,9 +213,49 @@ export default function RegistrationDetailClient({
 
       {canAct && !isDecided && (
         <div style={{ display: 'flex', gap: 10, flexWrap: 'wrap', alignItems: 'flex-start' }}>
-          <button onClick={handleApprove} disabled={busy} style={{ ...primaryButtonStyle, opacity: busy ? 0.6 : 1 }}>
-            Approve Identity
-          </button>
+          <div style={{ display: 'flex', flexDirection: 'column', gap: 6, minWidth: 280 }}>
+            <label style={{ fontSize: 11, color: COLORS.muted, textTransform: 'uppercase', letterSpacing: '0.04em' }}>
+              Subdomain (required to approve)
+            </label>
+            <div style={{ display: 'flex', alignItems: 'center', gap: 0 }}>
+              <input
+                type="text"
+                placeholder="e.g. narendra"
+                value={subdomain}
+                onChange={e => { setSubdomain(e.target.value); setSubdomainError('') }}
+                style={{
+                  fontFamily: FONT_INTER,
+                  fontSize: 13,
+                  padding: '7px 10px',
+                  borderRadius: '8px 0 0 8px',
+                  border: `1px solid ${subdomainError ? '#EF4444' : COLORS.border}`,
+                  borderRight: 'none',
+                  outline: 'none',
+                  width: 140,
+                }}
+              />
+              <span
+                style={{
+                  fontSize: 13,
+                  padding: '7px 10px',
+                  borderRadius: '0 8px 8px 0',
+                  border: `1px solid ${subdomainError ? '#EF4444' : COLORS.border}`,
+                  background: '#F8FAFF',
+                  color: COLORS.muted,
+                  whiteSpace: 'nowrap',
+                }}
+              >
+                .dalgo.online
+              </span>
+            </div>
+            {subdomainError && (
+              <div style={{ fontSize: 12, color: '#EF4444' }}>{subdomainError}</div>
+            )}
+          </div>
+          <div style={{ display: 'flex', gap: 10, alignItems: 'flex-end', flexWrap: 'wrap', marginTop: 22 }}>
+            <button onClick={handleApprove} disabled={busy} style={{ ...primaryButtonStyle, opacity: busy ? 0.6 : 1 }}>
+              Approve Identity
+            </button>
           {!showRejectForm ? (
             <button onClick={() => setShowRejectForm(true)} disabled={busy} style={{ ...dangerButtonStyle, opacity: busy ? 0.6 : 1 }}>
               Reject
@@ -241,6 +296,7 @@ export default function RegistrationDetailClient({
               </div>
             </div>
           )}
+          </div>
         </div>
       )}
     </div>

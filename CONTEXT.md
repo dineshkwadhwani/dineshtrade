@@ -1,7 +1,7 @@
 # DineshTrade — Project Context
 
-**Last Updated:** 09 Aug 2026
-**Version:** 2.9 — DAlgo refactor Phase 8 (Testing and Cutover) verification pass added; see §14.
+**Last Updated:** 13 Aug 2026
+**Version:** 3.0 — post-Phase-8 ops and observability updates added; see §15.
 **Version 2.8 note:** capital/gate/strategy numbers below re-verified directly against live `data/strategy.json` and `lib/preflight.ts` on 09 Aug 2026; see `docs/ARCHITECTURE.md`, `docs/DATA_MODEL.md`, and `docs/MULTI_TENANCY_CURRENT_STATE.md` for the full code-verified picture (docs/ was reorganized the same day — speculative and superseded docs moved to `docs/archive/`).
 **Purpose:** This file gives Claude (or any AI assistant) full context of everything discussed so far about this project. Start any new conversation by uploading this file.
 
@@ -879,3 +879,64 @@ Follow-up request: apply `force-dynamic` to literally every `app/api/**/route.ts
 ---
 
 Built with Claude AI — June 2026, updated August 2026.
+
+---
+
+## 15. SESSION HANDOVER ADDENDUM (13 Aug 2026)
+
+This section captures post-Phase-8 work completed after the 09 Aug snapshot, so the next thread starts from the real current state.
+
+### 15.1 UI updates completed
+
+- Holdings page (`app/(app)/holdings/page.tsx`) was updated to:
+  - remove T+1 column,
+  - add `Today` percentage column,
+  - add `Today's P/L` tile,
+  - add `Total Investment` tile,
+  - enforce visible red/green sign colors despite global text overrides.
+
+### 15.2 Cron observability updates completed
+
+- Startup environment snapshot logging added in `server.js` (`logStartupEnv()`), with safe non-secret fields (cron enabled raw/normalized, customer count/ids suffix, test flags).
+- Test-mode cron flags added in `lib/cron.ts`:
+  - `CRON_TEST_ALL_DAY`
+  - `CRON_TEST_IGNORE_MARKET_HOURS`
+- These flags allow after-hours AUTO-cron validation without opening market windows.
+
+### 15.3 Platform persistence flags enabled
+
+- Verified and enabled in `platform_config`:
+  - `HEARTBEAT_DB_ENABLED=true`
+  - `STRATEGY_SCAN_DB_ENABLED=true`
+- This allows heartbeat/tick and strategy-scan writes to persist for operational visibility.
+
+### 15.4 Health check enhancement completed (AM/SA visibility)
+
+- API updated: `app/api/dalgo/admin/health/customers/route.ts`
+  - now reads `customer_instances.last_cron_tick_at` and fallback `last_heartbeat_at`,
+  - computes heartbeat age in minutes,
+  - returns `heartbeatRunning`, `heartbeatAt`, `heartbeatAgeMin`,
+  - appends stale/missing heartbeat diagnostics into `comment`.
+- UI updated: `components/dalgo/HealthCheckPanel.tsx`
+  - added `Heartbeat` column,
+  - green dot + `Running` when fresh,
+  - red dot + `Not running` when stale/missing,
+  - shows age text (`Xm ago`) or `never`.
+
+### 15.5 Important runtime clarification (multi-customer mode)
+
+- If logs show alternating lines such as:
+  - `mode=auto` followed by `skipped - mode=manual`,
+  this is expected in a multi-customer instance when one customer is AUTO and another is MANUAL.
+- Root cause confirmed from live DB on 13 Aug:
+  - first customer id in `CUSTOMER_IDS` was `auto`, second was `manual`.
+- This behavior is by design because cron loops each customer context separately.
+
+### 15.6 Immediate next-thread start point
+
+1. Keep `CRON_TEST_ALL_DAY=false` and `CRON_TEST_IGNORE_MARKET_HOURS=false` unless explicitly running an after-hours test.
+2. Restart PM2 after env changes (flags are read at startup).
+3. During market hours, re-validate:
+   - heartbeat turns green for active customers,
+   - stale/manual customers show red with clear comment,
+   - no `test override` logs appear.

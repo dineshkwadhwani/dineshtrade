@@ -31,6 +31,7 @@ interface Props {
   initialIsConnected: boolean
   initialError: string | null
   isActive?: boolean
+  callbackUrl: string
 }
 
 type Stage = 'credentials' | 'connect' | 'done'
@@ -68,7 +69,7 @@ function StepBar({ stage }: { stage: Stage }) {
   )
 }
 
-export default function SetupClient({ profile, initialHasCreds, initialIsConnected, initialError, isActive }: Props) {
+export default function SetupClient({ profile, initialHasCreds, initialIsConnected, initialError, isActive, callbackUrl }: Props) {
   const [stage, setStage] = useState<Stage>(
     initialIsConnected ? 'done' : initialHasCreds ? 'connect' : 'credentials'
   )
@@ -78,6 +79,14 @@ export default function SetupClient({ profile, initialHasCreds, initialIsConnect
   const [apiSecret, setApiSecret] = useState('')
   const [loading, setLoading] = useState(false)
   const [error, setError] = useState(initialError ?? '')
+  const [copied, setCopied] = useState(false)
+
+  function copyCallbackUrl() {
+    navigator.clipboard.writeText(callbackUrl).then(() => {
+      setCopied(true)
+      setTimeout(() => setCopied(false), 2000)
+    })
+  }
 
   async function handleSaveCreds(e: React.FormEvent) {
     e.preventDefault()
@@ -223,15 +232,32 @@ export default function SetupClient({ profile, initialHasCreds, initialIsConnect
                 </p>
               </div>
               <div style={{ background: '#EFF6FF', border: '1px solid #BFDBFE', borderRadius: 10, padding: '14px 18px' }}>
-                <p style={{ fontFamily: FONT_INTER, fontSize: 12, color: '#1E3A8A', fontWeight: 600, margin: '0 0 6px' }}>
-                  Set this Redirect URL in your Zerodha Developer Console:
+                <p style={{ fontFamily: FONT_INTER, fontSize: 12, color: '#1E3A8A', fontWeight: 600, margin: '0 0 8px' }}>
+                  Set this as the Redirect URL in your Zerodha Developer Console:
                 </p>
-                <code style={{ fontFamily: 'monospace', fontSize: 12, color: '#1E3A8A', background: '#DBEAFE', padding: '4px 8px', borderRadius: 4, wordBreak: 'break-all' }}>
-                  https://www.dalgo.online/api/zerodha/callback
-                </code>
-                <p style={{ fontFamily: FONT_INTER, fontSize: 11, color: '#64748B', margin: '6px 0 0' }}>
-                  For local dev testing: http://localhost:3000/api/zerodha/callback
-                </p>
+                <div style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
+                  <code style={{ flex: 1, fontFamily: 'monospace', fontSize: 12, color: '#1E3A8A', background: '#DBEAFE', padding: '7px 10px', borderRadius: 6, wordBreak: 'break-all' }}>
+                    {callbackUrl}
+                  </code>
+                  <button
+                    onClick={copyCallbackUrl}
+                    style={{
+                      flexShrink: 0,
+                      padding: '7px 12px',
+                      background: copied ? '#D1FAE5' : '#1E3A8A',
+                      color: copied ? '#065F46' : '#fff',
+                      border: 'none',
+                      borderRadius: 6,
+                      fontFamily: FONT_INTER,
+                      fontSize: 12,
+                      fontWeight: 600,
+                      cursor: 'pointer',
+                      whiteSpace: 'nowrap',
+                    }}
+                  >
+                    {copied ? '✓ Copied' : 'Copy'}
+                  </button>
+                </div>
               </div>
 
               <div style={{ background: '#FFF7ED', border: '1px solid #FED7AA', borderRadius: 10, padding: '14px 18px' }}>

@@ -86,6 +86,21 @@ export default async function PendingPage() {
           </div>
         )}
 
+        {/* Show when arriving fresh from registration (no session) or still pending */}
+        {(!profile || profile.status === 'pending') && (
+          <div style={{
+            background: '#EFF6FF', border: '1px solid #BFDBFE', borderRadius: 10,
+            padding: '12px 16px', marginBottom: 16, textAlign: 'left',
+          }}>
+            <p style={{ fontFamily: FONT_INTER, fontSize: 14, color: '#1E3A8A', fontWeight: 600, margin: '0 0 4px' }}>
+              📧 Check your email
+            </p>
+            <p style={{ fontFamily: FONT_INTER, fontSize: 13, color: '#475569', margin: 0, lineHeight: 1.6 }}>
+              We sent a verification link to your email address. Please click it to verify your account before your application can be reviewed.
+            </p>
+          </div>
+        )}
+
         <p style={{ fontFamily: FONT_INTER, fontSize: 14, color: '#475569', lineHeight: 1.6, margin: '0 0 20px' }}>
           Your application has been submitted and is currently under review.
           This typically takes 1–2 business days.

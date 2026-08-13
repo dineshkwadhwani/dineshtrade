@@ -2,8 +2,8 @@
 
 **Purpose:** Zero-context onboarding for GitHub Copilot, Cursor, or any AI assistant picking up this codebase for the first time. Read top-to-bottom before touching any file.
 
-**Last Updated:** 07 Jun 2026 (body), corrected 09 Aug 2026 (lib/ file table + preflight gate count, re-verified directly against code)
-**Version:** 1.2
+**Last Updated:** 07 Jun 2026 (body), corrected 09 Aug 2026, addendum 13 Aug 2026 (ops/health/cron updates)
+**Version:** 1.3
 
 > Also read `docs/README.md` first — it points at `docs/ARCHITECTURE.md`,
 > `docs/APP_MAP.md`, `docs/DATA_MODEL.md`, and `docs/MULTI_TENANCY_CURRENT_STATE.md`,
@@ -525,3 +525,61 @@ T0 rows with `qty = 0` (sold today) now display `average_price` from the holding
 ---
 
 Technical handoff document — June 2026.
+
+---
+
+## Addendum — 13 Aug 2026 Ops/Handover Delta
+
+This addendum records work completed after the 09 Aug update and should be treated as active handover context for the next thread.
+
+### A. Holdings UX delta
+
+- Updated `app/(app)/holdings/page.tsx`:
+  - removed T+1 column,
+  - added `Today` percent column,
+  - added `Today's P/L` tile,
+  - added `Total Investment` tile,
+  - hardened red/green sign colors for gain/loss values.
+
+### B. Cron diagnostics and test controls
+
+- Added startup env snapshot logging in `server.js` to prevent env mismatch debugging blind spots.
+- Added test-only cron flags in `lib/cron.ts`:
+  - `CRON_TEST_ALL_DAY`
+  - `CRON_TEST_IGNORE_MARKET_HOURS`
+- These are for after-hours validation only; disable in normal operation.
+
+### C. Heartbeat/scan persistence control
+
+- Platform flags confirmed and enabled:
+  - `HEARTBEAT_DB_ENABLED=true`
+  - `STRATEGY_SCAN_DB_ENABLED=true`
+- This allows `customer_instances` and scan telemetry to be visible in admin health and diagnostics.
+
+### D. AM/SA health check improvements
+
+- `app/api/dalgo/admin/health/customers/route.ts` now emits:
+  - `heartbeatRunning`
+  - `heartbeatAt`
+  - `heartbeatAgeMin`
+  - comment enrichment for stale/missing heartbeat.
+- `components/dalgo/HealthCheckPanel.tsx` now shows:
+  - dedicated `Heartbeat` column,
+  - green `Running` / red `Not running` status,
+  - `Xm ago` or `never` recency.
+
+### E. Mixed auto/manual logs explanation (critical)
+
+- In multi-customer mode (`CUSTOMER_IDS=a,b,...`), cron loops per customer context.
+- You can see in one cycle:
+  - one line with `mode=auto`,
+  - next line `skipped - mode=manual`.
+- This is expected if customers have different `customer_state.cron_mode` values.
+- Confirmed on 13 Aug: first customer was `auto`, second customer was `manual`.
+
+### F. Next-thread first checks
+
+1. Ensure `CRON_TEST_ALL_DAY=false` and `CRON_TEST_IGNORE_MARKET_HOURS=false`.
+2. Restart PM2 after env edits.
+3. Recheck market-hours logs and health panel heartbeat status/colors.
+4. If logs remain confusing, add customer identifier in each cron tick log line.
