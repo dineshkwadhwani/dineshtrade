@@ -28,6 +28,9 @@ interface CustomerRow {
   cronMode: string
   availableFunds: number | null
   availablePct: number | null
+  heartbeatRunning: boolean
+  heartbeatAt: string | null
+  heartbeatAgeMin: number | null
   activeStrategies: number
   needsReminder: boolean
   comment: string | null
@@ -245,7 +248,7 @@ export default function HealthCheckPanel() {
             <table style={{ width: '100%', borderCollapse: 'collapse', fontSize: 13 }}>
               <thead>
                 <tr style={{ background: '#EFF6FF' }}>
-                  {['Name', 'Broker', 'Cron', 'Funds Available', 'Strategies', 'Sync', 'Action', 'Comment'].map(h => (
+                  {['Name', 'Broker', 'Cron', 'Heartbeat', 'Funds Available', 'Strategies', 'Sync', 'Action', 'Comment'].map(h => (
                     <th key={h} style={{ padding: '10px 14px', textAlign: 'left', fontWeight: 600, color: C.heading, fontSize: 11, textTransform: 'uppercase', letterSpacing: '0.04em', whiteSpace: 'nowrap' }}>{h}</th>
                   ))}
                 </tr>
@@ -275,6 +278,17 @@ export default function HealthCheckPanel() {
                         }}>
                           {c.cronMode === 'auto' ? '⚡ Auto' : '✋ Manual'}
                         </span>
+                      </td>
+                      <td style={{ padding: '10px 14px', whiteSpace: 'nowrap' }}>
+                        <span style={{ display: 'inline-flex', alignItems: 'center', gap: 5 }}>
+                          <span style={{ width: 8, height: 8, borderRadius: '50%', background: c.heartbeatRunning ? C.green : C.red, display: 'inline-block' }} />
+                          <span style={{ fontSize: 12, color: c.heartbeatRunning ? C.green : C.red, fontWeight: 600 }}>
+                            {c.heartbeatRunning ? 'Running' : 'Not running'}
+                          </span>
+                        </span>
+                        <div style={{ fontSize: 10, color: C.muted, marginTop: 2 }}>
+                          {c.heartbeatAt ? `${c.heartbeatAgeMin ?? '—'}m ago` : 'never'}
+                        </div>
                       </td>
                       <td style={{ padding: '10px 14px', whiteSpace: 'nowrap' }}>
                         {c.availableFunds != null ? (

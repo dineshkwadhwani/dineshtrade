@@ -19,6 +19,11 @@ function computeTokenStatus(hasToken: boolean, expiresAt: string | null): 'conne
   return new Date(expiresAt) > new Date() ? 'connected' : 'expired'
 }
 
+function minutesSince(iso: string | null): number | null {
+  if (!iso) return null
+  return Math.max(0, Math.round((Date.now() - new Date(iso).getTime()) / 60000))
+}
+
 export async function GET() {
   try {
     const profile = await getProfile()
@@ -44,17 +49,19 @@ export async function GET() {
     const ids = customers.map(c => c.id)
 
     // Fetch all supporting data in parallel
-    const [{ data: brokerAccounts }, { data: states }, { data: strategies }, { data: capitalConfigs }] = await Promise.all([
+    const [{ data: brokerAccounts }, { data: states }, { data: strategies }, { data: capitalConfigs }, { data: instances }] = await Promise.all([
       admin.from('broker_accounts').select('customer_id, access_token_enc, api_key_enc, token_expires_at, active')
         .in('customer_id', ids).eq('broker_name', 'zerodha').eq('active', true),
       admin.from('customer_state').select('customer_id, cron_mode').in('customer_id', ids),
       admin.from('customer_strategies').select('customer_id, active').in('customer_id', ids),
       admin.from('customer_capital_config').select('customer_id, per_trade, max_positions').in('customer_id', ids),
+      admin.from('customer_instances').select('customer_id, last_cron_tick_at, last_heartbeat_at').in('customer_id', ids),
     ])
 
     const brokerByCustomer = new Map((brokerAccounts ?? []).map(b => [b.customer_id, b]))
     const stateByCustomer = new Map((states ?? []).map(s => [s.customer_id, s]))
     const capitalByCustomer = new Map((capitalConfigs ?? []).map(c => [c.customer_id, c]))
+    const instanceByCustomer = new Map((instances ?? []).map(i => [i.customer_id, i]))
 
     // Count active strategies per customer
     const stratsByCustomer = new Map<string, number>()
@@ -103,8 +110,17 @@ export async function GET() {
       const tokenStatus = computeTokenStatus(!!broker?.access_token_enc, broker?.token_expires_at ?? null)
       const state = stateByCustomer.get(c.id)
       const capital = capitalByCustomer.get(c.id)
+      const instance = instanceByCustomer.get(c.id)
       const margin = marginByCustomer.get(c.id)
       const totalConfiguredCapital = capital ? (capital.per_trade ?? 0) * (capital.max_positions ?? 0) : 0
+      const heartbeatAt = instance?.last_cron_tick_at ?? instance?.last_heartbeat_at ?? null
+      const heartbeatAgeMin = minutesSince(heartbeatAt)
+      const heartbeatRunning = heartbeatAgeMin !== null && heartbeatAgeMin <= 10
+      const heartbeatComment = heartbeatRunning
+        ? `Heartbeat healthy (${heartbeatAgeMin}m ago).`
+        : heartbeatAt
+          ? `Heartbeat stale (${heartbeatAgeMin}m ago).`
+          : 'No heartbeat recorded yet.'
 
       let availablePct: number | null = null
       if (margin?.available != null && margin?.invested != null) {
@@ -114,6 +130,7 @@ export async function GET() {
 
       const errors: string[] = []
       if (margin?.error) errors.push(`Kite: ${margin.error}`)
+      if (!heartbeatRunning) errors.push(heartbeatComment)
 
       return {
         id: c.id,
@@ -124,6 +141,9 @@ export async function GET() {
         cronMode: state?.cron_mode ?? 'manual',
         availableFunds: margin?.available ?? null,
         availablePct,
+        heartbeatRunning,
+        heartbeatAt,
+        heartbeatAgeMin,
         activeStrategies: stratsByCustomer.get(c.id) ?? 0,
         needsReminder: tokenStatus !== 'connected',
         comment: errors.join('; ') || null,
