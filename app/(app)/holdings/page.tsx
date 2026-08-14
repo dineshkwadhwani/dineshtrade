@@ -1,5 +1,7 @@
 export const dynamic = 'force-dynamic'
 
+import RefreshBar from '@/components/ui/RefreshBar'
+
 import { getSupabaseAdmin } from '@/lib/supabase'
 import { getProfile } from '@/lib/dalgoAuth'
 import { loadBrokerAccountCreds, getHoldings, getQuotes } from '@/lib/kite'
@@ -158,6 +160,7 @@ export default async function HoldingsPage() {
 
   return (
     <div style={{ fontFamily: INTER }}>
+      <RefreshBar />
       <h1 style={{ fontFamily: SORA, fontSize: 22, fontWeight: 700, color: C.heading, margin: '0 0 4px' }}>Holdings</h1>
       <p style={{ color: C.muted, fontSize: 14, margin: '0 0 16px' }}>
         {offlineMode ? 'From DAlgo position store — broker not connected' : 'Live portfolio from Zerodha'}

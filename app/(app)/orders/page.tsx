@@ -1,5 +1,7 @@
 export const dynamic = 'force-dynamic'
 
+import RefreshBar from '@/components/ui/RefreshBar'
+
 import { getSupabaseAdmin } from '@/lib/supabase'
 import { getProfile } from '@/lib/dalgoAuth'
 
@@ -47,6 +49,7 @@ export default async function OrdersPage() {
 
   return (
     <div style={{ fontFamily: INTER }}>
+      <RefreshBar />
       <h1 style={{ fontFamily: SORA, fontSize: 22, fontWeight: 700, color: C.heading, margin: '0 0 4px' }}>Today&apos;s Orders</h1>
       <p style={{ color: C.muted, fontSize: 14, margin: '0 0 20px' }}>
         {rows.length} order{rows.length !== 1 ? 's' : ''} · {buys} buy{buys !== 1 ? 's' : ''} · {sells} sell{sells !== 1 ? 's' : ''}
