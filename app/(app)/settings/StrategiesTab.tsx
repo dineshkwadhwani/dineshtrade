@@ -1,5 +1,5 @@
 'use client'
-import { useState } from 'react'
+import { useState, useEffect } from 'react'
 import { createPortal } from 'react-dom'
 import { useRouter } from 'next/navigation'
 
@@ -260,6 +260,18 @@ function StrategyAccordion({ strategy, locked, open, onToggle, onSaved, targetCu
   const [scanInterval, setScanInterval] = useState(strategy.scan_interval_min)
   const [active, setActive] = useState(strategy.active)
   const [watchlistKeys, setWatchlistKeys] = useState<string[]>(Array.isArray(strategy.watchlist_keys) ? strategy.watchlist_keys : ['listA'])
+
+  // Sync local form state when the parent refreshes strategy data (e.g. after reset or external save)
+  const strategyParamsKey = JSON.stringify(strategy.params)
+  useEffect(() => {
+    setParams({ ...((strategy.params as Record<string, unknown>) ?? {}) })
+    setExits({ ...((strategy.exits as Record<string, unknown>) ?? {}) })
+    setGiftGate({ ...((strategy.gift_nifty_gate as Record<string, unknown>) ?? { enabled: false, minPct: null, maxPct: null }) })
+    setScanInterval(strategy.scan_interval_min)
+    setActive(strategy.active)
+    setWatchlistKeys(Array.isArray(strategy.watchlist_keys) ? strategy.watchlist_keys : ['listA'])
+  // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [strategyParamsKey])
   const [diff, setDiff] = useState<{ key: string; from: unknown; to: unknown }[] | null>(null)
   const [saving, setSaving] = useState(false)
   const [resetting, setResetting] = useState(false)
