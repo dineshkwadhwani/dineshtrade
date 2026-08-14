@@ -222,8 +222,12 @@ export async function runStrategyTaskBody(strategy: Strategy): Promise<void> {
       const accounts = getAccountList()
       const targetAccounts = state.selectedAccounts.filter(a => !!state.kiteTokens[a])
       if (targetAccounts.length === 0) {
-        console.log(`[cron strategy:${strategy.id}] no selectedAccounts with tokens`)
-        skipReason = 'No selectedAccounts with valid tokens'
+        const missingTokenAccounts = state.selectedAccounts.filter(a => !state.kiteTokens[a])
+        const detail = state.selectedAccounts.length === 0
+          ? 'selectedAccounts is empty — check state.json'
+          : `selected=[${state.selectedAccounts.join(',')}] missing tokens=[${missingTokenAccounts.join(',')}] — reconnect Zerodha for these accounts`
+        console.warn(`[cron strategy:${strategy.id}] no accounts with valid Kite tokens: ${detail}`)
+        skipReason = `No valid Kite tokens: ${detail}`
       } else {
         console.log(`[cron strategy:${strategy.id}] ${recsCount} rec(s) → ${targetAccounts.length} account(s)`)
         for (const account of targetAccounts) {

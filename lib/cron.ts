@@ -161,7 +161,10 @@ async function runCustomerTick(customerId: string): Promise<void> {
     const primaryAccount = process.env[`${env}_ZERODHA_ACCOUNT1`] || 'DINESH'
     const credentials = await loadKiteToken(customerId)
     if (credentials) {
-      await saveState({ kiteTokens: { [primaryAccount]: credentials.accessToken } }).catch(err =>
+      await saveState({
+        kiteTokens: { [primaryAccount]: credentials.accessToken },
+        selectedAccounts: [primaryAccount],
+      }).catch(err =>
         console.error(`[cron] customer=${customerId} saveState kiteTokens failed:`, err)
       )
     }

@@ -3,6 +3,14 @@
 @tailwind components;
 @tailwind utilities;
 
+@keyframes autofire-pulse {
+  0%, 100% { opacity: 1; }
+  50% { opacity: 0.25; }
+}
+.autofire-badge {
+  animation: autofire-pulse 0.9s ease-in-out infinite;
+}
+
 /* ─── Design tokens — DAlgo light theme ─────────────────────────────── */
 :root {
   --accent:#3B82F6;--accent-light:#93C5FD;--accent-dark:#1D4ED8;

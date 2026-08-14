@@ -95,6 +95,7 @@ function SymbolTile({ tile, canBuy, onBuy, marketOpen }: {
 }) {
   const [result, setResult] = useState<{ ok: boolean; msg: string } | null>(null)
   const [busy, setBusy] = useState(false)
+  const isAutofire = tile.score === tile.total && canBuy && marketOpen
   const dayUp = tile.dayChangePct >= 0
   const pct = Math.min(100, Math.round((tile.score / tile.total) * 100))
   const barColor = pct >= 75 ? C.green : pct >= 50 ? C.amber : C.red
@@ -108,8 +109,8 @@ function SymbolTile({ tile, canBuy, onBuy, marketOpen }: {
 
   return (
     <div style={{
-      background: C.card, border: `1px solid ${pct >= 75 ? '#86EFAC' : C.border}`,
-      borderRadius: 10, overflow: 'hidden', boxShadow: '0 2px 6px rgba(30,58,138,0.04)',
+      background: C.card, border: `1px solid ${isAutofire ? '#16A34A' : pct >= 75 ? '#86EFAC' : C.border}`,
+      borderRadius: 10, overflow: 'hidden', boxShadow: isAutofire ? '0 0 0 2px #86EFAC' : '0 2px 6px rgba(30,58,138,0.04)',
       display: 'flex', flexDirection: 'column',
     }}>
       {/* Score bar */}
@@ -129,6 +130,19 @@ function SymbolTile({ tile, canBuy, onBuy, marketOpen }: {
             </p>
           </div>
         </div>
+
+        {/* Autofire badge */}
+        {isAutofire && (
+          <div className="autofire-badge" style={{
+            display: 'inline-flex', alignItems: 'center', gap: 4,
+            padding: '3px 8px', borderRadius: 999, marginBottom: 8,
+            background: '#DCFCE7', border: '1px solid #16A34A',
+            fontFamily: INTER, fontWeight: 700, fontSize: 11, color: '#15803D',
+            alignSelf: 'flex-start',
+          }}>
+            ⚡ AUTOFIRE
+          </div>
+        )}
 
         {/* Score bar + count */}
         <div style={{ display: 'flex', alignItems: 'center', gap: 6, marginBottom: 8 }}>
