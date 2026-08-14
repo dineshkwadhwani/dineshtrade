@@ -44,5 +44,6 @@ Thumbs.db
 *.tsbuildinfo
 
 dineshtrade-server.pem
+dalgo-server.pem
 notes.txt
 /data/
