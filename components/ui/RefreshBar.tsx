@@ -1,21 +1,17 @@
 'use client'
-import { useRouter } from 'next/navigation'
 import { useEffect, useRef, useState } from 'react'
 
 const INTERVAL_MS = 3 * 60 * 1000 // 3 minutes
 
 export default function RefreshBar() {
-  const router = useRouter()
   const [spinning, setSpinning] = useState(false)
   const [countdown, setCountdown] = useState(INTERVAL_MS / 1000)
   const nextRefreshAt = useRef(Date.now() + INTERVAL_MS)
 
   function doRefresh() {
     setSpinning(true)
-    router.refresh()
-    nextRefreshAt.current = Date.now() + INTERVAL_MS
-    setCountdown(INTERVAL_MS / 1000)
-    setTimeout(() => setSpinning(false), 800)
+    // Hard reload — bypasses Next.js route cache, gets fresh prices from Kite
+    window.location.reload()
   }
 
   useEffect(() => {
