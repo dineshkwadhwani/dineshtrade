@@ -1,9 +1,12 @@
-# Multi-Tenancy — Current State (code-verified, 09 Aug 2026)
+# Multi-Tenancy — Current State (code-verified, 16 Aug 2026)
 
 **Purpose:** a precise, honest description of how "multi-tenant" the app actually is
 today — no proposals, no future plan. Written because the app is described as
 "partially multi-tenant" and any refactor conversation needs to start from what's
 really there, not from what earlier planning docs assumed would exist.
+
+**Last updated:** 16 Aug 2026 — updated to reflect the live subdomain routing, SSO,
+and per-customer EC2 model now in production on `multitanent_refactor` branch.
 
 ## The one-sentence version
 
@@ -119,3 +122,62 @@ Because none of the following exist today, a multi-tenant rewrite is closer to
 5. A decoupling of "broker account" from "tenant" — today they're conflated 1:1 by
    convention (one operator, a few named broker sub-accounts they personally own);
    a real tenant model needs many tenants each owning 1+ broker accounts.
+
+---
+
+## DAlgo V2 — Live Multi-Tenant State (16 Aug 2026, branch `multitanent_refactor`)
+
+The above section describes V1 (`dineshtrade.online`, `main` branch). The `multitanent_refactor` branch is now live with a real multi-tenant model. This section records the current live state.
+
+### Tenancy model
+
+- Each customer gets their **own EC2 instance** at `<subdomain>.dalgo.online`.
+- All authentication goes through **`dalgo.online`** (the main instance). Customers never log in directly at their subdomain.
+- After login, active customers are SSO-redirected to their subdomain via a one-time JWT token (`generateSSOToken` → `validateSSOToken`), signed with `SHARED_SSO_SECRET` (must be identical across all instances).
+- Superadmins and Account Managers stay on `dalgo.online` permanently.
+
+### Routing rules (as of 16 Aug 2026)
+
+**On subdomain servers (`*.dalgo.online`):**
+- Public routes (`/`, `/login`, `/register`, etc.) → redirect to `https://dalgo.online`
+- Protected routes with no session → redirect to `https://dalgo.online`
+- Protected routes with valid session → serve normally (customer's own dashboard)
+- `/sso?token=...` → serves normally (SSO handoff entry point)
+- `/auth/reset-password` → serves normally (password reset flow)
+- Logout → redirect to `https://dalgo.online`
+
+**On `dalgo.online`:**
+- All public/auth routes work normally
+- SA → `/admin`, AM → `/manager`, customer (no subdomain) → `/dashboard`
+- Customer with subdomain and `active` status → SSO token generated → redirect to `https://<subdomain>.dalgo.online/sso?token=...`
+
+### Per-customer isolation
+
+Each customer EC2 runs with:
+- Its own `CUSTOMER_IDS` env var (customer's Supabase `profiles.id`)
+- Its own `APP_BASE_URL` / `NEXT_PUBLIC_APP_URL` set to the subdomain
+- Shared `ENCRYPTION_KEY` and `SHARED_SSO_SECRET` — must match the main server exactly
+- Shared Supabase project — all data is isolated at row level by `customer_id`
+
+### Zerodha OAuth callback
+
+Each customer must have their Zerodha API app callback URL set to:
+```
+https://<subdomain>.dalgo.online/api/dalgo/setup/kite-callback
+```
+The V1 `dalgo.online/api/zerodha/callback` route is legacy and does NOT work for subdomain customers.
+
+### Live instances (16 Aug 2026)
+
+| Customer | Subdomain | Server | Status |
+|---|---|---|---|
+| Dinesh Wadhwani | dinesh.dalgo.online | Main EC2 (3.111.255.172) | Active |
+| Kiran Wadhwani | kiran.dalgo.online | Main EC2 (3.111.255.172) | Active |
+| Narendra Chouhan | narendra.dalgo.online | Narendra EC2 | In setup — Supabase keys need fixing |
+
+### Known gaps (16 Aug 2026)
+
+- Narendra server's Supabase keys need to be verified/corrected (service key corrupted during paste)
+- Narendra's Supabase Auth password not yet set (use Admin API curl to set it)
+- Password reset email template needs updating in Supabase dashboard
+- Narendra's Zerodha developer account callback URL not yet updated

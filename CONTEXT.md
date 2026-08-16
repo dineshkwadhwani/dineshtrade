@@ -940,3 +940,98 @@ This section captures post-Phase-8 work completed after the 09 Aug snapshot, so 
    - heartbeat turns green for active customers,
    - stale/manual customers show red with clear comment,
    - no `test override` logs appear.
+
+---
+
+## 16. SESSION PROGRESS (15–16 Aug 2026)
+
+### 16.1 Narendra server (narendra.dalgo.online) — deployment fixes
+
+New customer EC2 (narendra.dalgo.online) provisioned and troubleshot end-to-end. Issues resolved:
+
+- **OOM during `git pull`**: Linux OOM killer killed the process before `npm ci`. Fix: added 2 GB swap file (`sudo fallocate -l 2G /swapfile`). Now permanent in the server setup guide.
+- **Supabase `Invalid API key` errors in PM2 logs**: `SUPABASE_SERVICE_KEY` and `NEXT_PUBLIC_SUPABASE_ANON_KEY` in narendra's `.env.local` were corrupted (line-wrapped during paste via nano, or mismatched values). Diagnosed via `pm2 logs dineshtrade --lines 30` and `grep ... | wc -c` length check. Fix: re-paste both keys fresh from Supabase dashboard.
+- **Login failing with "Invalid email or password"**: caused by the corrupt anon key — `createEphemeralAnonClient().auth.signInWithPassword()` fails when the key is wrong. Resolved by fixing the keys above.
+- **Nginx missing forwarded headers**: `X-Forwarded-Proto` and `X-Forwarded-Host` were absent from narendra's nginx `location /` block. Added — required for `normalizedBase()` in `app/api/dalgo/setup/kite-login/route.ts` and `app/api/dalgo/setup/kite-callback/route.ts` to build correct redirect URLs.
+
+### 16.2 Password reset page — new
+
+Built `app/auth/reset-password/page.tsx` — a client-only page that:
+- Parses Supabase recovery token from the URL hash (`#access_token=...&type=recovery`)
+- Calls `supabase.auth.setSession()` then shows a password form
+- On submit, calls `supabase.auth.updateUser({ password })`
+- On success, redirects to `/login`
+- Uses an inline Supabase client (`createClient` from `@supabase/supabase-js`) — **not** importing from `lib/supabase.ts` (that file is server-only and breaks the client bundle)
+
+Added to `middleware.ts` `PUBLIC_EXACT` set so it's accessible without a session.
+
+Supabase config required (dashboard actions):
+- Authentication → URL Configuration → Redirect URLs: add `https://dalgo.online/auth/reset-password` and `http://localhost:3000/auth/reset-password`
+- Authentication → Email Templates → Reset Password: set action URL to `{{ .SiteURL }}/auth/reset-password`
+
+### 16.3 Subdomain routing — middleware and logout changes
+
+**Problem:** visiting `narendra.dalgo.online`, `dinesh.dalgo.online`, or `kiran.dalgo.online` without a session showed the DAlgo landing page served from the subdomain's own server instead of redirecting to `dalgo.online`.
+
+**Changes made:**
+
+**`middleware.ts`** — three changes:
+1. `/auth/reset-password` added to `PUBLIC_EXACT`
+2. On subdomain (`host.endsWith('.dalgo.online')`), public front-door routes (`/`, `/login`, `/register`, etc.) now redirect to `https://dalgo.online` instead of serving locally. Exemptions: `/sso`, `/auth/reset-password`, `/api/*`, static assets.
+3. On subdomain, unauthenticated protected routes redirect to `https://dalgo.online` (previously `/login` on the same server).
+
+**`components/dalgo/DalgoShell.tsx`** and **`components/layout/AppShell.tsx`** — logout on a subdomain now redirects to `https://dalgo.online` (via `window.location.hostname` check) instead of `/login`.
+
+**`app/api/dalgo/auth/logout/route.ts`** — GET logout (used by `<a href>` logout links) on a subdomain now redirects to `https://dalgo.online` instead of the local root.
+
+**Result:**
+
+| Scenario | Behaviour |
+|---|---|
+| Visit `narendra.dalgo.online/` with no session | → `dalgo.online` |
+| Visit `narendra.dalgo.online/dashboard` with no session | → `dalgo.online` |
+| Visit `narendra.dalgo.online/dashboard` with valid session | → shows dashboard |
+| Logout from subdomain | → `dalgo.online` |
+| Visit `narendra.dalgo.online/sso?token=xxx` | → SSO flow runs normally |
+| Visit `narendra.dalgo.online/auth/reset-password` | → reset page works |
+
+### 16.4 Architecture — login and SSO flow confirmed
+
+All users log in at `dalgo.online`. Post-login redirect is role and subdomain-based:
+
+| Role | Subdomain in profile? | Redirected to |
+|---|---|---|
+| superadmin | n/a | `/admin` on `dalgo.online` |
+| account_manager | n/a | `/manager` on `dalgo.online` |
+| broking_company | n/a | `/manager` on `dalgo.online` |
+| customer (active) | Yes | `https://<subdomain>.dalgo.online/sso?token=...` |
+| customer (active) | No / null | `/dashboard` on `dalgo.online` |
+| customer (identity_verified or broker_setup_complete) | n/a | `/setup` on `dalgo.online` |
+
+### 16.5 Zerodha OAuth callback architecture — clarified
+
+Each customer's Zerodha API app (in their developer console) must have its callback URL set to:
+```
+https://<subdomain>.dalgo.online/api/dalgo/setup/kite-callback
+```
+
+The `kite-login` route sets a `dalgo_kite_pending=customerId` cookie on the subdomain's domain. `kite-callback` reads it on the same domain. This is correct and customer-scoped.
+
+The old `dalgo.online/api/zerodha/callback` (V1 route) is legacy — **do not use for subdomain customers**. A shared callback URL at `dalgo.online` would fail because the `dalgo_kite_pending` cookie is on the subdomain, not `dalgo.online`.
+
+### 16.6 Server setup guide V2 created
+
+`docs/DineshTrade_ServerSetup_Guide_V2.md` — comprehensive 12-step guide covering:
+- Step 0: AWS EC2 launch, Elastic IP, security groups, DNS A record, SSH connection (merged from V1 PDF)
+- Step 1: Swap space (new — OOM prevention)
+- Steps 2–11: Node.js, .env.local (with critical keys that must match across servers), build, PM2, nginx (with X-Forwarded headers), SSL, security groups, Supabase config, Zerodha callback URL per subdomain, `deploybranch.sh`
+- Step 12: Customer onboarding in Supabase
+- Troubleshooting table with all issues encountered this session
+
+### 16.7 Open issues at end of session
+
+- **Narendra's Supabase keys**: must be verified/corrected on the narendra server (`grep -E "SUPABASE_SERVICE_KEY|NEXT_PUBLIC_SUPABASE_ANON_KEY" ~/dineshtrade/.env.local | wc -c` and compare with main server). After fixing, `pm2 restart dineshtrade --update-env`.
+- **Narendra's password**: Supabase Auth user `dalgo.narendra@gmail.com` exists but password is unknown. Use Admin API curl to set it (see session notes for command pattern — do not share passwords in chat).
+- **Password reset email template**: must be updated in Supabase dashboard (Authentication → Email Templates → Reset Password) to use `{{ .SiteURL }}/auth/reset-password`.
+- **Zerodha callback URL**: must be updated in narendra's Zerodha developer account to `https://narendra.dalgo.online/api/dalgo/setup/kite-callback`.
+- **Deploy to narendra server**: push and run `deploybranch.sh` on narendra after fixing the keys — includes the middleware, logout, and password reset page changes.
