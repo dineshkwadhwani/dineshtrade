@@ -58,6 +58,7 @@ const PUBLIC_EXACT = new Set([
   '/api/zerodha/callback', // Kite OAuth callback — self-authenticates via dalgo_kite_pending or dt_session cookie; no DAlgo JWT needed
   '/api/auth', // V1 auth route stays public too
   '/favicon.ico',
+  '/auth/reset-password', // password reset — user arrives with no session, only a Supabase recovery token in the URL hash
   // /sso is the SSO-handoff landing page (Phase 8, Task 8's fix) — a
   // customer arrives here straight from the main instance's login with a
   // one-time token in the URL and, by definition, NO session cookie on this
@@ -134,9 +135,16 @@ export async function middleware(request: NextRequest) {
 
   const access = requiredAccess(pathname)
 
-  // Step 2 — no session cookie → redirect to /login.
+  // Step 2 — no session cookie → redirect to login.
+  // On a subdomain (narendra.dalgo.online etc.), send to the main auth server
+  // rather than the local /login which has no standalone auth purpose.
   const token = request.cookies.get(SESSION_COOKIE)?.value
   if (!token) {
+    const host = request.headers.get('host') || ''
+    const isSubdomain = host.endsWith('.dalgo.online')
+    if (isSubdomain) {
+      return NextResponse.redirect('https://dalgo.online/login')
+    }
     return NextResponse.redirect(new URL('/login', request.url))
   }
 
