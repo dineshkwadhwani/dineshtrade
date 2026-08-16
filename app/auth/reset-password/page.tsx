@@ -1,8 +1,14 @@
 'use client'
 
 import { useEffect, useState } from 'react'
-import { supabaseAnon } from '@/lib/supabase'
+import { createClient } from '@supabase/supabase-js'
 import AuthShowcasePanel from '@/components/marketing/AuthShowcasePanel'
+
+// Minimal anon client — cannot import lib/supabase.ts here (server-only module)
+const supabase = createClient(
+  process.env.NEXT_PUBLIC_SUPABASE_URL!,
+  process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY!
+)
 
 const FONT_SORA = "'Sora', sans-serif"
 const FONT_INTER = "'Inter', sans-serif"
