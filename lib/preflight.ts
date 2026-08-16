@@ -119,7 +119,7 @@ export async function runPreflight(input: PreflightInput, broker: IBroker): Prom
   const { apiKey } = secrets
 
   // GATE 2 — market open + not holiday
-  const market = isMarketOpen()
+  const market = await isMarketOpen()
   if (!market.open) return { ok: false, gate: 'market', reason: `Market closed: ${market.status}` }
 
   // Capital config from the RUNTIME overlay (data/strategy.json) — user edits

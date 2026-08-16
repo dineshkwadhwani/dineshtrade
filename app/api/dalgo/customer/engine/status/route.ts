@@ -43,7 +43,7 @@ export async function GET(req: Request) {
     const instance = instanceRes.data
     const strategies = strategiesRes.data ?? []
 
-    const market = isMarketOpen()
+    const market = await isMarketOpen()
 
     // kite connection: instance row is most up-to-date; fall back to broker_accounts check
     let kiteConnected = false

@@ -81,7 +81,6 @@ This is not a SaaS product. It is a private, single-owner trading system managin
 | --- | --- | --- |
 | `/api/positions` | GET | Today's Kite positions enriched with strategy ownership (positions store first, then order-tag inference, defaulting unknown/manual to accumulator) |
 | `/api/strategy/positions` | GET | Unified position store entries + journal fallback for tag resolution |
-| `/api/journal/fix-attribution` | POST | Retroactively patches old `dt-manual` SELL entries missing `strategyId` |
 | `/api/settings/reset` | POST | Per-account wipe + re-seed from Kite holdings |
 | `/api/strategy/monitor` | POST | Manual trigger for the 5-min cron tick (same as auto tick) |
 
@@ -504,7 +503,7 @@ pm2 restart dineshtrade --update-env  # reload with new env vars
 
 ### Journal Fix-Attribution Button (01 Jun 2026)
 
-Settings → Journal Maintenance → "Fix Journal Attribution" button. Calls `POST /api/journal/fix-attribution`. Retroactively patches old `dt-manual` SELL entries that are missing `strategyId` — looks up each entry's symbol in the positions store and backfills the tag.
+Historical note: this endpoint was removed from V2 during JSON-residual cleanup. Any future attribution repair should be implemented directly against Supabase tables.
 
 ### Holdings Avg for Closed Positions (01 Jun 2026)
 

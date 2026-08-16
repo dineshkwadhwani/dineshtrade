@@ -43,7 +43,6 @@ into.
 | `health` | GET | Runs one of `zerodha`/`ai`/`email` integration checks; backs `/health` page. |
 | `journal/[date]` | GET | Full `DailyReport` for one IST date. |
 | `journal/dates` | GET | Dates with journal records (for date pickers). |
-| `journal/fix-attribution` | POST | Backfills missing `strategyId` on manual SELLs; purges known-bad synthetic-SELL fingerprints. |
 | `market/indices` | GET | Live index ticker snapshot (NIFTY/SENSEX/VIX/sector indices), one batched Kite `/quote` call. |
 | `market` | GET | AI-generated market briefing for Dashboard. |
 | `orders/cancel` | POST | Cancels a pending Kite order. |

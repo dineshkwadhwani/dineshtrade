@@ -4,6 +4,7 @@
 
 import { MOCK_MARKET_DATA } from '@/lib/marketMock'
 import { callAI } from '@/lib/ai'
+import { getActiveBrokerSources, sanitizeSourceLabel } from '@/lib/brokerSources'
 
 export interface BriefingRec {
   symbol: string
@@ -32,16 +33,21 @@ export interface BriefingResult {
   detail?: string
 }
 
-function buildPrompt(): string {
+function buildPrompt(sources: Array<{ name: string; url: string }>): string {
   const today = new Date().toLocaleDateString('en-IN', { timeZone: 'Asia/Kolkata', weekday:'long', day:'numeric', month:'long', year:'numeric' })
+  const sourceLines = sources.map(s => `- ${s.name}: ${s.url}`).join('\n')
   return `Today is ${today}. You are a professional Indian equity market analyst.
 
 CRITICAL — Read this before answering:
 - Every value in the schema below is a PLACEHOLDER (wrapped in <…>). Do NOT echo the placeholders.
 - Search the web for today's actual data (overnight US session close, Asian session prints, GIFT Nifty futures level, Indian broker calls published today).
+- Use ONLY the approved broker/publication sources listed below for topRecommendations.source.
 - Replace every <…> placeholder with the real value you found.
 - The "topRecommendations" entries must be DIFFERENT stocks and DIFFERENT reasons each day, sourced from today's broker calls / research notes — not a fixed list.
 - Output JSON only — no markdown fences, no commentary outside the JSON object.
+
+Approved sources:
+${sourceLines}
 
 Schema (replace every <…> with today's researched value):
 {
@@ -123,12 +129,13 @@ export async function getMarketBriefing(): Promise<BriefingResult> {
 
 async function fetchBriefingFresh(): Promise<BriefingResult> {
   try {
-    let result = await callAI({ prompt: buildPrompt(), useWebSearch: true, maxTokens: 8000 })
+    const brokerSources = await getActiveBrokerSources()
+    let result = await callAI({ prompt: buildPrompt(brokerSources), useWebSearch: true, maxTokens: 8000 })
     if (!result.ok) {
       // Compatibility fallback for providers/models that reject web-search
       // tools after a model switch. Better to provide a best-effort briefing
       // than leave the dashboard empty.
-      result = await callAI({ prompt: buildPrompt(), useWebSearch: false, maxTokens: 8000 })
+      result = await callAI({ prompt: buildPrompt(brokerSources), useWebSearch: false, maxTokens: 8000 })
     }
     if (!result.ok) {
       return {
@@ -159,6 +166,16 @@ async function fetchBriefingFresh(): Promise<BriefingResult> {
     }
     try {
       const parsed = JSON.parse(jsonMatch[0]) as BriefingData
+      if (Array.isArray(parsed.topRecommendations) && parsed.topRecommendations.length > 0) {
+        const approvedNames = brokerSources.map(s => s.name)
+        parsed.topRecommendations = parsed.topRecommendations.map(rec => {
+          if (!rec || typeof rec !== 'object') return rec
+          if (!rec.source || typeof rec.source !== 'string') {
+            return { ...rec, source: 'Unknown' }
+          }
+          return { ...rec, source: sanitizeSourceLabel(rec.source, approvedNames) }
+        })
+      }
       return { ok: true, data: parsed, source: 'ai', provider: result.provider, model: result.model }
     } catch (e) {
       return {

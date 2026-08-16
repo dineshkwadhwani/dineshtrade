@@ -210,7 +210,7 @@ export async function getCustomerHealthRows(filter?: { customerIds?: string[] })
   const byId = new Map((profiles ?? []).map(p => [p.id, p]))
   const brokerByCustomer = new Map((brokerAccounts ?? []).map(b => [b.customer_id, b]))
 
-  const marketOpen = isMarketOpen().open
+  const marketOpen = (await isMarketOpen()).open
 
   return instances.map(instance => {
     const profile = byId.get(instance.customer_id)

@@ -303,7 +303,7 @@ export async function GET() {
   }, {})
   const latestMonitorHeartbeat = todayMonitorHeartbeats.slice().sort((a, b) => b.ts.localeCompare(a.ts))[0] || null
 
-  const market = isMarketOpen()
+  const market = await isMarketOpen()
   const connectedAccounts = Object.keys(state.kiteTokens)
   const selectedAccounts = state.selectedAccounts
   const trackedAccounts = selectedAccounts.length > 0 ? selectedAccounts : connectedAccounts

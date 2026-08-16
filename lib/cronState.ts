@@ -1,7 +1,7 @@
 // Shared in-process state and helper functions for the cron subsystem.
 // No imports from other cron files — this is the base of the dependency tree.
 
-import { isMarketOpen, NSE_HOLIDAYS } from './market'
+import { getNseHolidays } from './market'
 import type { EODLineItem } from './email'
 
 // ──────── DAY-OF STATS (in-process) ────────
@@ -65,11 +65,12 @@ export function maybeRollDay() {
   }
 }
 
-export function isMarketDay(): boolean {
+export async function isMarketDay(): Promise<boolean> {
   const ist = new Date(new Date().toLocaleString('en-US', { timeZone: 'Asia/Kolkata' }))
   const dow = ist.getDay()
   if (dow === 0 || dow === 6) return false
-  return !NSE_HOLIDAYS.includes(istDateKey())
+  const holidays = await getNseHolidays()
+  return !holidays.includes(istDateKey())
 }
 
 // Reactive dip cadence check. Cron tick fires every 5 min; we want the

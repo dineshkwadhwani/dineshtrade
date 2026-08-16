@@ -180,7 +180,7 @@ export async function runEODSquareOff(): Promise<void> {
 
 export async function dailyRetrospective(): Promise<void> {
   maybeRollDay()
-  if (!isMarketDay()) {
+  if (!(await isMarketDay())) {
     console.log('[cron retro] not a market day — skipping')
     return
   }

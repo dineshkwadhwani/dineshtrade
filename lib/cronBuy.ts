@@ -186,7 +186,7 @@ export async function runStrategyTaskBody(strategy: Strategy): Promise<void> {
   maybeRollDay()
   const backend = getBackendInfo()
   console.log(`[cron strategy:${strategy.id}] entered task body · backend=${backend.backend}${backend.path ? ` path=${backend.path}` : ''}`)
-  const market = isMarketOpen()
+  const market = await isMarketOpen()
   if (!market.open) {
     console.log(`[cron strategy:${strategy.id}] skipped — market closed (${market.status})`)
     return

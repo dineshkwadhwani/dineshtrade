@@ -20,6 +20,7 @@
 // scripts/migrations/2026-08-09-phase4-schema-extensions.sql.
 
 import { getSupabaseAdmin, getCustomerId } from './supabase'
+import { getNseHolidays } from './market'
 
 export type TradeVerdict = 'correct_exit' | 'early_exit' | 'delivery' | 'manual'
 // Stored strategy owner for a completed trade. Historically this was limited
@@ -394,10 +395,8 @@ export async function listJournalDates(): Promise<string[]> {
   // (1) Trading-day calendar for the last 60 days, anchored to IST.
   let holidays: Set<string> = new Set()
   try {
-    const mod = await import('@/config/holidays.json')
-    const arr = (mod as any).default?.holidays ?? (mod as any).holidays ?? []
-    holidays = new Set(Array.isArray(arr) ? arr : [])
-  } catch { /* missing holidays.json = no holidays applied (weekends still excluded) */ }
+    holidays = new Set(await getNseHolidays())
+  } catch { /* best-effort: if holiday lookup fails, weekends still excluded */ }
 
   const ist = new Date(new Date().toLocaleString('en-US', { timeZone: 'Asia/Kolkata' }))
   for (let i = 0; i < 60; i++) {

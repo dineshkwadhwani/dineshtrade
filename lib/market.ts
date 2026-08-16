@@ -1,9 +1,33 @@
-import holidaysCfg from '@/config/holidays.json'
+import { getSupabaseAdmin } from './supabase'
 
-// Single source of truth — config/holidays.json. De-duped at module load.
-export const NSE_HOLIDAYS: string[] = Array.from(new Set(holidaysCfg.holidays))
+const HOLIDAY_CACHE_TTL_MS = 5 * 60 * 1000
+let holidayCache: string[] = []
+let holidayCacheAt = 0
 
-export function isMarketOpen(): { open: boolean; status: string; nextOpen?: string } {
+export async function getNseHolidays(forceRefresh = false): Promise<string[]> {
+  const now = Date.now()
+  if (!forceRefresh && holidayCacheAt > 0 && now - holidayCacheAt < HOLIDAY_CACHE_TTL_MS) {
+    return holidayCache
+  }
+
+  const admin = getSupabaseAdmin()
+  const { data, error } = await admin
+    .from('platform_holidays')
+    .select('holiday_date')
+    .eq('market', 'NSE')
+    .eq('active', true)
+    .order('holiday_date', { ascending: true })
+
+  if (error) {
+    throw new Error(`[market] failed to load platform holidays: ${error.message}`)
+  }
+
+  holidayCache = Array.from(new Set((data || []).map(row => String(row.holiday_date))))
+  holidayCacheAt = now
+  return holidayCache
+}
+
+export async function isMarketOpen(): Promise<{ open: boolean; status: string; nextOpen?: string }> {
   const now = new Date()
   const ist = new Date(now.toLocaleString('en-US', { timeZone: 'Asia/Kolkata' }))
   const day = ist.getDay() // 0=Sun, 6=Sat
@@ -13,7 +37,8 @@ export function isMarketOpen(): { open: boolean; status: string; nextOpen?: stri
   const timeInMins = hours * 60 + minutes
 
   if (day === 0 || day === 6) return { open: false, status: 'Closed — Weekend' }
-  if (NSE_HOLIDAYS.includes(dateStr)) return { open: false, status: 'Closed — Market Holiday' }
+  const holidays = await getNseHolidays()
+  if (holidays.includes(dateStr)) return { open: false, status: 'Closed — Market Holiday' }
 
   // Pre-market: 9:00–9:15, Market: 9:15–15:30, Post: 15:30–16:00
   if (timeInMins >= 9*60 && timeInMins < 9*60+15) return { open: false, status: 'Pre-Market (9:00–9:15)' }

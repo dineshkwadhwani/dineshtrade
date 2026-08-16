@@ -214,7 +214,7 @@ async function tick(): Promise<void> {
   // itself is paused (market closed / manual mode / no token).
   reportInstanceStatus(state).catch(err => console.error('[cron tick] instance status report failed:', err))
 
-  const market = isMarketOpen()
+  const market = await isMarketOpen()
   if (!market.open && !CRON_TEST_IGNORE_MARKET_HOURS) {
     console.log(`[cron tick] skipped — market closed (${market.status})`)
     return
