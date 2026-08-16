@@ -28,8 +28,29 @@ export default async function AdminConfigPage() {
   ])
   const byKey = new Map<string, ConfigRow>((configData ?? []).map(row => [row.key, row as ConfigRow]))
   const configs: ConfigRow[] = VISIBLE_KEYS.map(k => byKey.get(k)).filter((c): c is ConfigRow => !!c)
-  const holidays: HolidayRow[] = (holidayData ?? []) as HolidayRow[]
-  const brokerSources: BrokerSourceRow[] = (brokerData ?? []) as BrokerSourceRow[]
+  const holidays: HolidayRow[] = (holidayData ?? [])
+    .filter((r: any) => r && typeof r.id === 'string')
+    .map((r: any) => ({
+      id: String(r.id),
+      market: String(r.market ?? 'NSE'),
+      holiday_date: String(r.holiday_date ?? ''),
+      name: String(r.name ?? ''),
+      notes: r.notes == null ? null : String(r.notes),
+      active: !!r.active,
+    }))
+    .filter(r => !!r.holiday_date && !!r.name)
+
+  const brokerSources: BrokerSourceRow[] = (brokerData ?? [])
+    .filter((r: any) => r && typeof r.id === 'string')
+    .map((r: any) => ({
+      id: String(r.id),
+      name: String(r.name ?? ''),
+      url: String(r.url ?? ''),
+      notes: r.notes == null ? null : String(r.notes),
+      active: !!r.active,
+      display_order: Number.isFinite(r.display_order) ? Number(r.display_order) : 100,
+    }))
+    .filter(r => !!r.name && !!r.url)
 
   return (
     <div>

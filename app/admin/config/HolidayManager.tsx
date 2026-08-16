@@ -18,11 +18,14 @@ interface Props {
 }
 
 function byDate(a: HolidayRow, b: HolidayRow): number {
-  return a.holiday_date.localeCompare(b.holiday_date)
+  return String(a.holiday_date || '').localeCompare(String(b.holiday_date || ''))
 }
 
 export default function HolidayManager({ initialHolidays }: Props) {
-  const [holidays, setHolidays] = useState<HolidayRow[]>([...initialHolidays].sort(byDate))
+  const safeInitial = Array.isArray(initialHolidays)
+    ? initialHolidays.filter(h => h && typeof h.id === 'string')
+    : []
+  const [holidays, setHolidays] = useState<HolidayRow[]>([...safeInitial].sort(byDate))
   const [saving, setSaving] = useState<string | null>(null)
   const [newDate, setNewDate] = useState('')
   const [newName, setNewName] = useState('')

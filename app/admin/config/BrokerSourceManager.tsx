@@ -19,11 +19,14 @@ interface Props {
 
 function byOrder(a: BrokerSourceRow, b: BrokerSourceRow): number {
   if (a.display_order !== b.display_order) return a.display_order - b.display_order
-  return a.name.localeCompare(b.name)
+  return String(a.name || '').localeCompare(String(b.name || ''))
 }
 
 export default function BrokerSourceManager({ initialSources }: Props) {
-  const [sources, setSources] = useState<BrokerSourceRow[]>([...initialSources].sort(byOrder))
+  const safeInitial = Array.isArray(initialSources)
+    ? initialSources.filter(s => s && typeof s.id === 'string')
+    : []
+  const [sources, setSources] = useState<BrokerSourceRow[]>([...safeInitial].sort(byOrder))
   const [saving, setSaving] = useState<string | null>(null)
   const [newName, setNewName] = useState('')
   const [newUrl, setNewUrl] = useState('')
