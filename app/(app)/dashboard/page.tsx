@@ -76,7 +76,7 @@ export default async function DashboardPage() {
   const strategies = strategiesRes.data ?? []
   const state = stateRes.data
 
-  const market = isMarketOpen()
+  const market = await isMarketOpen()
   const firstName = profile_session.full_name?.split(' ')[0] ?? 'there'
   const hour = new Date().toLocaleString('en-US', { timeZone: 'Asia/Kolkata', hour: 'numeric', hour12: false })
   const greeting = parseInt(hour) < 12 ? 'Good morning' : parseInt(hour) < 17 ? 'Good afternoon' : 'Good evening'
