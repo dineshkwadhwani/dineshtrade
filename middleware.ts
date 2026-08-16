@@ -127,6 +127,15 @@ function requiredAccess(pathname: string): ProfileRole | 'any' | null {
 
 export async function middleware(request: NextRequest) {
   const { pathname } = request.nextUrl
+  const host = request.headers.get('host') || ''
+  const isSubdomain = host.endsWith('.dalgo.online') && host !== 'dalgo.online' && host !== 'www.dalgo.online'
+
+  // On subdomain servers, front-door public routes have no purpose — redirect
+  // to dalgo.online so users always authenticate through the main site.
+  // /sso, /auth/reset-password, API routes, and static assets are exempt.
+  if (isSubdomain && isPublic(pathname) && !pathname.startsWith('/api/') && !isStaticAsset(pathname) && pathname !== '/sso' && pathname !== '/auth/reset-password') {
+    return NextResponse.redirect('https://dalgo.online')
+  }
 
   // Step 1 — public route → pass through, no cookie check at all.
   if (isPublic(pathname)) {
@@ -140,8 +149,6 @@ export async function middleware(request: NextRequest) {
   // rather than the local /login which has no standalone auth purpose.
   const token = request.cookies.get(SESSION_COOKIE)?.value
   if (!token) {
-    const host = request.headers.get('host') || ''
-    const isSubdomain = host.endsWith('.dalgo.online')
     if (isSubdomain) {
       return NextResponse.redirect('https://dalgo.online')
     }
