@@ -100,7 +100,8 @@ export default function AppShell({ children, fullName, tokenExpired }: { childre
       fetch('/api/auth', { method: 'DELETE' }),
       fetch('/api/dalgo/auth/logout', { method: 'POST' }),
     ])
-    router.push('/login')
+    const isSubdomain = window.location.hostname.endsWith('.dalgo.online')
+    window.location.href = isSubdomain ? 'https://dalgo.online' : '/login'
   }
 
   return (

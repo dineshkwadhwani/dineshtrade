@@ -54,8 +54,8 @@ export default function DalgoShell({ profile, navItems, logoHref, children }: Pr
     try {
       await fetch('/api/dalgo/auth/logout', { method: 'POST' })
     } finally {
-      router.push('/login')
-      router.refresh()
+      const isSubdomain = window.location.hostname.endsWith('.dalgo.online')
+      window.location.href = isSubdomain ? 'https://dalgo.online' : '/login'
     }
   }
 

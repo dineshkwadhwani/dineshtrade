@@ -143,7 +143,7 @@ export async function middleware(request: NextRequest) {
     const host = request.headers.get('host') || ''
     const isSubdomain = host.endsWith('.dalgo.online')
     if (isSubdomain) {
-      return NextResponse.redirect('https://dalgo.online/login')
+      return NextResponse.redirect('https://dalgo.online')
     }
     return NextResponse.redirect(new URL('/login', request.url))
   }

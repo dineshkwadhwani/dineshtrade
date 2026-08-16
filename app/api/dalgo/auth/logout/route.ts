@@ -29,7 +29,10 @@ export async function POST() {
 
 // GET — used by plain <a href> links (e.g. the Log out button on /setup)
 export async function GET() {
-  const res = NextResponse.redirect(new URL('/', process.env.NEXT_PUBLIC_APP_URL || 'http://localhost:3000'))
+  const appUrl = process.env.NEXT_PUBLIC_APP_URL || 'http://localhost:3000'
+  const appHost = (() => { try { return new URL(appUrl).hostname } catch { return '' } })()
+  const redirectTo = appHost.endsWith('.dalgo.online') ? 'https://dalgo.online' : appUrl
+  const res = NextResponse.redirect(new URL('/', redirectTo))
   res.cookies.set(SESSION_COOKIE, '', {
     httpOnly: true,
     secure: process.env.NODE_ENV === 'production',
