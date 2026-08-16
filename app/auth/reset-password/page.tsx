@@ -36,7 +36,7 @@ export default function ResetPasswordPage() {
       return
     }
 
-    supabaseAnon.auth.setSession({ access_token: accessToken, refresh_token: refreshToken })
+    supabase.auth.setSession({ access_token: accessToken, refresh_token: refreshToken })
       .then(({ error }) => {
         if (error) { setStage('error'); return }
         // Clear the hash so tokens don't linger in browser history
@@ -52,7 +52,7 @@ export default function ResetPasswordPage() {
     if (password !== confirm) { setError('Passwords do not match.'); return }
 
     setSubmitting(true)
-    const { error } = await supabaseAnon.auth.updateUser({ password })
+    const { error } = await supabase.auth.updateUser({ password })
     setSubmitting(false)
 
     if (error) { setError(error.message); return }
