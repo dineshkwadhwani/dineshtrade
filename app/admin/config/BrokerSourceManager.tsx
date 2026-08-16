@@ -27,6 +27,7 @@ export default function BrokerSourceManager({ initialSources }: Props) {
     ? initialSources.filter(s => s && typeof s.id === 'string')
     : []
   const [sources, setSources] = useState<BrokerSourceRow[]>([...safeInitial].sort(byOrder))
+  const [open, setOpen] = useState(false)
   const [saving, setSaving] = useState<string | null>(null)
   const [newName, setNewName] = useState('')
   const [newUrl, setNewUrl] = useState('')
@@ -105,115 +106,146 @@ export default function BrokerSourceManager({ initialSources }: Props) {
   return (
     <div style={{ display: 'flex', flexDirection: 'column', gap: 12 }}>
       <Card style={{ padding: 16 }}>
-        <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: 12 }}>
-          <div style={{ fontFamily: FONT_INTER, fontWeight: 600, fontSize: 14, color: COLORS.heading }}>Broker Recommendation Sources</div>
+        <button
+          type='button'
+          onClick={() => setOpen(v => !v)}
+          style={{
+            width: '100%',
+            display: 'flex',
+            justifyContent: 'space-between',
+            alignItems: 'center',
+            background: 'transparent',
+            border: 'none',
+            padding: 0,
+            marginBottom: open ? 12 : 0,
+            cursor: 'pointer',
+          }}
+        >
+          <div style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
+            <span
+              style={{
+                color: COLORS.muted,
+                fontSize: 12,
+                transform: open ? 'rotate(90deg)' : 'rotate(0deg)',
+                transition: 'transform 0.15s ease',
+                display: 'inline-block',
+              }}
+            >
+              ▶
+            </span>
+            <div style={{ fontFamily: FONT_INTER, fontWeight: 600, fontSize: 14, color: COLORS.heading }}>Broker Recommendation Sources</div>
+          </div>
           <div style={{ fontSize: 12, color: COLORS.body }}>Active sources: {activeCount}</div>
-        </div>
+        </button>
 
-        <div style={{ display: 'grid', gridTemplateColumns: 'minmax(180px,1fr) minmax(260px,2fr) minmax(180px,1fr) 110px auto', gap: 8, alignItems: 'center' }}>
-          <input
-            value={newName}
-            onChange={e => setNewName(e.target.value)}
-            placeholder='Source name'
-            style={{ fontFamily: FONT_INTER, fontSize: 13, padding: '7px 10px', borderRadius: 6, border: `1px solid ${COLORS.border}` }}
-          />
-          <input
-            value={newUrl}
-            onChange={e => setNewUrl(e.target.value)}
-            placeholder='https://...'
-            style={{ fontFamily: FONT_INTER, fontSize: 13, padding: '7px 10px', borderRadius: 6, border: `1px solid ${COLORS.border}` }}
-          />
-          <input
-            value={newNotes}
-            onChange={e => setNewNotes(e.target.value)}
-            placeholder='Notes (optional)'
-            style={{ fontFamily: FONT_INTER, fontSize: 13, padding: '7px 10px', borderRadius: 6, border: `1px solid ${COLORS.border}` }}
-          />
-          <input
-            type='number'
-            value={newOrder}
-            onChange={e => setNewOrder(e.target.value)}
-            placeholder='Order'
-            style={{ fontFamily: FONT_INTER, fontSize: 13, padding: '7px 10px', borderRadius: 6, border: `1px solid ${COLORS.border}` }}
-          />
-          <button
-            onClick={addSource}
-            disabled={saving === 'new' || !newName.trim() || !newUrl.trim()}
-            style={{
-              fontFamily: FONT_INTER,
-              fontSize: 12,
-              fontWeight: 500,
-              background: COLORS.primary,
-              color: '#fff',
-              border: 'none',
-              borderRadius: 6,
-              padding: '8px 12px',
-              cursor: 'pointer',
-              opacity: saving === 'new' || !newName.trim() || !newUrl.trim() ? 0.5 : 1,
-            }}
-          >
-            {saving === 'new' ? 'Saving…' : 'Add'}
-          </button>
-        </div>
+        {open && (
+          <>
+            <div style={{ display: 'grid', gridTemplateColumns: 'minmax(180px,1fr) minmax(260px,2fr) minmax(180px,1fr) 110px auto', gap: 8, alignItems: 'center' }}>
+              <input
+                value={newName}
+                onChange={e => setNewName(e.target.value)}
+                placeholder='Source name'
+                style={{ fontFamily: FONT_INTER, fontSize: 13, padding: '7px 10px', borderRadius: 6, border: `1px solid ${COLORS.border}` }}
+              />
+              <input
+                value={newUrl}
+                onChange={e => setNewUrl(e.target.value)}
+                placeholder='https://...'
+                style={{ fontFamily: FONT_INTER, fontSize: 13, padding: '7px 10px', borderRadius: 6, border: `1px solid ${COLORS.border}` }}
+              />
+              <input
+                value={newNotes}
+                onChange={e => setNewNotes(e.target.value)}
+                placeholder='Notes (optional)'
+                style={{ fontFamily: FONT_INTER, fontSize: 13, padding: '7px 10px', borderRadius: 6, border: `1px solid ${COLORS.border}` }}
+              />
+              <input
+                type='number'
+                value={newOrder}
+                onChange={e => setNewOrder(e.target.value)}
+                placeholder='Order'
+                style={{ fontFamily: FONT_INTER, fontSize: 13, padding: '7px 10px', borderRadius: 6, border: `1px solid ${COLORS.border}` }}
+              />
+              <button
+                onClick={addSource}
+                disabled={saving === 'new' || !newName.trim() || !newUrl.trim()}
+                style={{
+                  fontFamily: FONT_INTER,
+                  fontSize: 12,
+                  fontWeight: 500,
+                  background: COLORS.primary,
+                  color: '#fff',
+                  border: 'none',
+                  borderRadius: 6,
+                  padding: '8px 12px',
+                  cursor: 'pointer',
+                  opacity: saving === 'new' || !newName.trim() || !newUrl.trim() ? 0.5 : 1,
+                }}
+              >
+                {saving === 'new' ? 'Saving…' : 'Add'}
+              </button>
+            </div>
+
+            {sources.map(s => (
+              <Card key={s.id} style={{ padding: 12, display: 'grid', gridTemplateColumns: 'minmax(150px,1fr) minmax(250px,2fr) minmax(180px,1fr) 90px auto auto', gap: 8, alignItems: 'center', marginTop: 10 }}>
+                <input
+                  value={s.name}
+                  onChange={e => patchSource(s.id, { name: e.target.value })}
+                  disabled={saving === s.id}
+                  style={{ fontFamily: FONT_INTER, fontSize: 13, padding: '7px 10px', borderRadius: 6, border: `1px solid ${COLORS.border}` }}
+                />
+                <input
+                  value={s.url}
+                  onChange={e => patchSource(s.id, { url: e.target.value })}
+                  disabled={saving === s.id}
+                  style={{ fontFamily: FONT_INTER, fontSize: 13, padding: '7px 10px', borderRadius: 6, border: `1px solid ${COLORS.border}` }}
+                />
+                <input
+                  value={s.notes ?? ''}
+                  onChange={e => patchSource(s.id, { notes: e.target.value || null })}
+                  disabled={saving === s.id}
+                  placeholder='Notes'
+                  style={{ fontFamily: FONT_INTER, fontSize: 13, padding: '7px 10px', borderRadius: 6, border: `1px solid ${COLORS.border}` }}
+                />
+                <input
+                  type='number'
+                  value={String(s.display_order)}
+                  onChange={e => patchSource(s.id, { displayOrder: Number(e.target.value || '0') })}
+                  disabled={saving === s.id}
+                  style={{ fontFamily: FONT_INTER, fontSize: 13, padding: '7px 10px', borderRadius: 6, border: `1px solid ${COLORS.border}` }}
+                />
+                <label style={{ display: 'inline-flex', alignItems: 'center', gap: 6, fontSize: 12, color: COLORS.body }}>
+                  <input
+                    type='checkbox'
+                    checked={s.active}
+                    disabled={saving === s.id}
+                    onChange={e => patchSource(s.id, { active: e.target.checked })}
+                  />
+                  Active
+                </label>
+                <button
+                  onClick={() => deleteSource(s.id)}
+                  disabled={saving === s.id}
+                  style={{
+                    fontFamily: FONT_INTER,
+                    fontSize: 12,
+                    fontWeight: 500,
+                    background: '#fff',
+                    color: '#B91C1C',
+                    border: '1px solid #FCA5A5',
+                    borderRadius: 6,
+                    padding: '7px 10px',
+                    cursor: 'pointer',
+                    opacity: saving === s.id ? 0.5 : 1,
+                  }}
+                >
+                  Delete
+                </button>
+              </Card>
+            ))}
+          </>
+        )}
       </Card>
-
-      {sources.map(s => (
-        <Card key={s.id} style={{ padding: 12, display: 'grid', gridTemplateColumns: 'minmax(150px,1fr) minmax(250px,2fr) minmax(180px,1fr) 90px auto auto', gap: 8, alignItems: 'center' }}>
-          <input
-            value={s.name}
-            onChange={e => patchSource(s.id, { name: e.target.value })}
-            disabled={saving === s.id}
-            style={{ fontFamily: FONT_INTER, fontSize: 13, padding: '7px 10px', borderRadius: 6, border: `1px solid ${COLORS.border}` }}
-          />
-          <input
-            value={s.url}
-            onChange={e => patchSource(s.id, { url: e.target.value })}
-            disabled={saving === s.id}
-            style={{ fontFamily: FONT_INTER, fontSize: 13, padding: '7px 10px', borderRadius: 6, border: `1px solid ${COLORS.border}` }}
-          />
-          <input
-            value={s.notes ?? ''}
-            onChange={e => patchSource(s.id, { notes: e.target.value || null })}
-            disabled={saving === s.id}
-            placeholder='Notes'
-            style={{ fontFamily: FONT_INTER, fontSize: 13, padding: '7px 10px', borderRadius: 6, border: `1px solid ${COLORS.border}` }}
-          />
-          <input
-            type='number'
-            value={String(s.display_order)}
-            onChange={e => patchSource(s.id, { displayOrder: Number(e.target.value || '0') })}
-            disabled={saving === s.id}
-            style={{ fontFamily: FONT_INTER, fontSize: 13, padding: '7px 10px', borderRadius: 6, border: `1px solid ${COLORS.border}` }}
-          />
-          <label style={{ display: 'inline-flex', alignItems: 'center', gap: 6, fontSize: 12, color: COLORS.body }}>
-            <input
-              type='checkbox'
-              checked={s.active}
-              disabled={saving === s.id}
-              onChange={e => patchSource(s.id, { active: e.target.checked })}
-            />
-            Active
-          </label>
-          <button
-            onClick={() => deleteSource(s.id)}
-            disabled={saving === s.id}
-            style={{
-              fontFamily: FONT_INTER,
-              fontSize: 12,
-              fontWeight: 500,
-              background: '#fff',
-              color: '#B91C1C',
-              border: '1px solid #FCA5A5',
-              borderRadius: 6,
-              padding: '7px 10px',
-              cursor: 'pointer',
-              opacity: saving === s.id ? 0.5 : 1,
-            }}
-          >
-            Delete
-          </button>
-        </Card>
-      ))}
     </div>
   )
 }
