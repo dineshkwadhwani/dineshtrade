@@ -2,14 +2,15 @@ export const dynamic = 'force-dynamic'
 
 import { getSupabaseAdmin } from '@/lib/supabase'
 import { PageHeader, SectionCard } from '@/components/dalgo/ui'
-import StrategiesClient, { type PlatformStrategyRow } from './StrategiesClient'
+import StrategiesClient, { type PlatformStrategyRow, type CustomerOption } from './StrategiesClient'
 
 // Task 6.9 — Platform Strategies.
 export default async function AdminStrategiesPage() {
   const admin = getSupabaseAdmin()
-  const [{ data: strategies }, { data: activeCopies }] = await Promise.all([
+  const [{ data: strategies }, { data: activeCopies }, { data: customers }] = await Promise.all([
     admin.from('platform_strategies').select('*').order('name', { ascending: true }),
     admin.from('customer_strategies').select('platform_strategy_id').eq('active', true),
+    admin.from('profiles').select('id, full_name').eq('role', 'customer').eq('status', 'active').order('full_name'),
   ])
 
   const countByPlatformId = new Map<string, number>()
@@ -30,11 +31,16 @@ export default async function AdminStrategiesPage() {
     activeCustomerCount: countByPlatformId.get(s.id) ?? 0,
   }))
 
+  const customerOptions: CustomerOption[] = (customers ?? []).map((c: any) => ({
+    id: c.id as string,
+    name: c.full_name as string,
+  }))
+
   return (
     <div>
       <PageHeader title="Platform Strategies" subtitle="Manage strategy templates offered to customers" />
       <SectionCard>
-        <StrategiesClient strategies={rows} />
+        <StrategiesClient strategies={rows} customers={customerOptions} />
       </SectionCard>
     </div>
   )

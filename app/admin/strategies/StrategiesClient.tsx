@@ -20,8 +20,14 @@ export interface PlatformStrategyRow {
   activeCustomerCount: number
 }
 
+export interface CustomerOption {
+  id: string
+  name: string
+}
+
 interface Props {
   strategies: PlatformStrategyRow[]
+  customers: CustomerOption[]
 }
 
 function Toggle({ checked, onChange, disabled }: { checked: boolean; onChange: () => void; disabled: boolean }) {
@@ -57,7 +63,7 @@ function Toggle({ checked, onChange, disabled }: { checked: boolean; onChange: (
   )
 }
 
-export default function StrategiesClient({ strategies: initial }: Props) {
+export default function StrategiesClient({ strategies: initial, customers }: Props) {
   const router = useRouter()
   const [strategies, setStrategies] = useState(initial)
   const [togglingId, setTogglingId] = useState<string | null>(null)
@@ -67,6 +73,9 @@ export default function StrategiesClient({ strategies: initial }: Props) {
   const [gateDraft, setGateDraft] = useState('')
   const [jsonError, setJsonError] = useState<string | null>(null)
   const [saving, setSaving] = useState(false)
+  // push state keyed by strategy id
+  const [pushTarget, setPushTarget] = useState<Record<string, string>>({})
+  const [pushing, setPushing] = useState<string | null>(null)
 
   async function togglePublished(s: PlatformStrategyRow) {
     setTogglingId(s.id)
@@ -130,6 +139,28 @@ export default function StrategiesClient({ strategies: initial }: Props) {
     }
   }
 
+  async function handlePush(s: PlatformStrategyRow) {
+    const target = pushTarget[s.id] ?? '__all__'
+    const label = target === '__all__' ? 'all customers' : (customers.find(c => c.id === target)?.name ?? target)
+    if (!confirm(`Push platform params for "${s.name}" to ${label}?`)) return
+    setPushing(s.id)
+    try {
+      const res = await fetch(`/api/dalgo/admin/strategies/${s.id}/push`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify(target === '__all__' ? {} : { targetCustomerId: target }),
+      })
+      const body = await res.json().catch(() => ({}))
+      if (!res.ok) {
+        alert(body.error || 'Push failed.')
+      } else {
+        alert(`Pushed "${s.name}" to ${body.affectedCustomers} customer(s).`)
+      }
+    } finally {
+      setPushing(null)
+    }
+  }
+
   const textareaStyle: React.CSSProperties = {
     fontFamily: 'monospace',
     fontSize: 12,
@@ -165,6 +196,28 @@ export default function StrategiesClient({ strategies: initial }: Props) {
                 </button>
               )}
             </div>
+          </div>
+
+          {/* Push row */}
+          <div style={{ display: 'flex', alignItems: 'center', gap: 8, marginTop: 12, flexWrap: 'wrap' }}>
+            <span style={{ fontSize: 12, color: COLORS.muted, flexShrink: 0 }}>Push to:</span>
+            <select
+              value={pushTarget[s.id] ?? '__all__'}
+              onChange={e => setPushTarget(prev => ({ ...prev, [s.id]: e.target.value }))}
+              style={{ fontSize: 12, padding: '5px 8px', borderRadius: 6, border: `1px solid ${COLORS.border}`, fontFamily: FONT_INTER, color: COLORS.body }}
+            >
+              <option value="__all__">All Customers</option>
+              {customers.map(c => (
+                <option key={c.id} value={c.id}>{c.name}</option>
+              ))}
+            </select>
+            <button
+              onClick={() => handlePush(s)}
+              disabled={pushing === s.id}
+              style={{ ...secondaryButtonStyle, opacity: pushing === s.id ? 0.6 : 1 }}
+            >
+              {pushing === s.id ? 'Pushing…' : 'Push'}
+            </button>
           </div>
 
           {editingId === s.id && (

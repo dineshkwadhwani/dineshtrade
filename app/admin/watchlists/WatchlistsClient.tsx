@@ -21,8 +21,14 @@ export interface WatchlistRow {
   symbols: WatchlistSymbol[]
 }
 
+export interface CustomerOption {
+  id: string
+  name: string
+}
+
 interface Props {
   watchlists: WatchlistRow[]
+  customers: CustomerOption[]
 }
 
 const inputStyle: React.CSSProperties = {
@@ -33,15 +39,39 @@ const inputStyle: React.CSSProperties = {
   border: `1px solid ${COLORS.border}`,
 }
 
-export default function WatchlistsClient({ watchlists }: Props) {
+export default function WatchlistsClient({ watchlists, customers }: Props) {
   const router = useRouter()
   const [selectedKey, setSelectedKey] = useState(watchlists[0]?.list_key ?? '')
   const [nse, setNse] = useState('')
   const [name, setName] = useState('')
   const [sector, setSector] = useState('')
   const [busy, setBusy] = useState(false)
+  const [pushTarget, setPushTarget] = useState('__all__')
+  const [pushing, setPushing] = useState(false)
 
   const selected = watchlists.find(w => w.list_key === selectedKey)
+
+  async function handlePush() {
+    if (!selected) return
+    const label = pushTarget === '__all__' ? 'all customers' : (customers.find(c => c.id === pushTarget)?.name ?? pushTarget)
+    if (!confirm(`Push "${selected.name}" (${selected.symbols.length} symbols) to ${label}?`)) return
+    setPushing(true)
+    try {
+      const res = await fetch(`/api/dalgo/admin/watchlists/${selected.list_key}/push`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify(pushTarget === '__all__' ? {} : { targetCustomerId: pushTarget }),
+      })
+      const body = await res.json().catch(() => ({}))
+      if (!res.ok) {
+        alert(body.error || 'Push failed.')
+      } else {
+        alert(`Pushed "${selected.name}" to ${body.affectedCustomers} customer(s).`)
+      }
+    } finally {
+      setPushing(false)
+    }
+  }
 
   async function handleAdd() {
     if (!selected || !nse.trim() || !name.trim()) return
@@ -148,6 +178,28 @@ export default function WatchlistsClient({ watchlists }: Props) {
               </div>
               <button onClick={handleAdd} disabled={busy || !nse.trim() || !name.trim()} style={{ ...primaryButtonStyle, opacity: busy ? 0.6 : 1 }}>
                 Add Symbol
+              </button>
+            </div>
+
+            {/* Push row */}
+            <div style={{ display: 'flex', alignItems: 'center', gap: 8, marginBottom: 14, flexWrap: 'wrap' }}>
+              <span style={{ fontSize: 12, color: COLORS.muted, flexShrink: 0 }}>Push to:</span>
+              <select
+                value={pushTarget}
+                onChange={e => setPushTarget(e.target.value)}
+                style={{ fontSize: 12, padding: '5px 8px', borderRadius: 6, border: `1px solid ${COLORS.border}`, fontFamily: FONT_INTER, color: COLORS.body }}
+              >
+                <option value="__all__">All Customers</option>
+                {customers.map(c => (
+                  <option key={c.id} value={c.id}>{c.name}</option>
+                ))}
+              </select>
+              <button
+                onClick={handlePush}
+                disabled={pushing || !selected}
+                style={{ ...secondaryButtonStyle, opacity: pushing ? 0.6 : 1 }}
+              >
+                {pushing ? 'Pushing…' : 'Push'}
               </button>
             </div>
 
