@@ -16,22 +16,10 @@ const MARKETING_LINES = [
 ]
 
 const HERO_PILLS = [
-  {
-    pill: 'Panic Trade Prevention',
-    detail: 'Rules-first execution helps remove emotional entries and exits during volatile sessions.',
-  },
-  {
-    pill: 'Free-Fall Protection',
-    detail: 'Circuit-aware risk checks pause reckless actions when the market is in fast drawdown mode.',
-  },
-  {
-    pill: 'Broker-Native Control',
-    detail: 'Your brokerage account stays in your custody while DAlgo executes only within your guardrails.',
-  },
-  {
-    pill: 'Mobile-First Workflow',
-    detail: 'Fast, thumb-friendly control surfaces let you monitor and intervene from anywhere in seconds.',
-  },
+  'Panic trade prevention — rules-first execution, no emotional entries.',
+  'Free-fall protection — circuit checks pause trading in fast drawdowns.',
+  'Broker-native control — your account stays in custody, DAlgo only executes.',
+  'Mobile-first — monitor and intervene from anywhere in seconds.',
 ]
 
 export default function AuthShowcasePanel() {
@@ -158,13 +146,10 @@ export default function AuthShowcasePanel() {
             gap: 10,
           }}
         >
-          {HERO_PILLS.map(item => (
-            <div key={item.pill} style={{ display: 'flex', gap: 10, alignItems: 'flex-start' }}>
-              <span style={{ marginTop: 4, flexShrink: 0, width: 6, height: 6, borderRadius: 99, background: '#F59E0B' }} />
-              <div>
-                <div style={{ fontFamily: FONT_SORA, fontWeight: 600, fontSize: 13, color: '#fff', marginBottom: 2 }}>{item.pill}</div>
-                <div className="dt-register-soft" style={{ fontFamily: FONT_INTER, fontSize: 12, color: 'rgba(255,255,255,0.75)', lineHeight: 1.5 }}>{item.detail}</div>
-              </div>
+          {HERO_PILLS.map(line => (
+            <div key={line} style={{ display: 'flex', gap: 10, alignItems: 'center' }}>
+              <span style={{ flexShrink: 0, width: 6, height: 6, borderRadius: 99, background: '#F59E0B' }} />
+              <div className="dt-register-soft" style={{ fontFamily: FONT_INTER, fontSize: 13, color: 'rgba(255,255,255,0.88)', lineHeight: 1.4 }}>{line}</div>
             </div>
           ))}
         </div>
