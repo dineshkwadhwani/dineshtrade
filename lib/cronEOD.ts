@@ -3,7 +3,7 @@
 
 import { getState } from './state'
 import { getAccountList } from './accounts'
-import { sendDailyReport, sendMonthlyReport, isEmailConfigured } from './email'
+import { sendDailyReport, sendMonthlyReport, isEmailConfigured, sendDailyReportToEmail, sendMonthlyReportToEmail } from './email'
 import { getActiveStrategies, asMomentumParams } from './strategyConfig'
 import { resolveAccountCreds, placeKiteOrder, getQuotes } from './kite'
 import { runPreflight, markPlaced } from './preflight'
@@ -178,7 +178,7 @@ export async function runEODSquareOff(): Promise<void> {
 //
 // On the last trading day of the month we additionally fire a monthly rollup.
 
-export async function dailyRetrospective(): Promise<void> {
+export async function dailyRetrospective(toEmail?: string): Promise<void> {
   maybeRollDay()
   if (!(await isMarketDay())) {
     console.log('[cron retro] not a market day — skipping')
@@ -204,8 +204,10 @@ export async function dailyRetrospective(): Promise<void> {
     // Always send on a trading day. Even with zero trades, the report acts as
     // a "daily diary": shows open positions, capital status, strategy health,
     // and confirms the engine ran (or that you stayed in manual mode all day).
-    console.log(`[cron retro] ${today} — sending daily report: ${report.tradesCount} trades, ${report.missedSignals.length} missed signals`)
-    const emailResult = await sendDailyReport(report)
+    console.log(`[cron retro] ${today} — sending daily report: ${report.tradesCount} trades, ${report.missedSignals.length} missed signals to ${toEmail || 'NOTIFY_TO'}`)
+    const emailResult = toEmail 
+      ? await sendDailyReportToEmail(report, toEmail)
+      : await sendDailyReport(report)
     if (!emailResult.ok) {
       console.error(`[cron retro] daily report email failed: ${emailResult.error || (emailResult.skipped ? 'SMTP not configured — check SMTP_USER/SMTP_PASS env vars' : 'unknown')}`)
     }
@@ -221,8 +223,13 @@ export async function dailyRetrospective(): Promise<void> {
       if (monthly.totalTrades === 0 && monthly.signalsMissed === 0) {
         console.log(`[cron retro] ${today} — last trading day, but month had zero activity — skipping monthly`)
       } else {
-        console.log(`[cron retro] ${today} — sending monthly rollup for ${monthly.monthLabel}: ${monthly.totalTrades} trades`)
-        await sendMonthlyReport(monthly)
+        console.log(`[cron retro] ${today} — sending monthly rollup for ${monthly.monthLabel}: ${monthly.totalTrades} trades to ${toEmail || 'NOTIFY_TO'}`)
+        const monthlyResult = toEmail
+          ? await sendMonthlyReportToEmail(monthly, toEmail)
+          : await sendMonthlyReport(monthly)
+        if (!monthlyResult.ok) {
+          console.error(`[cron retro] monthly report email failed: ${monthlyResult.error}`)
+        }
       }
     } catch (err) {
       console.error('[cron retro] monthly rollup failed:', err)

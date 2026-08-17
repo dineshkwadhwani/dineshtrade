@@ -43,8 +43,8 @@ export default function AppFooter() {
       <div className="space-y-1">
         <div>
           Created by <span className="dt-footer-emphasis">Dinesh Wadhwani</span> • 
-          <a href="mailto:contact@thecoachdinesh.com" className="dt-footer-link ml-1">
-            contact@thecoachdinesh.com
+          <a href="mailto:contact@dalgo.online" className="dt-footer-link ml-1">
+            contact@dalgo.online
           </a> • 
           <span className="ml-1 dt-footer-emphasis">+91 9767676738</span>
         </div>

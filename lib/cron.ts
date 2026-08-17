@@ -175,7 +175,14 @@ async function runCustomerTick(customerId: string): Promise<void> {
 }
 
 async function runCustomerEOD(customerId: string): Promise<void> {
-  await withCustomer(customerId, () => dailyRetrospective())
+  const admin = getSupabaseAdmin()
+  const { data: profile } = await admin
+    .from('profiles')
+    .select('email')
+    .eq('id', customerId)
+    .single()
+  const toEmail = profile?.email || process.env.NOTIFY_TO || process.env.FROM_EMAIL || ''
+  await withCustomer(customerId, () => dailyRetrospective(toEmail))
 }
 
 async function runCustomerTokenAlert(customerId: string): Promise<void> {
@@ -443,7 +450,7 @@ export async function startCron(): Promise<void> {
     checkSellCadence().catch(err => console.error('[cron] sell cadence watcher failed:', err))
   }, 5 * 60 * 1000)
 
-  // Daily retrospective — run for each customer
+  // Daily retrospective — run for each customer, sending to their own email
   eodTask = cron.schedule(atMinuteWeekdayExpr(35, 15), () => {
     ;(async () => {
       for (const customerId of customerIds) {

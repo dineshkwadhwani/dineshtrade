@@ -146,12 +146,18 @@ export default function AuthShowcasePanel() {
             gap: 10,
           }}
         >
-          {HERO_PILLS.map(line => (
-            <div key={line} style={{ display: 'flex', gap: 10, alignItems: 'center' }}>
-              <span style={{ flexShrink: 0, width: 6, height: 6, borderRadius: 99, background: '#F59E0B' }} />
-              <div className="dt-register-soft" style={{ fontFamily: FONT_INTER, fontSize: 13, color: 'rgba(255,255,255,0.88)', lineHeight: 1.4 }}>{line}</div>
-            </div>
-          ))}
+          {HERO_PILLS.map(line => {
+            const [title, description] = line.split(' — ')
+            return (
+              <div key={line} style={{ display: 'flex', gap: 10, alignItems: 'center' }}>
+                <span style={{ flexShrink: 0, width: 6, height: 6, borderRadius: 99, background: '#F59E0B' }} />
+                <div className="dt-register-soft" style={{ fontFamily: FONT_INTER, fontSize: 14, color: 'rgba(255,255,255,0.85)', lineHeight: 1.45 }}>
+                  <span style={{ color: '#FCD34D', fontWeight: 600 }}>{title}</span>
+                  <span> — {description}</span>
+                </div>
+              </div>
+            )
+          })}
         </div>
       </div>
 

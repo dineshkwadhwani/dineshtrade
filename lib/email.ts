@@ -151,6 +151,59 @@ export const sendMonthlyReport = (d: MonthlyReportData) => sendEmail('monthly_re
 export const sendTestEmail     = ()                     => sendEmail('test')
 export const sendContactForm   = (d: ContactFormData)   => sendEmail('contact_form', d)
 
+// Custom email senders that send to a specific email address instead of NOTIFY_TO
+export async function sendDailyReportToEmail(d: DailyReport, toEmail: string): Promise<EmailResult> {
+  const resend = getResendClient()
+  const fromEmail = process.env.FROM_EMAIL
+  if (!resend || !fromEmail) {
+    console.warn('[email] Resend not configured — skipping daily report to:', toEmail)
+    return { ok: false, skipped: true, error: 'Resend not configured' }
+  }
+  const from = `${process.env.FROM_NAME || 'DineshTrade'} <${fromEmail}>`
+  const subject = dailyReportSubject(d)
+  const text = dailyReportText(d)
+  const html = dailyReportHTML(d)
+  try {
+    const { data, error } = await resend.emails.send({ from, to: toEmail, subject, text, html })
+    if (error) {
+      console.error('[email] send daily report failed:', error.message)
+      return { ok: false, error: error.message }
+    }
+    console.log('[email] sent daily report to:', toEmail, '→', data?.id)
+    return { ok: true, messageId: data?.id }
+  } catch (e) {
+    const msg = String(e).slice(0, 300)
+    console.error('[email] send daily report failed:', msg)
+    return { ok: false, error: msg }
+  }
+}
+
+export async function sendMonthlyReportToEmail(d: MonthlyReportData, toEmail: string): Promise<EmailResult> {
+  const resend = getResendClient()
+  const fromEmail = process.env.FROM_EMAIL
+  if (!resend || !fromEmail) {
+    console.warn('[email] Resend not configured — skipping monthly report to:', toEmail)
+    return { ok: false, skipped: true, error: 'Resend not configured' }
+  }
+  const from = `${process.env.FROM_NAME || 'DineshTrade'} <${fromEmail}>`
+  const subject = monthlyReportSubject(d)
+  const text = monthlyReportText(d)
+  const html = monthlyReportHTML(d)
+  try {
+    const { data, error } = await resend.emails.send({ from, to: toEmail, subject, text, html })
+    if (error) {
+      console.error('[email] send monthly report failed:', error.message)
+      return { ok: false, error: error.message }
+    }
+    console.log('[email] sent monthly report to:', toEmail, '→', data?.id)
+    return { ok: true, messageId: data?.id }
+  } catch (e) {
+    const msg = String(e).slice(0, 300)
+    console.error('[email] send monthly report failed:', msg)
+    return { ok: false, error: msg }
+  }
+}
+
 // ──────── DATASTORE ALERT ────────
 // Sends a critical alert when the Supabase datastore is unreachable.
 // Reads DATASTORE_ALERT_ENABLED / DATASTORE_ALERT_EMAIL from platform_config
