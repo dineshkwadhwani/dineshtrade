@@ -262,9 +262,11 @@ export async function reconcileManualSells(): Promise<void> {
     for (const pos of zeroQtyPositions) {
       const sym = pos.symbol.toUpperCase()
       const kiteOrder = todaySellBySymbol.get(sym)
-      if (!kiteOrder || journaledSellOrderIds.has(kiteOrder.order_id)) continue
+      if (!kiteOrder) continue
+      // DAlgo-placed sells are already journaled + position removed by applyLotSell.
+      // Only act on genuine discrepancies (sells that bypassed the system).
+      if (journaledSellOrderIds.has(kiteOrder.order_id)) continue
 
-      // Case 1: sold today manually — journal the actual fill attributed to the buying strategy
       const fillPrice = Number(kiteOrder.average_price) || pos.firstBuyPrice
       const fillQty = Number(kiteOrder.filled_quantity || kiteOrder.quantity) || pos.remainingQty
       await journalOrder({
@@ -273,7 +275,8 @@ export async function reconcileManualSells(): Promise<void> {
         tag: 'dt-manual', strategyId: pos.strategyId, source: 'manual',
         orderId: kiteOrder.order_id,
       }).catch(err => console.error(`[reconcile] journalOrder failed ${account} ${sym}:`, err))
-      console.log(`[reconcile] ${account} ${sym}: journaled manual SELL @ ₹${fillPrice} (order ${kiteOrder.order_id}) strategy=${pos.strategyId}`)
+      await removePosition(account, pos.symbol)
+      console.log(`[reconcile] ${account} ${sym}: discrepancy — external SELL journaled + position removed (order ${kiteOrder.order_id})`)
     }
   }
 }
@@ -297,15 +300,37 @@ export async function reconcileManualSellsEOD(): Promise<void> {
     const creds = await resolveAccountCreds(account)
     if (!creds.ok) continue
 
-    const [livePositions, holdings, kiteOrders] = await Promise.all([
-      getPositions(creds).catch(() => ({ day: [], net: [] })),
-      getHoldings(creds).catch(() => [] as Awaited<ReturnType<typeof getHoldings>>),
-      getOrders(creds).catch(() => [] as Awaited<ReturnType<typeof getOrders>>),
-    ])
-    const liveQty = buildLiveQtyBySymbol([...livePositions.day, ...livePositions.net], holdings)
+    // Safe-fetch: if live-data calls fail we MUST NOT delete positions, since
+    // empty holdings/positions would make every CNC holding look like a zero-qty
+    // "sold externally" row and wipe the entire position store. Bail for this
+    // account and let the next EOD run try again.
+    let livePositions: Awaited<ReturnType<typeof getPositions>>
+    let holdings: Awaited<ReturnType<typeof getHoldings>>
+    let kiteOrders: Awaited<ReturnType<typeof getOrders>>
+    try {
+      ;[livePositions, holdings, kiteOrders] = await Promise.all([
+        getPositions(creds),
+        getHoldings(creds),
+        getOrders(creds).catch(() => [] as Awaited<ReturnType<typeof getOrders>>),
+      ])
+    } catch (err) {
+      console.error(`[reconcile-eod] ${account}: live-data fetch failed — skipping EOD sweep to avoid false closes:`, err)
+      continue
+    }
 
     const trackedPositions = await listPositions({ account })
     if (trackedPositions.length === 0) continue
+
+    // Safety net: if Kite returned no holdings at all but we have tracked CNC
+    // positions, the API likely returned incomplete data. Abort rather than
+    // treating all those positions as sold (which would delete them and reset
+    // their strategy tags to 'accumulator' next morning via the absorb path).
+    if (holdings.length === 0 && trackedPositions.some(p => p.remainingQty > 0)) {
+      console.warn(`[reconcile-eod] ${account}: getHoldings returned 0 rows but tracked positions exist — skipping EOD sweep`)
+      continue
+    }
+
+    const liveQty = buildLiveQtyBySymbol([...livePositions.day, ...livePositions.net], holdings)
 
     const todaySellBySymbol = new Map<string, typeof kiteOrders[0]>()
     const pendingSellSymbols = new Set<string>()
@@ -354,7 +379,11 @@ export async function reconcileManualSellsEOD(): Promise<void> {
 
     for (const pos of zeroQtyPositions) {
       const sym = pos.symbol.toUpperCase()
-      if (todaySellBySymbol.has(sym)) continue // Case 1 already handled this (or will next tick)
+      // Case 1 (sold today): regular reconcile journals + removes; EOD only removes if still present
+      if (todaySellBySymbol.has(sym)) {
+        await removePosition(account, pos.symbol)
+        continue
+      }
 
       if (pendingSellSymbols.has(sym)) {
         console.log(`[reconcile-eod] ${account} ${sym}: sell order pending — deferring`)

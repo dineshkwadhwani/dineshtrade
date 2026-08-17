@@ -39,7 +39,13 @@ insert into platform_config (key, value, description, value_type) values
 ('TOKEN_ALERT_TIME_IST', '09:00',
  'Time HH:MM IST to send token-missing alerts', 'string'),
 ('SUPPORT_EMAIL', 'support@dalgo.online',
- 'Support email shown to users', 'string')
+ 'Support email shown to users', 'string'),
+('DATASTORE_ALERT_ENABLED', 'true',
+ 'Send a critical alert email when the Supabase datastore is unreachable. Disable only during planned maintenance.',
+ 'boolean'),
+('DATASTORE_ALERT_EMAIL', 'dinesh.k.wadhwani@gmail.com',
+ 'Recipient for critical datastore-unavailable alerts. Falls back to NOTIFY_TO env var if unreachable.',
+ 'string')
 on conflict (key) do nothing;
 
 -- Fixed rules

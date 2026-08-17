@@ -6,6 +6,7 @@ import { getSupabaseAdmin } from '@/lib/supabase'
 import { getProfile } from '@/lib/dalgoAuth'
 import { loadBrokerAccountCreds, getHoldings, getQuotes } from '@/lib/kite'
 import { decrypt } from '@/lib/encryption'
+import { sendDatastoreAlert } from '@/lib/email'
 import StrategyTagButton from '@/components/app/StrategyTagButton'
 import OrderButton from '@/components/app/OrderButton'
 
@@ -65,6 +66,27 @@ export default async function HoldingsPage() {
   const activeStrategies = ((strategyRes.data ?? []) as any[])
     .filter(s => s.active)
     .map(s => ({ id: s.strategy_key as string, label: s.name as string, color: (s.color as string) || '#6B7280' }))
+
+  // Store is the primary source of truth. If it's unreachable, show an error
+  // rather than silently proceeding with an empty snapshot.
+  if (trackedRes.error) {
+    sendDatastoreAlert(`holdings page: ${trackedRes.error.message}`).catch(() => {})
+    return (
+      <div style={{ fontFamily: INTER, padding: 32 }}>
+        <h1 style={{ fontFamily: SORA, fontSize: 22, fontWeight: 700, color: '#991B1B', margin: '0 0 12px' }}>
+          Critical: Datastore not available
+        </h1>
+        <p style={{ color: '#7F1D1D', fontSize: 14, maxWidth: 560 }}>
+          The DAlgo position store could not be read. This is a critical error that requires immediate
+          investigation. An alert has been sent to the administrator. Please check your Supabase
+          connection and retry.
+        </p>
+        <p style={{ color: '#94A3B8', fontSize: 12, marginTop: 8 }}>
+          Error: {trackedRes.error.message}
+        </p>
+      </div>
+    )
+  }
 
   const trackedPositions = (trackedRes.data ?? []) as any[]
   const strategyBySymbol = new Map<string, { tag: string; firstBuyAt: string }>(

@@ -151,6 +151,54 @@ export const sendMonthlyReport = (d: MonthlyReportData) => sendEmail('monthly_re
 export const sendTestEmail     = ()                     => sendEmail('test')
 export const sendContactForm   = (d: ContactFormData)   => sendEmail('contact_form', d)
 
+// ──────── DATASTORE ALERT ────────
+// Sends a critical alert when the Supabase datastore is unreachable.
+// Reads DATASTORE_ALERT_ENABLED / DATASTORE_ALERT_EMAIL from platform_config
+// if available; falls back to NOTIFY_TO env var so the alert still fires even
+// when the DB itself is down. Rate-limited to one email per 30 minutes in
+// process to avoid flooding on repeated failures.
+let datastoreAlertLastSentAt = 0
+const DATASTORE_ALERT_COOLDOWN_MS = 30 * 60 * 1000
+
+export async function sendDatastoreAlert(context: string): Promise<void> {
+  const now = Date.now()
+  if (now - datastoreAlertLastSentAt < DATASTORE_ALERT_COOLDOWN_MS) return
+  datastoreAlertLastSentAt = now
+
+  // Best-effort platform_config read — may fail if DB is the problem
+  let alertEnabled = true
+  let alertTo = process.env.NOTIFY_TO || process.env.FROM_EMAIL || ''
+  try {
+    const { getSupabaseAdmin } = await import('./supabase')
+    const admin = getSupabaseAdmin()
+    const { data } = await admin
+      .from('platform_config')
+      .select('key, value')
+      .in('key', ['DATASTORE_ALERT_ENABLED', 'DATASTORE_ALERT_EMAIL'])
+    for (const row of data ?? []) {
+      if (row.key === 'DATASTORE_ALERT_ENABLED') alertEnabled = row.value !== 'false'
+      if (row.key === 'DATASTORE_ALERT_EMAIL' && row.value) alertTo = row.value
+    }
+  } catch { /* DB is down — use env fallback */ }
+
+  if (!alertEnabled) return
+
+  const subject = 'Critical: Datastore not available'
+  const text = [
+    'The DAlgo Supabase datastore is unreachable.',
+    '',
+    `Context: ${context}`,
+    `Time: ${new Date().toLocaleString('en-IN', { timeZone: 'Asia/Kolkata' })} IST`,
+    '',
+    'All trading automation has been halted to prevent data corruption.',
+    'Investigate the Supabase connection immediately.',
+  ].join('\n')
+
+  await sendViaResend(alertTo, subject, text).catch(err =>
+    console.error('[email] datastore alert send failed:', err)
+  )
+}
+
 // ──────── DELIVERY ────────
 
 // The only place that actually calls the Resend API. Returns a real

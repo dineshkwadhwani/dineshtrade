@@ -17,7 +17,6 @@
 // legacy-file migration this module used to carry has no equivalent here.
 
 import { getSupabaseAdmin, getCustomerId } from './supabase'
-
 export interface PositionLot {
   id: string
   boughtAt: string
@@ -210,7 +209,14 @@ async function deletePositionRow(symbol: string): Promise<void> {
 async function readAll(): Promise<PositionsMap> {
   const admin = getSupabaseAdmin()
   const { data, error } = await admin.from('customer_positions').select('*').eq('customer_id', getCustomerId())
-  if (error) throw new Error(`[positions] read failed: ${error.message}`)
+  if (error) {
+    // Datastore unreachable — fire critical alert then let the error propagate
+    // so all callers (cron monitors, BUY/SELL engine) abort cleanly rather
+    // than operating on a stale/empty snapshot.
+    const { sendDatastoreAlert } = await import('./email')
+    sendDatastoreAlert(`positions readAll: ${error.message}`).catch(() => {})
+    throw new Error(`[positions] read failed: ${error.message}`)
+  }
 
   const map: PositionsMap = {}
   for (const row of data || []) {
