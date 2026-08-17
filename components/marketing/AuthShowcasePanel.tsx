@@ -1,6 +1,6 @@
 'use client'
 
-import { useEffect, useState } from 'react'
+import { useState } from 'react'
 import Image from 'next/image'
 import TaglineRotator from '@/components/marketing/TaglineRotator'
 
@@ -19,39 +19,23 @@ const HERO_PILLS = [
   {
     pill: 'Panic Trade Prevention',
     detail: 'Rules-first execution helps remove emotional entries and exits during volatile sessions.',
-    x: 44,
-    y: 138,
   },
   {
     pill: 'Free-Fall Protection',
     detail: 'Circuit-aware risk checks pause reckless actions when the market is in fast drawdown mode.',
-    x: 182,
-    y: 116,
   },
   {
     pill: 'Broker-Native Control',
     detail: 'Your brokerage account stays in your custody while DAlgo executes only within your guardrails.',
-    x: 324,
-    y: 90,
   },
   {
     pill: 'Mobile-First Workflow',
     detail: 'Fast, thumb-friendly control surfaces let you monitor and intervene from anywhere in seconds.',
-    x: 500,
-    y: 58,
   },
 ]
 
 export default function AuthShowcasePanel() {
   const [snapshotOpen, setSnapshotOpen] = useState(false)
-  const [activePill, setActivePill] = useState(0)
-
-  useEffect(() => {
-    const timer = setInterval(() => {
-      setActivePill(prev => (prev + 1) % HERO_PILLS.length)
-    }, 2800)
-    return () => clearInterval(timer)
-  }, [])
 
   return (
     <>
@@ -168,122 +152,21 @@ export default function AuthShowcasePanel() {
         <div
           style={{
             marginTop: 14,
-            border: '1px solid rgba(255,255,255,0.24)',
-            borderRadius: 14,
-            background: 'rgba(15, 23, 42, 0.2)',
-            padding: '14px 14px 12px',
             maxWidth: 560,
+            display: 'flex',
+            flexDirection: 'column',
+            gap: 10,
           }}
         >
-          <div className="dt-register-soft" style={{ fontFamily: FONT_SORA, fontWeight: 600, fontSize: 13, letterSpacing: '0.01em' }}>
-            Strategy signal map
-          </div>
-
-          <div style={{ marginTop: 8, borderRadius: 12, border: '1px solid rgba(255,255,255,0.2)', background: 'rgba(30, 64, 175, 0.2)', padding: 8 }}>
-            <svg viewBox="0 0 560 220" width="100%" height="220" aria-label="Growing line and candle chart preview">
-              {[46, 82, 118, 154].map(y => (
-                <line key={y} x1="12" y1={y} x2="548" y2={y} stroke="rgba(191, 219, 254, 0.22)" strokeWidth="1" />
-              ))}
-
-              {HERO_PILLS.map((item, idx) => (
-                <rect
-                  key={`bar-${item.pill}`}
-                  x={item.x - 14}
-                  y={item.y}
-                  width="10"
-                  height={170 - item.y}
-                  rx="4"
-                  fill={idx <= activePill ? 'rgba(56, 189, 248, 0.8)' : 'rgba(148, 163, 184, 0.35)'}
-                />
-              ))}
-
-              <polyline
-                points={HERO_PILLS.slice(0, activePill + 1).map(item => `${item.x},${item.y}`).join(' ')}
-                fill="none"
-                stroke="#FCD34D"
-                strokeWidth="3.2"
-                strokeLinecap="round"
-                strokeLinejoin="round"
-              />
-
-              {HERO_PILLS.map((item, idx) => (
-                <circle
-                  key={`dot-${item.pill}`}
-                  cx={item.x}
-                  cy={item.y}
-                  r={idx === activePill ? 6 : 4}
-                  fill={idx === activePill ? '#FFFFFF' : '#93C5FD'}
-                  stroke={idx === activePill ? '#F59E0B' : 'rgba(30, 64, 175, 0.8)'}
-                  strokeWidth={idx === activePill ? 3 : 1.5}
-                />
-              ))}
-
-              {Array.from({ length: 12 }).map((_, idx) => {
-                const x = 26 + idx * 44
-                const wickTop = idx % 3 === 0 ? 176 : idx % 3 === 1 ? 182 : 170
-                const wickBottom = idx % 2 === 0 ? 208 : 202
-                const open = idx % 2 === 0 ? 198 : 187
-                const close = idx % 2 === 0 ? 183 : 200
-                const candleY = Math.min(open, close)
-                const candleH = Math.max(6, Math.abs(open - close))
-                const up = close < open
-                return (
-                  <g key={`candle-${x}`}>
-                    <line x1={x} y1={wickTop} x2={x} y2={wickBottom} stroke="rgba(255,255,255,0.7)" strokeWidth="1" />
-                    <rect
-                      x={x - 5}
-                      y={candleY}
-                      width="10"
-                      height={candleH}
-                      rx="2"
-                      fill={up ? '#22C55E' : '#EF4444'}
-                    />
-                  </g>
-                )
-              })}
-            </svg>
-          </div>
-
-          <div
-            className="dt-register-soft"
-            style={{
-              marginTop: 8,
-              minHeight: 44,
-              fontFamily: FONT_INTER,
-              fontSize: 14,
-              color: 'rgba(255,255,255,0.96)',
-              lineHeight: 1.45,
-            }}
-          >
-            {HERO_PILLS[activePill].detail}
-          </div>
-
-          <div style={{ marginTop: 10, display: 'flex', flexWrap: 'wrap', gap: 8 }}>
-            {HERO_PILLS.map((item, idx) => {
-              const active = idx === activePill
-              return (
-                <button
-                  key={item.pill}
-                  type="button"
-                  onClick={() => setActivePill(idx)}
-                  style={{
-                    borderRadius: 999,
-                    border: active ? '1px solid rgba(252, 211, 77, 0.9)' : '1px solid rgba(255,255,255,0.3)',
-                    background: active ? 'rgba(245, 158, 11, 0.2)' : 'rgba(255,255,255,0.08)',
-                    color: active ? '#FCD34D' : 'rgba(255,255,255,0.95)',
-                    fontFamily: FONT_INTER,
-                    fontWeight: active ? 600 : 500,
-                    fontSize: 12,
-                    lineHeight: 1,
-                    padding: '9px 12px',
-                    cursor: 'pointer',
-                  }}
-                >
-                  {item.pill}
-                </button>
-              )
-            })}
-          </div>
+          {HERO_PILLS.map(item => (
+            <div key={item.pill} style={{ display: 'flex', gap: 10, alignItems: 'flex-start' }}>
+              <span style={{ marginTop: 4, flexShrink: 0, width: 6, height: 6, borderRadius: 99, background: '#F59E0B' }} />
+              <div>
+                <div style={{ fontFamily: FONT_SORA, fontWeight: 600, fontSize: 13, color: '#fff', marginBottom: 2 }}>{item.pill}</div>
+                <div className="dt-register-soft" style={{ fontFamily: FONT_INTER, fontSize: 12, color: 'rgba(255,255,255,0.75)', lineHeight: 1.5 }}>{item.detail}</div>
+              </div>
+            </div>
+          ))}
         </div>
       </div>
 
