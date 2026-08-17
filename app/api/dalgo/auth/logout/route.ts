@@ -28,11 +28,18 @@ export async function POST() {
 }
 
 // GET — used by plain <a href> links (e.g. the Log out button on /setup)
-export async function GET() {
-  const appUrl = process.env.NEXT_PUBLIC_APP_URL || 'http://localhost:3000'
-  const appHost = (() => { try { return new URL(appUrl).hostname } catch { return '' } })()
-  const redirectTo = appHost.endsWith('.dalgo.online') ? 'https://dalgo.online' : appUrl
-  const res = NextResponse.redirect(new URL('/', redirectTo))
+// When logout is called from a customer subdomain, redirect to www.dalgo.online for re-auth
+export async function GET(request: any) {
+  const host = request.headers.get('host') || 'dalgo.online'
+  const isSubdomain = host.endsWith('.dalgo.online') && host !== 'dalgo.online' && host !== 'www.dalgo.online'
+  const proto = request.headers.get('x-forwarded-proto')?.split(',')[0]?.trim() || 'https'
+  
+  // Redirect to www.dalgo.online for login, or to configured app URL if not using subdomains
+  const redirectTo = isSubdomain 
+    ? 'https://www.dalgo.online/login'
+    : (process.env.APP_BASE_URL || process.env.NEXT_PUBLIC_APP_URL || 'https://www.dalgo.online/login')
+  
+  const res = NextResponse.redirect(redirectTo)
   res.cookies.set(SESSION_COOKIE, '', {
     httpOnly: true,
     secure: process.env.NODE_ENV === 'production',

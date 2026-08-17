@@ -247,8 +247,22 @@ export default async function HoldingsPage() {
                         <td style={{ padding: '10px 14px', fontWeight: 600, color: C.heading }}>{h.symbol}</td>
                         <td style={{ padding: '10px 14px' }}>
                           {h.strategyTag
-                            ? <StrategyTagButton symbol={h.symbol} currentTag={h.strategyTag} strategies={activeStrategies} />
-                            : <span style={{ color: '#94A3B8', fontSize: 12 }}>—</span>}
+                            ? <StrategyTagButton
+                                symbol={h.symbol}
+                                currentTag={h.strategyTag}
+                                strategies={activeStrategies}
+                                kiteQty={h.quantity}
+                                kiteAvgPrice={h.average_price}
+                              />
+                            : h.fromKite
+                              ? <StrategyTagButton
+                                  symbol={h.symbol}
+                                  currentTag="untracked"
+                                  strategies={activeStrategies}
+                                  kiteQty={h.quantity}
+                                  kiteAvgPrice={h.average_price}
+                                />
+                              : <span style={{ color: '#94A3B8', fontSize: 12 }}>—</span>}
                         </td>
                         <td style={{ padding: '10px 14px', color: C.body }}>{h.quantity}</td>
                         <td style={{ padding: '10px 14px', color: C.body }}>₹{fmt(h.average_price)}</td>

@@ -44,8 +44,20 @@ export async function PATCH(req: NextRequest) {
     const env = process.env.ZERODHA_ENVIRONMENT === 'PROD' ? 'PROD' : 'TEST'
     const account = (process.env[`${env}_ZERODHA_ACCOUNT1`] || 'DINESH').toUpperCase()
 
-    const changed = await setStrategyId(account, symbol, newStrategyId)
-    if (!changed) return NextResponse.json({ error: `Position not found or already tagged as "${newStrategyId}".` }, { status: 404 })
+    let changed = await setStrategyId(account, symbol, newStrategyId)
+
+    if (!changed) {
+      // Position not in store — if Kite qty/price provided, create it now
+      const kiteQty = typeof body.kiteQty === 'number' ? body.kiteQty : 0
+      const kiteAvgPrice = typeof body.kiteAvgPrice === 'number' ? body.kiteAvgPrice : 0
+      if (kiteQty > 0 && kiteAvgPrice > 0) {
+        const { recordBuy } = await import('@/lib/positions')
+        await recordBuy(newStrategyId, account, symbol, kiteQty, kiteAvgPrice)
+        changed = true
+      } else {
+        return NextResponse.json({ error: `Position not found in DAlgo store for ${symbol}. Reload and try again.` }, { status: 404 })
+      }
+    }
 
     return NextResponse.json({ ok: true, symbol, strategyId: newStrategyId })
   })

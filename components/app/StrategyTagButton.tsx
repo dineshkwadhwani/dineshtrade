@@ -13,13 +13,16 @@ interface Props {
   strategies: StrategyOption[]   // active strategies passed from the server page
   targetCustomerId?: string
   onChanged?: (newTag: string) => void
+  // For untracked Kite holdings — sent to the API so it can create the position
+  kiteQty?: number
+  kiteAvgPrice?: number
 }
 
 function colorFor(strategies: StrategyOption[], tag: string) {
   return strategies.find(s => s.id === tag)?.color ?? '#6B7280'
 }
 
-export default function StrategyTagButton({ symbol, currentTag, strategies, targetCustomerId, onChanged }: Props) {
+export default function StrategyTagButton({ symbol, currentTag, strategies, targetCustomerId, onChanged, kiteQty, kiteAvgPrice }: Props) {
   const [tag, setTag] = useState(currentTag)
   const [open, setOpen] = useState(false)
   const [saving, setSaving] = useState(false)
@@ -41,32 +44,48 @@ export default function StrategyTagButton({ symbol, currentTag, strategies, targ
       const res = await fetch('/api/dalgo/customer/positions/strategy', {
         method: 'PATCH',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ symbol, strategyId: newTag, ...(targetCustomerId ? { targetCustomerId } : {}) }),
+        body: JSON.stringify({
+          symbol,
+          strategyId: newTag,
+          ...(targetCustomerId ? { targetCustomerId } : {}),
+          // Included when tagging an untracked Kite holding so the API can create the position
+          ...(kiteQty != null ? { kiteQty } : {}),
+          ...(kiteAvgPrice != null ? { kiteAvgPrice } : {}),
+        }),
       })
       const data = await res.json()
-      if (!res.ok) { setError(data.error || 'Failed'); setSaving(false); return }
+      if (!res.ok) {
+        // Show error prominently via alert so it's never missed
+        alert(`Could not update strategy for ${symbol}: ${data.error || 'Unknown error'}`)
+        setSaving(false)
+        return
+      }
       setTag(newTag)
       onChanged?.(newTag)
-    } catch { setError('Error') }
+    } catch { alert(`Network error updating strategy for ${symbol}. Please try again.`) }
     finally { setSaving(false) }
   }
 
-  const color = colorFor(strategies, tag)
+  const isUntracked = tag === 'untracked'
+  const color = isUntracked ? '#94A3B8' : colorFor(strategies, tag)
+  const displayLabel = isUntracked ? '+ Assign' : tag
 
   return (
     <div ref={ref} style={{ position: 'relative', display: 'inline-block' }}>
       <button
         onClick={() => { setError(''); setOpen(o => !o) }}
         disabled={saving}
-        title={strategies.length === 0 ? 'No active strategies to assign' : 'Click to change strategy'}
+        title={isUntracked ? 'Assign a strategy to track this holding' : strategies.length === 0 ? 'No active strategies to assign' : 'Click to change strategy'}
         style={{
           padding: '2px 8px', borderRadius: 999, fontSize: 11, fontWeight: 600,
-          background: color + '20', color, border: `1px solid ${color}40`,
+          background: isUntracked ? '#F1F5F9' : color + '20',
+          color: isUntracked ? '#64748B' : color,
+          border: `1px solid ${isUntracked ? '#CBD5E1' : color + '40'}`,
           cursor: saving ? 'wait' : 'pointer',
           opacity: saving ? 0.6 : 1,
         }}
       >
-        {saving ? '…' : tag} {strategies.length > 0 ? '▾' : ''}
+        {saving ? '…' : displayLabel} {strategies.length > 0 ? '▾' : ''}
       </button>
       {error && <span style={{ fontSize: 10, color: '#DC2626', marginLeft: 4 }}>{error}</span>}
       {open && (
@@ -96,7 +115,7 @@ export default function StrategyTagButton({ symbol, currentTag, strategies, targ
                 <span style={{ padding: '1px 6px', borderRadius: 999, background: opt.color + '20', color: opt.color }}>
                   {opt.label}
                 </span>
-                {opt.id === tag && <span style={{ marginLeft: 6, fontSize: 10, color: opt.color }}>✓ current</span>}
+                {!isUntracked && opt.id === tag && <span style={{ marginLeft: 6, fontSize: 10, color: opt.color }}>✓ current</span>}
               </button>
             ))
           )}
