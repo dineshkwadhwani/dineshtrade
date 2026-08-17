@@ -260,7 +260,7 @@ export async function recordBuy(strategyId: string, account: string, symbol: str
     // the account field was normalised may live under a different account key.
     // We must not overwrite their strategy_tag.
     const existing = positions[k] ??
-      Object.values(positions).find(p => p.symbol === symbol.toUpperCase())
+      Object.values(positions).find(p => p.symbol === symbol.toUpperCase() && (!p.account || p.account === account.toUpperCase()))
     if (existing) {
       // Self-heal the account field so future lookups use the correct key
       if (existing.account !== account.toUpperCase()) {
@@ -456,7 +456,7 @@ export async function setStrategyId(account: string, symbol: string, newStrategy
     const all = await readAll()
     const k = makeKey(account, symbol)
     // Fall back to symbol-only match for positions with a mismatched account field
-    const p = all[k] ?? Object.values(all).find(pos => pos.symbol === symbol.toUpperCase())
+    const p = all[k] ?? Object.values(all).find(pos => pos.symbol === symbol.toUpperCase() && (!pos.account || pos.account === account.toUpperCase()))
     if (!p || p.strategyId === newStrategyId) return false
     // Self-heal account field while we're here
     if (p.account !== account.toUpperCase()) p.account = account.toUpperCase()
