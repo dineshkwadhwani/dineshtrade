@@ -230,7 +230,11 @@ export async function reconcileManualSells(): Promise<void> {
 
     const liveQty = buildLiveQtyBySymbol([...livePositions.day, ...livePositions.net], holdings)
     const liveInventory = buildLiveInventory(holdings, livePositions)
-    const trackedSymbols = new Set(openPositions.map(position => position.symbol.toUpperCase()))
+    // Build a symbol-only tracked set (no account filter) so positions whose
+    // `account` field was seeded as '' don't appear untracked and get
+    // incorrectly re-absorbed as accumulator.
+    const allPositions = await listPositions()
+    const trackedSymbols = new Set(allPositions.map(position => position.symbol.toUpperCase()))
 
     const todayJournal = await readJournalRange(today, today).catch(() => [] as Awaited<ReturnType<typeof readJournalRange>>)
 

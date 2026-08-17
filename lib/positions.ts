@@ -256,8 +256,16 @@ export async function recordBuy(strategyId: string, account: string, symbol: str
   return withLock(async () => {
     const positions = await readAll()
     const k = makeKey(account, symbol)
-    const existing = positions[k]
+    // Fall back to symbol-only match — positions migrated from V1 or seeded before
+    // the account field was normalised may live under a different account key.
+    // We must not overwrite their strategy_tag.
+    const existing = positions[k] ??
+      Object.values(positions).find(p => p.symbol === symbol.toUpperCase())
     if (existing) {
+      // Self-heal the account field so future lookups use the correct key
+      if (existing.account !== account.toUpperCase()) {
+        existing.account = account.toUpperCase()
+      }
       const existingTracked = await isTrackedStrategyId(existing.strategyId)
       const incomingTracked = await isTrackedStrategyId(strategyId)
       if (existingTracked || incomingTracked) {
@@ -447,9 +455,12 @@ export async function setStrategyId(account: string, symbol: string, newStrategy
   return withLock(async () => {
     const all = await readAll()
     const k = makeKey(account, symbol)
-    const p = all[k]
+    // Fall back to symbol-only match for positions with a mismatched account field
+    const p = all[k] ?? Object.values(all).find(pos => pos.symbol === symbol.toUpperCase())
     if (!p || p.strategyId === newStrategyId) return false
-    console.log(`[positions] re-stamped ${k}: ${p.strategyId} → ${newStrategyId}`)
+    // Self-heal account field while we're here
+    if (p.account !== account.toUpperCase()) p.account = account.toUpperCase()
+    console.log(`[positions] re-stamped ${symbol}: ${p.strategyId} → ${newStrategyId}`)
     p.strategyId = newStrategyId
     await upsertPosition(p)
     return true
