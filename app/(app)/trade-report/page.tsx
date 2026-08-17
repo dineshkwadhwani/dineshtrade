@@ -25,6 +25,11 @@ interface PositionsApiResponse {
   closedToday?: Array<{ realized?: number }>
 }
 
+interface AccessibleCustomer {
+  id: string
+  name: string
+}
+
 function istTodayYmd(): string {
   const fmt = new Intl.DateTimeFormat('en-CA', {
     timeZone: 'Asia/Kolkata',
@@ -62,33 +67,52 @@ export default function TradeReportPage() {
   const [result, setResult] = useState<LiveTradeReportResult | null>(null)
   const [todayClosedRealized, setTodayClosedRealized] = useState<number | null>(null)
   const [todayClosedSymbols, setTodayClosedSymbols] = useState<number>(0)
+  // Admin-role state
+  const [userRole, setUserRole] = useState<string>('customer')
+  const [accessibleCustomers, setAccessibleCustomers] = useState<AccessibleCustomer[]>([])
+  const [selectedCustomerId, setSelectedCustomerId] = useState('')
 
   useEffect(() => {
     Promise.all([
       fetch('/api/accounts').then(r => r.json()).catch(() => ({ accounts: [] })),
       fetch('/api/strategies').then(r => r.json()).catch(() => ({ strategies: [] })),
       fetch('/api/state').then(r => r.json()).catch(() => ({ accountsWithToken: [] })),
-    ]).then(([accountsData, strategiesData, stateData]) => {
+      fetch('/api/dalgo/trade-report/customers').then(r => r.json()).catch(() => ({ role: 'customer', customers: [] })),
+    ]).then(([accountsData, strategiesData, stateData, customersData]) => {
       setAccounts(Array.isArray(accountsData.accounts) ? accountsData.accounts : [])
       const nextStrategies = Array.isArray(strategiesData.strategies)
         ? (strategiesData.strategies as StrategyOption[]).map(strategy => ({ id: strategy.id, name: strategy.name }))
         : []
       setStrategies(nextStrategies)
       setConnectedAccounts(Array.isArray((stateData as StateResponse).accountsWithToken) ? (stateData as StateResponse).accountsWithToken as string[] : [])
+      const role = customersData.role || 'customer'
+      const customers: AccessibleCustomer[] = Array.isArray(customersData.customers) ? customersData.customers : []
+      setUserRole(role)
+      setAccessibleCustomers(customers)
+      // For admin roles, auto-select the first customer if only one
+      if (role !== 'customer' && customers.length === 1) setSelectedCustomerId(customers[0].id)
     }).catch(() => {})
 
+    // Customers run report for themselves immediately; admins wait for customer selection
     runReport(fromDate, toDate, accountFilter, strategyFilter, symbolFilter)
   }, [])
 
-  async function runReport(nextFrom = fromDate, nextTo = toDate, nextAccount = accountFilter, nextStrategy = strategyFilter, nextSymbol = symbolFilter) {
+  async function runReport(nextFrom = fromDate, nextTo = toDate, nextAccount = accountFilter, nextStrategy = strategyFilter, nextSymbol = symbolFilter, nextCustomerId = selectedCustomerId) {
+    // Admin roles must select a customer first
+    if (userRole !== 'customer' && !nextCustomerId) {
+      setError('Please select a customer to view their trade report.')
+      return
+    }
     setLoading(true)
     setError('')
     setInfo('')
     try {
+      const body: Record<string, string> = { fromDate: nextFrom, toDate: nextTo, account: nextAccount, strategyId: nextStrategy, symbol: nextSymbol }
+      if (userRole !== 'customer') body.customerId = nextCustomerId
       const res = await fetch('/api/trade-report', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ fromDate: nextFrom, toDate: nextTo, account: nextAccount, strategyId: nextStrategy, symbol: nextSymbol }),
+        body: JSON.stringify(body),
       })
       const data = await res.json()
       if (!res.ok) {
@@ -131,10 +155,11 @@ export default function TradeReportPage() {
       }
 
       const filters = [
+        userRole !== 'customer' ? `Customer: ${accessibleCustomers.find(c => c.id === nextCustomerId)?.name || nextCustomerId}` : null,
         nextAccount ? `Account: ${nextAccount}` : 'All accounts',
         nextStrategy ? `Strategy: ${nextStrategy === 'manual' ? 'Manual' : (strategies.find(strategy => strategy.id === nextStrategy)?.name || nextStrategy)}` : 'All strategies',
         nextSymbol ? `Script: ${nextSymbol}` : 'All scripts',
-      ]
+      ].filter(Boolean)
       setInfo(`Loaded real trades from ${nextFrom} to ${nextTo} · ${filters.join(' · ')}`)
     } catch {
       setResult(null)
@@ -166,14 +191,37 @@ export default function TradeReportPage() {
               Pick a date range and inspect the actual journaled BUY and SELL executions for that window. Open rows are marked to the selected To date. Synthetic backtest-style equity curve and drawdown analytics are intentionally excluded here so this page stays grounded in broker-truth trade activity.
             </p>
           </div>
-          <button onClick={() => runReport()} disabled={loading || !fromDate || !toDate}
+          <button onClick={() => runReport()} disabled={loading || !fromDate || !toDate || (userRole !== 'customer' && !selectedCustomerId)}
             className="px-5 py-2.5 rounded-xl text-[12px] font-semibold tracking-wider transition-all disabled:opacity-40"
             style={{ background:'linear-gradient(135deg, #7a5510, #c9a84c)', color:'#080604' }}>
             {loading ? 'Loading…' : 'Run Report'}
           </button>
         </div>
 
-        <div className="grid grid-cols-1 md:grid-cols-2 xl:grid-cols-5 gap-4 mt-5">
+        <div className={`grid grid-cols-1 md:grid-cols-2 ${userRole !== 'customer' ? 'xl:grid-cols-6' : 'xl:grid-cols-5'} gap-4 mt-5`}>
+          {userRole !== 'customer' && (
+            <div>
+              <label className="block text-[10px] tracking-widest uppercase mb-1.5" style={{ color:'rgba(201,168,76,0.55)', fontFamily:'JetBrains Mono, monospace' }}>
+                Customer
+              </label>
+              <select
+                value={selectedCustomerId}
+                onChange={e => {
+                  const nextId = e.target.value
+                  setSelectedCustomerId(nextId)
+                  setResult(null)
+                  setError('')
+                  setInfo('')
+                }}
+                className="w-full px-3 py-2.5 rounded-lg text-[12px] outline-none"
+                style={{ background:'rgba(255,255,255,0.04)', border:'1px solid rgba(201,168,76,0.35)', color:'#FCD34D', fontFamily:'JetBrains Mono, monospace' }}>
+                <option value="">— Select customer —</option>
+                {accessibleCustomers.map(c => (
+                  <option key={c.id} value={c.id}>{c.name}</option>
+                ))}
+              </select>
+            </div>
+          )}
           <div>
             <label className="block text-[10px] tracking-widest uppercase mb-1.5" style={{ color:'rgba(201,168,76,0.55)', fontFamily:'JetBrains Mono, monospace' }}>
               From Date
@@ -264,7 +312,7 @@ export default function TradeReportPage() {
                 setError('')
                 setInfo('')
                 if (loaded && fromDate && toDate) {
-                  void runReport(fromDate, toDate, accountFilter, strategyFilter, nextSymbol)
+                  void runReport(fromDate, toDate, accountFilter, strategyFilter, nextSymbol, selectedCustomerId)
                 }
               }}
               className="w-full px-3 py-2.5 rounded-lg text-[12px] outline-none"
