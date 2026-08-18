@@ -510,16 +510,14 @@ export async function migrateStrategyId(fromId: string, toId: string): Promise<n
   })
 }
 
-// Removes all positions belonging to the given account. Used by the reset flow.
-export async function wipeAccountPositions(account: string): Promise<number> {
+// Removes all positions for the current customer. Used by the reset flow.
+export async function wipeAccountPositions(): Promise<number> {
   return withLock(async () => {
     const admin = getSupabaseAdmin()
-    const acct = account.toUpperCase()
     const { data, error } = await admin
       .from('customer_positions')
       .delete()
       .eq('customer_id', getCustomerId())
-      .eq('account', acct)
       .select('symbol')
     if (error) throw new Error(`[positions] wipeAccountPositions failed: ${error.message}`)
     return (data || []).length

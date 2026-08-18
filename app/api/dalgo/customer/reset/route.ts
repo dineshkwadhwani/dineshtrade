@@ -25,6 +25,9 @@ import { rehydrateForCustomer } from '@/lib/strategyConfigStore'
 
 export const dynamic = 'force-dynamic'
 
+// Prevents concurrent reset calls from racing and creating duplicate journal entries.
+const resetInProgress = new Set<string>()
+
 export async function POST(req: NextRequest) {
   const profile = await getProfile()
   if (!profile) return NextResponse.json({ error: 'No active session.' }, { status: 401 })
@@ -44,6 +47,10 @@ export async function POST(req: NextRequest) {
 
   return withCustomer(targetCustomerId, async () => {
     await rehydrateForCustomer()
+
+    if (resetInProgress.has(targetCustomerId)) {
+      return NextResponse.json({ error: 'A reset is already in progress for this account. Please wait.' }, { status: 409 })
+    }
 
     const state = await getState()
     if (state.mode !== 'manual') {
@@ -101,8 +108,10 @@ export async function POST(req: NextRequest) {
 
     const seeds = Array.from(seedMap.values())
 
-    // ── WIPE ──────────────────────────────────────────────────────────────
+    // ── WIPE + RE-SEED (guarded against concurrent calls) ─────────────────
 
+    resetInProgress.add(targetCustomerId)
+    try {
     // Delete ALL positions for this customer (not account-filtered) so no
     // stale rows from any previous account-label survive the reset.
     const admin = getSupabaseAdmin()
@@ -113,12 +122,9 @@ export async function POST(req: NextRequest) {
       .select('symbol')
     const positionsRemoved = (deletedPositions || []).length
 
-    // Wipe journal orders + trades for this account label.
+    // Wipe all journal orders + trades for this customer.
     const [journalResult] = await Promise.all([
-      // wipeAccountJournal filters by (customer_id, account) — wipe with the
-      // current env account name. Any rows stored under a different label are
-      // left (they'd be historical and don't affect the engine).
-      import('@/lib/journal').then(m => m.wipeAccountJournal(account)),
+      import('@/lib/journal').then(m => m.wipeAccountJournal()),
     ])
 
     await resetAccountCronState(account)
@@ -162,5 +168,8 @@ export async function POST(req: NextRequest) {
       journalRecordsRemoved: journalResult.recordsRemoved,
       seeded,
     })
+    } finally {
+      resetInProgress.delete(targetCustomerId)
+    }
   })
 }

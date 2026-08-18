@@ -114,8 +114,8 @@ export async function POST(req: Request) {
   // ── WIPE ──────────────────────────────────────────────────────────────────
 
   const [journalResult, positionsRemoved] = await Promise.all([
-    wipeAccountJournal(account),
-    wipeAccountPositions(account),
+    wipeAccountJournal(),
+    wipeAccountPositions(),
   ])
   await resetAccountCronState(account)
 

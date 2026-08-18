@@ -522,7 +522,7 @@ export async function journalMonitorHeartbeat(opts: {
   })
 }
 
-// Hard-wipes all journal entries that belong to the given account, across
+// Hard-wipes all journal entries for the current customer across
 // orders/trades/signals_skipped. strategy_scans is intentionally untouched —
 // StrategyScanRecord (and its `strategy_scans` row) has no account field, so
 // the original file-based implementation never matched (and thus never
@@ -530,10 +530,9 @@ export async function journalMonitorHeartbeat(opts: {
 // Returns counts so the caller can confirm what was removed. `filesModified`
 // is repurposed from "monthly journal files touched" to "tables touched" —
 // closest equivalent now that storage isn't file-based.
-export async function wipeAccountJournal(account: string): Promise<{ filesModified: number; recordsRemoved: number }> {
+export async function wipeAccountJournal(): Promise<{ filesModified: number; recordsRemoved: number }> {
   const admin = getSupabaseAdmin()
   const customerId = getCustomerId()
-  const acct = account.toUpperCase()
   let filesModified = 0
   let recordsRemoved = 0
   for (const table of ['orders', 'trades', 'signals_skipped'] as const) {
@@ -541,7 +540,6 @@ export async function wipeAccountJournal(account: string): Promise<{ filesModifi
       .from(table)
       .delete()
       .eq('customer_id', customerId)
-      .eq('account', acct)
       .select('id')
     if (error) {
       console.error(`[journal] wipeAccountJournal(${table}) error:`, error)
