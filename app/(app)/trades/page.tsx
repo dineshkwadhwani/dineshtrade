@@ -1,6 +1,5 @@
 'use client'
 import { useEffect, useState } from 'react'
-import { usePathname, useRouter, useSearchParams } from 'next/navigation'
 import type { DailyReport, EnrichedTrade, EnrichedMissed } from '@/lib/retrospective'
 import FundsCard from '@/components/FundsCard'
 
@@ -23,59 +22,11 @@ interface Order {
   source_mode?: 'manual' | 'auto' | string | null
 }
 
-type View = 'orders' | 'retro'
-
 export default function TradesPage() {
-  const searchParams = useSearchParams()
-  const pathname = usePathname()
-  const router = useRouter()
-  const requestedView = searchParams.get('view')
-  const [view, setView] = useState<View>(requestedView === 'retro' ? 'retro' : 'orders')
-
-  useEffect(() => {
-    setView(requestedView === 'retro' ? 'retro' : 'orders')
-  }, [requestedView])
-
-  function changeView(next: View) {
-    setView(next)
-    const params = new URLSearchParams(searchParams.toString())
-    if (next === 'retro') params.set('view', 'retro')
-    else params.delete('view')
-    const query = params.toString()
-    router.replace(query ? `${pathname}?${query}` : pathname, { scroll: false })
-  }
-
   return (
     <div className="space-y-5 pb-4">
-      <div className="flex items-center justify-between flex-wrap gap-3">
-        <h1 className="text-2xl font-light dt-text-primary" style={{ fontFamily:'Cormorant Garamond, serif' }}>
-          {view === 'orders'
-            ? <>Orders</>
-            : <span className="accent-text">Retrospective</span>}
-        </h1>
-        <div className="flex gap-1 rounded-lg p-1 dt-card">
-          {[
-            { id:'orders' as View, label:'Orders' },
-            { id:'retro'  as View, label:'Retrospective' },
-          ].map(t => {
-            const active = view === t.id
-            return (
-              <button key={t.id} onClick={() => changeView(t.id)}
-                className="px-4 py-1.5 rounded-md text-[11px] transition-all"
-                style={{
-                  background: active ? 'rgba(201,168,76,0.12)' : 'transparent',
-                  border: active ? '1px solid rgba(201,168,76,0.3)' : '1px solid transparent',
-                  color: active ? '#c9a84c' : 'rgba(255,255,255,0.5)',
-                  fontFamily:'JetBrains Mono, monospace',
-                }}>
-                {t.label}
-              </button>
-            )
-          })}
-        </div>
-      </div>
-
-      {view === 'orders' ? <OrdersView /> : <RetrospectiveView />}
+      <h1 className="text-2xl font-light dt-text-primary" style={{ fontFamily:'Cormorant Garamond, serif' }}>Orders</h1>
+      <OrdersView />
     </div>
   )
 }

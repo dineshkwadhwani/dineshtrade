@@ -10,17 +10,41 @@ export default function RefreshBar() {
 
   function doRefresh() {
     setSpinning(true)
-    // Hard reload — bypasses Next.js route cache, gets fresh prices from Kite
-    window.location.reload()
+    // Cache-bust via query param — window.location.reload() can hit browser cache
+    const url = new URL(window.location.href)
+    url.searchParams.set('_t', String(Date.now()))
+    window.location.replace(url.toString())
+  }
+
+  function resetTimer() {
+    nextRefreshAt.current = Date.now() + INTERVAL_MS
+    setCountdown(INTERVAL_MS / 1000)
   }
 
   useEffect(() => {
+    // Pause countdown while page is hidden; refresh + reset when it becomes visible again
+    function onVisibilityChange() {
+      if (document.hidden) return
+      // Page just became visible — do one refresh and restart the timer
+      doRefresh()
+    }
+    document.addEventListener('visibilitychange', onVisibilityChange)
+
     const tick = setInterval(() => {
+      if (document.hidden) {
+        // Keep timer frozen while hidden so no burst fires on return
+        nextRefreshAt.current = Date.now() + INTERVAL_MS
+        return
+      }
       const remaining = Math.ceil((nextRefreshAt.current - Date.now()) / 1000)
       setCountdown(Math.max(0, remaining))
       if (remaining <= 0) doRefresh()
     }, 1000)
-    return () => clearInterval(tick)
+
+    return () => {
+      clearInterval(tick)
+      document.removeEventListener('visibilitychange', onVisibilityChange)
+    }
   // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [])
 
