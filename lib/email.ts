@@ -16,6 +16,7 @@
 // {ok:false, skipped:true} so callers can fire-and-forget without try/catch.
 
 import { Resend } from 'resend'
+import { getSupabaseAdmin } from './supabase'
 import type { DailyReport } from './retrospective'
 
 // Lazily constructed — Resend's constructor THROWS if no API key is
@@ -75,6 +76,17 @@ export interface TradeFailedData {
   mode?: 'auto' | 'manual'
 }
 
+export interface TradeSkippedData {
+  account: string
+  accountDisplayName?: string
+  symbol: string
+  side: 'BUY' | 'SELL'
+  quantity: number
+  price?: number
+  gate: string
+  reason: string
+}
+
 export interface EODLineItem {
   time?: string            // HH:MM IST
   account: string
@@ -118,6 +130,7 @@ export interface ContactFormData {
 
 export function sendEmail(type: 'trade_executed', data: TradeExecutedData): Promise<EmailResult>
 export function sendEmail(type: 'trade_failed',   data: TradeFailedData):   Promise<EmailResult>
+export function sendEmail(type: 'trade_skipped',  data: TradeSkippedData): Promise<EmailResult>
 export function sendEmail(type: 'eod_summary',    data: EODSummaryData):    Promise<EmailResult>
 export function sendEmail(type: 'daily_report',   data: DailyReport):       Promise<EmailResult>
 export function sendEmail(type: 'monthly_report', data: MonthlyReportData): Promise<EmailResult>
@@ -128,6 +141,7 @@ export function sendEmail(type: string, data?: any): Promise<EmailResult> {
   switch (type) {
     case 'trade_executed': return sendViaResend(to, executedSubject(data), executedBody(data))
     case 'trade_failed':   return sendViaResend(to, failedSubject(data),   failedBody(data))
+    case 'trade_skipped':  return sendViaResend(to, skippedSubject(data),  skippedBody(data))
     case 'eod_summary':    return sendViaResend(to, eodSubject(data),      eodBody(data))
     case 'daily_report':   return sendViaResend(to, dailyReportSubject(data), dailyReportText(data), dailyReportHTML(data))
     case 'monthly_report': return sendViaResend(to, monthlyReportSubject(data), monthlyReportText(data), monthlyReportHTML(data))
@@ -145,6 +159,7 @@ export function sendEmail(type: string, data?: any): Promise<EmailResult> {
 
 export const sendTradeExecuted = (d: TradeExecutedData) => sendEmail('trade_executed', d)
 export const sendTradeFailed   = (d: TradeFailedData)   => sendEmail('trade_failed', d)
+export const sendTradeSkipped  = (d: TradeSkippedData)  => sendEmail('trade_skipped', d)
 export const sendEODSummary    = (d: EODSummaryData)    => sendEmail('eod_summary', d)
 export const sendDailyReport   = (d: DailyReport)       => sendEmail('daily_report', d)
 export const sendMonthlyReport = (d: MonthlyReportData) => sendEmail('monthly_report', d)
@@ -394,6 +409,58 @@ function failedBody(d: TradeFailedData): string {
     'View in Kite → https://kite.zerodha.com/orders',
   ]
   return lines.filter(l => l !== '').join('\n')
+}
+
+// ── Trade Skipped (noLossSell and similar gate blocks) ──
+
+function skippedSubject(d: TradeSkippedData): string {
+  return `[DineshTrade] ⊘ Skipped: ${d.side} ${d.symbol} × ${d.quantity} — ${d.gate} gate — ${d.account}`
+}
+
+function skippedBody(d: TradeSkippedData): string {
+  const accLabel = d.accountDisplayName ? `${d.account} (${d.accountDisplayName})` : d.account
+  const lines = [
+    '⊘ TRADE SKIPPED (gate blocked it)',
+    '',
+    row('Account',  accLabel),
+    row('Symbol',   d.symbol),
+    row('Side',     d.side),
+    row('Quantity', `${d.quantity} share${d.quantity === 1 ? '' : 's'}`),
+    d.price !== undefined ? row('Signal Price', rupees(d.price)) : '',
+    '',
+    row('Gate',   d.gate),
+    row('Reason', d.reason),
+    '',
+    row('Time', nowIST()),
+    '',
+    'No order was sent to Zerodha.',
+  ]
+  return lines.filter(l => l !== '').join('\n')
+}
+
+// ── SKIP_TRADE_MAILS config reader (60 s cache) ──
+
+let _skipTradeMailsCache: boolean | null = null
+let _skipTradeMailsCachedAt = 0
+const _SKIP_TTL = 60_000
+
+export async function isSkipTradeMailsEnabled(): Promise<boolean> {
+  if (_skipTradeMailsCache !== null && Date.now() - _skipTradeMailsCachedAt < _SKIP_TTL) {
+    return _skipTradeMailsCache
+  }
+  try {
+    const admin = getSupabaseAdmin()
+    const { data } = await admin
+      .from('platform_config')
+      .select('value')
+      .eq('key', 'SKIP_TRADE_MAILS')
+      .single()
+    _skipTradeMailsCache = data?.value === 'true'
+  } catch {
+    _skipTradeMailsCache = false
+  }
+  _skipTradeMailsCachedAt = Date.now()
+  return _skipTradeMailsCache!
 }
 
 // ── EOD Summary ──

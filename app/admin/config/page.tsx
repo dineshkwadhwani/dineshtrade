@@ -17,6 +17,7 @@ const VISIBLE_KEYS = [
   'HEARTBEAT_DB_ENABLED',
   'TOKEN_ALERT_TIME_IST',
   'SUPPORT_EMAIL',
+  'SKIP_TRADE_MAILS',
 ]
 
 export default async function AdminConfigPage() {

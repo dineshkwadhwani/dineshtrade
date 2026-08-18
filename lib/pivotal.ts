@@ -8,7 +8,7 @@ import { runPreflight, markPlaced } from './preflight'
 import { getBroker } from './broker'
 import { appendJournal, classifyVerdict, istDateString, journalOrder } from './journal'
 import { applyLotSell, listPositionLots, listPositions, removePosition, setStrategyId, type Position } from './positions'
-import { sendEmail } from './email'
+import { sendEmail, isSkipTradeMailsEnabled } from './email'
 
 export interface PivotalRecommendation {
   symbol: string
@@ -296,6 +296,9 @@ export async function monitorPivotalAccount(account: string): Promise<PivotalMon
             signalPrice: ltp,
             reasonSkipped: `[noLossSell-exit] ${pre.reason || 'Auto mode blocked SELL at net loss'}`,
           }).catch(err => console.error('[pivotal] noLossSell journal write failed:', err))
+          isSkipTradeMailsEnabled().then(enabled => {
+            if (enabled) sendEmail('trade_skipped', { account, accountDisplayName: displayName, symbol: pos.symbol, side: 'SELL', quantity: sellQty, price: ltp, gate: 'noLossSell', reason: pre.reason || 'Auto mode blocked SELL at net loss' }).catch(() => {})
+          }).catch(() => {})
         }
         if (pre.gate === 'noShort') {
           await removePosition(account, pos.symbol)

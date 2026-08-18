@@ -20,7 +20,7 @@ import {
 } from './kite'
 import { runPreflight, markPlaced } from './preflight'
 import { getBroker } from './broker'
-import { sendEmail } from './email'
+import { sendEmail, isSkipTradeMailsEnabled } from './email'
 import { appendJournal, journalOrder, istDateString, istHHMM } from './journal'
 import { asDipParams, getStrategyById, getStrategies } from './strategyConfig'
 import * as positions from './positions'
@@ -194,6 +194,9 @@ export async function monitorAccountStrategy1(account: string): Promise<Strategy
               signalPrice: ltp,
               reasonSkipped: `[noLossSell-exit] ${pre.reason || 'Auto mode blocked SELL at net loss'}`,
             }).catch(err => console.error('[strategy1] noLossSell journal write failed:', err))
+            isSkipTradeMailsEnabled().then(enabled => {
+              if (enabled) sendEmail('trade_skipped', { account, accountDisplayName: displayName, symbol, side: 'SELL', quantity: intentQty, price: ltp, gate: 'noLossSell', reason: pre.reason || 'Auto mode blocked SELL at net loss' }).catch(() => {})
+            }).catch(() => {})
           }
           if (pre.gate === 'noShort') {
             await positions.removePosition(account, symbol)
@@ -269,6 +272,9 @@ export async function monitorAccountStrategy1(account: string): Promise<Strategy
               signalPrice: ltp,
               reasonSkipped: `[noLossSell-exit] ${pre.reason || 'Auto mode blocked SELL at net loss'}`,
             }).catch(err => console.error('[strategy1] noLossSell journal write failed:', err))
+            isSkipTradeMailsEnabled().then(enabled => {
+              if (enabled) sendEmail('trade_skipped', { account, accountDisplayName: displayName, symbol, side: 'SELL', quantity: intentQty, price: ltp, gate: 'noLossSell', reason: pre.reason || 'Auto mode blocked SELL at net loss' }).catch(() => {})
+            }).catch(() => {})
           }
           if (pre.gate === 'noShort') {
             await positions.removePosition(account, symbol)
@@ -342,6 +348,9 @@ export async function monitorAccountStrategy1(account: string): Promise<Strategy
               signalPrice: ltp,
               reasonSkipped: `[noLossSell-exit] ${pre.reason || 'Auto mode blocked SELL at net loss'}`,
             }).catch(err => console.error('[strategy1] noLossSell journal write failed:', err))
+            isSkipTradeMailsEnabled().then(enabled => {
+              if (enabled) sendEmail('trade_skipped', { account, accountDisplayName: displayName, symbol, side: 'SELL', quantity: intentQty, price: ltp, gate: 'noLossSell', reason: pre.reason || 'Auto mode blocked SELL at net loss' }).catch(() => {})
+            }).catch(() => {})
           }
           if (pre.gate === 'noShort') {
             await positions.removePosition(account, symbol)
