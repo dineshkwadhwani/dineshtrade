@@ -12,6 +12,7 @@ import { withCustomer } from '@/lib/supabase'
 import { saveState } from '@/lib/state'
 import { rehydrateForCustomer } from '@/lib/strategyConfigStore'
 import { evaluateAllForTiles, type Tile } from '@/lib/strategyEngine'
+import { getPrimaryCustomerId } from '@/lib/accounts'
 
 export const dynamic = 'force-dynamic'
 
@@ -28,15 +29,14 @@ export async function POST(req: NextRequest) {
       : profile.id
 
     // Primary customer supplies market data (paid Kite Connect plan)
-    const primaryCustomerId = (process.env.CUSTOMER_IDS || '').split(',')[0]?.trim() || profile.id
+    const primaryCustomerId = getPrimaryCustomerId()
     const primaryCreds = await loadBrokerAccountCreds(primaryCustomerId)
 
     if (!primaryCreds) {
       return NextResponse.json({ error: 'Primary account Kite not connected.', tilesByStrategy: {}, activeStrategies: [] })
     }
 
-    const env = process.env.ZERODHA_ENVIRONMENT === 'PROD' ? 'PROD' : 'TEST'
-    const primaryAccountName = process.env[`${env}_ZERODHA_ACCOUNT1`] || 'DINESH'
+    const primaryAccountName = primaryCustomerId
 
     // Customer's own creds for holdings annotation (best-effort)
     const customerCreds = await loadBrokerAccountCreds(targetCustomerId)
@@ -48,7 +48,7 @@ export async function POST(req: NextRequest) {
       await saveState({ kiteTokens: { [primaryAccountName]: primaryCreds.accessToken } })
       await rehydrateForCustomer()
       ;[result, holdings] = await Promise.all([
-        evaluateAllForTiles(),
+        evaluateAllForTiles(primaryCreds),
         customerCreds ? getHoldings(customerCreds).catch(() => []) : Promise.resolve([]),
       ])
     })

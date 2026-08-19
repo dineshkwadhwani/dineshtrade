@@ -9,6 +9,7 @@ import { withCustomer } from '@/lib/supabase'
 import { saveState } from '@/lib/state'
 import { rehydrateForCustomer } from '@/lib/strategyConfigStore'
 import { reconcileManualSells } from '@/lib/cronReconcile'
+import { getPrimaryCustomerId } from '@/lib/accounts'
 
 export const dynamic = 'force-dynamic'
 
@@ -78,15 +79,12 @@ export async function POST(req: NextRequest) {
     const customerId = typeof body.customerId === 'string' ? body.customerId : ''
     if (!customerId) return NextResponse.json({ error: 'customerId required' }, { status: 400 })
 
-    const primaryCustomerId = (process.env.CUSTOMER_IDS || '').split(',')[0]?.trim() || customerId
+    const primaryCustomerId = getPrimaryCustomerId()
     const primaryCreds = await loadBrokerAccountCreds(primaryCustomerId)
     if (!primaryCreds) return NextResponse.json({ ok: false, error: 'Primary Kite not connected' }, { status: 400 })
 
-    const env = process.env.ZERODHA_ENVIRONMENT === 'PROD' ? 'PROD' : 'TEST'
-    const primaryAccountName = process.env[`${env}_ZERODHA_ACCOUNT1`] || 'DINESH'
-
     await withCustomer(customerId, async () => {
-      await saveState({ kiteTokens: { [primaryAccountName]: primaryCreds.accessToken } })
+      await saveState({ kiteTokens: { [primaryCustomerId]: primaryCreds.accessToken } })
       await rehydrateForCustomer()
       await reconcileManualSells()
     })

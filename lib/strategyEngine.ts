@@ -577,7 +577,7 @@ function fmtPct(v: number): string {
   return `${v >= 0 ? '+' : ''}${v.toFixed(2)}%`
 }
 
-export async function evaluateAllForTiles(): Promise<TileEvalResult> {
+export async function evaluateAllForTiles(overrideCreds?: KiteCreds): Promise<TileEvalResult> {
   const generatedAt = new Date().toISOString()
 
   const active = getActiveStrategies()
@@ -596,7 +596,7 @@ export async function evaluateAllForTiles(): Promise<TileEvalResult> {
     generatedAt,
   }
 
-  const creds = await firstConnectedCreds()
+  const creds = overrideCreds ?? await firstConnectedCreds()
   if (!creds) return { ...empty, message: 'No Kite account connected — Login with Kite in Settings.' }
 
   const watchlist = await getWatchlist()

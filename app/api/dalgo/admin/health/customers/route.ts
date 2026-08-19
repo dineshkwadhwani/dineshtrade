@@ -10,6 +10,7 @@ import { getProfile, AuthError } from '@/lib/dalgoAuth'
 import { getSupabaseAdmin } from '@/lib/supabase'
 import { loadBrokerAccountCreds, kiteRequest } from '@/lib/kite'
 import { decrypt } from '@/lib/encryption'
+import { getPrimaryCustomerId } from '@/lib/accounts'
 
 export const dynamic = 'force-dynamic'
 
@@ -70,9 +71,8 @@ export async function GET() {
     }
 
     // Fetch Kite margins for connected customers in parallel (best-effort)
-    const env = process.env.ZERODHA_ENVIRONMENT === 'PROD' ? 'PROD' : 'TEST'
-    const primaryAccountName = process.env[`${env}_ZERODHA_ACCOUNT1`] || 'DINESH'
-    const envApiKey = process.env[`${env}_ZERODHA_API_KEY_${primaryAccountName}`] || ''
+    const primaryAccountName = getPrimaryCustomerId()
+    const envApiKey = ''  // V2: API key always comes from DB, not env
 
     interface MarginResult { available: number | null; invested: number | null; error?: string }
     const marginResults = await Promise.all(

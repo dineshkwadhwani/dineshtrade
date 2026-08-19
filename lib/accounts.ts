@@ -65,3 +65,8 @@ export function getAccountSecrets(name: string): AccountSecrets | null {
 export function isAccountConfigured(name: string): boolean {
   return getAccountSecrets(name) !== null
 }
+
+// V2: primary account identity derived from CUSTOMER_IDS instead of ZERODHA_ACCOUNT1.
+export function getPrimaryCustomerId(): string {
+  return (process.env.CUSTOMER_IDS || '').split(',')[0]?.trim() || 'DINESH'
+}

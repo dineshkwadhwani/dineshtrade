@@ -30,15 +30,17 @@ export async function POST(req: Request) {
   // Holdings join — best-effort. If account isn't provided or call fails, tiles
   // simply render without holding annotation (no SELL button).
   let heldBySymbol = new Map<string, Holding>()
+  let accountCreds: Awaited<ReturnType<typeof resolveAccountCreds>> | null = null
   if (account) {
     const creds = await resolveAccountCreds(account)
     if (creds.ok) {
+      accountCreds = creds
       const holdings = await getHoldings(creds).catch(() => [] as Holding[])
       for (const h of holdings) heldBySymbol.set(h.tradingsymbol.toUpperCase(), h)
     }
   }
 
-  const result = await evaluateAllForTiles()
+  const result = await evaluateAllForTiles(accountCreds?.ok ? { apiKey: accountCreds.apiKey, accessToken: accountCreds.accessToken } : undefined)
 
   function annotateHolding(tile: Tile): TileWithHolding {
     const h = heldBySymbol.get(tile.symbol)

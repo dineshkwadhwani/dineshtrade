@@ -106,9 +106,6 @@ function parseCustomerIds(): string[] {
 async function loadKiteToken(customerId: string): Promise<{ apiKey: string; accessToken: string } | null> {
   try {
     const admin = getSupabaseAdmin()
-    const env = process.env.ZERODHA_ENVIRONMENT === 'PROD' ? 'PROD' : 'TEST'
-    const primaryAccount = process.env[`${env}_ZERODHA_ACCOUNT1`] || 'DINESH'
-    const apiKey = process.env[`${env}_ZERODHA_API_KEY_${primaryAccount}`] || ''
     const { data } = await admin
       .from('broker_accounts')
       .select('access_token_enc, api_key_enc')
@@ -118,8 +115,8 @@ async function loadKiteToken(customerId: string): Promise<{ apiKey: string; acce
       .maybeSingle()
     if (!data?.access_token_enc) return null
     const accessToken = decrypt(data.access_token_enc)
-    // Use per-customer api_key from broker_accounts if available, else fall back to env
-    const customerApiKey = data.api_key_enc ? (() => { try { return decrypt(data.api_key_enc!) } catch { return apiKey } })() : apiKey
+    const customerApiKey = data.api_key_enc ? (() => { try { return decrypt(data.api_key_enc!) } catch { return '' } })() : ''
+    if (!customerApiKey) return null
     return { apiKey: customerApiKey, accessToken }
   } catch (err) {
     console.error(`[cron] loadKiteToken(${customerId}) failed:`, err)
@@ -157,13 +154,11 @@ async function collectAllWatchlistSymbols(customerIds: string[]): Promise<string
 // from the primary account pre-fetch — no extra Kite data API calls needed.
 async function runCustomerTick(customerId: string): Promise<void> {
   await withCustomer(customerId, async () => {
-    const env = process.env.ZERODHA_ENVIRONMENT === 'PROD' ? 'PROD' : 'TEST'
-    const primaryAccount = process.env[`${env}_ZERODHA_ACCOUNT1`] || 'DINESH'
     const credentials = await loadKiteToken(customerId)
     if (credentials) {
       await saveState({
-        kiteTokens: { [primaryAccount]: credentials.accessToken },
-        selectedAccounts: [primaryAccount],
+        kiteTokens: { [customerId]: credentials.accessToken },
+        selectedAccounts: [customerId],
       }).catch(err =>
         console.error(`[cron] customer=${customerId} saveState kiteTokens failed:`, err)
       )

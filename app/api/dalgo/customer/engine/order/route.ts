@@ -13,6 +13,7 @@ import { journalOrder } from '@/lib/journal'
 import { withCustomer } from '@/lib/supabase'
 import { saveState } from '@/lib/state'
 import { rehydrateForCustomer } from '@/lib/strategyConfigStore'
+import { getPrimaryCustomerId } from '@/lib/accounts'
 import { sendEmail } from '@/lib/email'
 
 export const dynamic = 'force-dynamic'
@@ -47,8 +48,7 @@ export async function POST(req: NextRequest) {
       return NextResponse.json({ error: 'Kite not connected. Please reconnect in Settings.' }, { status: 400 })
     }
 
-    const env = process.env.ZERODHA_ENVIRONMENT === 'PROD' ? 'PROD' : 'TEST'
-    const primaryAccountName = process.env[`${env}_ZERODHA_ACCOUNT1`] || 'DINESH'
+    const primaryAccountName = getPrimaryCustomerId()
 
     const broker = getBroker({
       brokerName: 'zerodha',

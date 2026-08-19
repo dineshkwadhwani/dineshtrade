@@ -22,6 +22,7 @@ import { wipeAccountPositions, recordBuy } from '@/lib/positions'
 import { istDateString, journalOrder } from '@/lib/journal'
 import { recordResetTimestamp } from '@/lib/instanceStatus'
 import { rehydrateForCustomer } from '@/lib/strategyConfigStore'
+import { getPrimaryCustomerId } from '@/lib/accounts'
 
 export const dynamic = 'force-dynamic'
 
@@ -69,10 +70,8 @@ export async function POST(req: NextRequest) {
       )
     }
 
-    // Derive the account label the cron uses for this instance — must match
-    // positions created by the trading engine.
-    const env = process.env.ZERODHA_ENVIRONMENT === 'PROD' ? 'PROD' : 'TEST'
-    const account = (process.env[`${env}_ZERODHA_ACCOUNT1`] || 'DINESH').toUpperCase()
+    // Derive the account label used for journal entries and cron state.
+    const account = getPrimaryCustomerId()
 
     // ── FETCH from Zerodha ─────────────────────────────────────────────────
 

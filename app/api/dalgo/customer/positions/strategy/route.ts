@@ -7,6 +7,7 @@ import { getProfile } from '@/lib/dalgoAuth'
 import { getSupabaseAdmin, withCustomer } from '@/lib/supabase'
 import { setStrategyId } from '@/lib/positions'
 import { rehydrateForCustomer } from '@/lib/strategyConfigStore'
+import { getPrimaryCustomerId } from '@/lib/accounts'
 
 export const dynamic = 'force-dynamic'
 
@@ -41,8 +42,7 @@ export async function PATCH(req: NextRequest) {
       return NextResponse.json({ error: `Unknown strategy: ${newStrategyId}` }, { status: 400 })
     }
 
-    const env = process.env.ZERODHA_ENVIRONMENT === 'PROD' ? 'PROD' : 'TEST'
-    const account = (process.env[`${env}_ZERODHA_ACCOUNT1`] || 'DINESH').toUpperCase()
+    const account = getPrimaryCustomerId()
 
     let changed = await setStrategyId(account, symbol, newStrategyId)
 

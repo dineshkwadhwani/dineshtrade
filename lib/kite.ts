@@ -42,9 +42,6 @@ export async function resolveAccountCreds(account: string): Promise<KiteResolveR
 export async function loadBrokerAccountCreds(customerId: string): Promise<KiteCreds | null> {
   try {
     const admin = getSupabaseAdmin()
-    const env = process.env.ZERODHA_ENVIRONMENT === 'PROD' ? 'PROD' : 'TEST'
-    const primaryAccount = process.env[`${env}_ZERODHA_ACCOUNT1`] || 'DINESH'
-    const envApiKey = process.env[`${env}_ZERODHA_API_KEY_${primaryAccount}`] || ''
     const { data } = await admin
       .from('broker_accounts')
       .select('access_token_enc, api_key_enc')
@@ -54,7 +51,8 @@ export async function loadBrokerAccountCreds(customerId: string): Promise<KiteCr
       .maybeSingle()
     if (!data?.access_token_enc) return null
     const accessToken = decrypt(data.access_token_enc)
-    const apiKey = data.api_key_enc ? (() => { try { return decrypt(data.api_key_enc!) } catch { return envApiKey } })() : envApiKey
+    const apiKey = data.api_key_enc ? (() => { try { return decrypt(data.api_key_enc!) } catch { return '' } })() : ''
+    if (!apiKey) return null
     return { apiKey, accessToken }
   } catch {
     return null

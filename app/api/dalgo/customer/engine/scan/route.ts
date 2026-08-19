@@ -12,6 +12,7 @@ import { rehydrateForCustomer } from '@/lib/strategyConfigStore'
 import { generateRecommendations } from '@/lib/strategyEngine'
 import { getCapital } from '@/lib/strategyConfig'
 import { istDateString, appendJournal } from '@/lib/journal'
+import { getPrimaryCustomerId } from '@/lib/accounts'
 
 export const dynamic = 'force-dynamic'
 
@@ -41,8 +42,7 @@ export async function POST(req: NextRequest) {
       })
     }
 
-    const env = process.env.ZERODHA_ENVIRONMENT === 'PROD' ? 'PROD' : 'TEST'
-    const primaryAccountName = process.env[`${env}_ZERODHA_ACCOUNT1`] || 'DINESH'
+    const primaryAccountName = getPrimaryCustomerId()
 
     let result: Awaited<ReturnType<typeof generateRecommendations>>
 
