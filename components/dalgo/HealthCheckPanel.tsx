@@ -302,7 +302,7 @@ export default function HealthCheckPanel() {
                         ) : <span style={{ color: C.muted }}>—</span>}
                       </td>
                       <td style={{ padding: '10px 14px', fontFamily: MONO, color: C.body }}>{c.activeStrategies}</td>
-                      {/* Sync status + Reconcile button */}
+      {/* Sync status + Reconcile button */}
                       <td style={{ padding: '10px 14px' }}>
                         {reconcileResult[c.id] ? (
                           <span style={{ fontSize: 11, color: reconcileResult[c.id].startsWith('✓') ? C.green : C.red, fontFamily: INTER, fontWeight: 600 }}>{reconcileResult[c.id]}</span>
@@ -311,6 +311,10 @@ export default function HealthCheckPanel() {
                             style={{ padding: '5px 12px', borderRadius: 6, border: `1px solid ${C.amber}`, background: C.amberBg, color: C.amber, fontFamily: INTER, fontWeight: 600, fontSize: 11, cursor: 'pointer', whiteSpace: 'nowrap' }}>
                             {reconciling === c.id ? '…' : '⚡ Reconcile'}
                           </button>
+                        ) : c.syncStatus === 'unknown' ? (
+                          <span style={{ fontSize: 11, color: C.muted, fontFamily: INTER }}>
+                            Market closed
+                          </span>
                         ) : (
                           <span style={{ fontSize: 11, color: c.syncStatus === 'in_sync' ? C.green : C.muted, fontWeight: 600 }}>
                             {c.syncStatus === 'in_sync' ? '✓ In sync' : '—'}

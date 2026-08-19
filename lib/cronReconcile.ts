@@ -141,9 +141,24 @@ async function absorbUntrackedPositions(
       .map(r => (r as OrderRecord).orderId as string)
   )
 
+  // Track symbols journaled today (with or without orderId) to prevent re-journaling
+  // positions re-seeded during a reset. This fixes the issue where reset re-journals
+  // holdings on the next day's cron run.
+  const journaledSymbolsToday = new Set(
+    todayJournal
+      .filter((r): r is OrderRecord => r.type === 'order' && (r as OrderRecord).side === 'BUY')
+      .map(r => (r as OrderRecord).symbol.toUpperCase())
+  )
+
   for (const [symbol, live] of Array.from(liveInventory.entries())) {
     if (trackedSymbols.has(symbol)) continue
     if (wasAbsorbedToday(account, symbol)) continue
+    // Skip if already journaled today (prevents re-journaling reset re-seeds)
+    if (journaledSymbolsToday.has(symbol)) {
+      markAbsorbedToday(account, symbol)
+      console.log(`[reconcile] ${account} ${symbol}: skipped (already journaled today from reset)`)
+      continue
+    }
 
     // Fix req 2 — verify today's Kite order book before deciding this is a
     // genuinely untracked (pre-existing/prior-day) holding vs. a real order

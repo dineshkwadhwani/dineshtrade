@@ -10,6 +10,7 @@ import { saveState } from '@/lib/state'
 import { rehydrateForCustomer } from '@/lib/strategyConfigStore'
 import { reconcileManualSells } from '@/lib/cronReconcile'
 import { getPrimaryCustomerId } from '@/lib/accounts'
+import { isMarketOpen } from '@/lib/market'
 
 export const dynamic = 'force-dynamic'
 
@@ -25,6 +26,17 @@ export async function GET(req: NextRequest) {
 
     const customerId = new URL(req.url).searchParams.get('customerId') || ''
     if (!customerId) return NextResponse.json({ error: 'customerId required' }, { status: 400 })
+
+    // Check if market is open
+    const marketStatus = await isMarketOpen()
+    if (!marketStatus.open) {
+      // Market is closed — don't flag as out of sync; stale heartbeat is expected
+      return NextResponse.json({
+        inSync: null, // null means "don't check during market closed hours"
+        marketStatus: marketStatus.status,
+        note: 'Sync check skipped — market is closed',
+      })
+    }
 
     const admin = getSupabaseAdmin()
     const primaryCustomerId = (process.env.CUSTOMER_IDS || '').split(',')[0]?.trim() || customerId
@@ -62,6 +74,7 @@ export async function GET(req: NextRequest) {
       supabaseCount: trackedSymbols.size,
       inKiteNotTracked,
       trackedNotInKite,
+      marketStatus: marketStatus.status,
     })
   } catch (err) {
     if (err instanceof AuthError) return NextResponse.json({ error: err.message }, { status: err.statusCode })
