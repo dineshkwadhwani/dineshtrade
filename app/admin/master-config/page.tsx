@@ -60,7 +60,7 @@ export default async function AdminMasterConfigPage() {
       <PageHeader title="Master Config" subtitle="Platform-wide rules, strategy templates, and capital defaults applied to every customer" />
       <MasterConfigClient
         fixedRulesTab={<FixedRulesClient rules={fixedRuleRows} />}
-        strategiesTab={<StrategiesClient strategies={strategyRows} customerOptions={customerOptions} />}
+        strategiesTab={<StrategiesClient strategies={strategyRows} customers={customerOptions} />}
         sharedCapitalTab={<SharedCapitalTab defaults={capitalDefaults} configKey={CAPITAL_DEFAULTS_KEY} />}
       />
     </div>
