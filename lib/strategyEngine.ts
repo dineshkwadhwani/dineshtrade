@@ -10,7 +10,7 @@ import { getMarketBriefing } from './marketBriefing'
 import { getState } from './state'
 import { getPrimaryCustomerId } from './accounts'
 import {
-  resolveAccountCreds, getQuotes, getHistoricalCandles, type KiteCreds,
+  resolveAccountCreds, getQuotes, getHistoricalCandles, loadBrokerAccountCreds, type KiteCreds,
 } from './kite'
 import { getInstrumentTokens } from './instruments'
 import { loadAndRefreshCloses, type DailyClose } from './dailyCloses'
