@@ -119,18 +119,27 @@ export async function POST(_req: NextRequest, { params }: { params: { id: string
     if (missingLists.length > 0)
       console.log(`[activate] seeded ${missingLists.length} missing watchlist(s) for ${customer.full_name}`)
 
-    // Seed capital config with platform defaults if the customer has none yet
+    // Seed capital config — use platform defaults if set, otherwise fall back to DB column defaults
     const { data: existingCapital } = await admin
       .from('customer_capital_config')
       .select('id')
       .eq('customer_id', params.id)
       .maybeSingle()
     if (!existingCapital) {
+      const { data: capitalDefaultRow } = await admin
+        .from('platform_config')
+        .select('value')
+        .eq('key', 'PLATFORM_CAPITAL_DEFAULTS')
+        .maybeSingle()
+      let capitalOverrides: Record<string, unknown> = {}
+      if (capitalDefaultRow?.value) {
+        try { capitalOverrides = JSON.parse(capitalDefaultRow.value) } catch {}
+      }
       const { error: capErr } = await admin
         .from('customer_capital_config')
-        .insert({ customer_id: params.id })
+        .insert({ customer_id: params.id, ...capitalOverrides })
       if (capErr) console.error(`[activate] seed capital config failed:`, capErr.message)
-      else console.log(`[activate] seeded default capital config for ${customer.full_name}`)
+      else console.log(`[activate] seeded capital config for ${customer.full_name}`)
     }
 
     await writeAuditLog({
