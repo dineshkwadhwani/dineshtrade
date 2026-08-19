@@ -44,6 +44,19 @@ export default function SettingsClient({ savedApiKey, savedApiSecret, isConnecte
   const [credsMsg, setCredsMsg] = useState('')
   const [modeMsg, setModeMsg] = useState('')
   const [mode, setMode] = useState(cronMode)
+  const [disconnecting, setDisconnecting] = useState(false)
+
+  async function handleDisconnect() {
+    if (!confirm('Disconnect Zerodha? The current token will be cleared. You will need to reconnect to resume auto-trading.')) return
+    setDisconnecting(true)
+    try {
+      const res = await fetch('/api/dalgo/customer/broker/disconnect', { method: 'DELETE' })
+      if (res.ok) router.refresh()
+      else alert('Failed to disconnect. Please try again.')
+    } finally {
+      setDisconnecting(false)
+    }
+  }
   const [strategyStates, setStrategyStates] = useState<Record<string, boolean>>(
     Object.fromEntries(strategies.map(s => [s.id, s.active]))
   )
@@ -158,9 +171,17 @@ export default function SettingsClient({ savedApiKey, savedApiSecret, isConnecte
               </span>
               {tokenCapturedAt && <span style={{ fontSize: 11, color: C.muted }}>Token from {new Date(tokenCapturedAt).toLocaleString('en-IN', { day: 'numeric', month: 'short', hour: '2-digit', minute: '2-digit', hour12: false, timeZone: 'Asia/Kolkata' })}</span>}
             </div>
-            <a href={kiteLoginUrl} style={{ ...btnStyle, display: 'inline-block', background: '#387ED1', color: '#fff', textDecoration: 'none', marginBottom: 20, fontSize: 14 }}>
-              {isConnected ? '↻ Reconnect Zerodha' : '⚡ Connect Zerodha'}
-            </a>
+            <div style={{ display: 'flex', alignItems: 'center', gap: 10, marginBottom: 20 }}>
+              <a href={kiteLoginUrl} style={{ ...btnStyle, display: 'inline-block', background: '#387ED1', color: '#fff', textDecoration: 'none', fontSize: 14 }}>
+                {isConnected ? '↻ Reconnect Zerodha' : '⚡ Connect Zerodha'}
+              </a>
+              {isConnected && (
+                <button onClick={handleDisconnect} disabled={disconnecting}
+                  style={{ ...btnStyle, background: '#FEE2E2', color: '#DC2626', border: '1px solid #FECACA', fontSize: 14, opacity: disconnecting ? 0.6 : 1 }}>
+                  {disconnecting ? 'Disconnecting…' : '✕ Disconnect'}
+                </button>
+              )}
+            </div>
             <form onSubmit={handleSaveCreds} style={{ display: 'flex', flexDirection: 'column', gap: 12 }}>
               <h3 style={{ fontFamily: SORA, fontSize: 14, fontWeight: 600, color: C.heading, margin: 0 }}>Update API Credentials</h3>
               {savedApiKey && <p style={{ fontSize: 12, color: C.muted, margin: 0 }}>Current API Key: <code>{savedApiKey}</code></p>}
