@@ -43,7 +43,16 @@ export default async function SettingsPage({ searchParams }: { searchParams: Rec
 
   const cronMode = stateRes.data?.cron_mode ?? 'manual'
   const strategies = strategiesRes.data ?? []
-  const capitalConfig = capitalRes.data
+  // Auto-seed a default capital config row if one doesn't exist yet for this customer.
+  let capitalConfig = capitalRes.data
+  if (!capitalConfig) {
+    const { data: seeded } = await admin
+      .from('customer_capital_config')
+      .insert({ customer_id: customerId })
+      .select('*')
+      .single()
+    capitalConfig = seeded
+  }
   const fixedRules = fixedRulesRes.data ?? []
   const watchlists = (watchlistRes.data ?? []).map(r => ({ ...r, symbols: Array.isArray(r.symbols) ? r.symbols : [] }))
 
