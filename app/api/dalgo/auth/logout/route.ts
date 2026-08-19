@@ -28,16 +28,18 @@ export async function POST() {
 }
 
 // GET — used by plain <a href> links (e.g. the Log out button on /setup)
-// When logout is called from a customer subdomain, redirect to www.dalgo.online for re-auth
+// When logout is called from a customer subdomain, chain through the main domain
+// logout endpoint so BOTH the subdomain cookie AND the dalgo.online cookie are cleared.
 export async function GET(request: any) {
   const host = request.headers.get('host') || 'dalgo.online'
   const isSubdomain = host.endsWith('.dalgo.online') && host !== 'dalgo.online' && host !== 'www.dalgo.online'
   const proto = request.headers.get('x-forwarded-proto')?.split(',')[0]?.trim() || 'https'
-  
-  // Redirect to www.dalgo.online for login, or to configured app URL if not using subdomains
-  const redirectTo = isSubdomain 
-    ? 'https://www.dalgo.online/login'
-    : (process.env.APP_BASE_URL || process.env.NEXT_PUBLIC_APP_URL || 'https://www.dalgo.online/login')
+
+  // Subdomain logout: clear subdomain cookie, then chain to main domain logout
+  // so dalgo.online's cookie is also cleared before the user reaches /login.
+  const redirectTo = isSubdomain
+    ? 'https://dalgo.online/api/dalgo/auth/logout'
+    : (process.env.APP_BASE_URL ? `${process.env.APP_BASE_URL}/login` : `${proto}://${host}/login`)
   
   const res = NextResponse.redirect(redirectTo)
   res.cookies.set(SESSION_COOKIE, '', {
