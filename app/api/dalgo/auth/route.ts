@@ -52,11 +52,14 @@ export async function POST(req: NextRequest) {
     midnight.setHours(0, 0, 0, 0)
 
     const res = NextResponse.json({ profile: result.profile, role: result.profile.role, redirectTo })
+    // When redirecting to a subdomain SSO, set cookie but mark it to expire immediately
+    // after the SSO completes — the subdomain session becomes the real session.
+    const isSsoRedirect = redirectTo.includes('.dalgo.online/sso')
     res.cookies.set(SESSION_COOKIE, result.accessToken, {
       httpOnly: true,
       secure: process.env.NODE_ENV === 'production',
       sameSite: 'lax',
-      expires: midnight,
+      expires: isSsoRedirect ? new Date(Date.now() + 30_000) : midnight, // 30s TTL for SSO bridge, full day for direct sessions
       path: '/',
     })
     // Also set V1 dt_session for active customers so /dashboard works

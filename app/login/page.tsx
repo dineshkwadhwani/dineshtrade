@@ -1,5 +1,5 @@
 import { redirect } from 'next/navigation'
-import { getSession, getProfile, generateSSOToken } from '@/lib/dalgoAuth'
+import { getSession, getProfile } from '@/lib/dalgoAuth'
 import LoginClient from './LoginClient'
 
 // Server Component — safe to use lib/dalgoAuth.ts's getSession()/getProfile()
@@ -19,11 +19,10 @@ export default async function LoginPage({
   const session = await getSession()
   const profile = session ? await getProfile() : null
 
-  // Active customer with a subdomain — skip the login form entirely and
-  // send them straight to their instance via a fresh SSO token.
+  // Active customer with a subdomain: route through sso-redirect API which
+  // both generates the SSO token AND clears the dalgo.online session cookie.
   if (profile?.role === 'customer' && profile?.status === 'active' && profile?.subdomain && process.env.NODE_ENV === 'production') {
-    const token = await generateSSOToken(profile.id)
-    redirect(`https://${profile.subdomain}.dalgo.online/sso?token=${token}`)
+    redirect('/api/dalgo/auth/sso-redirect')
   }
 
   // ?error=invalid_sso — bounced back here from app/sso/page.tsx (missing,

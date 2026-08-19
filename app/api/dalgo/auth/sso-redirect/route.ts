@@ -1,5 +1,5 @@
 import { NextResponse } from 'next/server'
-import { getProfile, generateSSOToken } from '@/lib/dalgoAuth'
+import { getProfile, generateSSOToken, SESSION_COOKIE } from '@/lib/dalgoAuth'
 
 export const dynamic = 'force-dynamic'
 
@@ -18,7 +18,10 @@ export async function GET() {
     process.env.NODE_ENV === 'production'
   ) {
     const token = await generateSSOToken(profile.id)
-    return NextResponse.redirect(`https://${profile.subdomain}.dalgo.online/sso?token=${token}`)
+    const res = NextResponse.redirect(`https://${profile.subdomain}.dalgo.online/sso?token=${token}`)
+    // Expire the dalgo.online session so it can't auto-login on the next /login visit.
+    res.cookies.set(SESSION_COOKIE, '', { httpOnly: true, secure: true, sameSite: 'lax', expires: new Date(0), path: '/' })
+    return res
   }
 
   // Fallback for dev, superadmin, account manager, or customers without subdomain
