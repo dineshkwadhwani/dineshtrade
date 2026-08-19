@@ -10,8 +10,8 @@
 // is still in the danger zone, we'll trip again on the very next BUY.
 
 import { getCapital } from './strategyConfig'
-import { getState } from './state'
-import { resolveAccountCreds, kiteRequest } from './kite'
+import { loadBrokerAccountCreds, kiteRequest } from './kite'
+import { getPrimaryCustomerId } from './accounts'
 import { istDateString } from './journal'
 
 const QUOTE_TTL_MS = 30 * 1000   // re-query Kite at most once per 30s — preflight
@@ -48,13 +48,8 @@ async function fetchNifty(): Promise<NiftySnapshot | null> {
   const now = Date.now()
   if (snapshotCache && now - snapshotCache.fetchedAt < QUOTE_TTL_MS) return snapshotCache
 
-  // Use the first connected Kite token (same pattern as /api/market/indices).
-  const s = await getState()
-  let creds: { apiKey: string; accessToken: string } | null = null
-  for (const account of Object.keys(s.kiteTokens || {})) {
-    const r = await resolveAccountCreds(account)
-    if (r.ok) { creds = { apiKey: r.apiKey, accessToken: r.accessToken }; break }
-  }
+  // V2: load primary customer creds directly from DB.
+  const creds = await loadBrokerAccountCreds(getPrimaryCustomerId())
   if (!creds) return null
 
   try {

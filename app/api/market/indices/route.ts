@@ -7,9 +7,9 @@
 import { NextResponse } from 'next/server'
 import { cookies } from 'next/headers'
 import { verifySession } from '@/lib/auth'
-import { getState } from '@/lib/state'
-import { resolveAccountCreds, kiteRequest } from '@/lib/kite'
+import { loadBrokerAccountCreds, kiteRequest } from '@/lib/kite'
 import { getMarketBriefing } from '@/lib/marketBriefing'
+import { getPrimaryCustomerId } from '@/lib/accounts'
 
 export const dynamic = 'force-dynamic'
 
@@ -20,13 +20,9 @@ interface IndexQuote {
   source: 'kite' | 'briefing' | 'unavailable'
 }
 
+// V2: load primary customer creds directly from DB.
 async function firstConnectedCreds() {
-  const state = await getState()
-  for (const account of Object.keys(state.kiteTokens)) {
-    const r = await resolveAccountCreds(account)
-    if (r.ok) return { apiKey: r.apiKey, accessToken: r.accessToken }
-  }
-  return null
+  return loadBrokerAccountCreds(getPrimaryCustomerId())
 }
 
 // Core indices (mobile + desktop) and extended set (desktop only).

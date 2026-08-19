@@ -27,15 +27,21 @@ export interface KiteResolveError {
 }
 
 // Resolve { apiKey, accessToken } for a configured account.
-// apiKey is from env (selected by ZERODHA_ENVIRONMENT prefix).
-// accessToken is from state (pasted via Login-with-Kite flow).
+// V1 path: account name from env (e.g. 'DINESH') → reads api_key from env + token from state.
+// V2 path: account is a customer UUID → reads both api_key and token from broker_accounts DB.
 export async function resolveAccountCreds(account: string): Promise<KiteResolveResult | KiteResolveError> {
-  if (!isAccountConfigured(account)) return { ok: false, error: `Unknown account: ${account}` }
-  const secrets = getAccountSecrets(account)!
-  const state = await getState()
-  const accessToken = state.kiteTokens[account]
-  if (!accessToken) return { ok: false, error: `${account} not connected — paste today's Kite access token in Settings` }
-  return { ok: true, apiKey: secrets.apiKey, accessToken }
+  if (isAccountConfigured(account)) {
+    // V1 env-based path
+    const secrets = getAccountSecrets(account)!
+    const state = await getState()
+    const accessToken = state.kiteTokens[account]
+    if (!accessToken) return { ok: false, error: `${account} not connected — paste today's Kite access token in Settings` }
+    return { ok: true, apiKey: secrets.apiKey, accessToken }
+  }
+  // V2 DB-based path — account is a customer UUID
+  const creds = await loadBrokerAccountCreds(account)
+  if (!creds) return { ok: false, error: `No active Kite credentials for customer ${account}` }
+  return { ok: true, apiKey: creds.apiKey, accessToken: creds.accessToken }
 }
 
 /** Loads Kite creds from broker_accounts (OAuth flow) for a specific customer. */
