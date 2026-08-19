@@ -18,11 +18,12 @@ const DISCLAIMER =
 const FONT_SORA = "'Sora', sans-serif"
 const FONT_INTER = "'Inter', sans-serif"
 
-// Status-aware redirect — mirrors resolveRedirect() in app/api/dalgo/auth/route.ts.
+// Status-aware redirect — active customers go through /api/dalgo/auth/sso-redirect
+// so the server can generate a fresh SSO token and forward to their subdomain.
 function resolveClientRedirect(profile: Profile): string {
   if (profile.role === 'customer') {
     if (profile.status === 'identity_verified' || profile.status === 'broker_setup_complete') return '/setup'
-    if (profile.status === 'active') return '/dashboard'
+    if (profile.status === 'active') return '/api/dalgo/auth/sso-redirect'
     return '/pending'
   }
   if (profile.role === 'superadmin') return '/admin'

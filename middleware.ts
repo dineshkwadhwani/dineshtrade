@@ -48,6 +48,7 @@ const PUBLIC_EXACT = new Set([
   '/contact',
   '/api/dalgo/auth', // critical — the login endpoint itself must be public
   '/api/dalgo/auth/logout', // GET logout clears cookie and redirects to /; must be reachable without a valid session
+  '/api/dalgo/auth/sso-redirect', // session-based SSO redirect — reads existing session cookie, no new auth needed
   '/api/dalgo/register', // customer/broking-company self-registration — no session exists yet
   '/api/dalgo/register/resend-verification', // resend email confirmation link — no session yet
   '/api/dalgo/upload-url', // Aadhar upload URL generation — called from the registration form pre-signup
