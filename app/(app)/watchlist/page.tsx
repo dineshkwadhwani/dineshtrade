@@ -1,6 +1,6 @@
 'use client'
 import { useState, useEffect } from 'react'
-import OrderButton from '@/components/app/OrderButton'
+import OrderModalButton from '@/components/app/OrderModalButton'
 
 interface WatchlistEntry { nse: string; name: string; trades?: number; lastTraded?: string }
 interface ListMeta { name: string }
@@ -209,8 +209,8 @@ export default function WatchlistPage() {
               <div className="flex items-center gap-1 justify-end">
                 {!symInvalid && q && (
                   <>
-                    <OrderButton symbol={sym} side="BUY" quantity={Math.max(1, Math.floor(20000 / q.ltp))} price={q.ltp} disabled={!kiteConnected || !marketOpen} size="sm" />
-                    {held && <OrderButton symbol={sym} side="SELL" quantity={1} price={q.ltp} disabled={!kiteConnected || !marketOpen} size="sm" />}
+                    <OrderModalButton symbol={sym} side="BUY" quantity={Math.max(1, Math.floor(20000 / q.ltp))} price={q.ltp} disabled={!kiteConnected || !marketOpen} size="sm" />
+                    {held && <OrderModalButton symbol={sym} side="SELL" quantity={1} price={q.ltp} disabled={!kiteConnected || !marketOpen} size="sm" />}
                   </>
                 )}
               </div>

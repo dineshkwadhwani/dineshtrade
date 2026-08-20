@@ -7,7 +7,7 @@ import { getProfile } from '@/lib/dalgoAuth'
 import { getSupabaseAdmin } from '@/lib/supabase'
 import { loadBrokerAccountCreds, getPositions, getQuotes } from '@/lib/kite'
 import StrategyTagButton from '@/components/app/StrategyTagButton'
-import OrderButton from '@/components/app/OrderButton'
+import OrderModalButton from '@/components/app/OrderModalButton'
 
 const C = { bg: '#F8FAFF', card: '#FFFFFF', border: '#BFDBFE', heading: '#1E3A8A', body: '#475569', muted: '#94A3B8' }
 const SORA = "'Sora', sans-serif"
@@ -106,7 +106,7 @@ export default async function PositionsPage() {
                           <td style={{ padding: '10px 14px', textAlign: 'right', color: C.body }}>₹{fmt(ltp)}</td>
                           <td style={{ padding: '10px 14px', textAlign: 'right', fontWeight: 600, color: pnlColor }}>{pnl >= 0 ? '+' : ''}₹{fmt(pnl, 0)}</td>
                           <td style={{ padding: '10px 14px' }}>
-                            {canSquareOff && <OrderButton symbol={p.tradingsymbol} side={netQty > 0 ? 'SELL' : 'BUY'} quantity={Math.abs(netQty)} price={ltp} label="Square Off" size="sm" />}
+                            {canSquareOff && <OrderModalButton symbol={p.tradingsymbol} side={netQty > 0 ? 'SELL' : 'BUY'} quantity={Math.abs(netQty)} price={ltp} label="Square Off" size="sm" />}
                           </td>
                         </tr>
                       )

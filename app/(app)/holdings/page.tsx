@@ -8,7 +8,7 @@ import { loadBrokerAccountCreds, getHoldings, getQuotes } from '@/lib/kite'
 import { decrypt } from '@/lib/encryption'
 import { sendDatastoreAlert } from '@/lib/email'
 import StrategyTagButton from '@/components/app/StrategyTagButton'
-import OrderButton from '@/components/app/OrderButton'
+import OrderModalButton from '@/components/app/OrderModalButton'
 
 const C = { bg: '#F8FAFF', card: '#FFFFFF', border: '#BFDBFE', heading: '#1E3A8A', body: '#475569', muted: '#94A3B8' }
 const SORA = "'Sora', sans-serif"
@@ -284,7 +284,7 @@ export default async function HoldingsPage() {
                         <td style={{ padding: '10px 14px' }}>
                           {/* SELL button only when broker is connected and has live qty */}
                           {!offlineMode && (
-                            <OrderButton symbol={h.symbol} side="SELL" quantity={totalQty} price={h.last_price} size="sm" />
+                            <OrderModalButton symbol={h.symbol} side="SELL" quantity={totalQty} price={h.last_price} size="sm" />
                           )}
                         </td>
                       </tr>
