@@ -460,8 +460,18 @@ export async function setStrategyId(account: string, symbol: string, newStrategy
     if (!p || p.strategyId === newStrategyId) return false
     // Self-heal account field while we're here
     if (p.account !== account.toUpperCase()) p.account = account.toUpperCase()
-    console.log(`[positions] re-stamped ${symbol}: ${p.strategyId} → ${newStrategyId}`)
+    const oldStrategyId = p.strategyId
+    console.log(`[positions] re-stamped ${symbol}: ${oldStrategyId} → ${newStrategyId}`)
     p.strategyId = newStrategyId
+    // Re-stamp only lots owned by the old strategy; leave lots with a different
+    // explicit strategyId intact (they belong to a different pyramid buy).
+    if (p.lots && p.lots.length > 0) {
+      for (const lot of p.lots) {
+        if (!lot.strategyId || lot.strategyId === oldStrategyId) {
+          lot.strategyId = newStrategyId
+        }
+      }
+    }
     await upsertPosition(p)
     return true
   })

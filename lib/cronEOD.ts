@@ -64,11 +64,12 @@ export async function runEODSquareOff(): Promise<void> {
 
     const exitTime: string = typeof mParams.exitSameDayTime === 'string' ? mParams.exitSameDayTime : '15:10'
     if (t < exitTime) continue
-    if (squareOffEOD && eodSquareOffDone[strategy.id] === today) continue
+    // squareOffEOD runs once — but exitSameDayOnPositive keeps checking every tick for new positions
+    const squareOffAlreadyDone = squareOffEOD && eodSquareOffDone[strategy.id] === today
+    if (squareOffAlreadyDone && !exitOnPositive) continue
 
-    // Mark done immediately to prevent re-entry if any await below takes time.
-    // Positive-only exits intentionally keep checking on each later 5-min tick.
-    if (squareOffEOD) eodSquareOffDone[strategy.id] = today
+    // Mark squareOffEOD done immediately to prevent re-entry on concurrent ticks.
+    if (squareOffEOD && !squareOffAlreadyDone) eodSquareOffDone[strategy.id] = today
     console.log(`[cron eod] ${t} IST — ${strategy.id}: running EOD square-off (squareOffEOD=${squareOffEOD}, exitOnPositive=${exitOnPositive})`)
 
     const accounts = getAccountList()
@@ -116,7 +117,8 @@ export async function runEODSquareOff(): Promise<void> {
         }
 
         const estimatedNetPnl = estimateExitNetPnl(pos.firstBuyAt, pos.firstBuyPrice, ltp, pos.remainingQty)
-        const shouldSell = squareOffEOD || (exitOnPositive && estimatedNetPnl > 0)
+        // squareOffEOD only fires once per day; exitSameDayOnPositive keeps re-checking
+        const shouldSell = (!squareOffAlreadyDone && squareOffEOD) || (exitOnPositive && estimatedNetPnl > 0)
         if (!shouldSell) continue
 
         const qty = pos.remainingQty
