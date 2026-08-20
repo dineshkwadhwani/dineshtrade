@@ -6,9 +6,11 @@ import { decrypt, encrypt } from '@/lib/encryption'
 
 export const dynamic = 'force-dynamic'
 
+// Always derive base from request headers so we stay on the correct subdomain.
+// APP_BASE_URL points to the main domain (dalgo.online) and must not be used
+// here — using it would redirect the customer to the main domain where their
+// subdomain session cookie is not present, causing a login redirect.
 function normalizedBase(req: NextRequest): string {
-  const configured = process.env.APP_BASE_URL || process.env.NEXT_PUBLIC_APP_URL
-  if (configured) return configured.replace(/\/$/, '')
   const proto = req.headers.get('x-forwarded-proto')?.split(',')[0]?.trim() || 'http'
   const host = req.headers.get('x-forwarded-host')?.split(',')[0]?.trim() || req.headers.get('host') || 'localhost:3000'
   return `${proto}://${host}`
@@ -89,7 +91,9 @@ export async function GET(req: NextRequest) {
       await admin.from('profiles').update({ status: 'broker_setup_complete', updated_at: now }).eq('id', customerId)
     }
 
-    return redirectWithCleanup('/setup?connected=true')
+    // Active customers reconnecting from Settings go to dashboard, not setup
+    const redirectTarget = currentProfile?.status === 'active' ? '/dashboard' : '/setup?connected=true'
+    return redirectWithCleanup(redirectTarget)
   } catch (e) {
     return redirectWithCleanup('/setup?error=' + encodeURIComponent('Network error: ' + String(e).slice(0, 100)))
   }
