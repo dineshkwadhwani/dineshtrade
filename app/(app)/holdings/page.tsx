@@ -251,7 +251,7 @@ export default async function HoldingsPage() {
                                 symbol={h.symbol}
                                 currentTag={h.strategyTag}
                                 strategies={activeStrategies}
-                                kiteQty={h.quantity}
+                                kiteQty={h.quantity + h.t1_quantity}
                                 kiteAvgPrice={h.average_price}
                               />
                             : h.fromKite
@@ -259,7 +259,7 @@ export default async function HoldingsPage() {
                                   symbol={h.symbol}
                                   currentTag="untracked"
                                   strategies={activeStrategies}
-                                  kiteQty={h.quantity}
+                                  kiteQty={h.quantity + h.t1_quantity}
                                   kiteAvgPrice={h.average_price}
                                 />
                               : <span style={{ color: '#94A3B8', fontSize: 12 }}>—</span>}

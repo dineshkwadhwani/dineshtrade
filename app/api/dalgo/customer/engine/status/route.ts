@@ -45,12 +45,13 @@ export async function GET(req: Request) {
 
     const market = await isMarketOpen()
 
-    // kite connection: instance row is most up-to-date; fall back to broker_accounts check
+    // kite connection: instance row updated by heartbeat (stale in manual mode) —
+    // always fall back to broker_accounts for the ground truth when not 'connected'.
     let kiteConnected = false
     if (instance?.kite_token_status === 'connected') {
       kiteConnected = true
-    } else if (instance?.kite_token_status == null) {
-      // instance row missing (HEARTBEAT_DB_ENABLED=false) — check broker_accounts directly
+    } else {
+      // Heartbeat may be stale (manual mode) or instance row missing — check broker_accounts directly
       const { data: broker } = await admin
         .from('broker_accounts')
         .select('token_expires_at, access_token_enc')
