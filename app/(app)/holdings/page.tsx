@@ -173,7 +173,7 @@ export default async function HoldingsPage() {
 
   totalInvestment = holdings.reduce((s, h) => s + h.average_price * (h.quantity + h.t1_quantity), 0)
   totalValue = holdings.reduce((s, h) => s + h.last_price * (h.quantity + h.t1_quantity), 0)
-  totalPnl = holdings.reduce((s, h) => s + h.pnl, 0)
+  totalPnl = holdings.reduce((s, h) => (h.quantity + h.t1_quantity) * (h.last_price - h.average_price) + s, 0)
   todaysPnl = holdings.reduce((s, h) => {
     const qty = h.quantity + h.t1_quantity
     if (!h.close_price || h.close_price <= 0 || qty <= 0) return s
@@ -237,8 +237,11 @@ export default async function HoldingsPage() {
                 </thead>
                 <tbody>
                   {holdings.map((h, i) => {
+                    const totalQty = h.quantity + h.t1_quantity
                     const pnlPct = h.average_price > 0 ? ((h.last_price - h.average_price) / h.average_price) * 100 : 0
-                    const pnlColor = h.pnl >= 0 ? POSITIVE : NEGATIVE
+                    // Recalculate P&L using total qty — Kite's h.pnl uses settled qty only
+                    const pnl = totalQty * (h.last_price - h.average_price)
+                    const pnlColor = pnl >= 0 ? POSITIVE : NEGATIVE
                     const todayPct = h.close_price && h.close_price > 0 ? ((h.last_price - h.close_price) / h.close_price) * 100 : null
                     const todayColor = (todayPct ?? 0) >= 0 ? POSITIVE : NEGATIVE
                     const days = h.firstBuyAt ? daysHeld(h.firstBuyAt) : null
@@ -264,10 +267,15 @@ export default async function HoldingsPage() {
                                 />
                               : <span style={{ color: '#94A3B8', fontSize: 12 }}>—</span>}
                         </td>
-                        <td style={{ padding: '10px 14px', color: C.body }}>{h.quantity}</td>
+                        <td style={{ padding: '10px 14px', color: C.body }}>
+                          {h.quantity + h.t1_quantity}
+                          {h.t1_quantity > 0 && (
+                            <span title={`${h.t1_quantity} pending T+1 settlement`} style={{ marginLeft: 4, fontSize: 10, fontWeight: 600, padding: '1px 5px', borderRadius: 4, background: '#FEF3C7', color: '#D97706' }}>T1</span>
+                          )}
+                        </td>
                         <td style={{ padding: '10px 14px', color: C.body }}>₹{fmt(h.average_price)}</td>
                         <td style={{ padding: '10px 14px', color: C.body }}>₹{fmt(h.last_price)}</td>
-                        <td style={{ padding: '10px 14px', fontWeight: 600, color: pnlColor }}>₹{fmt(h.pnl)}</td>
+                        <td style={{ padding: '10px 14px', fontWeight: 600, color: pnlColor }}>₹{fmt(pnl)}</td>
                         <td style={{ padding: '10px 14px', fontWeight: 600, color: pnlColor }}>{pnlPct >= 0 ? '+' : ''}{fmt(pnlPct)}%</td>
                         <td style={{ padding: '10px 14px', fontWeight: 600, color: todayPct == null ? C.muted : todayColor }}>
                           {todayPct == null ? '—' : `${todayPct >= 0 ? '+' : ''}${fmt(todayPct)}%`}
@@ -276,7 +284,7 @@ export default async function HoldingsPage() {
                         <td style={{ padding: '10px 14px' }}>
                           {/* SELL button only when broker is connected and has live qty */}
                           {!offlineMode && (
-                            <OrderButton symbol={h.symbol} side="SELL" quantity={h.quantity} price={h.last_price} size="sm" />
+                            <OrderButton symbol={h.symbol} side="SELL" quantity={totalQty} price={h.last_price} size="sm" />
                           )}
                         </td>
                       </tr>
