@@ -107,10 +107,26 @@ export async function monitorAccount(account: string): Promise<MonitorResult> {
   // can check whether a symbol is still actually held in Kite before reseeding.
   // Holdings are essential — CNC positions carried forward from prior days move
   // out of /portfolio/positions and into /portfolio/holdings overnight.
-  const [[{ day, net }, holdings], orders] = await Promise.all([
-    Promise.all([getPositions(creds), getHoldings(creds)]),
-    getOrders(creds),
-  ])
+  //
+  // getPositions/getHoldings now THROW on a non-ok Kite response (see lib/kite.ts)
+  // instead of silently returning []. This call is intentionally NOT wrapped in
+  // .catch(() => empty) like most other callers in the codebase — a failed Kite
+  // read here must abort this tick entirely, not fall through to the "sold
+  // externally, drop from store" logic below with fabricated empty data (this
+  // was the root cause of the Aug 2026 mass position-deletion incident).
+  let day: KitePosition[] = []
+  let net: KitePosition[] = []
+  let holdings: Awaited<ReturnType<typeof getHoldings>> = []
+  let orders: KiteOrder[] = []
+  try {
+    ;[[{ day, net }, holdings], orders] = await Promise.all([
+      Promise.all([getPositions(creds), getHoldings(creds)]),
+      getOrders(creds),
+    ])
+  } catch (err) {
+    console.error(`[strategy2] ${account}: live Kite data fetch failed — skipping this tick to avoid false "sold externally" deletions:`, err)
+    return { account, ranAt, positionsChecked: 0, entries: [{ account, accountDisplayName: displayName, symbol: '—', action: 'skipped', reason: 'Kite live data fetch failed — tick skipped to protect tracked positions' }] }
+  }
   const liveQtyBySymbol = buildLiveQtyBySymbol([...day, ...net], holdings)
   const liveAvgBySymbol = new Map<string, number>()
   for (const h of holdings) {
@@ -210,6 +226,16 @@ export async function monitorAccount(account: string): Promise<MonitorResult> {
 
   if (positions.length === 0) {
     return { account, ranAt, positionsChecked: 0, entries: [] }
+  }
+
+  // Safety net (mirrors the guard already in cronReconcile.ts's EOD sweep):
+  // if Kite returned zero rows across day+net+holdings while we have tracked
+  // positions, this is almost certainly an incomplete/degraded API response,
+  // not every single position genuinely closing in the same tick. Skip rather
+  // than let the per-position "liveQty <= 0" check below delete everything.
+  if (day.length === 0 && net.length === 0 && holdings.length === 0) {
+    console.warn(`[strategy2] ${account}: Kite returned zero live positions/holdings while ${positions.length} tracked position(s) exist — skipping tick to avoid false "sold externally" deletions`)
+    return { account, ranAt, positionsChecked: 0, entries: [{ account, accountDisplayName: displayName, symbol: '—', action: 'skipped', reason: 'Kite returned empty live data — tick skipped to protect tracked positions' }] }
   }
 
   const symbols = positions.map(p => p.symbol)

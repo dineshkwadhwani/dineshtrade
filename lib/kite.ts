@@ -139,10 +139,18 @@ export interface KiteQuoteEntry {
 }
 
 // /portfolio/positions — today's positions (intraday + delivery for today)
+// Throws on a non-ok Kite response instead of silently returning empty arrays
+// — callers that treat "no live qty" as "sold externally" (strategy2.ts,
+// cronReconcile.ts) must be able to tell "genuinely zero" apart from "API
+// call failed", or a transient error gets misread as every position being
+// sold and wipes the position store.
 export async function getPositions(creds: KiteCreds): Promise<{ net: KitePosition[]; day: KitePosition[] }> {
   const r = await kiteRequest<{ data?: { net?: KitePosition[]; day?: KitePosition[] } }>(
     '/portfolio/positions', creds,
   )
+  if (!r.ok) {
+    throw new Error(`[kite] getPositions failed: HTTP ${r.status} ${(r.data as any)?.message || (r.data as any)?.error_type || ''}`.trim())
+  }
   return {
     net: r.data?.data?.net || [],
     day: r.data?.data?.day || [],
@@ -166,6 +174,9 @@ export interface KiteHolding {
 // /portfolio/holdings — long-term holdings (delivery / CNC) carried across days
 export async function getHoldings(creds: KiteCreds): Promise<KiteHolding[]> {
   const r = await kiteRequest<{ data?: KiteHolding[] }>('/portfolio/holdings', creds)
+  if (!r.ok) {
+    throw new Error(`[kite] getHoldings failed: HTTP ${r.status} ${(r.data as any)?.message || (r.data as any)?.error_type || ''}`.trim())
+  }
   return r.data?.data || []
 }
 

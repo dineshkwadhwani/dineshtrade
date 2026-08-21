@@ -160,66 +160,78 @@ async function absorbUntrackedPositions(
       continue
     }
 
-    // Fix req 2 — verify today's Kite order book before deciding this is a
-    // genuinely untracked (pre-existing/prior-day) holding vs. a real order
-    // that our own engine just placed moments ago (a same-tick race with the
-    // BUY engine, which journals + records the position itself — see the
-    // "must be awaited" comment in cronBuy.ts).
-    const latestCompletedBuy = kiteOrders
-      .filter(o => o.transaction_type === 'BUY' && o.status === 'COMPLETE' && o.tradingsymbol.toUpperCase() === symbol)
-      .sort((a, b) => {
-        const ta = Date.parse(a.order_timestamp || '') || 0
-        const tb = Date.parse(b.order_timestamp || '') || 0
-        return tb - ta
-      })[0]
+    // Each symbol is isolated in its own try/catch — a write failure (DB
+    // constraint, transient network error, etc.) for ONE symbol must not
+    // abort absorption for every other untracked symbol in this tick (this
+    // silently blocked recovery of several positions after the Aug 2026
+    // mass-deletion incident: the loop died on the first untracked symbol
+    // and never got to the rest, every tick, until the process restarted).
+    try {
+      // Fix req 2 — verify today's Kite order book before deciding this is a
+      // genuinely untracked (pre-existing/prior-day) holding vs. a real order
+      // that our own engine just placed moments ago (a same-tick race with the
+      // BUY engine, which journals + records the position itself — see the
+      // "must be awaited" comment in cronBuy.ts).
+      const latestCompletedBuy = kiteOrders
+        .filter(o => o.transaction_type === 'BUY' && o.status === 'COMPLETE' && o.tradingsymbol.toUpperCase() === symbol)
+        .sort((a, b) => {
+          const ta = Date.parse(a.order_timestamp || '') || 0
+          const tb = Date.parse(b.order_timestamp || '') || 0
+          return tb - ta
+        })[0]
 
-    if (latestCompletedBuy) {
-      // A real order exists today. If it's already journaled, this is just a
-      // stale/racy read of our own store — re-sync the tracked position from
-      // the REAL fill data without writing a second journal entry.
-      const inferredStrategy = strategyFromTag(latestCompletedBuy.tag) || 'accumulator'
-      const fillQty = Number(latestCompletedBuy.filled_quantity || latestCompletedBuy.quantity) || live.qty
-      const fillPrice = Number(latestCompletedBuy.average_price) || live.avgPrice
+      if (latestCompletedBuy) {
+        // A real order exists today. If it's already journaled, this is just a
+        // stale/racy read of our own store — re-sync the tracked position from
+        // the REAL fill data without writing a second journal entry.
+        const inferredStrategy = strategyFromTag(latestCompletedBuy.tag) || 'accumulator'
+        const fillQty = Number(latestCompletedBuy.filled_quantity || latestCompletedBuy.quantity) || live.qty
+        const fillPrice = Number(latestCompletedBuy.average_price) || live.avgPrice
 
-      if (journaledBuyOrderIds.has(latestCompletedBuy.order_id)) {
+        if (journaledBuyOrderIds.has(latestCompletedBuy.order_id)) {
+          await recordBuy(inferredStrategy, account, symbol, fillQty, fillPrice)
+          await setBuyHistoryForSymbol(account, symbol, [{ price: fillPrice }])
+          markAbsorbedToday(account, symbol)
+          console.log(`[reconcile] ${account} ${symbol}: re-synced tracked position from existing order ${latestCompletedBuy.order_id} (no duplicate journal entry)`)
+          continue
+        }
+
+        // Real order, never journaled (defensive fallback — shouldn't normally
+        // happen since the BUY engine journals its own fills). Journal it WITH
+        // the real order ID (fix req 1) — never a fabricated no-ID entry.
+        const inferredTag = latestCompletedBuy.tag || `dt-${inferredStrategy}`
         await recordBuy(inferredStrategy, account, symbol, fillQty, fillPrice)
         await setBuyHistoryForSymbol(account, symbol, [{ price: fillPrice }])
+        await journalOrder({
+          account, symbol, side: 'BUY',
+          qty: fillQty, price: fillPrice,
+          tag: inferredTag, strategyId: inferredStrategy,
+          orderId: latestCompletedBuy.order_id,
+        }).catch(err => console.error(`[reconcile] journalOrder (real order backfill) failed ${account} ${symbol}:`, err))
         markAbsorbedToday(account, symbol)
-        console.log(`[reconcile] ${account} ${symbol}: re-synced tracked position from existing order ${latestCompletedBuy.order_id} (no duplicate journal entry)`)
+        console.log(`[reconcile] ${account} ${symbol}: journaled real order ${latestCompletedBuy.order_id} into ${inferredStrategy} @ ₹${fillPrice} (was missing from journal)`)
         continue
       }
 
-      // Real order, never journaled (defensive fallback — shouldn't normally
-      // happen since the BUY engine journals its own fills). Journal it WITH
-      // the real order ID (fix req 1) — never a fabricated no-ID entry.
-      const inferredTag = latestCompletedBuy.tag || `dt-${inferredStrategy}`
-      await recordBuy(inferredStrategy, account, symbol, fillQty, fillPrice)
-      await setBuyHistoryForSymbol(account, symbol, [{ price: fillPrice }])
+      // No corresponding order in today's Kite order book — a genuine
+      // pre-existing or prior-day holding bought outside DAlgo. Track it as
+      // accumulator and journal it so reports reflect the full portfolio.
+      const inferredStrategy = 'accumulator'
+      await recordBuy(inferredStrategy, account, symbol, live.qty, live.avgPrice)
+      await setBuyHistoryForSymbol(account, symbol, [{ price: live.avgPrice }])
       await journalOrder({
         account, symbol, side: 'BUY',
-        qty: fillQty, price: fillPrice,
-        tag: inferredTag, strategyId: inferredStrategy,
-        orderId: latestCompletedBuy.order_id,
-      }).catch(err => console.error(`[reconcile] journalOrder (real order backfill) failed ${account} ${symbol}:`, err))
+        qty: live.qty, price: live.avgPrice,
+        tag: `dt-${inferredStrategy}`, strategyId: inferredStrategy,
+        source: 'manual', orderId: undefined,
+      }).catch(err => console.error(`[reconcile] journalOrder (external holding) failed ${account} ${symbol}:`, err))
       markAbsorbedToday(account, symbol)
-      console.log(`[reconcile] ${account} ${symbol}: journaled real order ${latestCompletedBuy.order_id} into ${inferredStrategy} @ ₹${fillPrice} (was missing from journal)`)
-      continue
+      console.log(`[reconcile] ${account} ${symbol}: tracked + journaled external holding into ${inferredStrategy} @ ₹${live.avgPrice}`)
+    } catch (err) {
+      console.error(`[reconcile] ${account} ${symbol}: absorb failed — will retry next tick:`, err)
+      // Deliberately NOT marked absorbedToday, so the next tick retries this
+      // symbol instead of leaving it permanently untracked.
     }
-
-    // No corresponding order in today's Kite order book — a genuine
-    // pre-existing or prior-day holding bought outside DAlgo. Track it as
-    // accumulator and journal it so reports reflect the full portfolio.
-    const inferredStrategy = 'accumulator'
-    await recordBuy(inferredStrategy, account, symbol, live.qty, live.avgPrice)
-    await setBuyHistoryForSymbol(account, symbol, [{ price: live.avgPrice }])
-    await journalOrder({
-      account, symbol, side: 'BUY',
-      qty: live.qty, price: live.avgPrice,
-      tag: `dt-${inferredStrategy}`, strategyId: inferredStrategy,
-      source: 'manual', orderId: undefined,
-    }).catch(err => console.error(`[reconcile] journalOrder (external holding) failed ${account} ${symbol}:`, err))
-    markAbsorbedToday(account, symbol)
-    console.log(`[reconcile] ${account} ${symbol}: tracked + journaled external holding into ${inferredStrategy} @ ₹${live.avgPrice}`)
   }
 }
 
@@ -231,71 +243,78 @@ export async function reconcileManualSells(): Promise<void> {
   const today = istDateString()
 
   for (const account of connectedAccounts) {
-    const creds = await resolveAccountCreds(account)
-    if (!creds.ok) continue
+    // Isolate each account's reconcile pass — a failure for one account (bad
+    // creds, a Supabase hiccup, an unexpected data shape) must not prevent
+    // every other account's reconciliation from running this tick.
+    try {
+      const creds = await resolveAccountCreds(account)
+      if (!creds.ok) continue
 
-    const openPositions = await listPositions({ account })
+      const openPositions = await listPositions({ account })
 
-    // Fetch live qty, today's Kite SELL orders, and live avg-price inventory in parallel.
-    const [livePositions, holdings, kiteOrders] = await Promise.all([
-      getPositions(creds).catch(() => ({ day: [], net: [] })),
-      getHoldings(creds).catch(() => [] as Awaited<ReturnType<typeof getHoldings>>),
-      getOrders(creds).catch(() => [] as Awaited<ReturnType<typeof getOrders>>),
-    ])
+      // Fetch live qty, today's Kite SELL orders, and live avg-price inventory in parallel.
+      const [livePositions, holdings, kiteOrders] = await Promise.all([
+        getPositions(creds).catch(() => ({ day: [], net: [] })),
+        getHoldings(creds).catch(() => [] as Awaited<ReturnType<typeof getHoldings>>),
+        getOrders(creds).catch(() => [] as Awaited<ReturnType<typeof getOrders>>),
+      ])
 
-    const liveQty = buildLiveQtyBySymbol([...livePositions.day, ...livePositions.net], holdings)
-    const liveInventory = buildLiveInventory(holdings, livePositions)
-    // Build a symbol-only tracked set (no account filter) so positions whose
-    // `account` field was seeded as '' don't appear untracked and get
-    // incorrectly re-absorbed as accumulator.
-    const allPositions = await listPositions()
-    const trackedSymbols = new Set(allPositions.map(position => position.symbol.toUpperCase()))
+      const liveQty = buildLiveQtyBySymbol([...livePositions.day, ...livePositions.net], holdings)
+      const liveInventory = buildLiveInventory(holdings, livePositions)
+      // Build a symbol-only tracked set (no account filter) so positions whose
+      // `account` field was seeded as '' don't appear untracked and get
+      // incorrectly re-absorbed as accumulator.
+      const allPositions = await listPositions()
+      const trackedSymbols = new Set(allPositions.map(position => position.symbol.toUpperCase()))
 
-    const todayJournal = await readJournalRange(today, today).catch(() => [] as Awaited<ReturnType<typeof readJournalRange>>)
+      const todayJournal = await readJournalRange(today, today).catch(() => [] as Awaited<ReturnType<typeof readJournalRange>>)
 
-    await absorbUntrackedPositions(account, liveInventory, trackedSymbols, kiteOrders, todayJournal)
+      await absorbUntrackedPositions(account, liveInventory, trackedSymbols, kiteOrders, todayJournal)
 
-    const trackedPositions = await listPositions({ account })
-    if (trackedPositions.length === 0) continue
+      const trackedPositions = await listPositions({ account })
+      if (trackedPositions.length === 0) continue
 
-    // Build map of today's completed SELL orders by symbol, and a set of
-    // symbols with in-flight (pending) SELL orders. Case 2 lives in
-    // reconcileManualSellsEOD() now — this function only handles Case 1
-    // (today's actual completed sells).
-    const todaySellBySymbol = new Map<string, typeof kiteOrders[0]>()
-    for (const o of kiteOrders) {
-      if (o.transaction_type !== 'SELL') continue
-      if (o.status !== 'COMPLETE') continue
-      todaySellBySymbol.set(o.tradingsymbol.toUpperCase(), o)
-    }
+      // Build map of today's completed SELL orders by symbol, and a set of
+      // symbols with in-flight (pending) SELL orders. Case 2 lives in
+      // reconcileManualSellsEOD() now — this function only handles Case 1
+      // (today's actual completed sells).
+      const todaySellBySymbol = new Map<string, typeof kiteOrders[0]>()
+      for (const o of kiteOrders) {
+        if (o.transaction_type !== 'SELL') continue
+        if (o.status !== 'COMPLETE') continue
+        todaySellBySymbol.set(o.tradingsymbol.toUpperCase(), o)
+      }
 
-    // Find already-journaled SELL order IDs for today (avoid duplicate entries)
-    const journaledSellOrderIds = new Set(
-      todayJournal
-        .filter((r): r is OrderRecord => r.type === 'order' && (r as OrderRecord).side === 'SELL' && !!(r as OrderRecord).orderId)
-        .map(r => r.orderId as string)
-    )
+      // Find already-journaled SELL order IDs for today (avoid duplicate entries)
+      const journaledSellOrderIds = new Set(
+        todayJournal
+          .filter((r): r is OrderRecord => r.type === 'order' && (r as OrderRecord).side === 'SELL' && !!(r as OrderRecord).orderId)
+          .map(r => r.orderId as string)
+      )
 
-    const zeroQtyPositions = trackedPositions.filter(p => (liveQty.get(p.symbol.toUpperCase()) ?? 0) <= 0)
+      const zeroQtyPositions = trackedPositions.filter(p => (liveQty.get(p.symbol.toUpperCase()) ?? 0) <= 0)
 
-    for (const pos of zeroQtyPositions) {
-      const sym = pos.symbol.toUpperCase()
-      const kiteOrder = todaySellBySymbol.get(sym)
-      if (!kiteOrder) continue
-      // DAlgo-placed sells are already journaled + position removed by applyLotSell.
-      // Only act on genuine discrepancies (sells that bypassed the system).
-      if (journaledSellOrderIds.has(kiteOrder.order_id)) continue
+      for (const pos of zeroQtyPositions) {
+        const sym = pos.symbol.toUpperCase()
+        const kiteOrder = todaySellBySymbol.get(sym)
+        if (!kiteOrder) continue
+        // DAlgo-placed sells are already journaled + position removed by applyLotSell.
+        // Only act on genuine discrepancies (sells that bypassed the system).
+        if (journaledSellOrderIds.has(kiteOrder.order_id)) continue
 
-      const fillPrice = Number(kiteOrder.average_price) || pos.firstBuyPrice
-      const fillQty = Number(kiteOrder.filled_quantity || kiteOrder.quantity) || pos.remainingQty
-      await journalOrder({
-        account, symbol: pos.symbol, side: 'SELL',
-        qty: fillQty, price: fillPrice,
-        tag: 'dt-manual', strategyId: pos.strategyId, source: 'manual',
-        orderId: kiteOrder.order_id,
-      }).catch(err => console.error(`[reconcile] journalOrder failed ${account} ${sym}:`, err))
-      await removePosition(account, pos.symbol)
-      console.log(`[reconcile] ${account} ${sym}: discrepancy — external SELL journaled + position removed (order ${kiteOrder.order_id})`)
+        const fillPrice = Number(kiteOrder.average_price) || pos.firstBuyPrice
+        const fillQty = Number(kiteOrder.filled_quantity || kiteOrder.quantity) || pos.remainingQty
+        await journalOrder({
+          account, symbol: pos.symbol, side: 'SELL',
+          qty: fillQty, price: fillPrice,
+          tag: 'dt-manual', strategyId: pos.strategyId, source: 'manual',
+          orderId: kiteOrder.order_id,
+        }).catch(err => console.error(`[reconcile] journalOrder failed ${account} ${sym}:`, err))
+        await removePosition(account, pos.symbol)
+        console.log(`[reconcile] ${account} ${sym}: discrepancy — external SELL journaled + position removed (order ${kiteOrder.order_id})`)
+      }
+    } catch (err) {
+      console.error(`[reconcile] account ${account}: reconcile pass failed — will retry next tick:`, err)
     }
   }
 }
