@@ -88,7 +88,7 @@
       "id": "market_boom",
       "name": "Market Boom",
       "type": "momentum",
-      "active": false,
+      "active": true,
       "color": "#60a5fa",
       "scanIntervalMin": 5,
       "watchlist": ["listA", "listB"],
