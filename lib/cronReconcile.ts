@@ -153,10 +153,26 @@ async function absorbUntrackedPositions(
   for (const [symbol, live] of Array.from(liveInventory.entries())) {
     if (trackedSymbols.has(symbol)) continue
     if (wasAbsorbedToday(account, symbol)) continue
-    // Skip if already journaled today (prevents re-journaling reset re-seeds)
+    // Already journaled today but still untracked — the BUY was recorded
+    // earlier (e.g. a reset re-seed) and the position row was later lost
+    // (e.g. the Aug 2026 mass-deletion bug). Recreate the position from
+    // that existing journal entry instead of re-journaling a duplicate.
     if (journaledSymbolsToday.has(symbol)) {
-      markAbsorbedToday(account, symbol)
-      console.log(`[reconcile] ${account} ${symbol}: skipped (already journaled today from reset)`)
+      try {
+        const journaledBuy = todayJournal.find(
+          (r): r is OrderRecord => r.type === 'order' && r.side === 'BUY' && r.symbol.toUpperCase() === symbol
+        )
+        const strategyId = journaledBuy?.strategyId || strategyFromTag(journaledBuy?.tag) || 'accumulator'
+        const qty = journaledBuy?.qty || live.qty
+        const price = journaledBuy?.price || live.avgPrice
+        await recordBuy(strategyId, account, symbol, qty, price)
+        await setBuyHistoryForSymbol(account, symbol, [{ price }])
+        markAbsorbedToday(account, symbol)
+        console.log(`[reconcile] ${account} ${symbol}: recreated position from existing today's journal entry into ${strategyId} @ ₹${price} (no duplicate journal write)`)
+      } catch (err) {
+        console.error(`[reconcile] ${account} ${symbol}: recreate-from-journal failed — will retry next tick:`, err)
+        // Deliberately NOT marked absorbedToday — retry next tick.
+      }
       continue
     }
 
