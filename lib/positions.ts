@@ -257,11 +257,10 @@ export async function recordBuy(strategyId: string, account: string, symbol: str
   return withLock(async () => {
     const positions = await readAll()
     const k = makeKey(account, symbol)
-    // Fall back to symbol-only match — positions migrated from V1 or seeded before
-    // the account field was normalised may live under a different account key.
-    // We must not overwrite their strategy_tag.
+    // Fall back to symbol-only match — customer_id scoping in Supabase already isolates data.
+    // Positions may be stored with broker name account (V1) or UUID account (V2); find by symbol.
     const existing = positions[k] ??
-      Object.values(positions).find(p => p.symbol === symbol.toUpperCase() && (!p.account || p.account === account.toUpperCase()))
+      Object.values(positions).find(p => p.symbol === symbol.toUpperCase())
     if (existing) {
       // Self-heal the account field so future lookups use the correct key
       if (existing.account !== account.toUpperCase()) {
@@ -431,7 +430,10 @@ export async function removePosition(account: string, symbol: string): Promise<v
 export async function getPosition(account: string, symbol: string): Promise<Position | null> {
   return withLock(async () => {
     const positions = await readAll()
-    return positions[makeKey(account, symbol)] || null
+    // Exact match first; fall back to symbol-only (customer_id scoping makes account redundant in V2)
+    return positions[makeKey(account, symbol)]
+      || Object.values(positions).find(p => p.symbol === symbol.toUpperCase())
+      || null
   })
 }
 
@@ -440,7 +442,7 @@ export async function listPositions(opts?: { account?: string; strategyId?: stri
     const positions = await readAll()
     const out: Position[] = []
     for (const v of Object.values(positions)) {
-      if (opts?.account && v.account !== opts.account.toUpperCase()) continue
+      // account param ignored in V2 — customer_id in readAll() already scopes per customer
       if (opts?.strategyId && v.strategyId !== opts.strategyId) continue
       // Refresh weighted average price for momentum strategies with lots
       if (v.lots && v.lots.length > 0) {
@@ -459,8 +461,8 @@ export async function setStrategyId(account: string, symbol: string, newStrategy
   return withLock(async () => {
     const all = await readAll()
     const k = makeKey(account, symbol)
-    // Fall back to symbol-only match for positions with a mismatched account field
-    const p = all[k] ?? Object.values(all).find(pos => pos.symbol === symbol.toUpperCase() && (!pos.account || pos.account === account.toUpperCase()))
+    // Fall back to symbol-only match — customer_id scoping already isolates per-customer data
+    const p = all[k] ?? Object.values(all).find(pos => pos.symbol === symbol.toUpperCase())
     if (!p || p.strategyId === newStrategyId) return false
     // Self-heal account field while we're here
     if (p.account !== account.toUpperCase()) p.account = account.toUpperCase()
