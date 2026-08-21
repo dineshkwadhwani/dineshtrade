@@ -249,7 +249,15 @@ export async function monitorAccount(account: string): Promise<MonitorResult> {
     // Age check — handoff to Accumulator if the root position belongs to a
     // momentum strategy. For mixed-root positions, keep the position alive and
     // let individual lots drive their own strategy exits.
-    const ageDays = ageInCalendarDays(pos.firstBuyAt)
+    //
+    // Use the YOUNGER of pos.firstBuyAt and the latest journal buy to guard
+    // against stale seed dates triggering premature handoff (positions seeded
+    // during a data migration can carry a seed timestamp that is much older
+    // than the actual most-recent trade).
+    const posAgeDays = ageInCalendarDays(pos.firstBuyAt)
+    const latestJournalBuy = latestBuyBySymbol.get(symbol.toUpperCase())
+    const journalBuyAge = latestJournalBuy ? ageInCalendarDays(latestJournalBuy.ts) : posAgeDays
+    const ageDays = Math.min(posAgeDays, journalBuyAge)
     if (momentumIds.has(pos.strategyId) && handoffDays > 0 && ageDays >= handoffDays) {
       const handedOff = await ensureStrategy1Tracking(account, symbol, pos.remainingQty, pos.firstBuyPrice, `strategy2_age_${Math.floor(ageDays)}d`)
         .catch(err => { console.error('[strategy2] handoff to s1 failed:', err); return false })
