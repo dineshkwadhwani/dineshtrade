@@ -321,12 +321,15 @@ export async function monitorAccount(account: string): Promise<MonitorResult> {
       let sellQty = 0
       let sellReason = ''
       let markTranche1 = false
+      let markTranche2 = false
       if (!lotTranche1Done && ltp >= lotT2Price) {
         sellQty = lot.remainingQty
         sellReason = `Lot ${lotLabel}: LTP ₹${ltp.toFixed(2)} ≥ T2 ₹${lotT2Price.toFixed(2)} (skipped past T1) — selling entire lot`
+        markTranche2 = true
       } else if (lotRetraceAfterHit && !lotTranche1Done && observedHigh >= lotT2Price && ltp < lotT2Price && ltp > lot.entryPrice && lotGainPct >= minGainT2) {
         sellQty = lot.remainingQty
         sellReason = `Lot ${lotLabel}: T2 was hit intraday at ₹${observedHigh.toFixed(2)} but price retreated to ₹${ltp.toFixed(2)} — selling lot at market`
+        markTranche2 = true
       } else if (!lotTranche1Done && ltp >= lotT1Price) {
         sellQty = Math.max(1, Math.floor(lot.remainingQty / 2))
         sellReason = `Lot ${lotLabel}: LTP ₹${ltp.toFixed(2)} ≥ T1 ₹${lotT1Price.toFixed(2)} — tranche 1 sell (50% of ${lot.remainingQty})`
@@ -338,9 +341,16 @@ export async function monitorAccount(account: string): Promise<MonitorResult> {
       } else if (lotTranche1Done && ltp >= lotT2Price) {
         sellQty = lot.remainingQty
         sellReason = `Lot ${lotLabel}: LTP ₹${ltp.toFixed(2)} ≥ T2 ₹${lotT2Price.toFixed(2)} — tranche 2 sell (remainder)`
+        markTranche2 = true
       } else if (lotRetraceAfterHit && lotTranche1Done && observedHigh >= lotT2Price && ltp < lotT2Price && ltp > lot.entryPrice && lotGainPct >= minGainT2) {
         sellQty = lot.remainingQty
         sellReason = `Lot ${lotLabel}: T2 was hit intraday at ₹${observedHigh.toFixed(2)} but price retreated to ₹${ltp.toFixed(2)} — selling lot at market`
+        markTranche2 = true
+      } else if (lot.tranche2At && lotTranche1Done && ltp > lot.entryPrice) {
+        // T2 was triggered previously but shares remain (e.g. odd qty, preflight clamped the fill).
+        // Sell ALL remaining unconditionally while still profitable.
+        sellQty = lot.remainingQty
+        sellReason = `Lot ${lotLabel}: T2 cleanup — ${lot.remainingQty} share(s) left after partial T2 fill; LTP ₹${ltp.toFixed(2)} > entry ₹${lot.entryPrice.toFixed(2)}`
       }
 
       if (sellQty === 0) continue
@@ -388,7 +398,7 @@ export async function monitorAccount(account: string): Promise<MonitorResult> {
         await markPlaced(account, symbol, 'SELL', { price: ltp, manual: false })
         journalOrder({ account, symbol, side: 'SELL', qty: actualQty, price: ltp, tag: STRATEGY_2_SELL_TAG, orderId: placed.data.data.order_id })
           .catch(err => console.error('[strategy2] journalOrder failed:', err))
-        await applyLotSell(account, symbol, lot.id, actualQty, { markTranche1 })
+        await applyLotSell(account, symbol, lot.id, actualQty, { markTranche1, markTranche2 })
 
         const pnlRupees = (ltp - lot.entryPrice) * actualQty
         const dayHigh = (quote as any)?.ohlc?.high ?? ltp

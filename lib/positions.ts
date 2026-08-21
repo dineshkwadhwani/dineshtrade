@@ -25,6 +25,7 @@ export interface PositionLot {
   remainingQty: number
   tranche1At?: string | null
   tranche1SoldQty?: number
+  tranche2At?: string | null  // set when T2 fires; allows cleanup of leftover shares on next tick
   strategyId?: string       // source strategy that bought this lot (optional for backward compat)
 }
 
@@ -394,7 +395,7 @@ export async function markTranche1Sold(account: string, symbol: string, soldQty:
   })
 }
 
-export async function applyLotSell(account: string, symbol: string, lotId: string, soldQty: number, opts?: { markTranche1?: boolean }): Promise<void> {
+export async function applyLotSell(account: string, symbol: string, lotId: string, soldQty: number, opts?: { markTranche1?: boolean; markTranche2?: boolean }): Promise<void> {
   return withLock(async () => {
     const positions = await readAll()
     const k = makeKey(account, symbol)
@@ -406,6 +407,9 @@ export async function applyLotSell(account: string, symbol: string, lotId: strin
     if (opts?.markTranche1) {
       lot.tranche1At = new Date().toISOString()
       lot.tranche1SoldQty = (lot.tranche1SoldQty || 0) + executedQty
+    }
+    if (opts?.markTranche2) {
+      lot.tranche2At = new Date().toISOString()
     }
     lot.remainingQty = Math.max(0, lot.remainingQty - executedQty)
     summarizeMomentumPosition(p)
