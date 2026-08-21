@@ -16,18 +16,36 @@ interface Props {
   // For untracked Kite holdings — sent to the API so it can create the position
   kiteQty?: number
   kiteAvgPrice?: number
+  // Position fully sold — show the tag it was held under, but read-only
+  disabled?: boolean
 }
 
 function colorFor(strategies: StrategyOption[], tag: string) {
   return strategies.find(s => s.id === tag)?.color ?? '#6B7280'
 }
 
-export default function StrategyTagButton({ symbol, currentTag, strategies, targetCustomerId, onChanged, kiteQty, kiteAvgPrice }: Props) {
+export default function StrategyTagButton({ symbol, currentTag, strategies, targetCustomerId, onChanged, kiteQty, kiteAvgPrice, disabled }: Props) {
   const [tag, setTag] = useState(currentTag)
   const [open, setOpen] = useState(false)
   const [saving, setSaving] = useState(false)
   const [error, setError] = useState('')
   const ref = useRef<HTMLDivElement>(null)
+
+  if (disabled) {
+    const dColor = colorFor(strategies, tag)
+    return (
+      <span
+        title="Position fully sold today — strategy locked"
+        style={{
+          padding: '2px 8px', borderRadius: 999, fontSize: 11, fontWeight: 600,
+          background: dColor + '20', color: dColor, border: `1px solid ${dColor}40`,
+          opacity: 0.65, cursor: 'not-allowed',
+        }}
+      >
+        {tag}
+      </span>
+    )
+  }
 
   useEffect(() => {
     function handle(e: MouseEvent) {

@@ -40,6 +40,8 @@ interface DisplayHolding {
   strategyTag: string | null
   firstBuyAt: string | null
   fromKite: boolean
+  // Position fully sold — strategyTag is the last known tag, shown read-only
+  tagDisabled?: boolean
 }
 
 export default async function HoldingsPage() {
@@ -127,6 +129,32 @@ export default async function HoldingsPage() {
           fromKite: true,
         }
       })
+
+      // A holding fully sold today shows qty 0 in Kite but its DAlgo position
+      // row is already deleted (no longer 'open') — backfill the last strategy
+      // it traded under from the orders log instead of offering "+ Assign".
+      const zeroQtySymbols = holdings
+        .filter(h => h.fromKite && !h.strategyTag && (h.quantity + h.t1_quantity) === 0)
+        .map(h => h.symbol.toUpperCase())
+      if (zeroQtySymbols.length > 0) {
+        const { data: recentOrders } = await admin.from('orders')
+          .select('symbol, strategy_tag, created_at')
+          .eq('customer_id', customerId)
+          .in('symbol', zeroQtySymbols)
+          .order('created_at', { ascending: false })
+        const lastTagBySymbol = new Map<string, string>()
+        for (const o of (recentOrders ?? []) as any[]) {
+          const sym = String(o.symbol).toUpperCase()
+          if (!lastTagBySymbol.has(sym) && o.strategy_tag) lastTagBySymbol.set(sym, o.strategy_tag as string)
+        }
+        holdings = holdings.map(h => {
+          const lastTag = lastTagBySymbol.get(h.symbol.toUpperCase())
+          if (h.fromKite && !h.strategyTag && (h.quantity + h.t1_quantity) === 0 && lastTag) {
+            return { ...h, strategyTag: lastTag, tagDisabled: true }
+          }
+          return h
+        })
+      }
     } catch {
       offlineMode = true
     }
@@ -256,6 +284,7 @@ export default async function HoldingsPage() {
                                 strategies={activeStrategies}
                                 kiteQty={h.quantity + h.t1_quantity}
                                 kiteAvgPrice={h.average_price}
+                                disabled={h.tagDisabled}
                               />
                             : h.fromKite
                               ? <StrategyTagButton
