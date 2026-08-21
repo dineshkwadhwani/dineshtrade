@@ -126,7 +126,7 @@ export async function monitorAccount(account: string): Promise<MonitorResult> {
   const latestBuyBySymbol = new Map<string, { strategyId: string; price: number; ts: string }>()
   for (const r of jRecords) {
     if (r.type !== 'order' || r.side !== 'BUY' || r.source !== 'auto') continue
-    if (r.account.toUpperCase() !== account.toUpperCase()) continue
+    // account field in journal may be a broker name ("DINESH") while `account` is a UUID in V2 — skip filter; customer_id scoping in Supabase already isolates records
     if (!r.strategyId || !momentumIds.has(r.strategyId)) continue
     const sym = r.symbol.toUpperCase()
     const prev = latestBuyBySymbol.get(sym)
@@ -143,7 +143,8 @@ export async function monitorAccount(account: string): Promise<MonitorResult> {
   // Seed 1: today's Kite dt-s2 BUYs (legacy tag — keeps backward compatibility).
   const todaysS2Buys = orders.filter(o => o.tag === STRATEGY_2_BUY_TAG && o.transaction_type === 'BUY' && o.status === 'COMPLETE')
   const allKnown = await listStrategy2Positions()
-  const knownKeys = new Set(allKnown.filter(p => p.account.toUpperCase() === account.toUpperCase()).map(p => p.symbol.toUpperCase()))
+  // positions already scoped by customer_id in Supabase — no account filter needed
+  const knownKeys = new Set(allKnown.map(p => p.symbol.toUpperCase()))
   for (const o of todaysS2Buys) {
     const sym = o.tradingsymbol.toUpperCase()
     if (!knownKeys.has(sym) && (liveQtyBySymbol.get(sym) ?? 0) > 0) {
@@ -164,7 +165,7 @@ export async function monitorAccount(account: string): Promise<MonitorResult> {
   {
     // Re-read after Seed 1 to avoid double-seeding
     const afterSeed1 = await listStrategy2Positions()
-    const knownAfter = new Set(afterSeed1.filter(p => p.account.toUpperCase() === account.toUpperCase()).map(p => p.symbol.toUpperCase()))
+    const knownAfter = new Set(afterSeed1.map(p => p.symbol.toUpperCase()))
     for (const [sym, latestBuy] of Array.from(latestBuyBySymbol)) {
       if (knownAfter.has(sym)) continue
       const liveQty = liveQtyBySymbol.get(sym) ?? 0
@@ -181,8 +182,8 @@ export async function monitorAccount(account: string): Promise<MonitorResult> {
     }
   }
 
-  // Per-account positions from the store (after all seeding)
-  const positions = (await listStrategy2Positions()).filter(p => p.account.toUpperCase() === account.toUpperCase())
+  // Per-account positions — already scoped by customer_id in Supabase; no account filter needed
+  const positions = await listStrategy2Positions()
 
   // One-time self-heal for rows created by old reseed logic:
   // if anchor timestamp is newer than latest BUY ts and broker avg differs,

@@ -121,7 +121,8 @@ export async function monitorAccountStrategy1(account: string): Promise<Strategy
   // OWN strategyId's config (looked up per iteration below), enabling
   // differentiated exit profiles per dip strategy.
   const dipIds = new Set(getStrategies().filter(s => s.type === 'dip').map(s => s.id))
-  const ours = (await positions.listPositions({ account }))
+  // positions already scoped by customer_id in Supabase — account filter skipped (UUID vs broker name mismatch in V2)
+  const ours = (await positions.listPositions())
     .filter(p => dipIds.has(p.strategyId))
   if (ours.length === 0) return { account, ranAt, positionsChecked: 0, entries: [] }
 
