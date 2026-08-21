@@ -159,8 +159,10 @@ export interface Strategy {
 // ──────── ACCESSORS ────────
 
 export function getCapital(): CapitalConfig {
-  // Belt-and-braces defaults so a partially-edited strategy.json never crashes
-  // the engine at runtime.
+  // Defensive defaults provide belt-and-braces in case a field is missing
+  // from Supabase. getRuntimeStrategyConfig() will throw if Supabase is not
+  // hydrated (e.g. connection error, no customer_capital_config row), so
+  // this code only runs when Supabase is healthy and has data.
   const c = (getRuntimeStrategyConfig() as any).capital || {}
   return {
     source: c.source === 'live' ? 'live' : 'live',
@@ -182,6 +184,8 @@ export function getCapital(): CapitalConfig {
 }
 
 export function getStrategies(): Strategy[] {
+  // getRuntimeStrategyConfig() throws if Supabase is not hydrated.
+  // This function only runs when config is successfully loaded from Supabase.
   const arr = (getRuntimeStrategyConfig() as any).strategies
   if (!Array.isArray(arr)) return []
   return arr.map(normalizeStrategy).filter(Boolean) as Strategy[]

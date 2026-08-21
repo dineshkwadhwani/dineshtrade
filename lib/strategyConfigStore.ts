@@ -1,6 +1,6 @@
 // Runtime strategy config store — Supabase-backed (`customer_strategies` +
-// `customer_capital_config`). Ported in Phase 4 of the multi-tenant refactor
-// from the file-based `~/dineshtrade/data/strategy.json` overlay.
+// `customer_capital_config`). STRICT: all strategies must come from Supabase.
+// No JSON fallbacks.
 //
 // lib/strategyConfig.ts (unchanged per spec §1.5/§15) wraps this module and
 // exposes getStrategies()/getStrategyById()/getCapital()/getActiveStrategies()
@@ -8,12 +8,11 @@
 // preflight read them without awaiting. Supabase reads are inherently async,
 // so getRuntimeStrategyConfig() stays synchronous by serving an in-memory
 // cache that's hydrated from Supabase in the background: the module kicks
-// off a hydration fetch on load, and every sync read serves the bundled seed
-// config until that first hydration resolves (same fallback shape the old
-// file backend used for "runtime file missing"). saveRuntimeStrategyConfig()
-// writes through to Supabase AND updates the cache immediately, so an
-// edit's own process sees it on the very next sync read — no restart needed,
-// matching the old cache-invalidate-on-save behaviour exactly.
+// off a hydration fetch on load.
+//
+// If Supabase returns empty strategies or throws an error, that is a FATAL
+// ERROR — no fallback to bundled JSON. The trading engine must not run with
+// silent strategy misconfigurations. Fix the Supabase row or the connection.
 //
 // Only `capital` and `strategies` are round-tripped: the legacy top-level
 // keys `config/strategy.json` used to also carry (capital_legacy, limits,
@@ -24,7 +23,6 @@
 // dropped rather than given a home in the relational schema.
 
 import { getSupabaseAdmin, getCustomerId } from './supabase'
-import bundled from '@/config/strategy.json'
 
 // Migrate legacy strategy ids. Currently: rename 'oscillator' → 'accumulator'
 // (the universal "keeper" strategy that everything hands off to).
@@ -41,10 +39,6 @@ function migrateLegacyIds(cfg: any): { changed: boolean; cfg: any } {
   })
   if (!changed) return { changed: false, cfg }
   return { changed: true, cfg: { ...cfg, strategies } }
-}
-
-function bundledConfig(): any {
-  return migrateLegacyIds(bundled).cfg
 }
 
 // ─── Row ⇄ config mapping ───────────────────────────────────────────────────
@@ -137,40 +131,54 @@ function cacheKey(): string {
 }
 
 async function hydrate(): Promise<void> {
-  try {
-    const admin = getSupabaseAdmin()
-    const customerId = getCustomerId()
-    const [capitalRes, strategiesRes] = await Promise.all([
-      admin.from('customer_capital_config').select('*').eq('customer_id', customerId).maybeSingle(),
-      admin.from('customer_strategies').select('*').eq('customer_id', customerId),
-    ])
-    if (capitalRes.error) throw capitalRes.error
-    if (strategiesRes.error) throw strategiesRes.error
+  const admin = getSupabaseAdmin()
+  const customerId = getCustomerId()
+  
+  const [capitalRes, strategiesRes] = await Promise.all([
+    admin.from('customer_capital_config').select('*').eq('customer_id', customerId).maybeSingle(),
+    admin.from('customer_strategies').select('*').eq('customer_id', customerId),
+  ])
+  
+  if (capitalRes.error) throw capitalRes.error
+  if (strategiesRes.error) throw strategiesRes.error
 
-    const strategies = (strategiesRes.data || [])
-      .filter(row => !!row.strategy_key)
-      .map(rowToStrategy)
-    const capital = rowToCapital(capitalRes.data)
-
-    const next = migrateLegacyIds({
-      capital: capital ?? bundledConfig().capital,
-      strategies: strategies.length > 0 ? strategies : bundledConfig().strategies,
-    }).cfg
-    cacheMap.set(customerId, next)
-    hydratedSet.add(customerId)
-  } catch (err) {
-    console.warn('[strategyConfigStore] Supabase hydration failed, serving bundled config:', String(err).slice(0, 200))
+  const strategies = (strategiesRes.data || [])
+    .filter(row => !!row.strategy_key)
+    .map(rowToStrategy)
+  
+  // FATAL: strategies must come from Supabase. No JSON fallbacks.
+  if (strategies.length === 0) {
+    throw new Error(`[strategyConfigStore] FATAL: customer ${customerId} has zero strategies in Supabase. All strategies must be stored in customer_strategies table — no JSON fallbacks allowed.`)
   }
+  
+  const capital = rowToCapital(capitalRes.data)
+  if (!capital) {
+    throw new Error(`[strategyConfigStore] FATAL: customer ${customerId} has no capital_config in Supabase. Capital limits must be stored in customer_capital_config table.`)
+  }
+
+  const next = migrateLegacyIds({
+    capital,
+    strategies,
+  }).cfg
+  
+  cacheMap.set(customerId, next)
+  hydratedSet.add(customerId)
 }
 
 // Kick off hydration for the startup customer immediately.
-void hydrate()
+void hydrate().catch(err => {
+  console.error('[strategyConfigStore] CRITICAL: Initial Supabase hydration failed, trading engine CANNOT start:', String(err).slice(0, 300))
+})
 
 // ─── Public API ─────────────────────────────────────────────────────────────
 
 export function getRuntimeStrategyConfig(): any {
   const key = cacheKey()
-  return cacheMap.get(key) ?? migrateLegacyIds(bundled).cfg
+  const cached = cacheMap.get(key)
+  if (!cached) {
+    throw new Error(`[strategyConfigStore] FATAL: strategy config not hydrated yet for customer ${key}. Supabase must be successfully loaded before trading engine runs. Check logs for hydration errors.`)
+  }
+  return cached
 }
 
 export async function saveRuntimeStrategyConfig(next: any): Promise<void> {
