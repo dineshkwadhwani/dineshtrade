@@ -4,7 +4,7 @@
 
 import { getState, recordIdempotency, makeIdempotencyKey, getBuyHistory, resetBuyHistoryForSymbol, recordBuyHistory, setBuyHistoryForSymbol } from '@/lib/state'
 import { getCapital, getStrategyById, asDipParams } from '@/lib/strategyConfig'
-import { getAccountSecrets } from '@/lib/accounts'
+import { resolveAccountCreds } from '@/lib/kite'
 import { istDateString, readJournalRange, type JournalRecord } from '@/lib/journal'
 import { isMarketOpen } from '@/lib/market'
 import { checkIntradayCircuit } from '@/lib/intradayCircuit'
@@ -109,14 +109,10 @@ export async function runPreflight(input: PreflightInput, broker: IBroker): Prom
   const { account, symbol, side, quantity, pricePerShare, manual } = input
   const tradeValue = pricePerShare * quantity
 
-  // GATE 1 — token connected
-  const state = await getState()
-  const accessToken = state.kiteTokens[account]
-  if (!accessToken) return { ok: false, gate: 'token', reason: `${account}: not connected — connect in Settings` }
-
-  const secrets = getAccountSecrets(account)
-  if (!secrets) return { ok: false, gate: 'token', reason: `${account}: API credentials missing in env` }
-  const { apiKey } = secrets
+  // GATE 1 — token connected (V1 env-named accounts + V2 broker_accounts/DB accounts)
+  const creds = await resolveAccountCreds(account)
+  if (!creds.ok) return { ok: false, gate: 'token', reason: creds.error }
+  const { apiKey, accessToken } = creds
 
   // GATE 2 — market open + not holiday
   const market = await isMarketOpen()

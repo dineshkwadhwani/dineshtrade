@@ -68,6 +68,13 @@ function istDateKey(): string {
   return `${ist.getFullYear()}-${String(ist.getMonth()+1).padStart(2,'0')}-${String(ist.getDate()).padStart(2,'0')}`
 }
 
+// V2 account keys are the customer's Supabase profile id (a uuid) — distinguishes
+// them from legacy V1 env-named accounts like "DINESH" for the token-pruning check.
+const UUID_RE = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i
+function isUuid(value: string): boolean {
+  return UUID_RE.test(value)
+}
+
 function normalize(raw: Partial<SessionState> | null | undefined): SessionState {
   if (!raw) return { ...DEFAULT_STATE, kiteTokens: {}, idempotencyLedger: {}, buyHistory: {}, panicSkipList: {} }
   // Prune any ledger entries whose date prefix isn't today — old days never need to be remembered
@@ -84,12 +91,18 @@ function normalize(raw: Partial<SessionState> | null | undefined): SessionState 
   const rawPanic = (raw.panicSkipList && typeof raw.panicSkipList === 'object') ? raw.panicSkipList as PanicSkipLedger : {}
   if (Array.isArray(rawPanic[today])) cleanedPanic[today] = rawPanic[today]
 
-  // Prune kiteTokens for accounts not configured in the current ZERODHA_ENVIRONMENT.
-  // Tokens get persisted on successful OAuth; if you later switch environments
-  // (e.g. PROD → TEST) the env may no longer have that account's secrets, leaving
+  // Prune kiteTokens for legacy V1 env-named accounts (e.g. "DINESH") that are
+  // no longer configured in the current ZERODHA_ENVIRONMENT. Tokens get
+  // persisted on successful OAuth; if you later switch environments (e.g.
+  // PROD → TEST) the env may no longer have that account's secrets, leaving
   // a stale token in customer_state that downstream callers waste cycles on.
-  // Only prune if the env actually exposes a non-empty account list — defensive
-  // against transient env-load issues that would otherwise wipe everything.
+  //
+  // V2 accounts are keyed by customer UUID and have their tokens validated
+  // against `broker_accounts` (Supabase), not env vars — `ZERODHA_ACCOUNTn`
+  // is deprecated for these and must never be used to decide their validity.
+  // Pruning a UUID-keyed token here would silently and permanently discard a
+  // valid, freshly-reconnected token every time state is read (it did for
+  // real accounts before this fix), so UUID-shaped keys are always kept.
   const rawTokens = (raw.kiteTokens && typeof raw.kiteTokens === 'object') ? raw.kiteTokens : {}
   let cleanedTokens: Record<string, string> = rawTokens
   try {
@@ -97,7 +110,7 @@ function normalize(raw: Partial<SessionState> | null | undefined): SessionState 
     if (configured.length > 0) {
       cleanedTokens = {}
       for (const [acc, tok] of Object.entries(rawTokens)) {
-        if (isAccountConfigured(acc)) {
+        if (isUuid(acc) || isAccountConfigured(acc)) {
           cleanedTokens[acc] = tok
         } else {
           console.warn(`[state] pruning stale Kite token for "${acc}" — not configured in current ZERODHA_ENVIRONMENT`)
