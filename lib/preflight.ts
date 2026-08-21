@@ -113,6 +113,7 @@ export async function runPreflight(input: PreflightInput, broker: IBroker): Prom
   const creds = await resolveAccountCreds(account)
   if (!creds.ok) return { ok: false, gate: 'token', reason: creds.error }
   const { apiKey, accessToken } = creds
+  const state = await getState()
 
   // GATE 2 — market open + not holiday
   const market = await isMarketOpen()
