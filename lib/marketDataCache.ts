@@ -81,13 +81,21 @@ export async function getCachedHistoricalCandles(
   if (inFlight) { candleHits++; return inFlight }
 
   candleMisses++
+  // One retry with a short backoff — covers transient Kite 429s/network blips
+  // without doubling load on symbols that already succeeded (only this key,
+  // which just failed, ever gets a second attempt).
   const fetchPromise = kiteGetHistoricalCandles(creds, instrumentToken, from, to, interval, debugLog)
+    .catch(async err => {
+      console.warn(`[marketDataCache] historical fetch failed, retrying once (token=${instrumentToken} interval=${interval}):`, String(err).slice(0, 150))
+      await new Promise(res => setTimeout(res, 400))
+      return kiteGetHistoricalCandles(creds, instrumentToken, from, to, interval, debugLog)
+    })
     .then(candles => {
       candleCache.set(key, { data: candles, expiresAt: Date.now() + CANDLE_TTL_MS })
       return candles
     })
     .catch(err => {
-      console.warn(`[marketDataCache] historical fetch failed (token=${instrumentToken} interval=${interval}):`, String(err).slice(0, 150))
+      console.warn(`[marketDataCache] historical fetch failed after retry (token=${instrumentToken} interval=${interval}):`, String(err).slice(0, 150))
       throw err
     })
     .finally(() => {

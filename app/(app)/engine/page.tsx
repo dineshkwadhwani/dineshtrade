@@ -28,6 +28,7 @@ interface Tile {
   symbol: string; name: string; ltp: number; prevClose: number; dayChangePct: number
   rules: RuleEval[]; score: number; total: number
   holding?: { qty: number; avgPrice: number; pnl: number }
+  stale?: boolean; staleReason?: string
 }
 
 interface StrategyInfo { id: string; name: string; type: string; color: string; scanIntervalMin: number }
@@ -58,8 +59,9 @@ interface KiteOrder {
 
 function fmtTime(ts?: string): string {
   if (!ts) return '—'
-  const m = ts.match(/(\d{2}):(\d{2})/)
-  return m ? `${m[1]}:${m[2]}` : ts.slice(0, 5)
+  const d = new Date(ts)
+  if (isNaN(d.getTime())) return ts.slice(0, 5)
+  return d.toLocaleTimeString('en-GB', { timeZone: 'Asia/Kolkata', hour: '2-digit', minute: '2-digit', hour12: false })
 }
 
 function fmtLastTick(iso: string | null | undefined): string {
@@ -117,8 +119,8 @@ function SymbolTile({ tile, canBuy, onBuy, marketOpen }: {
 
   return (
     <div style={{
-      background: C.card, border: `1px solid ${isAutofire ? '#16A34A' : pct >= 75 ? '#86EFAC' : C.border}`,
-      borderRadius: 10, overflow: 'hidden', boxShadow: isAutofire ? '0 0 0 2px #86EFAC' : '0 2px 6px rgba(30,58,138,0.04)',
+      background: C.card, border: `1px solid ${tile.stale ? C.red : isAutofire ? '#16A34A' : pct >= 75 ? '#86EFAC' : C.border}`,
+      borderRadius: 10, overflow: 'hidden', boxShadow: tile.stale ? `0 0 0 2px ${C.red}30` : isAutofire ? '0 0 0 2px #86EFAC' : '0 2px 6px rgba(30,58,138,0.04)',
       display: 'flex', flexDirection: 'column',
     }}>
       {/* Score bar */}
@@ -138,6 +140,19 @@ function SymbolTile({ tile, canBuy, onBuy, marketOpen }: {
             </p>
           </div>
         </div>
+
+        {/* Stale badge — a live-data fetch this tile needs failed this scan */}
+        {tile.stale && (
+          <div title={tile.staleReason} style={{
+            display: 'inline-flex', alignItems: 'center', gap: 4,
+            padding: '3px 8px', borderRadius: 999, marginBottom: 8,
+            background: C.redBg, border: `1px solid ${C.red}`,
+            fontFamily: INTER, fontWeight: 700, fontSize: 11, color: C.red,
+            alignSelf: 'flex-start',
+          }}>
+            ⚠ Not refreshed
+          </div>
+        )}
 
         {/* Autofire badge */}
         {isAutofire && (

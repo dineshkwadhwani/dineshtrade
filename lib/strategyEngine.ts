@@ -550,6 +550,8 @@ export interface Tile {
   rules: RuleEval[]
   score: number          // count of passed rules
   total: number          // total rules
+  stale?: boolean        // a live-data fetch this tile depends on failed this scan
+  staleReason?: string
 }
 
 export interface TileEvalResult {
@@ -720,14 +722,20 @@ export async function evaluateAllForTiles(overrideCreds?: KiteCreds): Promise<Ti
   // close array (not a boolean) lets one strategy check 3 candles while another
   // checks 2 from the same fetch.
   const candleClosesBySymbol = new Map<string, number[]>()
+  // Symbols where the fetch itself failed (after the cache's built-in retry) —
+  // distinct from "fetch succeeded but returned few/no candles" (e.g. a new
+  // listing, or very early in the session). Used to redflag tiles on the UI.
+  const candleFetchFailed = new Set<string>()
   const today = istDateString()
   const fromTs = `${today} 09:15:00`
   const toTs = `${today} 15:30:00`
   let logged = false
-  await mapWithLimit(symbols, 5, async (symbol) => {
+  // Concurrency 3 — Kite's historical endpoint is rate-limited to ~3 req/sec;
+  // going higher just trades 429s for retries.
+  await mapWithLimit(symbols, 3, async (symbol) => {
+    const token = symbolTokens[symbol]
+    if (!token) { candleClosesBySymbol.set(symbol, []); candleFetchFailed.add(symbol); return }
     try {
-      const token = symbolTokens[symbol]
-      if (!token) { candleClosesBySymbol.set(symbol, []); return }
       const shouldLog = !logged
       if (shouldLog) logged = true
       const candles = await getCachedHistoricalCandles(creds, token, fromTs, toTs, '5minute', shouldLog)
@@ -738,8 +746,25 @@ export async function evaluateAllForTiles(overrideCreds?: KiteCreds): Promise<Ti
     } catch (err) {
       console.warn(`[tiles candles] ${symbol} failed:`, String(err).slice(0, 120))
       candleClosesBySymbol.set(symbol, [])
+      candleFetchFailed.add(symbol)
     }
   })
+
+  // Shared per-tile "did today's live data actually load" check — feeds the
+  // red "not refreshed" pill on the Engine page. `needsCandles` is false for
+  // strategies/modes that don't evaluate intraday candles (e.g. dip, pivotal
+  // day-end mode) so a candle-fetch failure there isn't mislabeled as stale.
+  function symbolStaleInfo(sym: string, needsCandles: boolean): { stale: boolean; staleReason?: string } {
+    const d = dataBySymbol.get(sym)
+    const reasons: string[] = []
+    if (!d?.hasQuote) reasons.push('live price')
+    if (!d?.hasAgg) reasons.push('daily/EMA data')
+    if (needsCandles && candleFetchFailed.has(sym)) reasons.push('intraday candles')
+    return reasons.length > 0
+      ? { stale: true, staleReason: `Failed to refresh: ${reasons.join(', ')}` }
+      : { stale: false }
+  }
+
 
   const allPivotalParams = pivotalStrategies.map(asPivotalParams)
   // Derived from the same loadAndRefreshCloses fetch above (not a separate
@@ -953,6 +978,7 @@ export async function evaluateAllForTiles(overrideCreds?: KiteCreds): Promise<Ti
         name: nameBySymbol.get(sym) || sym,
         ltp: d.ltp, prevClose: d.prevClose, dayChangePct: dayGainPct,
         rules, score: rules.filter(r => r.passed).length, total: rules.length,
+        ...symbolStaleInfo(sym, false),
       })
     }
     return tiles
@@ -1089,6 +1115,7 @@ export async function evaluateAllForTiles(overrideCreds?: KiteCreds): Promise<Ti
         rules,
         score: rules.filter(rule => rule.passed).length,
         total: rules.length,
+        ...symbolStaleInfo(symbol, script.executionMode === 'normal'),
       }
     })
   }
