@@ -253,7 +253,10 @@ export async function monitorAccountStrategy1(account: string): Promise<Strategy
       const t1DirectHit = !lot.tranche1At && ltp >= t1Trigger
       const t1RetraceHit = retraceAfterHit && !lot.tranche1At && observedHigh >= t1Trigger && ltp < t1Trigger && ltp > lot.entryPrice && gainPct >= minGainT1
       if (t1DirectHit || t1RetraceHit) {
-        const intentQty = Math.max(1, Math.floor(lot.remainingQty * 0.5))
+        // Ceil (not floor) so an odd remainingQty sells the extra share now
+        // and a single-share lot closes here instead of leaving a 0-qty
+        // remainder for T2 to chase.
+        const intentQty = Math.ceil(lot.remainingQty / 2)
         const t1Reason = t1DirectHit
           ? `Lot ${lotLabel} tranche 1 hit (T1 ₹${t1Trigger.toFixed(2)})`
           : `Lot ${lotLabel} hit T1 intraday at ₹${observedHigh.toFixed(2)} then retraced to ₹${ltp.toFixed(2)} — tranche 1 sell`

@@ -42,6 +42,8 @@ export default async function PositionsPage() {
   const activeStrategies = ((strategyRes.data ?? []) as any[])
     .filter(s => s.active)
     .map(s => ({ id: s.strategy_key as string, label: s.name as string, color: (s.color as string) || '#6B7280' }))
+  // 'Manual' is always offered — lets the user park a position out of cron's reach.
+  activeStrategies.push({ id: 'manual', label: 'Manual', color: '#a78bfa' })
 
   const broker = brokerRes.data
   const tokenValid = broker?.access_token_enc && isTokenValid(broker.token_expires_at)

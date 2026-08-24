@@ -135,17 +135,17 @@ export default function OrderModal({
       style={{ background: 'rgba(0,0,0,0.75)', backdropFilter: 'blur(4px)' }}
       onClick={onClose}>
       <div className="dt-card-inner w-full max-w-md rounded-2xl overflow-hidden animate-fade-up"
-        style={{ border: '1px solid rgba(201,168,76,0.2)' }}
+        style={{ border: '1px solid var(--dt-border)' }}
         onClick={e => e.stopPropagation()}>
 
         {/* Header */}
         <div className="px-5 py-4 border-b flex items-center justify-between"
-          style={{ borderColor: 'rgba(201,168,76,0.12)' }}>
+          style={{ borderColor: 'var(--dt-border)' }}>
           <div>
             <h3 className="text-base font-semibold" style={{ color: accentColor }}>{side} · {symbol}</h3>
             {symbolName && <p className="dt-text-muted text-[11px] mt-0.5">{symbolName}</p>}
           </div>
-          <button onClick={onClose} className="text-white/40 hover:text-white/80 text-xl leading-none">✕</button>
+          <button onClick={onClose} className="dt-text-muted hover:opacity-70 text-xl leading-none">✕</button>
         </div>
 
         {/* Body */}
@@ -159,11 +159,11 @@ export default function OrderModal({
                   style={{
                     background: side === s
                       ? (s === 'BUY' ? 'rgba(82,183,136,0.15)' : 'rgba(224,90,94,0.15)')
-                      : 'rgba(255,255,255,0.03)',
+                      : 'var(--dt-surface)',
                     border: side === s
                       ? `1px solid ${s === 'BUY' ? 'rgba(82,183,136,0.4)' : 'rgba(224,90,94,0.4)'}`
-                      : '1px solid rgba(255,255,255,0.06)',
-                    color: side === s ? (s === 'BUY' ? '#52b788' : '#e05a5e') : 'rgba(255,255,255,0.4)',
+                      : '1px solid var(--dt-border)',
+                    color: side === s ? (s === 'BUY' ? '#52b788' : '#e05a5e') : 'var(--dt-text-muted)',
                   }}>{s}</button>
               ))}
             </div>
@@ -194,9 +194,9 @@ export default function OrderModal({
                 <button key={p} onClick={() => setProduct(p)}
                   className="flex-1 py-2 rounded-lg text-[11px] font-medium tracking-wider transition-all"
                   style={{
-                    background: product === p ? 'rgba(201,168,76,0.12)' : 'rgba(255,255,255,0.03)',
-                    border: product === p ? '1px solid rgba(201,168,76,0.4)' : '1px solid rgba(255,255,255,0.06)',
-                    color: product === p ? '#c9a84c' : 'rgba(255,255,255,0.4)',
+                    background: product === p ? 'rgba(59,130,246,0.10)' : 'var(--dt-surface)',
+                    border: product === p ? '1px solid rgba(59,130,246,0.4)' : '1px solid var(--dt-border)',
+                    color: product === p ? '#3B82F6' : 'var(--dt-text-muted)',
                   }}>
                   {p === 'CNC' ? 'CNC · Delivery' : 'MIS · Intraday'}
                 </button>
@@ -211,7 +211,7 @@ export default function OrderModal({
               {dayChangePct !== undefined && (
                 <span style={{
                   marginLeft: 6,
-                  color: dayChangePct > 0 ? '#52b788' : dayChangePct < 0 ? '#e05a5e' : 'rgba(255,255,255,0.4)',
+                  color: dayChangePct > 0 ? '#52b788' : dayChangePct < 0 ? '#e05a5e' : 'var(--dt-text-muted)',
                 }}>
                   · {dayChangePct > 0 ? '▲' : dayChangePct < 0 ? '▼' : '─'} {Math.abs(dayChangePct).toFixed(2)}%
                 </span>
@@ -223,9 +223,9 @@ export default function OrderModal({
                 <button key={t} onClick={() => setOrderType(t)}
                   className="flex-1 py-2 rounded-lg text-[11px] font-medium tracking-wider transition-all"
                   style={{
-                    background: orderType === t ? 'rgba(201,168,76,0.12)' : 'rgba(255,255,255,0.03)',
-                    border: orderType === t ? '1px solid rgba(201,168,76,0.4)' : '1px solid rgba(255,255,255,0.06)',
-                    color: orderType === t ? '#c9a84c' : 'rgba(255,255,255,0.4)',
+                    background: orderType === t ? 'rgba(59,130,246,0.10)' : 'var(--dt-surface)',
+                    border: orderType === t ? '1px solid rgba(59,130,246,0.4)' : '1px solid var(--dt-border)',
+                    color: orderType === t ? '#3B82F6' : 'var(--dt-text-muted)',
                   }}>{t}</button>
               ))}
             </div>
@@ -240,7 +240,7 @@ export default function OrderModal({
         </div>
 
         {/* Footer */}
-        <div className="px-5 py-4 border-t space-y-3" style={{ borderColor: 'rgba(201,168,76,0.12)' }}>
+        <div className="px-5 py-4 border-t space-y-3" style={{ borderColor: 'var(--dt-border)' }}>
           {result && (
             <p className="text-[12px]" style={{ color: result.ok ? '#52b788' : 'rgba(224,90,94,0.85)' }}>{result.msg}</p>
           )}
@@ -272,7 +272,7 @@ function Field({ label, rightLabel, children }: { label: string; rightLabel?: Re
     <div>
       <div className="flex justify-between mb-2">
         <p className="text-[10px] tracking-widest uppercase"
-          style={{ color: 'rgba(201,168,76,0.5)', fontFamily: 'JetBrains Mono, monospace' }}>{label}</p>
+          style={{ color: 'var(--dt-text-muted)', fontFamily: 'JetBrains Mono, monospace' }}>{label}</p>
         {rightLabel && (
           <div className="dt-text-muted text-[10px]" style={{ fontFamily: 'JetBrains Mono, monospace' }}>
             {rightLabel}

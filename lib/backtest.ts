@@ -977,7 +977,7 @@ async function runAllActiveBacktest(options: BacktestOptions = {}): Promise<Stra
           trade.exitPrice = Number((exitValue / trade.qty).toFixed(2))
         } else if (!trade.t1Done && exitPrice >= trade.target1) {
           if (!consumeSellQuota()) continue
-          const sellQty = Math.max(1, Math.floor(trade.remainingQty / 2))
+          const sellQty = Math.ceil(trade.remainingQty / 2)
           const exitValue = Number((sellQty * trade.target1).toFixed(2))
           const costBasis = Number((trade.entryPrice * sellQty).toFixed(2))
           trade.remainingQty -= sellQty
@@ -2089,7 +2089,7 @@ async function runMomentumBacktest(options: BacktestOptions = {}): Promise<Strat
           trade.exitPrice = Number((exitValue / trade.qty).toFixed(2))
         } else if (!trade.t1Done && exitPrice >= trade.target1) {
           if (!consumeSellQuota()) continue
-          const sellQty = Math.max(1, Math.floor(trade.remainingQty / 2))
+          const sellQty = Math.ceil(trade.remainingQty / 2)
           const exitValue = Number((sellQty * trade.target1).toFixed(2))
           const costBasis = Number((trade.entryPrice * sellQty).toFixed(2))
           trade.remainingQty -= sellQty

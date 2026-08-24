@@ -12,7 +12,11 @@
 // and the 15-day clock survive PM2 restarts and span days. Pyramid BUYs add
 // to the same position without resetting the anchor.
 //
-// Order tags: 'dt-s2' (BUY), 'dt-s2-exit' (SELL).
+// Order tags: 'dt-s2' (BUY, legacy) / 'dt-${strategyId}' (BUY, current) —
+// SELL exits are tagged 'dt-${lotStrategyId}-${t1|t2|exit}' so the exit is
+// attributed to the lot's own owning strategy (e.g. Market Boom), not always
+// 'catalyst'. STRATEGY_2_SELL_TAG below is kept only to recognize orders
+// placed before this per-strategy tagging existed.
 
 import {
   resolveAccountCreds, getPositions, getHoldings, getOrders, getQuotes, placeKiteOrder, getHistoricalCandles,
@@ -356,30 +360,40 @@ export async function monitorAccount(account: string): Promise<MonitorResult> {
       let sellReason = ''
       let markTranche1 = false
       let markTranche2 = false
+      let tagSuffix: 't1' | 't2' | 'exit' = 'exit'
       if (!lotTranche1Done && ltp >= lotT2Price) {
         sellQty = lot.remainingQty
         sellReason = `Lot ${lotLabel}: LTP ₹${ltp.toFixed(2)} ≥ T2 ₹${lotT2Price.toFixed(2)} (skipped past T1) — selling entire lot`
         markTranche2 = true
+        tagSuffix = 't2'
       } else if (lotRetraceAfterHit && !lotTranche1Done && observedHigh >= lotT2Price && ltp < lotT2Price && ltp > lot.entryPrice && lotGainPct >= minGainT2) {
         sellQty = lot.remainingQty
         sellReason = `Lot ${lotLabel}: T2 was hit intraday at ₹${observedHigh.toFixed(2)} but price retreated to ₹${ltp.toFixed(2)} — selling lot at market`
         markTranche2 = true
+        tagSuffix = 't2'
       } else if (!lotTranche1Done && ltp >= lotT1Price) {
-        sellQty = Math.max(1, Math.floor(lot.remainingQty / 2))
+        // Ceil (not floor) so an odd remainingQty sells the extra share now —
+        // e.g. 17 -> 9 now / 8 later — and a single-share lot (1) closes here
+        // in one trade instead of leaving a 0-qty remainder for T2 to chase.
+        sellQty = Math.ceil(lot.remainingQty / 2)
         sellReason = `Lot ${lotLabel}: LTP ₹${ltp.toFixed(2)} ≥ T1 ₹${lotT1Price.toFixed(2)} — tranche 1 sell (50% of ${lot.remainingQty})`
         markTranche1 = true
+        tagSuffix = 't1'
       } else if (lotRetraceAfterHit && !lotTranche1Done && observedHigh >= lotT1Price && ltp < lotT1Price && ltp > lot.entryPrice && lotGainPct >= minGainT1) {
-        sellQty = Math.max(1, Math.floor(lot.remainingQty / 2))
+        sellQty = Math.ceil(lot.remainingQty / 2)
         sellReason = `Lot ${lotLabel}: T1 was hit intraday at ₹${observedHigh.toFixed(2)} but price retreated to ₹${ltp.toFixed(2)} — selling lot at market`
         markTranche1 = true
+        tagSuffix = 't1'
       } else if (lotTranche1Done && ltp >= lotT2Price) {
         sellQty = lot.remainingQty
         sellReason = `Lot ${lotLabel}: LTP ₹${ltp.toFixed(2)} ≥ T2 ₹${lotT2Price.toFixed(2)} — tranche 2 sell (remainder)`
         markTranche2 = true
+        tagSuffix = 't2'
       } else if (lotRetraceAfterHit && lotTranche1Done && observedHigh >= lotT2Price && ltp < lotT2Price && ltp > lot.entryPrice && lotGainPct >= minGainT2) {
         sellQty = lot.remainingQty
         sellReason = `Lot ${lotLabel}: T2 was hit intraday at ₹${observedHigh.toFixed(2)} but price retreated to ₹${ltp.toFixed(2)} — selling lot at market`
         markTranche2 = true
+        tagSuffix = 't2'
       } else if (lot.tranche2At && lotTranche1Done && ltp > lot.entryPrice) {
         // T2 was triggered previously but shares remain (e.g. odd qty, preflight clamped the fill).
         // Sell ALL remaining unconditionally while still profitable.
@@ -426,11 +440,15 @@ export async function monitorAccount(account: string): Promise<MonitorResult> {
       }
 
       const actualQty = pre.adjustedQty ?? sellQty
-      const placed = await placeKiteOrder(creds, { symbol, side: 'SELL', quantity: actualQty, tag: STRATEGY_2_SELL_TAG })
+      // Tag by the LOT's own owning strategy (not the hardcoded legacy 'dt-s2-exit'),
+      // so a Market Boom (or any other momentum strategy) exit doesn't get mislabeled
+      // as Catalyst everywhere the tag is parsed back for display (journal, reports).
+      const sellTag = `dt-${lotStrategyId}-${tagSuffix}`
+      const placed = await placeKiteOrder(creds, { symbol, side: 'SELL', quantity: actualQty, tag: sellTag })
       if (placed.ok && placed.data?.data?.order_id) {
         soldAnyLot = true
         await markPlaced(account, symbol, 'SELL', { price: ltp, manual: false })
-        journalOrder({ account, symbol, side: 'SELL', qty: actualQty, price: ltp, tag: STRATEGY_2_SELL_TAG, orderId: placed.data.data.order_id })
+        journalOrder({ account, symbol, side: 'SELL', qty: actualQty, price: ltp, tag: sellTag, strategyId: lotStrategyId, orderId: placed.data.data.order_id })
           .catch(err => console.error('[strategy2] journalOrder failed:', err))
         await applyLotSell(account, symbol, lot.id, actualQty, { markTranche1, markTranche2 })
 
@@ -451,7 +469,7 @@ export async function monitorAccount(account: string): Promise<MonitorResult> {
           dayHighAfterEntry: dayHigh,
           dayLowAfterEntry: dayLow,
           leftOnTable: Math.max(0, dayHigh - ltp),
-          verdict: classifyVerdict({ strategy: 'catalyst', entryPrice: lot.entryPrice, exitPrice: ltp, t1TriggerPct: lotT1Pct }),
+          verdict: classifyVerdict({ strategy: lotStrategyId, entryPrice: lot.entryPrice, exitPrice: ltp, t1TriggerPct: lotT1Pct }),
           strategy: lotStrategyId,
           orderIdSell: placed.data.data.order_id,
           notes: sellReason,

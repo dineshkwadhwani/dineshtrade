@@ -5,11 +5,11 @@ import { createPortal } from 'react-dom'
 const INTER = "'Inter', sans-serif"
 const MONO = "'JetBrains Mono', monospace"
 const C = {
-  bg: '#0F172A', card: '#1E293B', border: '#334155',
-  heading: '#F1F5F9', body: '#94A3B8', muted: '#64748B',
-  green: '#52b788', greenBg: 'rgba(82,183,136,0.15)', greenBd: 'rgba(82,183,136,0.4)',
-  red: '#e05a5e', redBg: 'rgba(224,90,94,0.15)', redBd: 'rgba(224,90,94,0.4)',
-  amber: '#c9a84c', amberBg: 'rgba(201,168,76,0.12)', amberBd: 'rgba(201,168,76,0.4)',
+  bg: '#F8FAFF', card: '#FFFFFF', inputBg: '#EFF6FF', border: '#BFDBFE',
+  heading: '#1E3A8A', body: '#475569', muted: '#94A3B8',
+  green: '#52b788', greenBg: 'rgba(82,183,136,0.12)', greenBd: 'rgba(82,183,136,0.35)',
+  red: '#e05a5e', redBg: 'rgba(224,90,94,0.12)', redBd: 'rgba(224,90,94,0.35)',
+  blue: '#3B82F6', blueBg: 'rgba(59,130,246,0.10)', blueBd: 'rgba(59,130,246,0.35)',
 }
 
 interface Props {
@@ -115,7 +115,7 @@ export default function OrderModalButton({ symbol, side, quantity, price, target
                   <span style={{ fontSize: 11, color: C.muted, fontFamily: MONO }}>≈ ₹{Math.round(tradeValue).toLocaleString('en-IN')}</span>
                 </div>
                 <input type="number" min={1} value={qty} onChange={e => setQty(parseInt(e.target.value) || 1)}
-                  style={{ width: '100%', padding: '9px 12px', background: C.bg, border: `1px solid ${C.border}`, borderRadius: 8, color: C.heading, fontFamily: MONO, fontSize: 14, outline: 'none', boxSizing: 'border-box' }} />
+                  style={{ width: '100%', padding: '9px 12px', background: C.inputBg, border: `1px solid ${C.border}`, borderRadius: 8, color: C.heading, fontFamily: MONO, fontSize: 14, outline: 'none', boxSizing: 'border-box' }} />
               </div>
 
               {/* Order type */}
@@ -126,9 +126,9 @@ export default function OrderModalButton({ symbol, side, quantity, price, target
                     <button key={t} onClick={() => setOrderType(t)}
                       style={{
                         flex: 1, padding: '8px 0', borderRadius: 8, fontSize: 11, fontWeight: 600, cursor: 'pointer',
-                        background: orderType === t ? C.amberBg : 'rgba(255,255,255,0.03)',
-                        border: `1px solid ${orderType === t ? C.amberBd : C.border}`,
-                        color: orderType === t ? C.amber : C.muted,
+                        background: orderType === t ? C.blueBg : C.bg,
+                        border: `1px solid ${orderType === t ? C.blueBd : C.border}`,
+                        color: orderType === t ? C.blue : C.muted,
                       }}>{t}</button>
                   ))}
                 </div>
@@ -139,7 +139,7 @@ export default function OrderModalButton({ symbol, side, quantity, price, target
                 <div>
                   <label style={{ display: 'block', fontSize: 11, fontWeight: 600, color: C.muted, textTransform: 'uppercase', letterSpacing: '0.06em', marginBottom: 6 }}>Limit Price (₹)</label>
                   <input type="number" step="0.05" min={0} value={limitPrice} onChange={e => setLimitPrice(parseFloat(e.target.value) || 0)}
-                    style={{ width: '100%', padding: '9px 12px', background: C.bg, border: `1px solid ${C.border}`, borderRadius: 8, color: C.heading, fontFamily: MONO, fontSize: 14, outline: 'none', boxSizing: 'border-box' }} />
+                    style={{ width: '100%', padding: '9px 12px', background: C.inputBg, border: `1px solid ${C.border}`, borderRadius: 8, color: C.heading, fontFamily: MONO, fontSize: 14, outline: 'none', boxSizing: 'border-box' }} />
                 </div>
               )}
             </div>

@@ -68,6 +68,8 @@ export default async function HoldingsPage() {
   const activeStrategies = ((strategyRes.data ?? []) as any[])
     .filter(s => s.active)
     .map(s => ({ id: s.strategy_key as string, label: s.name as string, color: (s.color as string) || '#6B7280' }))
+  // 'Manual' is always offered — lets the user park a position out of cron's reach.
+  activeStrategies.push({ id: 'manual', label: 'Manual', color: '#a78bfa' })
 
   // Store is the primary source of truth. If it's unreachable, show an error
   // rather than silently proceeding with an empty snapshot.

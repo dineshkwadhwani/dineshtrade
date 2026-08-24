@@ -140,6 +140,17 @@ export async function runPreflight(input: PreflightInput, broker: IBroker): Prom
     return { ok: false, gate: 'perTrade', reason: `Trade value ₹${Math.round(tradeValue)} exceeds per-trade cap ₹${cap.perTrade}` }
   }
 
+  // GATE 3b — manual hold: a position the user explicitly tagged 'manual' is
+  // completely hands-off for auto trading (no pyramiding into it either).
+  // Skipped for explicit manual orders (the user is acting deliberately).
+  if (!manual && side === 'BUY') {
+    const { getPosition } = await import('@/lib/positions')
+    const existing = await getPosition(account, symbol).catch(() => null)
+    if (existing?.strategyId === 'manual') {
+      return { ok: false, gate: 'manualHold', reason: `${symbol} is tagged Manual — cron will not trade this position` }
+    }
+  }
+
   // GATE 4 — idempotency for BUYs only. Prevents double-buying the same symbol
   // across multiple cron ticks. SELLs are NOT idempotent — Strategy 1 deliberately
   // sells in two tranches (potentially same day), and the noShort gate below

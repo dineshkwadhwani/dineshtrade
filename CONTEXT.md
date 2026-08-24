@@ -1,7 +1,7 @@
 # DineshTrade — Project Context
 
-**Last Updated:** 13 Aug 2026
-**Version:** 3.0 — post-Phase-8 ops and observability updates added; see §15.
+**Last Updated:** 21 Aug 2026
+**Version:** 3.1 — added §17 (mass position deletion incident, root causes, fixes, and reconciliation/deployment operational facts). See §17 for the most recent and most safety-critical changes.
 **Version 2.8 note:** capital/gate/strategy numbers below re-verified directly against live `data/strategy.json` and `lib/preflight.ts` on 09 Aug 2026; see `docs/ARCHITECTURE.md`, `docs/DATA_MODEL.md`, and `docs/MULTI_TENANCY_CURRENT_STATE.md` for the full code-verified picture (docs/ was reorganized the same day — speculative and superseded docs moved to `docs/archive/`).
 **Purpose:** This file gives Claude (or any AI assistant) full context of everything discussed so far about this project. Start any new conversation by uploading this file.
 
@@ -1035,3 +1035,56 @@ The old `dalgo.online/api/zerodha/callback` (V1 route) is legacy — **do not us
 - **Password reset email template**: must be updated in Supabase dashboard (Authentication → Email Templates → Reset Password) to use `{{ .SiteURL }}/auth/reset-password`.
 - **Zerodha callback URL**: must be updated in narendra's Zerodha developer account to `https://narendra.dalgo.online/api/dalgo/setup/kite-callback`.
 - **Deploy to narendra server**: push and run `deploybranch.sh` on narendra after fixing the keys — includes the middleware, logout, and password reset page changes.
+
+## 17. SESSION PROGRESS (21 Aug 2026) — Mass Position Deletion Incident & Recovery
+
+### 17.1 The incident
+
+11 open positions (SAIL, HDFCBANK, INTELLECT, WIPRO, JINDALSTEL, ADANIPOWER, AXISBANK, BIRLACORPN, BSOFT, BANKINDIA, INFY) vanished from `customer_positions` in production even though they were still genuinely held in Zerodha (confirmed live qty/avg price via Kite API). Two independent, pre-existing bugs were found and fixed; a third design gap (day-scoped guard) was found and fixed later the same day during recovery verification.
+
+### 17.2 Root cause #1 — silent Kite fetch failure treated as "sold externally"
+
+`lib/strategy2.ts`'s `monitorAccount()` fetches live Kite positions/holdings, then for every tracked position where live qty is 0 it deletes the tracked row (assumes the user sold outside the app). Previously, `lib/kite.ts`'s `getPositions()`/`getHoldings()` silently returned `{ net: [], day: [] }` / `[]` on a failed Kite HTTP call instead of throwing. `strategy2.ts` had no `.catch()` around this call, so a transient Kite API failure looked identical to "everything was sold" — the monitor then deleted every tracked position.
+
+**Fix:**
+- `lib/kite.ts` — `getPositions`/`getHoldings` now throw on a non-ok Kite response instead of returning empty defaults. (Verified via `grep` that all ~25 other call sites already had their own `.catch()`, so this had zero impact elsewhere.)
+- `lib/strategy2.ts` — the Kite fetch is now wrapped in try/catch; on failure the tick returns early (`action: 'skipped'`) instead of falling through to the deletion loop. Also added a defensive guard: if Kite returns zero rows across `day`/`net`/`holdings` simultaneously, the tick is skipped rather than treating every tracked position as externally sold.
+- Confirmed via `git diff main multitanent_refactor -- lib/strategy2.ts` that this deletion logic was unchanged between V1 and V2 — a pre-existing systemic bug, not a refactor regression.
+
+### 17.3 Root cause #2 — reconciliation exists but was silently blocked
+
+The architecture already has a self-healing mechanism: `lib/cronReconcile.ts`'s `reconcileManualSells()` runs every 5-min cron tick, and `absorbUntrackedPositions()` re-creates any Kite holding that has no matching Supabase position row (tagged `accumulator` by default, unless a same-day Kite order/tag says otherwise). This *should* have auto-recovered the lost positions, but didn't, because:
+
+- `recordBuy()`/`setBuyHistoryForSymbol()` calls inside the per-symbol absorb loop had no `.catch()` (unlike the `journalOrder()` call right after, which did). An uncaught throw for **any one symbol** silently aborted the entire loop for **every remaining untracked symbol**, every single tick, forever — until the process restarted or the code was fixed. This is why only some symbols (e.g. via a separate manual re-tag fallback) ever reappeared.
+
+**Fix:** both `absorbUntrackedPositions()` (per-symbol) and `reconcileManualSells()` (per-account) are now wrapped in isolated try/catch blocks. A failure for one symbol/account no longer blocks the rest, and the failing item is **not** marked `absorbedToday`, so it retries automatically on the next tick.
+
+### 17.4 Root cause #3 — journaled-today guard skipped recreation, not just re-journaling
+
+After deploying the fix above, 5 of 9 symbols still didn't come back. Root cause: earlier that same day, a BUY had already been journaled for each of those symbols (`orders` table, `trade_date` = today, tag `dt-accumulator`) — likely from an earlier reset/re-seed — but the actual `customer_positions` row was later wiped by the bug in §17.2. The absorb loop's `journaledSymbolsToday` guard (intended only to stop *duplicate journal writes* on a reset re-seed) also skipped calling `recordBuy()` entirely, so the position was never recreated — and since the guard is day-scoped, it would have stayed broken for the rest of that trading day.
+
+**Fix:** when a symbol is journaled-today-but-untracked, `absorbUntrackedPositions()` now looks up that existing journal record and calls `recordBuy()` + `setBuyHistoryForSymbol()` from its `strategyId`/`qty`/`price` (falling back to live Kite data for any missing field) — recreating the position **without** writing a duplicate journal entry.
+
+### 17.5 Operational facts confirmed during recovery (useful for future incidents)
+
+- **Deploying pushed code is a manual, two-step process** — `git push` to `origin/multitanent_refactor` does **not** auto-deploy. Production only picks up new code after someone SSHes into the EC2 box and runs `~/deploybranch.sh` (`git pull` + `pm2 restart dineshtrade --update-env`). A push alone changes nothing on the running server.
+- **Cron ticks are wall-clock aligned, not relative to process start.** `lib/cron.ts` uses `node-cron`'s `cron.schedule()` (e.g. `*/5 * * * 1-5`), so the first tick after a PM2 restart fires at the next aligned minute mark (`:00`/`:05`/`:10`...), not exactly N minutes after the restart.
+- **Reconciliation is cron-driven only, never page-load-driven.** Holdings/Positions/Orders pages are read-only — they display whatever's currently in Supabase but never write back or trigger reconciliation themselves.
+- **Positions recreated via the absorb path always default to `strategyId = 'accumulator'`** — original strategy tags (`catalyst`/`market_boom`) are not preserved and must be manually reapplied via the Holdings page's tag dropdown (`setStrategyId` → `PATCH /api/dalgo/customer/positions/strategy`).
+- **`recordBuy()` stamps `firstBuyAt` as "now"** for any brand-new position row (see `lib/positions.ts`) — so a recreated position's momentum-strategy age clock (used for the accumulator handoff, §17.6) restarts from the recreation moment, not the original entry date. Tranche1/tranche2-sold history from before the deletion is also lost (fresh row, no `lots` history).
+- **Manual re-tags via `setStrategyId` are durable** — nothing in the reconcile/absorb path touches an already-tracked position again. The only thing that can *legitimately* revert a manual tag later is the age-based handoff (§17.6), not a bug.
+
+### 17.6 Momentum → Accumulator age handoff (pre-existing, unrelated to the bug, but relevant context)
+
+`lib/strategy2.ts`'s `monitorAccount()` automatically hands a momentum-strategy (`catalyst`/`market_boom`) position off to `accumulator` once its age (the *younger* of days-since-`firstBuyAt` and days-since-latest-journaled-BUY, to avoid stale-seed false triggers) reaches that strategy's `deliveryHandoffDays` — default 15 calendar days in code (`HANDOFF_DAYS_DEFAULT`), but the live `catalyst` strategy config in `data/strategy.json` currently has this set to **30 days**. This happens via `ensureStrategy1Tracking()` → `setStrategyId(..., 'accumulator')`, with **no buy/sell event required** — purely elapsed time. This is by design (it's how momentum strategies "expire" into passive accumulator holding) and is not something the reconcile fix touches or should touch.
+
+### 17.7 Outcome
+
+After both cronReconcile.ts fixes were deployed (commit `711e173` + a same-day follow-up commit), all 9 missing symbols were recovered automatically across two cron ticks (first 5, then INTELLECT, then SAIL/WIPRO/JINDALSTEL last) — total went from 13 → 17 → 22 → 23 → 26 tracked positions (the last few counts also include 4 legitimate new same-day BUYs and 1 same-day SELL, unrelated to the recovery). All recovered positions were manually re-tagged to their original strategies (`catalyst` for ADANIPOWER/AXISBANK/BIRLACORPN/BSOFT/HDFCBANK, `market_boom` for INTELLECT/SAIL/WIPRO, `accumulator` confirmed intentional for JINDALSTEL and BANKINDIA/INFY already retagged earlier to `catalyst`). Verified via direct Supabase snapshot as the new baseline — 26 positions: catalyst 12, market_boom 4, accumulator 10.
+
+### 17.8 Files changed (uncommitted status as of session end — verify before assuming deployed)
+
+- `lib/kite.ts` — throw instead of silent-empty-default on Kite fetch failure.
+- `lib/strategy2.ts` — try/catch + empty-data guard around Kite fetch in `monitorAccount()`.
+- `lib/cronReconcile.ts` — per-symbol/per-account try/catch isolation in `absorbUntrackedPositions()`/`reconcileManualSells()`; journaled-today-but-untracked symbols now recreate the position instead of just skipping.
+- `lib/positions.ts` — removed account filter from `listPositions()` (customer_id scoping already makes it redundant/harmful in V2) — committed separately, prior to this incident's fixes.

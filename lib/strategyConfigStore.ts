@@ -231,16 +231,14 @@ export function invalidateStrategyConfigCache(): void {
 }
 
 // Called at the start of each customer's cron tick to refresh their strategy
-// config from Supabase before buy/sell scans run. Returns immediately if the
-// config for this customer has already been hydrated in this process.
+// config from Supabase before buy/sell scans run. Always awaited so a Settings
+// change (e.g. Max Open Positions) is guaranteed live before this tick's gates
+// run, instead of racing a fire-and-forget refresh that could silently fail
+// and leave the cache stuck on whatever it held at first hydration.
 export async function rehydrateForCustomer(): Promise<void> {
-  const key = cacheKey()
-  if (!hydratedSet.has(key)) {
-    await hydrate()
-  } else {
-    // Refresh in background on every tick so strategy edits take effect without restart
-    void hydrate()
-  }
+  await hydrate().catch(err => {
+    console.error(`[strategyConfigStore] rehydrate failed for customer ${cacheKey()} — using last cached config:`, String(err).slice(0, 300))
+  })
 }
 
 // Exposed for diagnostics/tests — true once the first Supabase read has

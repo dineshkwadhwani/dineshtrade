@@ -255,12 +255,15 @@ export async function monitorPivotalAccount(account: string): Promise<PivotalMon
         reason = `T2 was hit intraday at ₹${observedHigh.toFixed(2)} but price retraced to ₹${ltp.toFixed(2)} — exiting lot`
         tagSuffix = 't2'
       } else if (!lot.tranche1At && ltp >= lotT1Price) {
-        sellQty = Math.max(1, Math.floor(lot.remainingQty / 2))
+        // Ceil (not floor) so an odd remainingQty sells the extra share now
+        // and a single-share lot closes here instead of leaving a 0-qty
+        // remainder for T2 to chase.
+        sellQty = Math.ceil(lot.remainingQty / 2)
         markTranche1 = true
         reason = `LTP ₹${ltp.toFixed(2)} ≥ T1 ₹${lotT1Price.toFixed(2)} — tranche 1 sell`
         tagSuffix = 't1'
       } else if (retraceAfterHit && !lot.tranche1At && observedHigh >= lotT1Price && ltp < lotT1Price && ltp > lot.entryPrice && gainPct >= minGainT1) {
-        sellQty = Math.max(1, Math.floor(lot.remainingQty / 2))
+        sellQty = Math.ceil(lot.remainingQty / 2)
         markTranche1 = true
         reason = `T1 was hit intraday at ₹${observedHigh.toFixed(2)} but price retraced to ₹${ltp.toFixed(2)} — tranche 1 sell`
         tagSuffix = 't1'

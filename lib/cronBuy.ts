@@ -106,7 +106,7 @@ export async function autoBuyOnAccount(account: string, accountDisplayName: stri
         quantity: rec.suggestedQty,
         price: rec.price,
         gate: 'inProcessPositions',
-        reason: `[inProcessPositions] estimated ${estimatedTotal}/${cap.maxPositions} open positions (including ${inProcessNewPos} in-process today)`,
+        reason: `[inProcessPositions] Max Open Positions cap reached: ${estimatedTotal}/${cap.maxPositions} (${inProcessNewPos} bought earlier this run) — separate from the Max Buys/Day quota`,
       })
       continue
     }

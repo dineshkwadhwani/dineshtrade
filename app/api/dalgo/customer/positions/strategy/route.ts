@@ -30,16 +30,21 @@ export async function PATCH(req: NextRequest) {
   return withCustomer(targetCustomerId, async () => {
     await rehydrateForCustomer()
 
-    // Validate against customer_strategies (any registered strategy key is valid, active or not)
-    const admin = getSupabaseAdmin()
-    const { data: rows } = await admin
-      .from('customer_strategies')
-      .select('strategy_key')
-      .eq('customer_id', targetCustomerId)
-    const validKeys = new Set((rows ?? []).map((r: any) => r.strategy_key as string))
+    // 'manual' is a reserved pseudo-strategy (not a customer_strategies row) —
+    // tells the cron engine to leave this position alone entirely (no auto
+    // BUY pyramiding, no exit monitoring). Always valid; skip the lookup.
+    if (newStrategyId !== 'manual') {
+      // Validate against customer_strategies (any registered strategy key is valid, active or not)
+      const admin = getSupabaseAdmin()
+      const { data: rows } = await admin
+        .from('customer_strategies')
+        .select('strategy_key')
+        .eq('customer_id', targetCustomerId)
+      const validKeys = new Set((rows ?? []).map((r: any) => r.strategy_key as string))
 
-    if (!validKeys.has(newStrategyId)) {
-      return NextResponse.json({ error: `Unknown strategy: ${newStrategyId}` }, { status: 400 })
+      if (!validKeys.has(newStrategyId)) {
+        return NextResponse.json({ error: `Unknown strategy: ${newStrategyId}` }, { status: 400 })
+      }
     }
 
     const account = getPrimaryCustomerId()
