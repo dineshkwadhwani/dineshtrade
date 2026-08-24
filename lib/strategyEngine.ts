@@ -910,6 +910,17 @@ export async function evaluateAllForTiles(overrideCreds?: KiteCreds): Promise<Ti
         actual: d.hasAgg ? `${emaDev.toFixed(2)}% vs EMA` : '—',
         threshold: `≥ −${cfg.capitulationFloor}%`,
       })
+      // Historical-only down-day streak (excludes today) — matches the scheduled
+      // EMA scan's gate, distinct from the reactive scan which counts today as a down day.
+      const closes = (closesBySymbol[sym] || []).map(c => c.close)
+      const downDays = closes.length > 0 ? consecutiveDownDays(closes) : 0
+      rules.push({
+        id: 'down_days',
+        label: `≥${cfg.minDownDays} consecutive down days`,
+        passed: closes.length > 0 && downDays >= cfg.minDownDays,
+        actual: closes.length > 0 ? `${downDays} down days` : '—',
+        threshold: `≥ ${cfg.minDownDays}`,
+      })
       const todayDown = dayGainPct <= -cfg.reactiveDropPct
       rules.push({
         id: 'intraday_drop',
