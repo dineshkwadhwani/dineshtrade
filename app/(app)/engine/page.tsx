@@ -40,6 +40,14 @@ interface TilesResult {
   catalystScanOpen: boolean
   generatedAt: string
   error?: string
+  dataHealth?: {
+    ok: boolean
+    totalSymbols: number
+    quotesMissing: number
+    emaMissing: number
+    candlesMissing: number
+    message: string
+  }
 }
 
 interface KiteOrder {
@@ -422,7 +430,27 @@ export default function EnginePage() {
                   {!status?.marketOpen && '(market closed · using last traded prices) · '}
                   {fmtTime(tiles.generatedAt)} IST
                 </span>
+                {tiles.dataHealth && (
+                  <span title={tiles.dataHealth.message} style={{
+                    display: 'inline-flex', alignItems: 'center', gap: 4, padding: '3px 10px', borderRadius: 999,
+                    background: tiles.dataHealth.ok ? C.greenBg : C.amberBg,
+                    color: tiles.dataHealth.ok ? C.green : C.amber,
+                    fontSize: 10, fontWeight: 700, fontFamily: INTER,
+                  }}>
+                    {tiles.dataHealth.ok ? '🟢 Data OK' : '🟡 Data issue'}
+                  </span>
+                )}
               </div>
+            </div>
+          )}
+
+          {/* Data-health warning — same cache the BUY cron reads; if this is
+              degraded, missing tiles/no-signal here may mean missed BUYs too. */}
+          {tiles.dataHealth && !tiles.dataHealth.ok && (
+            <div style={{ background: C.amberBg, border: `1px solid ${C.amber}40`, borderRadius: 8, padding: '8px 12px', marginBottom: 12 }}>
+              <p style={{ margin: 0, fontSize: 11, color: C.amber, fontFamily: INTER }}>
+                ⚠ {tiles.dataHealth.message} Some tiles may show stale or incomplete rule checks, and the BUY cron reads this same data.
+              </p>
             </div>
           )}
 

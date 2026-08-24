@@ -10,7 +10,7 @@ import { getMarketBriefing } from './marketBriefing'
 import { getState } from './state'
 import { getPrimaryCustomerId } from './accounts'
 import {
-  resolveAccountCreds, getQuotes, getHistoricalCandles, loadBrokerAccountCreds, type KiteCreds,
+  resolveAccountCreds, loadBrokerAccountCreds, type KiteCreds,
 } from './kite'
 import { getInstrumentTokens } from './instruments'
 import { loadAndRefreshCloses, type DailyClose } from './dailyCloses'
@@ -566,6 +566,17 @@ export interface TileEvalResult {
   generatedAt: string
   catalystScanOpen: boolean
   message?: string
+  // Surfaces live-data fetch problems on the Engine page — a tile showing
+  // no signal because of missing quotes/candles looks identical to a tile
+  // with a genuine "no trade today" result unless we report this separately.
+  dataHealth: {
+    ok: boolean
+    totalSymbols: number
+    quotesMissing: number
+    emaMissing: number
+    candlesMissing: number
+    message: string
+  }
 }
 
 function fmtPct(v: number): string {
@@ -589,6 +600,7 @@ export async function evaluateAllForTiles(overrideCreds?: KiteCreds): Promise<Ti
     giftChangePct: 0,
     catalystScanOpen: false,
     generatedAt,
+    dataHealth: { ok: true, totalSymbols: 0, quotesMissing: 0, emaMissing: 0, candlesMissing: 0, message: 'No symbols scanned yet.' },
   }
 
   const creds = overrideCreds ?? await firstConnectedCreds()
@@ -666,7 +678,9 @@ export async function evaluateAllForTiles(overrideCreds?: KiteCreds): Promise<Ti
   const maxVolumeAvgDays = Math.max(catCfgDefault.volumeAvgDays, ...allMomentumCfgs.map(c => c.volumeAvgDays))
   await ensureDailyAggregates(creds, symbols, maxVolumeAvgDays)
   const closesBySymbol = await loadAndRefreshCloses(creds, symbols)
-  const quotes = await getQuotes(creds, symbols).catch(() => ({} as Awaited<ReturnType<typeof getQuotes>>))
+  // Same shared cache the BUY cron uses — tiles and cron must never see
+  // different data, or a tile can look fine while the cron silently skips.
+  const quotes = await getCachedQuotes(creds, symbols).catch(() => ({} as Awaited<ReturnType<typeof getCachedQuotes>>))
   const symbolTokens = await getInstrumentTokens(creds, symbols).catch(() => ({} as Record<string, number>))
 
   // Scan window status (Strategy 2 only — uses scanStartHHMM/scanEndHHMM)
@@ -716,7 +730,7 @@ export async function evaluateAllForTiles(overrideCreds?: KiteCreds): Promise<Ti
       if (!token) { candleClosesBySymbol.set(symbol, []); return }
       const shouldLog = !logged
       if (shouldLog) logged = true
-      const candles = await getHistoricalCandles(creds, token, fromTs, toTs, '5minute', shouldLog)
+      const candles = await getCachedHistoricalCandles(creds, token, fromTs, toTs, '5minute', shouldLog)
       if (shouldLog) {
         console.log(`[tiles candles] ${symbol}: parsed ${candles.length} candle(s). Last 4 closes: ${candles.slice(-4).map(c => c.close.toFixed(2)).join(' → ')}`)
       }
@@ -728,31 +742,13 @@ export async function evaluateAllForTiles(overrideCreds?: KiteCreds): Promise<Ti
   })
 
   const allPivotalParams = pivotalStrategies.map(asPivotalParams)
-  const maxPivotalLookbackDays = allPivotalParams.length > 0
-    ? Math.max(...allPivotalParams.map(p => Math.max(p.consolidationDays, p.volumeAvgDays)))
-    : 0
+  // Derived from the same loadAndRefreshCloses fetch above (not a separate
+  // Kite call) — pivotal daily consolidation must read the exact same daily
+  // bars the pivotal BUY-cron scan uses.
   const pivotalDailyBySymbol = new Map<string, Array<{ date: string; high: number; low: number; volume: number }>>()
-  if (pivotalSymbols.size > 0 && maxPivotalLookbackDays > 0) {
-    const pivotalFrom = (() => {
-      const ist = new Date(new Date().toLocaleString('en-US', { timeZone: 'Asia/Kolkata' }))
-      ist.setDate(ist.getDate() - maxPivotalLookbackDays - 5)
-      return `${ist.getFullYear()}-${String(ist.getMonth() + 1).padStart(2, '0')}-${String(ist.getDate()).padStart(2, '0')}`
-    })()
-    await mapWithLimit(Array.from(pivotalSymbols), 4, async symbol => {
-      try {
-        const token = symbolTokens[symbol]
-        if (!token) { pivotalDailyBySymbol.set(symbol, []); return }
-        const candles = await getHistoricalCandles(creds, token, pivotalFrom, today, 'day')
-        pivotalDailyBySymbol.set(symbol, candles.map(candle => ({
-          date: candle.date.slice(0, 10),
-          high: candle.high,
-          low: candle.low,
-          volume: candle.volume,
-        })))
-      } catch {
-        pivotalDailyBySymbol.set(symbol, [])
-      }
-    })
+  for (const symbol of pivotalSymbols) {
+    const bars = closesBySymbol[symbol] || []
+    pivotalDailyBySymbol.set(symbol, bars.map(b => ({ date: b.date, high: b.high ?? b.close, low: b.low ?? b.close, volume: b.volume })))
   }
 
   // Per-strategy rule builders. Each takes a strategy, derives its OWN cfg,
@@ -1127,12 +1123,33 @@ export async function evaluateAllForTiles(overrideCreds?: KiteCreds): Promise<Ti
     if (momStrat) chosenTab = momStrat.id
   }
 
+  // Reflects the SAME quotes/candles the BUY cron just used (or will use next
+  // tick) — a tile showing "no signal" because of a fetch failure must not
+  // look identical to a genuine "no trade today".
+  let quotesMissing = 0, emaMissing = 0, candlesMissing = 0
+  for (const sym of symbols) {
+    const d = dataBySymbol.get(sym)
+    if (!d?.hasQuote) quotesMissing++
+    if (!d?.hasAgg) emaMissing++
+    if ((candleClosesBySymbol.get(sym) || []).length === 0) candlesMissing++
+  }
+  const dataIssue = quotesMissing > 0 || emaMissing > 0 || candlesMissing > 0
+  const dataHealth = {
+    ok: !dataIssue,
+    totalSymbols: symbols.length,
+    quotesMissing, emaMissing, candlesMissing,
+    message: dataIssue
+      ? `${quotesMissing} symbol(s) missing live price, ${emaMissing} missing daily/EMA data, ${candlesMissing} missing intraday candles.`
+      : 'All live data loaded normally.',
+  }
+
   return {
     catalyst, oscillator,
     tilesByStrategy,
     activeStrategies: activeSummary,
     recommendedTab: chosenTab,
     giftChangePct, catalystScanOpen, generatedAt,
+    dataHealth,
   }
 }
 
@@ -1361,8 +1378,8 @@ export async function runReactiveDipScan(strategyOverride?: Strategy): Promise<R
   if (symbols.length === 0) return { recommendations: [], scanned: 0, triggered: [], evaluated: 0 }
   const nameBySymbol = new Map(universe.map(s => [s.nse.toUpperCase(), s.name || s.nse]))
 
-  // 1. Batch-fetch live LTPs + yesterday's close (from ohlc.close)
-  const quotes = await getQuotes(creds, symbols).catch(() => ({} as Awaited<ReturnType<typeof getQuotes>>))
+  // 1. Batch-fetch live LTPs + yesterday's close (from ohlc.close) — shared cache
+  const quotes = await getCachedQuotes(creds, symbols).catch(() => ({} as Awaited<ReturnType<typeof getCachedQuotes>>))
 
   // 2. Find symbols already down ≥dropPct% intraday
   const triggered: string[] = []
@@ -1378,24 +1395,15 @@ export async function runReactiveDipScan(strategyOverride?: Strategy): Promise<R
     return { recommendations: [], scanned: symbols.length, triggered: [], evaluated: 0 }
   }
 
-  // 3. Resolve tokens for triggered symbols only (much smaller batch than morning scan)
-  let tokens: Record<string, number> = {}
-  try {
-    tokens = await getInstrumentTokens(creds, triggered)
-  } catch (err) {
-    return {
-      recommendations: [], scanned: symbols.length, triggered, evaluated: 0,
-      skipReason: `Instrument tokens fetch failed: ${String(err).slice(0, 120)}`,
-    }
-  }
+  // 3. Resolve daily closes for triggered symbols only — same Supabase-backed
+  // rolling cache the morning scan uses, not a direct per-symbol Kite call.
+  const closesBySymbol = await loadAndRefreshCloses(creds, triggered).catch(() => ({} as Record<string, DailyClose[]>))
 
   // 4. For each triggered symbol, fetch historical + apply Strategy 1 entry checks.
   //    "Count today as down day" → since we already know LTP is ≥3% below prev close,
   //    we synthesise today's close = LTP and prepend it to the historical closes for
   //    the down-days count. EMA still uses only completed historical bars (excludes
   //    today's incomplete bar) so it's not polluted by intraday volatility.
-  const from = ymdIST(-60)
-  const to = ymdIST(-1)
   const entryBelowPct     = params.entryBelowPct      ?? strategyCfg.ema?.entryBelowPct      ?? 5
   const strongBuyBelowPct = params.strongBuyBelowPct  ?? strategyCfg.ema?.strongBuyBelowPct  ?? 8
   const minDownDays       = params.minDownDays        ?? strategyCfg.ema?.minDownDays        ?? 3
@@ -1403,12 +1411,9 @@ export async function runReactiveDipScan(strategyOverride?: Strategy): Promise<R
   const capitulationFloor = params.capitulationFloorPct ?? 12
 
   const evaluated = await mapWithLimit(triggered, 3, async (symbol): Promise<Recommendation | null> => {
-    const token = tokens[symbol]
-    if (!token) return null
+    const closes = (closesBySymbol[symbol] || []).map(c => c.close)
+    if (closes.length < emaPeriod + 2) return null
     try {
-      const candles = await getHistoricalCandles(creds, token, from, to, 'day')
-      if (candles.length < emaPeriod + 2) return null
-      const closes = candles.map(c => c.close)
       const emas = computeEMA(closes, emaPeriod)
       const ema = emas[emas.length - 1]
       if (!ema || isNaN(ema)) return null

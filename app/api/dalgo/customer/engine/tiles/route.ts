@@ -82,6 +82,7 @@ export async function POST(req: NextRequest) {
       giftChangePct: res.giftChangePct,
       catalystScanOpen: res.catalystScanOpen,
       generatedAt: res.generatedAt,
+      dataHealth: res.dataHealth,
     })
   } catch (err) {
     if (err instanceof AuthError) return NextResponse.json({ error: err.message }, { status: err.statusCode })

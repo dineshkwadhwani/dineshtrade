@@ -70,6 +70,7 @@ export async function getCachedHistoricalCandles(
   from: string,
   to: string,
   interval: 'day' | '5minute' | '15minute' | '60minute' = 'day',
+  debugLog = false,
 ): Promise<HistoricalCandle[]> {
   const key = `${instrumentToken}:${interval}:${from}:${to}`
   const now = Date.now()
@@ -80,7 +81,7 @@ export async function getCachedHistoricalCandles(
   if (inFlight) { candleHits++; return inFlight }
 
   candleMisses++
-  const fetchPromise = kiteGetHistoricalCandles(creds, instrumentToken, from, to, interval)
+  const fetchPromise = kiteGetHistoricalCandles(creds, instrumentToken, from, to, interval, debugLog)
     .then(candles => {
       candleCache.set(key, { data: candles, expiresAt: Date.now() + CANDLE_TTL_MS })
       return candles
