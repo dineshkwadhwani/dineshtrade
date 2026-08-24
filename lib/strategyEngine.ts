@@ -14,6 +14,7 @@ import {
 } from './kite'
 import { getInstrumentTokens } from './instruments'
 import { loadAndRefreshCloses, type DailyClose } from './dailyCloses'
+import { getCachedQuotes, getCachedHistoricalCandles } from './marketDataCache'
 import { computeEMA, consecutiveDownDays, deviationPct } from './ema'
 import { scanPivotalStrategy } from './pivotal'
 import { getPivotalLists } from './pivotalListStore'
@@ -339,8 +340,8 @@ async function runStrategy2(now: string, giftChangePct: number, strategyOverride
   // 3. Load daily aggregates (EMA + 10-day avg vol + prev close) — cached per IST date
   await ensureDailyAggregates(creds, symbols, cfg.volumeAvgDays)
 
-  // 4. Batched live quote for all List A
-  const quotes = await getQuotes(creds, symbols)
+  // 4. Batched live quote for all List A — shared cache, deduped across strategies/customers
+  const quotes = await getCachedQuotes(creds, symbols)
 
   // 5. Cheap filters first — eliminate most symbols before fetching 5-min candles
   const cheapPassed: Array<{ symbol: string; ltp: number; volume: number; agg: DailyAggregate }> = []
@@ -395,7 +396,7 @@ async function runStrategy2(now: string, giftChangePct: number, strategyOverride
       const aggEntry = dailyAggregateCache.get(c.symbol)!
       const token = await import('./instruments').then(m => m.getInstrumentToken(creds, c.symbol))
       if (!token) { skippedNoCandles++; continue }
-      candles = await getHistoricalCandles(creds, token, from, to, '5minute')
+      candles = await getCachedHistoricalCandles(creds, token, from, to, '5minute')
     } catch (err) {
       skippedNoCandles++
       continue
@@ -1210,20 +1211,6 @@ async function runStrategy1(now: string, giftChangePct: number, strategyOverride
   const symbols = universe.map(s => s.nse.toUpperCase())
   const nameBySymbol = new Map(universe.map(s => [s.nse.toUpperCase(), s.name || s.nse]))
 
-  // 1. Resolve instrument tokens
-  let tokens: Record<string, number> = {}
-  try {
-    tokens = await getInstrumentTokens(creds, symbols)
-  } catch (err) {
-    return {
-      mode: 'dip', recommendations: [], giftChangePct,
-      message: `Could not load Kite instruments: ${String(err).slice(0, 200)}`,
-      generatedAt: now,
-    }
-  }
-
-  const from = ymdIST(-60)
-  const to = ymdIST(-1)   // yesterday — exclude today's incomplete bar
   // Params from the strategy object — fall back to legacy strategy.json keys
   const entryBelowPct     = params.entryBelowPct      ?? strategyCfg.ema?.entryBelowPct      ?? 5
   const strongBuyBelowPct = params.strongBuyBelowPct  ?? strategyCfg.ema?.strongBuyBelowPct  ?? 8
@@ -1242,30 +1229,23 @@ async function runStrategy1(now: string, giftChangePct: number, strategyOverride
     lastClose: number
   }
 
-  // 2. Fetch historicals in parallel (3 at a time — Kite rate limit ~3/sec)
-  const fetched = await mapWithLimit(symbols, 3, async (symbol): Promise<EmaCandidate | null> => {
-    const token = tokens[symbol]
-    if (!token) { skippedNoToken++; return null }
-    try {
-      const candles = await getHistoricalCandles(creds, token, from, to, 'day')
-      if (candles.length < emaPeriod + 2) { skippedNoHistorical++; return null }
-      const closes = candles.map(c => c.close)
-      const emas = computeEMA(closes, emaPeriod)
-      const lastEMA = emas[emas.length - 1]
-      if (!lastEMA || isNaN(lastEMA)) return null
-      const downDays = consecutiveDownDays(closes)
-      const lastClose = closes[closes.length - 1]
-      return { symbol, ema: lastEMA, downDays, lastClose }
-    } catch (err) {
-      console.warn(`[strategy1] historical fetch failed ${symbol}:`, String(err).slice(0, 100))
-      skippedNoHistorical++
-      return null
-    }
+  // 2. Daily closes via the shared, Supabase-backed rolling cache (same one
+  // Strategy 2 uses) instead of a direct per-symbol Kite historical call.
+  const closesBySymbol = await loadAndRefreshCloses(creds, symbols)
+  const fetched: Array<EmaCandidate | null> = symbols.map(symbol => {
+    const closes = (closesBySymbol[symbol] || []).map(c => c.close)
+    if (closes.length < emaPeriod + 2) { skippedNoHistorical++; return null }
+    const emas = computeEMA(closes, emaPeriod)
+    const lastEMA = emas[emas.length - 1]
+    if (!lastEMA || isNaN(lastEMA)) return null
+    const downDays = consecutiveDownDays(closes)
+    const lastClose = closes[closes.length - 1]
+    return { symbol, ema: lastEMA, downDays, lastClose }
   })
   const validHistoricals = fetched.filter((x): x is EmaCandidate => !!x)
 
-  // 3. Fetch live LTPs for everyone in one batch
-  const quotes = await getQuotes(creds, validHistoricals.map(v => v.symbol))
+  // 3. Fetch live LTPs for everyone in one batch — shared cache
+  const quotes = await getCachedQuotes(creds, validHistoricals.map(v => v.symbol))
 
   // 4. Filter to stocks meeting Strategy 1 entry: ≥5% below EMA AND ≥3 consecutive down days
   let skippedDownDays = 0

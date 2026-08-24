@@ -4,6 +4,8 @@ import { getPivotalLists, type PivotalScriptEntry } from './pivotalListStore'
 import { asPivotalParams, getCapital, getStrategyById, getStrategies, type Strategy } from './strategyConfig'
 import { resolveAccountCreds, getHistoricalCandles, getQuotes, placeKiteOrder, type KiteCreds } from './kite'
 import { getInstrumentTokens } from './instruments'
+import { loadAndRefreshCloses } from './dailyCloses'
+import { getCachedQuotes, getCachedHistoricalCandles } from './marketDataCache'
 import { runPreflight, markPlaced } from './preflight'
 import { getBroker } from './broker'
 import { appendJournal, classifyVerdict, istDateString, journalOrder } from './journal'
@@ -104,14 +106,18 @@ export async function scanPivotalStrategy(strategy: Strategy): Promise<PivotalSc
   }
 
   const symbols = scripts.map(entry => entry.nse.toUpperCase())
-  const quotes = await getQuotes(creds, symbols).catch(() => ({} as Awaited<ReturnType<typeof getQuotes>>))
+  const quotes = await getCachedQuotes(creds, symbols).catch(() => ({} as Awaited<ReturnType<typeof getQuotes>>))
   const tokens = await getInstrumentTokens(creds, symbols).catch(() => ({} as Record<string, number>))
   const sessionElapsed = minutesElapsedInSession()
   const today = istDateOffset(0)
-  const dayHistoryFrom = istDateOffset(-Math.max(params.consolidationDays, params.volumeAvgDays) - 5)
   const intradayFrom = `${today} 09:15:00`
   const intradayTo = `${today} 15:30:00`
   const nowMinutes = hhmmToMinutes(istHHMM())
+
+  // Daily closes for the consolidation/volume windows — shared, Supabase-backed
+  // rolling cache (same one Strategy 1/2 use), fetched once for all scripts
+  // instead of one uncached Kite historical call per script.
+  const dailyClosesBySymbol = await loadAndRefreshCloses(creds, symbols).catch(() => ({} as Record<string, Awaited<ReturnType<typeof loadAndRefreshCloses>>[string]>))
 
   const recommendations: PivotalRecommendation[] = []
   for (const script of scripts) {
@@ -127,12 +133,12 @@ export async function scanPivotalStrategy(strategy: Strategy): Promise<PivotalSc
     const token = tokens[script.nse.toUpperCase()]
     if (!token) continue
 
-    const daily = await getHistoricalCandles(creds, token, dayHistoryFrom, today, 'day').catch(() => [])
-    const priorDaily = daily.filter(candle => candle.date.slice(0, 10) < today)
+    const daily = (dailyClosesBySymbol[script.nse.toUpperCase()] || [])
+    const priorDaily = daily.filter(candle => candle.date < today)
     const consolidationWindow = priorDaily.slice(-params.consolidationDays)
     if (consolidationWindow.length < params.consolidationDays) continue
-    const consolidationHigh = Math.max(...consolidationWindow.map(candle => candle.high))
-    const consolidationLow = Math.min(...consolidationWindow.map(candle => candle.low))
+    const consolidationHigh = Math.max(...consolidationWindow.map(candle => candle.high ?? candle.close))
+    const consolidationLow = Math.min(...consolidationWindow.map(candle => candle.low ?? candle.close))
     const midpoint = (consolidationHigh + consolidationLow) / 2
     const consolidationRangePct = midpoint > 0 ? ((consolidationHigh - consolidationLow) / midpoint) * 100 : Number.POSITIVE_INFINITY
     if (consolidationRangePct > params.consolidationMaxRangePct) continue
@@ -148,7 +154,7 @@ export async function scanPivotalStrategy(strategy: Strategy): Promise<PivotalSc
       if (nowMinutes < hhmmToMinutes(params.minProjectedVolumeCheckHHMM)) continue
       const projectedDayVolume = currentVolume / (sessionElapsed / 375)
       if (projectedDayVolume < avgVolume * params.minVolumeSurgeRatio) continue
-      const intraday = await getHistoricalCandles(creds, token, intradayFrom, intradayTo, '5minute').catch(() => [])
+      const intraday = await getCachedHistoricalCandles(creds, token, intradayFrom, intradayTo, '5minute').catch(() => [])
       const closes = intraday.map(candle => candle.close)
       if (closes.length < params.breakoutConfirmCandles) continue
       const lastN = closes.slice(-params.breakoutConfirmCandles)
