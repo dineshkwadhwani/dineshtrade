@@ -54,7 +54,7 @@ export async function ensureStrategy1Tracking(
   const existing = await positions.getPosition(account, symbol)
   if (existing) {
     if (existing.strategyId === 'accumulator') return false
-    await positions.setStrategyId(account, symbol, 'accumulator', { restampLots: true })
+    await positions.setStrategyId(account, symbol, 'accumulator', { restampLots: true }, { id: 'system', role: 'system', full_name: 'system' })
     console.log(`[strategy1] re-tagged ${account}:${symbol} → accumulator (source: ${source})`)
     return true
   }

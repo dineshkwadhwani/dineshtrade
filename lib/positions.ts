@@ -18,7 +18,10 @@
 
 import { getSupabaseAdmin, getCustomerId } from './supabase'
 import { writeAuditLog } from './audit'
-import type { Profile } from './dalgoAuth'
+
+// Actor used for audit entries. Keep `role` as string so we can record
+// `system` or other non-Profile actors without narrowing to ProfileRole.
+export type Actor = { id: string; role: string; full_name: string }
 export interface PositionLot {
   id: string
   boughtAt: string
@@ -459,7 +462,7 @@ export async function listPositions(opts?: { account?: string; strategyId?: stri
 // Single-position strategyId setter — used by the handoff flow.
 // Returns true if changed, false if the position doesn't exist or already
 // has the target strategyId.
-export async function setStrategyId(account: string, symbol: string, newStrategyId: string, opts?: { restampLots?: boolean }, actor?: Pick<Profile, 'id' | 'role' | 'full_name'>): Promise<boolean> {
+export async function setStrategyId(account: string, symbol: string, newStrategyId: string, opts?: { restampLots?: boolean }, actor?: Actor): Promise<boolean> {
   const restampLots = !!opts?.restampLots
   return withLock(async () => {
     const all = await readAll()
@@ -531,7 +534,7 @@ export async function setLotStrategyId(account: string, symbol: string, lotId: s
 // Re-stamp the strategyId of every position currently owned by `fromId` to
 // `toId`. Used when a strategy is deactivated or deleted — all its open
 // positions migrate to the accumulator's care. Returns the count migrated.
-export async function migrateStrategyId(fromId: string, toId: string, actor?: Pick<Profile, 'id' | 'role' | 'full_name'>): Promise<number> {
+export async function migrateStrategyId(fromId: string, toId: string, actor?: Actor): Promise<number> {
   if (fromId === toId) return 0
   // Collect positions to migrate under lock, perform upserts there to avoid
   // race conditions, then emit per-position audit rows after the lock to

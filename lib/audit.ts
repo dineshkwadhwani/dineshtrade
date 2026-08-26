@@ -9,10 +9,13 @@
 // called in every call site).
 
 import { getSupabaseAdmin } from './supabase'
-import type { Profile } from './dalgoAuth'
+
+// Lightweight actor shape for audit entries. Keep `role` as string so system
+// actors can be recorded without requiring ProfileRole.
+export type AuditActor = { id: string; role: string; full_name: string }
 
 export interface AuditEntryInput {
-  actor: Pick<Profile, 'id' | 'role' | 'full_name'>
+  actor: AuditActor
   action: string
   targetType?: string
   targetId?: string
