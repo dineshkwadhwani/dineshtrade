@@ -17,6 +17,8 @@
 // legacy-file migration this module used to carry has no equivalent here.
 
 import { getSupabaseAdmin, getCustomerId } from './supabase'
+import { writeAuditLog } from './audit'
+import type { Profile } from './dalgoAuth'
 export interface PositionLot {
   id: string
   boughtAt: string
@@ -457,7 +459,7 @@ export async function listPositions(opts?: { account?: string; strategyId?: stri
 // Single-position strategyId setter — used by the handoff flow.
 // Returns true if changed, false if the position doesn't exist or already
 // has the target strategyId.
-export async function setStrategyId(account: string, symbol: string, newStrategyId: string, opts?: { restampLots?: boolean }): Promise<boolean> {
+export async function setStrategyId(account: string, symbol: string, newStrategyId: string, opts?: { restampLots?: boolean }, actor?: Pick<Profile, 'id' | 'role' | 'full_name'>): Promise<boolean> {
   const restampLots = !!opts?.restampLots
   return withLock(async () => {
     const all = await readAll()
@@ -484,6 +486,23 @@ export async function setStrategyId(account: string, symbol: string, newStrategy
       }
     }
     await upsertPosition(p)
+
+    // Audit the strategy re-stamp so both manual and automated handoffs are recorded.
+    try {
+      const actorEntry = actor ?? { id: 'system', role: 'system', full_name: 'system' }
+      await writeAuditLog({
+        actor: actorEntry,
+        action: 'position.set_strategy',
+        targetType: 'customer_positions',
+        targetId: `${p.account}:${p.symbol}`,
+        targetName: p.symbol,
+        before: { strategyId: oldStrategyId },
+        after: { strategyId: newStrategyId },
+      })
+    } catch (err) {
+      // writeAuditLog logs errors itself; don't fail the set operation
+    }
+
     return true
   })
 }
@@ -512,7 +531,7 @@ export async function setLotStrategyId(account: string, symbol: string, lotId: s
 // Re-stamp the strategyId of every position currently owned by `fromId` to
 // `toId`. Used when a strategy is deactivated or deleted — all its open
 // positions migrate to the accumulator's care. Returns the count migrated.
-export async function migrateStrategyId(fromId: string, toId: string): Promise<number> {
+export async function migrateStrategyId(fromId: string, toId: string, actor?: Pick<Profile, 'id' | 'role' | 'full_name'>): Promise<number> {
   if (fromId === toId) return 0
   return withLock(async () => {
     const positions = await readAll()
@@ -526,6 +545,20 @@ export async function migrateStrategyId(fromId: string, toId: string): Promise<n
     }
     if (count > 0) {
       console.log(`[positions] migrated ${count} positions: ${fromId} → ${toId}`)
+      try {
+        const actorEntry = actor ?? { id: 'system', role: 'system', full_name: 'system' }
+        await writeAuditLog({
+          actor: actorEntry,
+          action: 'positions.migrate_strategy',
+          targetType: 'customer_positions',
+          targetId: `${fromId}->${toId}`,
+          targetName: `${count} positions`,
+          before: { from: fromId },
+          after: { to: toId, migrated: count },
+        })
+      } catch (err) {
+        // don't fail the migration if audit write fails
+      }
     }
     return count
   })

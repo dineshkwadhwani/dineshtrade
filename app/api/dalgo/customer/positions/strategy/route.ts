@@ -8,8 +8,6 @@ import { getSupabaseAdmin, withCustomer } from '@/lib/supabase'
 import { setStrategyId } from '@/lib/positions'
 import { rehydrateForCustomer } from '@/lib/strategyConfigStore'
 import { getPrimaryCustomerId } from '@/lib/accounts'
-import { writeAuditLog } from '@/lib/audit'
-import type { Profile } from '@/lib/dalgoAuth'
 
 export const dynamic = 'force-dynamic'
 
@@ -56,7 +54,7 @@ export async function PATCH(req: NextRequest) {
     const beforePos = await getPosition(account, symbol)
     const beforeStrategy = beforePos ? beforePos.strategyId : null
 
-    let changed = await setStrategyId(account, symbol, newStrategyId, { restampLots: true })
+    let changed = await setStrategyId(account, symbol, newStrategyId, { restampLots: true }, { id: profile.id, role: profile.role, full_name: profile.full_name })
 
     if (!changed) {
       // Position not in store — if Kite qty/price provided, create it now
@@ -69,23 +67,6 @@ export async function PATCH(req: NextRequest) {
       } else {
         return NextResponse.json({ error: `Position not found in DAlgo store for ${symbol}. Reload and try again.` }, { status: 404 })
       }
-    }
-
-    // Write audit entry for the strategy change so retrospection shows it
-    try {
-      if (profile) {
-        await writeAuditLog({
-          actor: { id: profile.id, role: profile.role, full_name: profile.full_name },
-          action: 'position.set_strategy',
-          targetType: 'customer_positions',
-          targetId: `${targetCustomerId}:${symbol}`,
-          targetName: symbol,
-          before: { strategyId: beforeStrategy },
-          after: { strategyId: newStrategyId },
-        })
-      }
-    } catch (err) {
-      console.warn('[positions/strategy] writeAuditLog failed:', String(err).slice(0,200))
     }
 
     return NextResponse.json({ ok: true, symbol, strategyId: newStrategyId })
