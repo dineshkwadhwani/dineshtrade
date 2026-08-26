@@ -7,6 +7,7 @@ import {
   readJournalDay, readJournalRange, readJournalMonth, istDateString,
   type TradeRecord, type SignalSkippedRecord, type StrategyScanRecord,
 } from './journal'
+import { getSupabaseAdmin } from './supabase'
 import { listStrategy1Positions } from './strategy1'
 import { resolveAccountCreds, getQuotes, getOrders, getHoldings, getPositions } from './kite'
 import { getState } from './state'
@@ -120,6 +121,18 @@ export interface DailyReport {
 
   // Fine-tuning bullets (existing)
   fineTuning: string[]
+  // Audit events (Admin / manager writes) that occurred on this date
+  auditEvents?: {
+    id: string
+    created_at: string
+    actor_name?: string
+    actor_role?: string
+    action: string
+    target_type?: string
+    target_name?: string
+    before_value?: unknown
+    after_value?: unknown
+  }[]
 }
 
 function formatDisplayDate(ymd: string): string {
@@ -312,6 +325,27 @@ export async function buildDailyReport(dateYmd?: string): Promise<DailyReport> {
   // orders, open positions). On a low-activity day we still want the report
   // to show carry-forward positions + strategy health.
   const hasActivity = trades.length > 0 || missedSignals.length > 0 || activityToday.length > 0 || openPositions.length > 0
+  // Audit events for the date (IST window)
+  let auditEvents: DailyReport['auditEvents'] = []
+  try {
+    const admin = getSupabaseAdmin()
+    const start = new Date(date + 'T00:00:00+05:30').toISOString()
+    const end = new Date(new Date(start).getTime() + 24 * 60 * 60 * 1000).toISOString()
+    const { data: rows } = await admin
+      .from('audit_log')
+      .select('*')
+      .gte('created_at', start)
+      .lt('created_at', end)
+      .order('created_at', { ascending: true })
+    auditEvents = (rows ?? []).map((r: any) => ({
+      id: r.id, created_at: r.created_at, actor_name: r.actor_name, actor_role: r.actor_role,
+      action: r.action, target_type: r.target_type, target_name: r.target_name,
+      before_value: r.before_value, after_value: r.after_value,
+    }))
+  } catch (err) {
+    console.warn('[retrospective] audit fetch failed:', String(err).slice(0, 200))
+    auditEvents = []
+  }
   const shouldSend = hasActivity
 
   return {
@@ -324,6 +358,7 @@ export async function buildDailyReport(dateYmd?: string): Promise<DailyReport> {
     trades, missedSignals, rolling30,
     strategyHealth,
     fineTuning,
+    auditEvents,
   }
 }
 

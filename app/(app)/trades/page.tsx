@@ -398,6 +398,13 @@ function ReportBody({ r }: { r: DailyReport }) {
         </Section>
       )}
 
+      {/* AUDIT TIMELINE */}
+      {r.auditEvents && r.auditEvents.length > 0 && (
+        <Section title={`Audit timeline (${r.auditEvents.length})`}>
+          <AuditTimeline events={r.auditEvents} />
+        </Section>
+      )}
+
       {r.trades.length > 0 && (
         <Section title={`Completed trades today (${r.trades.length})`}>
           <div className="space-y-3">
@@ -533,6 +540,98 @@ function TradeCard({ t }: { t: EnrichedTrade }) {
         </div>
       </div>
       {t.notes && <p className="text-[10px] mt-3 italic dt-text-muted">{t.notes}</p>}
+    </div>
+  )
+}
+
+function AuditTimeline({ events }: { events: { id: string; created_at: string; actor_name?: string; actor_role?: string; action: string; target_name?: string; before_value?: any; after_value?: any }[] }) {
+  const [actionFilter, setActionFilter] = useState('')
+  const [actorFilter, setActorFilter] = useState('')
+  const [page, setPage] = useState(1)
+  const [expandedIds, setExpandedIds] = useState<string[]>([])
+  const PAGE_SIZE = 8
+
+  const actions = Array.from(new Set(events.map(e => e.action))).sort()
+  const actors = Array.from(new Set(events.map(e => e.actor_name || e.actor_role || 'System'))).sort()
+
+  const filtered = events.filter(e => {
+    if (actionFilter && e.action !== actionFilter) return false
+    if (actorFilter) {
+      const actorLabel = e.actor_name || e.actor_role || 'System'
+      if (actorLabel !== actorFilter) return false
+    }
+    return true
+  })
+  const totalPages = Math.max(1, Math.ceil(filtered.length / PAGE_SIZE))
+  const pageEvents = filtered.slice((page - 1) * PAGE_SIZE, page * PAGE_SIZE)
+
+  useEffect(() => { setPage(1) }, [actionFilter, actorFilter])
+
+  function toggleExpand(id: string) {
+    setExpandedIds(prev => prev.includes(id) ? prev.filter(x => x !== id) : [...prev, id])
+  }
+
+  function exportJson() {
+    const blob = new Blob([JSON.stringify(filtered, null, 2)], { type: 'application/json' })
+    const url = URL.createObjectURL(blob)
+    const a = document.createElement('a')
+    a.href = url
+    a.download = `audit-${new Date().toISOString().slice(0,10)}.json`
+    document.body.appendChild(a)
+    a.click()
+    a.remove()
+    URL.revokeObjectURL(url)
+  }
+
+  return (
+    <div className="rounded-xl p-4 dt-card-inner">
+      <div className="flex flex-wrap gap-3 items-center mb-3">
+        <select value={actionFilter} onChange={e => setActionFilter(e.target.value)} className="px-3 py-2 rounded bg-transparent border">
+          <option value="">All actions</option>
+          {actions.map(a => <option key={a} value={a}>{a}</option>)}
+        </select>
+        <select value={actorFilter} onChange={e => setActorFilter(e.target.value)} className="px-3 py-2 rounded bg-transparent border">
+          <option value="">All actors</option>
+          {actors.map(a => <option key={a} value={a}>{a}</option>)}
+        </select>
+        <button onClick={exportJson} className="ml-auto px-3 py-2 rounded dt-card-accent">Export JSON</button>
+      </div>
+
+      <ul className="list-none space-y-3">
+        {pageEvents.map(e => (
+          <li key={e.id} className="text-[12px]">
+            <div className="flex items-start justify-between">
+              <div>
+                <div style={{ fontFamily:'JetBrains Mono, monospace' }}>
+                  <strong>{new Date(e.created_at).toLocaleTimeString('en-IN', { hour12: false })}</strong>
+                  <span className="dt-text-muted"> · </span>
+                  <span className="dt-text-primary">{e.actor_name ?? e.actor_role ?? 'System'}</span>
+                  <span className="dt-text-muted"> — {e.action}</span>
+                  {e.target_name ? <span className="dt-text-muted"> · {e.target_name}</span> : null}
+                </div>
+              </div>
+              <div className="flex items-center gap-3">
+                <div className="text-[11px] dt-text-muted">{new Date(e.created_at).toLocaleString('en-IN')}</div>
+                <button onClick={() => toggleExpand(e.id)} className="text-[11px] dt-text-muted">{expandedIds.includes(e.id) ? 'Collapse' : 'Details'}</button>
+              </div>
+            </div>
+            {expandedIds.includes(e.id) && (e.after_value || e.before_value) && (
+              <pre className="text-[11px] dt-text-muted mt-2" style={{ whiteSpace: 'pre-wrap', maxWidth: '100%' }}>
+                {e.after_value ? JSON.stringify(e.after_value, null, 2) : JSON.stringify(e.before_value, null, 2)}
+              </pre>
+            )}
+          </li>
+        ))}
+      </ul>
+
+      <div className="flex items-center justify-between mt-4">
+        <div className="text-[12px] dt-text-muted">Showing {filtered.length} event(s)</div>
+        <div className="flex items-center gap-2">
+          <button onClick={() => setPage(p => Math.max(1, p - 1))} disabled={page <= 1} className="px-2 py-1 rounded border">← Prev</button>
+          <div className="text-[12px] dt-text-muted">Page {page} / {totalPages}</div>
+          <button onClick={() => setPage(p => Math.min(totalPages, p + 1))} disabled={page >= totalPages} className="px-2 py-1 rounded border">Next →</button>
+        </div>
+      </div>
     </div>
   )
 }
