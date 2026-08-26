@@ -49,7 +49,7 @@ export async function PATCH(req: NextRequest) {
 
     const account = getPrimaryCustomerId()
 
-    let changed = await setStrategyId(account, symbol, newStrategyId)
+    let changed = await setStrategyId(account, symbol, newStrategyId, { restampLots: true })
 
     if (!changed) {
       // Position not in store — if Kite qty/price provided, create it now

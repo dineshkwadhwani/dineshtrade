@@ -369,7 +369,7 @@ export async function monitorPivotalAccount(account: string): Promise<PivotalMon
     if (!soldAnyLot) {
       const ageDays = (Date.now() - new Date(pos.firstBuyAt).getTime()) / (1000 * 60 * 60 * 24)
       if (params.deliveryHandoffDays > 0 && ageDays >= params.deliveryHandoffDays) {
-        const changed = await setStrategyId(account, pos.symbol, 'accumulator')
+        const changed = await setStrategyId(account, pos.symbol, 'accumulator', { restampLots: true })
         entries.push({
           account,
           accountDisplayName: displayName,

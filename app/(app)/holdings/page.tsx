@@ -179,26 +179,48 @@ export default async function HoldingsPage() {
       }
     } catch { /* best-effort */ }
 
-    holdings = trackedPositions
-      .filter(p => p.remaining_qty > 0)
-      .map(p => {
-        const sym = p.symbol.toUpperCase()
-        const ltp = ltpBySymbol.get(sym) ?? p.first_buy_price
-        const qty = p.remaining_qty
-        const pnl = (ltp - p.first_buy_price) * qty
-        return {
-          symbol: p.symbol,
-          quantity: qty,
-          t1_quantity: 0,
-          average_price: p.first_buy_price,
-          last_price: ltp,
-          close_price: null,
-          pnl,
-          strategyTag: p.strategy_tag ?? null,
-          firstBuyAt: p.first_buy_at ?? null,
-          fromKite: false,
-        }
-      })
+    // Expand per-position lots into separate holding rows so each lot shows
+    // its own entry price and quantity in the Holdings UI.
+    holdings = trackedPositions.flatMap(p => {
+      const sym = p.symbol.toUpperCase()
+      const ltp = ltpBySymbol.get(sym) ?? p.first_buy_price
+      // If lots exist, render one row per lot; otherwise render the legacy
+      // single-row using the position's first_buy_price.
+      if (Array.isArray(p.lots) && p.lots.length > 0) {
+        return p.lots
+          .filter((lot: any) => (lot.remainingQty ?? lot.remaining_qty ?? 0) > 0)
+          .map((lot: any) => {
+            const qty = lot.remainingQty ?? lot.remaining_qty ?? 0
+            const entryPrice = lot.entryPrice ?? lot.entry_price ?? p.first_buy_price
+            return {
+              symbol: p.symbol,
+              quantity: qty,
+              t1_quantity: 0,
+              average_price: entryPrice,
+              last_price: ltp,
+              close_price: null,
+              pnl: (ltp - entryPrice) * qty,
+              strategyTag: lot.strategyId ?? p.strategy_tag ?? null,
+              firstBuyAt: lot.boughtAt ?? lot.bought_at ?? p.first_buy_at ?? null,
+              fromKite: false,
+            }
+          })
+      }
+      const qty = p.remaining_qty
+      const pnl = (ltp - p.first_buy_price) * qty
+      return [{
+        symbol: p.symbol,
+        quantity: qty,
+        t1_quantity: 0,
+        average_price: p.first_buy_price,
+        last_price: ltp,
+        close_price: null,
+        pnl,
+        strategyTag: p.strategy_tag ?? null,
+        firstBuyAt: p.first_buy_at ?? null,
+        fromKite: false,
+      }]
+    })
   }
 
   totalInvestment = holdings.reduce((s, h) => s + h.average_price * (h.quantity + h.t1_quantity), 0)

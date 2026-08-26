@@ -457,7 +457,8 @@ export async function listPositions(opts?: { account?: string; strategyId?: stri
 // Single-position strategyId setter — used by the handoff flow.
 // Returns true if changed, false if the position doesn't exist or already
 // has the target strategyId.
-export async function setStrategyId(account: string, symbol: string, newStrategyId: string): Promise<boolean> {
+export async function setStrategyId(account: string, symbol: string, newStrategyId: string, opts?: { restampLots?: boolean }): Promise<boolean> {
+  const restampLots = !!opts?.restampLots
   return withLock(async () => {
     const all = await readAll()
     const k = makeKey(account, symbol)
@@ -468,10 +469,14 @@ export async function setStrategyId(account: string, symbol: string, newStrategy
     if (p.account !== account.toUpperCase()) p.account = account.toUpperCase()
     const oldStrategyId = p.strategyId
     console.log(`[positions] re-stamped ${symbol}: ${oldStrategyId} → ${newStrategyId}`)
+    if (!restampLots) {
+      console.log(`[positions] setStrategyId called for ${symbol} without restampLots — lots left intact`)
+    }
     p.strategyId = newStrategyId
-    // Re-stamp only lots owned by the old strategy; leave lots with a different
-    // explicit strategyId intact (they belong to a different pyramid buy).
-    if (p.lots && p.lots.length > 0) {
+    // Only re-stamp lot-level owners when explicitly requested by the caller.
+    // This avoids accidental re-assignment of legacy/other lots when a
+    // position-level tag is changed for other reasons (UI/admin/API calls).
+    if (restampLots && p.lots && p.lots.length > 0) {
       for (const lot of p.lots) {
         if (!lot.strategyId || lot.strategyId === oldStrategyId) {
           lot.strategyId = newStrategyId
