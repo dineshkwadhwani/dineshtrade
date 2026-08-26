@@ -533,35 +533,63 @@ export async function setLotStrategyId(account: string, symbol: string, lotId: s
 // positions migrate to the accumulator's care. Returns the count migrated.
 export async function migrateStrategyId(fromId: string, toId: string, actor?: Pick<Profile, 'id' | 'role' | 'full_name'>): Promise<number> {
   if (fromId === toId) return 0
-  return withLock(async () => {
+  // Collect positions to migrate under lock, perform upserts there to avoid
+  // race conditions, then emit per-position audit rows after the lock to
+  // avoid nested withLock deadlocks.
+  const migrated: { account: string; symbol: string; oldStrategy: string }[] = []
+  const count = await withLock(async () => {
     const positions = await readAll()
-    let count = 0
+    let c = 0
     for (const k of Object.keys(positions)) {
-      if (positions[k].strategyId === fromId) {
-        positions[k].strategyId = toId
-        await upsertPosition(positions[k])
-        count++
+      const pos = positions[k]
+      if (pos.strategyId === fromId) {
+        const old = pos.strategyId
+        pos.strategyId = toId
+        await upsertPosition(pos)
+        migrated.push({ account: pos.account, symbol: pos.symbol, oldStrategy: old })
+        c++
       }
     }
-    if (count > 0) {
-      console.log(`[positions] migrated ${count} positions: ${fromId} → ${toId}`)
+    if (c > 0) console.log(`[positions] migrated ${c} positions: ${fromId} → ${toId}`)
+    return c
+  })
+
+  if (migrated.length > 0) {
+    const actorEntry = actor ?? { id: 'system', role: 'system', full_name: 'system' }
+    // Emit one audit row per migrated position for best visibility.
+    for (const m of migrated) {
       try {
-        const actorEntry = actor ?? { id: 'system', role: 'system', full_name: 'system' }
         await writeAuditLog({
           actor: actorEntry,
-          action: 'positions.migrate_strategy',
+          action: 'position.set_strategy',
           targetType: 'customer_positions',
-          targetId: `${fromId}->${toId}`,
-          targetName: `${count} positions`,
-          before: { from: fromId },
-          after: { to: toId, migrated: count },
+          targetId: `${m.account}:${m.symbol}`,
+          targetName: m.symbol,
+          before: { strategyId: m.oldStrategy },
+          after: { strategyId: toId },
         })
       } catch (err) {
-        // don't fail the migration if audit write fails
+        // ignore audit failures for individual positions
       }
     }
-    return count
-  })
+
+    // Also emit a summary audit row for convenience.
+    try {
+      await writeAuditLog({
+        actor: actorEntry,
+        action: 'positions.migrate_strategy',
+        targetType: 'customer_positions',
+        targetId: `${fromId}->${toId}`,
+        targetName: `${migrated.length} positions`,
+        before: { from: fromId },
+        after: { to: toId, migrated: migrated.length },
+      })
+    } catch (err) {
+      // swallow
+    }
+  }
+
+  return migrated.length
 }
 
 // Removes all positions for the current customer. Used by the reset flow.

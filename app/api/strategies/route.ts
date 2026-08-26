@@ -10,6 +10,7 @@ import { getWatchlist } from '@/lib/watchlistStore'
 import { getPivotalLists } from '@/lib/pivotalListStore'
 import { getRuntimeStrategyConfig, saveRuntimeStrategyConfig, invalidateStrategyConfigCache } from '@/lib/strategyConfigStore'
 import { getState } from '@/lib/state'
+import { getProfile } from '@/lib/dalgoAuth'
 import { ensureCronStarted } from '@/lib/cron'
 
 export const dynamic = 'force-dynamic'
@@ -218,8 +219,11 @@ export async function POST(req: Request) {
   if (losingActiveStatus.length > 0) {
     try {
       const { migrateStrategyId } = await import('@/lib/positions')
+      let profile = null
+      try { profile = await getProfile() } catch { profile = null }
+      const actor = profile ? { id: profile.id, role: profile.role, full_name: profile.full_name } : undefined
       for (const id of losingActiveStatus) {
-        migratedPositions += await migrateStrategyId(id, 'accumulator')
+        migratedPositions += await migrateStrategyId(id, 'accumulator', actor)
       }
     } catch (e) {
       console.warn('[POST /api/strategies] position migration failed:', String(e).slice(0, 200))
