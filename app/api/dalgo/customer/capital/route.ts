@@ -4,7 +4,7 @@ import { getSupabaseAdmin } from '@/lib/supabase'
 
 export const dynamic = 'force-dynamic'
 
-const ALLOWED_CAPITAL_FIELDS = ['per_trade','max_buys_per_day','max_sells_per_day','max_positions','max_buys_per_symbol','min_drop_between_buys_pct','max_deploy_pct','delivery_dp_charge','circuit_breaker_pct','intraday_circuit_trip_pct','intraday_circuit_resume_pct','panic_drop_pct','panic_window_min']
+const ALLOWED_CAPITAL_FIELDS = ['per_trade','max_buys_per_day','max_sells_per_day','max_positions','max_buys_per_symbol','min_drop_between_buys_pct','max_deploy_pct','delivery_dp_charge','circuit_breaker_pct','intraday_circuit_trip_pct','intraday_circuit_resume_pct','panic_drop_pct','panic_window_min','send_skipped_emails','skipped_email_to']
 
 export async function PATCH(req: NextRequest) {
   try {
@@ -23,7 +23,18 @@ export async function PATCH(req: NextRequest) {
       : profile.id
     const update: Record<string, unknown> = { customer_id: customerId, updated_at: new Date().toISOString() }
     for (const key of ALLOWED_CAPITAL_FIELDS) {
-      if (key in body) update[key] = Number(body[key])
+      if (!(key in body)) continue
+      // numeric fields remain numeric; boolean/text left as-is
+      if (['per_trade','max_buys_per_day','max_sells_per_day','max_positions','max_buys_per_symbol','min_drop_between_buys_pct','max_deploy_pct','delivery_dp_charge','circuit_breaker_pct','intraday_circuit_trip_pct','intraday_circuit_resume_pct','panic_drop_pct','panic_window_min'].includes(key)) {
+        update[key] = Number(body[key])
+      } else if (key === 'send_skipped_emails') {
+        // accept boolean or string — store as-is so reads can interpret either
+        update[key] = body[key]
+      } else if (key === 'skipped_email_to') {
+        update[key] = String(body[key] ?? '')
+      } else {
+        update[key] = body[key]
+      }
     }
 
     const { error } = await admin.from('customer_capital_config').upsert(update, { onConflict: 'customer_id' })

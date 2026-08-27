@@ -11,7 +11,7 @@ export default async function AdminCustomerDetailPage({ params }: { params: { id
   const admin = getSupabaseAdmin()
   const customerId = params.id
 
-  const [detail, managers, brokerRes, stateRes, strategiesRes, capitalRes, fixedRulesRes, watchlistRes] = await Promise.all([
+  const [detail, managers, brokerRes, stateRes, strategiesRes, capitalRes, fixedRulesRes, watchlistRes, platformConfigRes] = await Promise.all([
     getCustomerFullDetail(customerId),
     listAccountManagers(),
     admin.from('broker_accounts').select('api_key_enc, api_secret_enc, access_token_enc, token_captured_at').eq('customer_id', customerId).eq('broker_name', 'zerodha').maybeSingle(),
@@ -20,6 +20,7 @@ export default async function AdminCustomerDetailPage({ params }: { params: { id
     admin.from('customer_capital_config').select('*').eq('customer_id', customerId).maybeSingle(),
     admin.from('platform_fixed_rules').select('rule_key, value, description, rule_name').order('rule_key'),
     admin.from('customer_watchlists').select('list_key, name, symbols').eq('customer_id', customerId).order('list_key'),
+    admin.from('platform_config').select('key, value').in('key', ['SKIPPED_EMAILS_ENABLED','SKIPPED_EMAILS_TO']),
   ])
 
   if (!detail) notFound()
@@ -73,6 +74,7 @@ export default async function AdminCustomerDetailPage({ params }: { params: { id
           capitalConfig={capitalRes.data}
           fixedRules={fixedRulesRes.data ?? []}
           watchlists={watchlists}
+          platformConfig={platformConfigRes.data ?? []}
           targetCustomerId={customerId}
         />
       </div>

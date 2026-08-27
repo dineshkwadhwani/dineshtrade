@@ -32,9 +32,9 @@ interface Props {
   watchlists: { list_key: string; name: string; symbols: { nse: string; name: string }[] }[]
   targetCustomerId?: string
   justConnected?: boolean
+  platformConfig?: { key: string; value: string }[]
 }
-
-export default function SettingsClient({ savedApiKey, savedApiSecret, isConnected, tokenCapturedAt, cronMode, kiteLoginUrl, strategies, capitalConfig, fixedRules, watchlists, targetCustomerId, justConnected }: Props) {
+export default function SettingsClient({ savedApiKey, savedApiSecret, isConnected, tokenCapturedAt, cronMode, kiteLoginUrl, strategies, capitalConfig, fixedRules, watchlists, targetCustomerId, justConnected, platformConfig }: Props) {
   const router = useRouter()
   const [tab, setTab] = useState<TabId>('connection')
   const [apiKey, setApiKey] = useState('')
@@ -277,6 +277,7 @@ export default function SettingsClient({ savedApiKey, savedApiSecret, isConnecte
           cronMode={mode}
           onModeChange={setMode}
           targetCustomerId={targetCustomerId}
+          platformConfig={platformConfig}
           availableWatchlists={watchlists.map(w => ({ list_key: w.list_key, name: w.name }))}
         />
       )}

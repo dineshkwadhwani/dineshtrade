@@ -137,20 +137,93 @@ export function sendEmail(type: 'monthly_report', data: MonthlyReportData): Prom
 export function sendEmail(type: 'test',           data?: undefined):        Promise<EmailResult>
 export function sendEmail(type: 'contact_form',   data: ContactFormData):    Promise<EmailResult>
 export function sendEmail(type: string, data?: any): Promise<EmailResult> {
-  const to = process.env.NOTIFY_TO || process.env.FROM_EMAIL || ''
+  // Default fallback recipient
+  const fallbackTo = process.env.NOTIFY_TO || process.env.FROM_EMAIL || ''
+
+  // Special handling for skipped trades: resolve per-customer recipient and
+  // consult a per-customer / platform toggle so SuperAdmins can disable these.
+  if (type === 'trade_skipped') {
+    return (async () => {
+      try {
+        const { getSupabaseAdmin, getCustomerId } = await import('./supabase')
+        const admin = getSupabaseAdmin()
+        let to = fallbackTo
+
+        // 1) Customer-level capital/config row may include an explicit email
+        //    or a boolean toggle. Prefer explicit `skipped_email_to` if present.
+        try {
+          const customerId = getCustomerId()
+          const { data: cap } = await admin
+            .from('customer_capital_config')
+            .select('*')
+            .eq('customer_id', customerId)
+            .maybeSingle()
+          const row: any = cap ?? {}
+          if (row.skipped_email_to && typeof row.skipped_email_to === 'string' && row.skipped_email_to.trim()) {
+            to = row.skipped_email_to.trim()
+          }
+          if (typeof row.send_skipped_emails !== 'undefined') {
+            const val = row.send_skipped_emails
+            if (val === false || val === 'false' || val === '0' || val === 0) {
+              return { ok: false, skipped: true, error: 'skipped emails disabled for customer' }
+            }
+          }
+        } catch (e) {
+          // best-effort — continue to platform-level fallbacks
+        }
+
+        // 2) If `to` is still fallback, try to read the customer's profile email
+        //    (useful when customer has a valid profile.email).
+        if (!to) {
+          try {
+            const { getCustomerId } = await import('./supabase')
+            const admin = getSupabaseAdmin()
+            const customerId = getCustomerId()
+            const { data: profile } = await admin.from('profiles').select('email').eq('id', customerId).maybeSingle()
+            if (profile?.email) to = profile.email
+          } catch (_) { /* ignore */ }
+        }
+
+        // 3) Platform-level toggle: platform_config may disable skipped emails
+        try {
+          const { data: pc } = await admin
+            .from('platform_config')
+            .select('key, value')
+            .in('key', ['SKIPPED_EMAILS_ENABLED', 'SKIPPED_EMAILS_TO'])
+          for (const r of pc ?? []) {
+            if (r.key === 'SKIPPED_EMAILS_ENABLED' && (r.value === 'false' || r.value === '0')) {
+              return { ok: false, skipped: true, error: 'skipped emails disabled by platform' }
+            }
+            if (r.key === 'SKIPPED_EMAILS_TO' && r.value) {
+              to = r.value
+            }
+          }
+        } catch (_) { /* ignore */ }
+
+        if (!to) to = fallbackTo
+        return sendViaResend(to, skippedSubject(data), skippedBody(data))
+      } catch (e) {
+        console.error('[email] trade_skipped resolution failed:', String(e).slice(0, 300))
+        // Fall back to env var recipient — preserve previous behaviour rather
+        // than failing silently.
+        return sendViaResend(fallbackTo, skippedSubject(data), skippedBody(data))
+      }
+    })()
+  }
+
   switch (type) {
-    case 'trade_executed': return sendViaResend(to, executedSubject(data), executedBody(data))
-    case 'trade_failed':   return sendViaResend(to, failedSubject(data),   failedBody(data))
-    case 'trade_skipped':  return sendViaResend(to, skippedSubject(data),  skippedBody(data))
-    case 'eod_summary':    return sendViaResend(to, eodSubject(data),      eodBody(data))
-    case 'daily_report':   return sendViaResend(to, dailyReportSubject(data), dailyReportText(data), dailyReportHTML(data))
-    case 'monthly_report': return sendViaResend(to, monthlyReportSubject(data), monthlyReportText(data), monthlyReportHTML(data))
-    case 'test':           return sendViaResend(to, '[DineshTrade] Resend test — wiring works', testBody())
+    case 'trade_executed': return sendViaResend(fallbackTo, executedSubject(data), executedBody(data))
+    case 'trade_failed':   return sendViaResend(fallbackTo, failedSubject(data),   failedBody(data))
+    case 'trade_skipped':  return sendViaResend(fallbackTo, skippedSubject(data),  skippedBody(data))
+    case 'eod_summary':    return sendViaResend(fallbackTo, eodSubject(data),      eodBody(data))
+    case 'daily_report':   return sendViaResend(fallbackTo, dailyReportSubject(data), dailyReportText(data), dailyReportHTML(data))
+    case 'monthly_report': return sendViaResend(fallbackTo, monthlyReportSubject(data), monthlyReportText(data), monthlyReportHTML(data))
+    case 'test':           return sendViaResend(fallbackTo, '[DineshTrade] Resend test — wiring works', testBody())
     // Contact form's `to` is always the same NOTIFY_TO / FROM_EMAIL fallback
     // as every other admin-facing email above — spec §7.10 asks for
     // dinesh.k.wadhwani@gmail.com specifically, which is already what
     // NOTIFY_TO resolves to in every deployed environment.
-    case 'contact_form':   return sendViaResend(to, contactFormSubject(data), contactFormBody(data))
+    case 'contact_form':   return sendViaResend(fallbackTo, contactFormSubject(data), contactFormBody(data))
     default: return Promise.resolve({ ok: false, error: `Unknown email type: ${type}` })
   }
 }

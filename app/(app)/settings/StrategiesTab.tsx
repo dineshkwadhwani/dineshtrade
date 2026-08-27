@@ -46,7 +46,7 @@ const PARAM_LABELS: Record<string, { label: string; unit?: string; type?: 'bool'
   t2Pct: { label: 'Target 2 %', unit: '%', type: 'number', desc: 'Second exit target: sell remaining position when this % gain from entry is reached.' },
 }
 
-const CAPITAL_LABELS: Record<string, { label: string; unit?: string; desc: string }> = {
+const CAPITAL_LABELS: Record<string, { label: string; unit?: string; desc: string; type?: 'bool' | 'number' | 'text' }> = {
   per_trade: { label: 'Per Trade', unit: '₹', desc: 'Maximum capital deployed per single auto-buy order.' },
   max_buys_per_day: { label: 'Max Buys / Day', desc: 'Total auto-buy orders allowed per calendar day across all strategies.' },
   max_sells_per_day: { label: 'Max Sells / Day', desc: 'Total auto-sell orders allowed per calendar day across all strategies.' },
@@ -60,6 +60,8 @@ const CAPITAL_LABELS: Record<string, { label: string; unit?: string; desc: strin
   intraday_circuit_resume_pct: { label: 'Intraday Circuit Resume', unit: '%', desc: 'Live Nifty recovery level that resumes auto-BUYs after an intraday circuit trip (hysteresis).' },
   panic_drop_pct: { label: 'Panic Drop %', unit: '%', desc: 'Per-symbol intraday drop from its peak within the panic window that marks it as a free-fall. Set to 0 to disable.' },
   panic_window_min: { label: 'Panic Window', unit: 'min', desc: 'Lookback window (minutes) for the panic-sell gate. Measured using 5-minute candle steps.' },
+  send_skipped_emails: { label: 'Send Skipped Emails', desc: 'When Yes, skipped-trade emails will be sent for this customer (platform-level control may override).', type: 'bool' },
+  skipped_email_to: { label: 'Skipped Email To', desc: 'Optional override recipient email for skipped-trade alerts for this customer.', type: 'text' },
 }
 
 function fieldBg(locked: boolean) { return locked ? '#F8FAFF' : C.card }
@@ -151,7 +153,7 @@ function diffEntries(original: Record<string, unknown>, edited: Record<string, u
   return Object.keys(edited).filter(k => String(edited[k]) !== String(original[k])).map(k => ({ key: k, from: original[k], to: edited[k] }))
 }
 
-export default function StrategiesTab({ strategies, capitalConfig, fixedRules, cronMode, onModeChange, targetCustomerId, availableWatchlists }: {
+export default function StrategiesTab({ strategies, capitalConfig, fixedRules, cronMode, onModeChange, targetCustomerId, availableWatchlists, platformConfig }: {
   strategies: StrategyRow[]
   capitalConfig: CapitalConfig
   fixedRules: FixedRule[]
@@ -159,6 +161,7 @@ export default function StrategiesTab({ strategies, capitalConfig, fixedRules, c
   onModeChange: (m: string) => void
   targetCustomerId?: string
   availableWatchlists?: { list_key: string; name: string }[]
+  platformConfig?: { key: string; value: string }[]
 }) {
   const router = useRouter()
   const locked = cronMode === 'auto'
@@ -219,9 +222,18 @@ export default function StrategiesTab({ strategies, capitalConfig, fixedRules, c
                 </div>
               )}
               <div style={{ display: 'flex', flexDirection: 'column' }}>
-                {Object.entries(CAPITAL_LABELS).map(([key, meta]) => (
-                  <ParamField key={key} label={meta.label} desc={meta.desc} value={capitalDraft[key] ?? ''} unit={meta.unit} locked={locked} onChange={v => setCapitalDraft(d => ({ ...d, [key]: v }))} />
-                ))}
+                {(() => {
+                  const platformSkipVal = platformConfig?.find(p => p.key === 'SKIPPED_EMAILS_ENABLED')?.value
+                  const platformSkipEnabled = !(platformSkipVal === 'false' || platformSkipVal === '0')
+                  return Object.entries(CAPITAL_LABELS).map(([key, meta]) => {
+                    const isSkipField = key === 'send_skipped_emails' || key === 'skipped_email_to'
+                    const lockedForField = locked || (isSkipField && !platformSkipEnabled)
+                    return (
+                      <ParamField key={key} label={meta.label} desc={isSkipField && !platformSkipEnabled ? meta.desc + ' (disabled by platform policy)' : meta.desc}
+                        value={capitalDraft[key] ?? ''} unit={meta.unit} type={(meta as any).type as any} locked={lockedForField} onChange={v => setCapitalDraft(d => ({ ...d, [key]: v }))} />
+                    )
+                  })
+                })()}
               </div>
               {!locked && (
                 <>
