@@ -165,10 +165,16 @@ async function hydrate(): Promise<void> {
   hydratedSet.add(customerId)
 }
 
-// Kick off hydration for the startup customer immediately.
-void hydrate().catch(err => {
+// Kick off hydration for the startup customer immediately, while retaining the
+// promise so startup can wait for the synchronous config readers below.
+const initialHydration = hydrate()
+void initialHydration.catch(err => {
   console.error('[strategyConfigStore] CRITICAL: Initial Supabase hydration failed, trading engine CANNOT start:', String(err).slice(0, 300))
 })
+
+export async function waitForInitialHydration(): Promise<void> {
+  await initialHydration
+}
 
 // ─── Public API ─────────────────────────────────────────────────────────────
 

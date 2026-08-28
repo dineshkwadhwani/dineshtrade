@@ -44,7 +44,7 @@ import { listPositions } from './positions'
 import { getSupabaseAdmin, withCustomer } from './supabase'
 import { decrypt } from './encryption'
 import { getQuotes, setTickQuoteCache, clearTickQuoteCache } from './kite'
-import { rehydrateForCustomer } from './strategyConfigStore'
+import { rehydrateForCustomer, waitForInitialHydration } from './strategyConfigStore'
 
 // Re-export record functions and getDayStats so external callers that were
 // using @/lib/cron keep working without any import-path change.
@@ -397,6 +397,10 @@ export async function startCron(): Promise<void> {
   started = true
   const backend = getBackendInfo()
   console.log(`[cron] state backend=${backend.backend}${backend.path ? ` path=${backend.path}` : ''} · Running for ${customerIds.length} customer(s): ${customerIds.join(', ')}`)
+
+  // Strategy readers are synchronous, so wait for their initial Supabase
+  // hydration before registering per-strategy tasks.
+  await waitForInitialHydration()
 
   // Core tick: loop over all customers sequentially on each fire.
   const tickExpr = await buildTickExpr()
