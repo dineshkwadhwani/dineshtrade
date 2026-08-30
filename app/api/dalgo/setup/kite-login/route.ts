@@ -2,15 +2,12 @@ import { NextRequest, NextResponse } from 'next/server'
 import { getProfile } from '@/lib/dalgoAuth'
 import { getSupabaseAdmin } from '@/lib/supabase'
 import { decrypt } from '@/lib/encryption'
+import { getRequestBase } from '@/lib/requestOrigin'
 
 export const dynamic = 'force-dynamic'
 
 function normalizedBase(req: NextRequest): string {
-  const configured = process.env.APP_BASE_URL || process.env.NEXT_PUBLIC_APP_URL
-  if (configured) return configured.replace(/\/$/, '')
-  const proto = req.headers.get('x-forwarded-proto')?.split(',')[0]?.trim() || 'http'
-  const host = req.headers.get('x-forwarded-host')?.split(',')[0]?.trim() || req.headers.get('host') || 'localhost:3000'
-  return `${proto}://${host}`
+  return getRequestBase(req.headers)
 }
 
 // GET /api/dalgo/setup/kite-login

@@ -159,6 +159,13 @@ Each customer EC2 runs with:
 - Shared `ENCRYPTION_KEY` and `SHARED_SSO_SECRET` — must match the main server exactly
 - Shared Supabase project — all data is isolated at row level by `customer_id`
 
+The Dinesh customer instance is also served by the main EC2, so its environment
+variables may remain pointed at `https://dalgo.online`. OAuth and setup redirects
+are host-aware: they preserve the validated `Host`/`X-Forwarded-Host` that
+received the request, allowing `dinesh.dalgo.online` and future customer
+subdomains to keep their own session cookies without changing the main-server
+configuration.
+
 ### Zerodha OAuth callback
 
 Each customer must have their Zerodha API app callback URL set to:

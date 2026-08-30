@@ -507,14 +507,19 @@ function registerStrategyTask(strategy: Strategy, customerIds: string[]): void {
   const task = cron.schedule(expr, () => {
     console.log(`[cron strategy:${strategy.id}] callback fired (${expr})`)
     ;(async () => {
-      const fresh = getStrategyById(strategy.id)
-      if (!fresh || !fresh.active) {
-        console.log(`[cron strategy:${strategy.id}] skipped — strategy missing or inactive`)
-        return
-      }
       for (const customerId of customerIds) {
         try {
-          await withCustomer(customerId, () => runStrategyTaskBody(fresh))
+          await withCustomer(customerId, async () => {
+            // Strategy config is customer-scoped. Resolve it after entering
+            // the customer context so one customer's params/watchlist/gates
+            // cannot be reused for another customer's scan.
+            const fresh = getStrategyById(strategy.id)
+            if (!fresh || !fresh.active) {
+              console.log(`[cron strategy:${strategy.id}] customer=${customerId} skipped — strategy missing or inactive`)
+              return
+            }
+            await runStrategyTaskBody(fresh)
+          })
         } catch (err) {
           console.error(`[cron strategy:${strategy.id}] Customer ${customerId} failed:`, err)
         }

@@ -147,7 +147,7 @@ export function sendEmail(type: string, data?: any): Promise<EmailResult> {
       try {
         const { getSupabaseAdmin, getCustomerId } = await import('./supabase')
         const admin = getSupabaseAdmin()
-        let to = fallbackTo
+        let to = ''
 
         // 1) Customer-level capital/config row may include an explicit email
         //    or a boolean toggle. Prefer explicit `skipped_email_to` if present.

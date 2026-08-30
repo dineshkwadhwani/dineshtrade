@@ -7,6 +7,7 @@ import { saveState } from '@/lib/state'
 import { getSupabaseAdmin } from '@/lib/supabase'
 import { decrypt, encrypt } from '@/lib/encryption'
 import { getProfile } from '@/lib/dalgoAuth'
+import { getRequestBase } from '@/lib/requestOrigin'
 
 export const dynamic = 'force-dynamic'
 
@@ -20,19 +21,7 @@ function nextKiteExpiry(): string {
 }
 
 function normalizedBase(req: NextRequest): URL {
-  const configured = process.env.APP_BASE_URL || process.env.PUBLIC_BASE_URL || process.env.NEXT_PUBLIC_APP_URL
-  if (configured) {
-    try { return new URL(configured) } catch { /* ignore malformed env */ }
-  }
-  const proto = (req.headers.get('x-forwarded-proto') || req.nextUrl.protocol.replace(':', '') || 'http').split(',')[0].trim()
-  const forwardedHost = req.headers.get('x-forwarded-host')?.split(',')[0]?.trim()
-  const hostHeader = req.headers.get('host')?.split(',')[0]?.trim()
-  let host = forwardedHost || hostHeader || req.nextUrl.host
-  if (!host || host.startsWith('0.0.0.0')) {
-    const port = req.nextUrl.port ? `:${req.nextUrl.port}` : ''
-    host = `localhost${port}`
-  }
-  return new URL(`${proto}://${host}`)
+  return new URL(getRequestBase(req.headers))
 }
 
 // GET /api/zerodha/callback?request_token=...&action=login&status=success

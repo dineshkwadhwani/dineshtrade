@@ -46,24 +46,39 @@ function recordAutoBuySkip(args: {
     signalPrice: price,
     reasonSkipped: reason,
   }).catch(err => console.error('[cron] journal signal_skipped failed:', err))
-  sendEmail('trade_failed', {
+  sendEmail('trade_skipped', {
     account,
-    accountDisplayName,
     symbol,
     side: 'BUY',
     quantity,
     price,
-    failedAt: 'preflight',
-    gate,
+    gate: gate || 'unknown',
     reason,
-    mode: 'auto',
   }).catch(err => console.error('[cron autoBuy] skipped-email failed:', err))
 }
 
 export async function autoBuyOnAccount(account: string, accountDisplayName: string | undefined, recs: Recommendation[]) {
   const creds = await resolveAccountCreds(account)
   if (!creds.ok) {
-    recordSkipped({ time: istHHMM(), account, symbol: '—', side: 'BUY', quantity: 0, reason: creds.error })
+    const reason = `[credentials] ${creds.error}`
+    recordSkipped({ time: istHHMM(), account, symbol: '—', side: 'BUY', quantity: 0, reason })
+    appendJournal({
+      type: 'signal_skipped',
+      date: istDateString(),
+      time: istHHMM(),
+      account,
+      symbol: '—',
+      signalPrice: 0,
+      reasonSkipped: reason,
+    }).catch(err => console.error('[cron] journal credential skip failed:', err))
+    sendEmail('trade_skipped', {
+      account,
+      symbol: '—',
+      side: 'BUY',
+      quantity: 0,
+      gate: 'credentials',
+      reason,
+    }).catch(err => console.error('[cron autoBuy] credential-skipped email failed:', err))
     return
   }
   const broker = getBroker({ brokerName: 'zerodha', brokerCredentials: { apiKey: creds.apiKey, accessToken: creds.accessToken } })
