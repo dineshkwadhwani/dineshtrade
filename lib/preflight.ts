@@ -426,27 +426,21 @@ export async function runPreflight(input: PreflightInput, broker: IBroker): Prom
         const model: 'intraday' | 'delivery' = heldQty > 0 ? 'delivery' : 'intraday'
         const buyValue = basis * evalQty
         const sellValue = ltp * evalQty
-        const grossPnl = sellValue - buyValue
         const estimatedCharges = estimateExitCharges(model, buyValue, sellValue)
-        const netPnl = round2(grossPnl - estimatedCharges)
-        if (netPnl < 0) {
-          const lossPct = ((basis - ltp) / basis * 100).toFixed(2)
+        const effectiveSellPrice = round2(ltp - (estimatedCharges / evalQty))
+        const netPnl = round2((effectiveSellPrice - basis) * evalQty)
+        if (netPnl < 0 || effectiveSellPrice < basis) {
+          const grossPnl = sellValue - buyValue
+          const lossPct = ((basis - effectiveSellPrice) / basis * 100).toFixed(2)
           const netLoss = Math.abs(netPnl).toFixed(2)
           const gross = round2(grossPnl).toFixed(2)
           const charges = estimatedCharges.toFixed(2)
+          const effectivePrice = effectiveSellPrice.toFixed(2)
           return {
             ok: false,
             gate: 'noLossSell',
-            reason: `${account}: ${symbol} at ₹${ltp.toFixed(2)} vs ${basisLabel} ₹${basis.toFixed(2)} (${lossPct.startsWith('-') ? '' : ltp >= basis ? '+' : '−'}${Math.abs(Number(lossPct)).toFixed(2)}%) — estimated ${model} net P&L is -₹${netLoss} (gross ₹${gross}, charges ₹${charges})`,
+            reason: `${account}: ${symbol} at ₹${ltp.toFixed(2)} (effective ₹${effectivePrice} after charges) vs ${basisLabel} ₹${basis.toFixed(2)} (${lossPct.startsWith('-') ? '' : effectiveSellPrice >= basis ? '+' : '−'}${Math.abs(Number(lossPct)).toFixed(2)}%) — estimated ${model} net P&L is -₹${netLoss} (gross ₹${gross}, charges ₹${charges})`,
           }
-        }
-      }
-
-      if (basis > 0 && ltp > 0 && ltp < basis) {
-        const lossPct = ((basis - ltp) / basis * 100).toFixed(2)
-        return {
-          ok: false, gate: 'noLossSell',
-          reason: `${account}: ${symbol} at ₹${ltp} vs ${basisLabel} ₹${basis} (−${lossPct}%) — Auto mode never sells at a loss`,
         }
       }
     }
