@@ -60,91 +60,155 @@ export default async function OrdersPage() {
           No orders placed today.
         </div>
       ) : (
-        <div style={{ background: C.card, border: `1px solid ${C.border}`, borderRadius: 12, overflow: 'hidden' }}>
-          <div style={{ overflowX: 'auto' }}>
-            <table style={{ width: '100%', borderCollapse: 'collapse', fontSize: 13 }}>
-              <thead>
-                <tr style={{ background: '#EFF6FF' }}>
-                  {['Time', 'Symbol', 'Side', 'Qty', 'Price', 'Status', 'Strategy', 'Source'].map(h => (
-                    <th key={h} style={{ padding: '10px 14px', textAlign: 'left', fontWeight: 600, color: C.heading, fontSize: 11, textTransform: 'uppercase', letterSpacing: '0.04em' }}>{h}</th>
-                  ))}
-                </tr>
-              </thead>
-              <tbody>
-                {rows.map((o, i) => {
-                  const sb = STATUS_BADGE[o.status?.toUpperCase()] ?? STATUS_BADGE.CANCELLED
-                  const sideColor = o.side === 'BUY' ? '#3B82F6' : '#D97706'
-                  const sideBg = o.side === 'BUY' ? '#DBEAFE' : '#FEF3C7'
-                  const timeStr = new Date(o.created_at).toLocaleTimeString('en-IN', { hour: '2-digit', minute: '2-digit', hour12: false, timeZone: 'Asia/Kolkata' })
-                  return (
-                    <tr key={o.id} style={{ borderTop: `1px solid ${C.border}`, background: i % 2 === 0 ? C.card : C.bg }}>
-                      <td style={{ padding: '10px 14px', color: C.muted, fontSize: 12, fontFamily: 'monospace' }}>{timeStr}</td>
-                      <td style={{ padding: '10px 14px', fontWeight: 600, color: C.heading }}>{o.symbol}</td>
-                      <td style={{ padding: '10px 14px' }}>
-                        <span style={{ padding: '2px 8px', borderRadius: 999, fontSize: 11, fontWeight: 700, background: sideBg, color: sideColor }}>{o.side}</span>
-                      </td>
-                      <td style={{ padding: '10px 14px', color: C.body }}>{o.qty}</td>
-                      <td style={{ padding: '10px 14px', color: C.body }}>₹{Number(o.price).toLocaleString('en-IN', { minimumFractionDigits: 2 })}</td>
-                      <td style={{ padding: '10px 14px' }}>
-                        <span style={{ padding: '2px 8px', borderRadius: 999, fontSize: 11, fontWeight: 600, background: sb.bg, color: sb.color }}>{o.status}</span>
-                      </td>
-                      <td style={{ padding: '10px 14px', color: C.muted, fontSize: 12 }}>{o.strategy_tag ?? '—'}</td>
-                      <td style={{ padding: '10px 14px' }}>
-                        {(() => {
-                          const strategyKey = (o.strategy_tag || '').toLowerCase()
-                          const strategyBadge = STRATEGY_BADGE[strategyKey]
-                          return strategyBadge ? (
-                            <span
-                              style={{
-                                padding: '2px 8px',
-                                borderRadius: 999,
-                                fontSize: 11,
-                                fontWeight: 600,
-                                background: strategyBadge.bg,
-                                color: strategyBadge.color,
-                                textTransform: 'uppercase',
-                                letterSpacing: '0.03em',
-                              }}
-                            >
+        <>
+          <div className="desktop-only">
+            <div style={{ background: C.card, border: `1px solid ${C.border}`, borderRadius: 12, overflow: 'hidden' }}>
+              <div style={{ overflowX: 'auto' }}>
+                <table style={{ width: '100%', borderCollapse: 'collapse', fontSize: 13 }}>
+                  <thead>
+                    <tr style={{ background: '#EFF6FF' }}>
+                      {['Time', 'Symbol', 'Side', 'Qty', 'Price', 'Status', 'Strategy', 'Source'].map(h => (
+                        <th key={h} style={{ padding: '10px 14px', textAlign: 'left', fontWeight: 600, color: C.heading, fontSize: 11, textTransform: 'uppercase', letterSpacing: '0.04em' }}>{h}</th>
+                      ))}
+                    </tr>
+                  </thead>
+                  <tbody>
+                    {rows.map((o, i) => {
+                      const sb = STATUS_BADGE[o.status?.toUpperCase()] ?? STATUS_BADGE.CANCELLED
+                      const sideColor = o.side === 'BUY' ? '#3B82F6' : '#D97706'
+                      const sideBg = o.side === 'BUY' ? '#DBEAFE' : '#FEF3C7'
+                      const timeStr = new Date(o.created_at).toLocaleTimeString('en-IN', { hour: '2-digit', minute: '2-digit', hour12: false, timeZone: 'Asia/Kolkata' })
+                      return (
+                        <tr key={o.id} style={{ borderTop: `1px solid ${C.border}`, background: i % 2 === 0 ? C.card : C.bg }}>
+                          <td style={{ padding: '10px 14px', color: C.muted, fontSize: 12, fontFamily: 'monospace' }}>{timeStr}</td>
+                          <td style={{ padding: '10px 14px', fontWeight: 600, color: C.heading }}>{o.symbol}</td>
+                          <td style={{ padding: '10px 14px' }}>
+                            <span style={{ padding: '2px 8px', borderRadius: 999, fontSize: 11, fontWeight: 700, background: sideBg, color: sideColor }}>{o.side}</span>
+                          </td>
+                          <td style={{ padding: '10px 14px', color: C.body }}>{o.qty}</td>
+                          <td style={{ padding: '10px 14px', color: C.body }}>₹{Number(o.price).toLocaleString('en-IN', { minimumFractionDigits: 2 })}</td>
+                          <td style={{ padding: '10px 14px' }}>
+                            <span style={{ padding: '2px 8px', borderRadius: 999, fontSize: 11, fontWeight: 600, background: sb.bg, color: sb.color }}>{o.status}</span>
+                          </td>
+                          <td style={{ padding: '10px 14px', color: C.muted, fontSize: 12 }}>{o.strategy_tag ?? '—'}</td>
+                          <td style={{ padding: '10px 14px' }}>
+                            {(() => {
+                              const strategyKey = (o.strategy_tag || '').toLowerCase()
+                              const strategyBadge = STRATEGY_BADGE[strategyKey]
+                              return strategyBadge ? (
+                                <span
+                                  style={{
+                                    padding: '2px 8px',
+                                    borderRadius: 999,
+                                    fontSize: 11,
+                                    fontWeight: 600,
+                                    background: strategyBadge.bg,
+                                    color: strategyBadge.color,
+                                    textTransform: 'uppercase',
+                                    letterSpacing: '0.03em',
+                                  }}
+                                >
+                                  {strategyBadge.label}
+                                </span>
+                              ) : (
+                                <span style={{ color: C.muted, fontSize: 12 }}>—</span>
+                              )
+                            })()}
+                          </td>
+                          <td style={{ padding: '10px 14px' }}>
+                            {(() => {
+                              const sourceKey = (o.source || '').toLowerCase()
+                              const sourceBadge = SOURCE_BADGE[sourceKey]
+                              return sourceBadge ? (
+                                <span
+                                  style={{
+                                    padding: '2px 8px',
+                                    borderRadius: 999,
+                                    fontSize: 11,
+                                    fontWeight: 700,
+                                    background: sourceBadge.bg,
+                                    color: sourceBadge.color,
+                                    textTransform: 'uppercase',
+                                    letterSpacing: '0.03em',
+                                  }}
+                                >
+                                  {sourceKey}
+                                </span>
+                              ) : (
+                                <span style={{ color: C.muted, fontSize: 12 }}>{o.source || '—'}</span>
+                              )
+                            })()}
+                          </td>
+                        </tr>
+                      )
+                    })}
+                  </tbody>
+                </table>
+              </div>
+            </div>
+          </div>
+
+          <div className="mobile-only">
+            <div style={{ display: 'flex', flexDirection: 'column', gap: 10 }}>
+              {rows.map(o => {
+                const sb = STATUS_BADGE[o.status?.toUpperCase()] ?? STATUS_BADGE.CANCELLED
+                const sideColor = o.side === 'BUY' ? '#3B82F6' : '#D97706'
+                const sideBg = o.side === 'BUY' ? '#DBEAFE' : '#FEF3C7'
+                const timeStr = new Date(o.created_at).toLocaleTimeString('en-IN', { hour: '2-digit', minute: '2-digit', hour12: false, timeZone: 'Asia/Kolkata' })
+                const strategyKey = (o.strategy_tag || '').toLowerCase()
+                const strategyBadge = STRATEGY_BADGE[strategyKey]
+                const sourceKey = (o.source || '').toLowerCase()
+                const sourceBadge = SOURCE_BADGE[sourceKey]
+
+                return (
+                  <div key={o.id} style={{ background: C.card, border: `1px solid ${C.border}`, borderRadius: 12, padding: 12 }}>
+                    <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', gap: 10 }}>
+                      <div style={{ fontWeight: 700, fontSize: 17, color: C.heading }}>{o.symbol}</div>
+                      <span style={{ padding: '4px 8px', borderRadius: 999, fontSize: 11, fontWeight: 700, background: sideBg, color: sideColor }}>{o.side}</span>
+                    </div>
+
+                    <div style={{ display: 'flex', justifyContent: 'space-between', marginTop: 8, gap: 12 }}>
+                      <div style={{ color: C.body, fontSize: 12 }}>
+                        <div>Qty: <strong>{o.qty}</strong></div>
+                        <div>Price: <strong>₹{Number(o.price).toLocaleString('en-IN', { minimumFractionDigits: 2 })}</strong></div>
+                        <div style={{ marginTop: 4 }}>
+                          {strategyBadge ? (
+                            <span style={{ padding: '3px 6px', borderRadius: 999, background: strategyBadge.bg, color: strategyBadge.color, fontWeight: 700, fontSize: 10 }}>
                               {strategyBadge.label}
                             </span>
                           ) : (
-                            <span style={{ color: C.muted, fontSize: 12 }}>—</span>
-                          )
-                        })()}
-                      </td>
-                      <td style={{ padding: '10px 14px' }}>
-                        {(() => {
-                          const sourceKey = (o.source || '').toLowerCase()
-                          const sourceBadge = SOURCE_BADGE[sourceKey]
-                          return sourceBadge ? (
-                            <span
-                              style={{
-                                padding: '2px 8px',
-                                borderRadius: 999,
-                                fontSize: 11,
-                                fontWeight: 700,
-                                background: sourceBadge.bg,
-                                color: sourceBadge.color,
-                                textTransform: 'uppercase',
-                                letterSpacing: '0.03em',
-                              }}
-                            >
-                              {sourceKey}
-                            </span>
-                          ) : (
-                            <span style={{ color: C.muted, fontSize: 12 }}>{o.source || '—'}</span>
-                          )
-                        })()}
-                      </td>
-                    </tr>
-                  )
-                })}
-              </tbody>
-            </table>
+                            <span style={{ color: C.muted, fontSize: 11 }}>{o.strategy_tag ?? '—'}</span>
+                          )}
+                        </div>
+                      </div>
+
+                      <div style={{ textAlign: 'right', minWidth: 110 }}>
+                        <div style={{ color: C.muted, fontSize: 11 }}>{timeStr}</div>
+                        <div style={{ marginTop: 6 }}>
+                          <span style={{ padding: '3px 8px', borderRadius: 999, fontSize: 10, fontWeight: 700, background: sb.bg, color: sb.color }}>{o.status}</span>
+                        </div>
+                        <div style={{ marginTop: 6, fontSize: 11, color: sourceBadge ? sourceBadge.color : C.muted, fontWeight: 700 }}>
+                          {sourceBadge ? sourceKey : (o.source || '—')}
+                        </div>
+                      </div>
+                    </div>
+                  </div>
+                )
+              })}
+            </div>
           </div>
-        </div>
+        </>
       )}
+
+      <style>{`
+        .desktop-only { display: block; }
+        .mobile-only { display: none; }
+
+        @media (max-width: 767px) {
+          .desktop-only { display: none !important; }
+          .mobile-only { display: block !important; }
+        }
+      `}</style>
     </div>
   )
 }

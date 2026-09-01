@@ -76,57 +76,119 @@ export default async function PositionsPage() {
               No trades today yet.
             </div>
           ) : (
-            <div style={{ background: C.card, border: `1px solid ${C.border}`, borderRadius: 12, overflow: 'hidden' }}>
-              <div style={{ overflowX: 'auto' }}>
-                <table style={{ width: '100%', borderCollapse: 'collapse', fontSize: 13 }}>
-                  <thead>
-                    <tr style={{ background: '#EFF6FF' }}>
-                      {['Symbol', 'Net Qty', 'Bought', 'Sold', 'Buy Price', 'Sell Price', 'LTP', 'Day P&L', ''].map(h => (
-                        <th key={h} style={{ padding: '10px 14px', textAlign: h === 'Net Qty' || h === 'Bought' || h === 'Sold' || h === 'Buy Price' || h === 'Sell Price' || h === 'LTP' || h === 'Day P&L' ? 'right' : 'left', fontWeight: 600, color: C.heading, fontSize: 11, textTransform: 'uppercase', letterSpacing: '0.04em' }}>{h}</th>
-                      ))}
-                    </tr>
-                  </thead>
-                  <tbody>
-                    {dayPositions.map((p, i) => {
-                      const netQty = p.quantity
-                      const buyQty = p.day_buy_quantity ?? 0
-                      const sellQty = p.day_sell_quantity ?? 0
-                      const buyPrice = p.buy_price ?? p.day_buy_price ?? p.average_price ?? 0
-                      const sellPrice = p.sell_price ?? 0
-                      const ltp = p.last_price
-                      const pnl = p.pnl ?? 0
-                      const canSquareOff = netQty !== 0
-                      const pnlColor = pnl >= 0 ? '#16A34A' : '#DC2626'
-                      return (
-                        <tr key={p.tradingsymbol} style={{ borderTop: `1px solid ${C.border}`, background: i % 2 === 0 ? C.card : C.bg }}>
-                          <td style={{ padding: '10px 14px', fontWeight: 700, color: C.heading }}>{p.tradingsymbol}</td>
-                          <td style={{ padding: '10px 14px', textAlign: 'right', fontWeight: 700, color: netQty > 0 ? '#16A34A' : netQty < 0 ? '#DC2626' : C.muted }}>{netQty > 0 ? `+${netQty}` : netQty}</td>
-                          <td style={{ padding: '10px 14px', textAlign: 'right', color: buyQty > 0 ? '#16A34A' : C.muted }}>{buyQty > 0 ? `+${buyQty}` : '—'}</td>
-                          <td style={{ padding: '10px 14px', textAlign: 'right', color: sellQty > 0 ? '#DC2626' : C.muted }}>{sellQty > 0 ? `−${sellQty}` : '—'}</td>
-                          <td style={{ padding: '10px 14px', textAlign: 'right', color: C.body }}>{buyPrice > 0 ? `₹${fmt(buyPrice)}` : '—'}</td>
-                          <td style={{ padding: '10px 14px', textAlign: 'right', color: C.body }}>{sellPrice > 0 ? `₹${fmt(sellPrice)}` : '—'}</td>
-                          <td style={{ padding: '10px 14px', textAlign: 'right', color: C.body }}>₹{fmt(ltp)}</td>
-                          <td style={{ padding: '10px 14px', textAlign: 'right', fontWeight: 600, color: pnlColor }}>{pnl >= 0 ? '+' : ''}₹{fmt(pnl, 0)}</td>
-                          <td style={{ padding: '10px 14px' }}>
-                            {canSquareOff && <OrderModalButton symbol={p.tradingsymbol} side={netQty > 0 ? 'SELL' : 'BUY'} quantity={Math.abs(netQty)} price={ltp} label="Square Off" size="sm" />}
-                          </td>
+            <>
+              <div className="desktop-only">
+                <div style={{ background: C.card, border: `1px solid ${C.border}`, borderRadius: 12, overflow: 'hidden' }}>
+                  <div style={{ overflowX: 'auto' }}>
+                    <table style={{ width: '100%', borderCollapse: 'collapse', fontSize: 13 }}>
+                      <thead>
+                        <tr style={{ background: '#EFF6FF' }}>
+                          {['Symbol', 'Net Qty', 'Bought', 'Sold', 'Buy Price', 'Sell Price', 'LTP', 'Day P&L', ''].map(h => (
+                            <th key={h} style={{ padding: '10px 14px', textAlign: h === 'Net Qty' || h === 'Bought' || h === 'Sold' || h === 'Buy Price' || h === 'Sell Price' || h === 'LTP' || h === 'Day P&L' ? 'right' : 'left', fontWeight: 600, color: C.heading, fontSize: 11, textTransform: 'uppercase', letterSpacing: '0.04em' }}>{h}</th>
+                          ))}
                         </tr>
-                      )
-                    })}
-                  </tbody>
-                  {dayPositions.length > 1 && (
-                    <tfoot>
-                      <tr style={{ borderTop: `2px solid ${C.border}`, background: '#EFF6FF' }}>
-                        <td colSpan={7} style={{ padding: '10px 14px', fontWeight: 700, color: C.heading }}>Total Day P&L</td>
-                        <td style={{ padding: '10px 14px', textAlign: 'right', fontWeight: 700, color: totalPnl >= 0 ? '#16A34A' : '#DC2626' }}>{totalPnl >= 0 ? '+' : ''}₹{fmt(totalPnl, 0)}</td>
-                        <td></td>
-                      </tr>
-                    </tfoot>
-                  )}
-                </table>
+                      </thead>
+                      <tbody>
+                        {dayPositions.map((p, i) => {
+                          const netQty = p.quantity
+                          const buyQty = p.day_buy_quantity ?? 0
+                          const sellQty = p.day_sell_quantity ?? 0
+                          const buyPrice = p.buy_price ?? p.day_buy_price ?? p.average_price ?? 0
+                          const sellPrice = p.sell_price ?? 0
+                          const ltp = p.last_price
+                          const pnl = p.pnl ?? 0
+                          const canSquareOff = netQty !== 0
+                          const pnlColor = pnl >= 0 ? '#16A34A' : '#DC2626'
+                          return (
+                            <tr key={p.tradingsymbol} style={{ borderTop: `1px solid ${C.border}`, background: i % 2 === 0 ? C.card : C.bg }}>
+                              <td style={{ padding: '10px 14px', fontWeight: 700, color: C.heading }}>{p.tradingsymbol}</td>
+                              <td style={{ padding: '10px 14px', textAlign: 'right', fontWeight: 700, color: netQty > 0 ? '#16A34A' : netQty < 0 ? '#DC2626' : C.muted }}>{netQty > 0 ? `+${netQty}` : netQty}</td>
+                              <td style={{ padding: '10px 14px', textAlign: 'right', color: buyQty > 0 ? '#16A34A' : C.muted }}>{buyQty > 0 ? `+${buyQty}` : '—'}</td>
+                              <td style={{ padding: '10px 14px', textAlign: 'right', color: sellQty > 0 ? '#DC2626' : C.muted }}>{sellQty > 0 ? `−${sellQty}` : '—'}</td>
+                              <td style={{ padding: '10px 14px', textAlign: 'right', color: C.body }}>{buyPrice > 0 ? `₹${fmt(buyPrice)}` : '—'}</td>
+                              <td style={{ padding: '10px 14px', textAlign: 'right', color: C.body }}>{sellPrice > 0 ? `₹${fmt(sellPrice)}` : '—'}</td>
+                              <td style={{ padding: '10px 14px', textAlign: 'right', color: C.body }}>₹{fmt(ltp)}</td>
+                              <td style={{ padding: '10px 14px', textAlign: 'right', fontWeight: 600, color: pnlColor }}>{pnl >= 0 ? '+' : ''}₹{fmt(pnl, 0)}</td>
+                              <td style={{ padding: '10px 14px' }}>
+                                {canSquareOff && <OrderModalButton symbol={p.tradingsymbol} side={netQty > 0 ? 'SELL' : 'BUY'} quantity={Math.abs(netQty)} price={ltp} label="Square Off" size="sm" />}
+                              </td>
+                            </tr>
+                          )
+                        })}
+                      </tbody>
+                      {dayPositions.length > 1 && (
+                        <tfoot>
+                          <tr style={{ borderTop: `2px solid ${C.border}`, background: '#EFF6FF' }}>
+                            <td colSpan={7} style={{ padding: '10px 14px', fontWeight: 700, color: C.heading }}>Total Day P&L</td>
+                            <td style={{ padding: '10px 14px', textAlign: 'right', fontWeight: 700, color: totalPnl >= 0 ? '#16A34A' : '#DC2626' }}>{totalPnl >= 0 ? '+' : ''}₹{fmt(totalPnl, 0)}</td>
+                            <td></td>
+                          </tr>
+                        </tfoot>
+                      )}
+                    </table>
+                  </div>
+                </div>
               </div>
-            </div>
+
+              <div className="mobile-only">
+                <div style={{ display: 'flex', flexDirection: 'column', gap: 10 }}>
+                  {dayPositions.map(p => {
+                    const netQty = p.quantity
+                    const buyPrice = p.buy_price ?? p.day_buy_price ?? p.average_price ?? 0
+                    const sellPrice = p.sell_price ?? 0
+                    const ltp = p.last_price
+                    const pnl = p.pnl ?? 0
+                    const pnlColor = pnl >= 0 ? '#16A34A' : '#DC2626'
+                    const canSquareOff = netQty !== 0
+
+                    return (
+                      <div key={p.tradingsymbol} style={{ background: C.card, border: `1px solid ${C.border}`, borderRadius: 12, padding: 12 }}>
+                        <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', gap: 10 }}>
+                          <div style={{ fontWeight: 700, fontSize: 17, color: C.heading }}>{p.tradingsymbol}</div>
+                          <span style={{ padding: '4px 8px', borderRadius: 999, fontSize: 11, fontWeight: 700, background: netQty >= 0 ? '#DCFCE7' : '#FEE2E2', color: netQty >= 0 ? '#15803D' : '#B91C1C' }}>
+                            Net {netQty}
+                          </span>
+                        </div>
+
+                        <div style={{ display: 'grid', gridTemplateColumns: '1fr auto', gap: 8, marginTop: 8 }}>
+                          <div style={{ color: C.body, fontSize: 12, lineHeight: 1.7 }}>
+                            <div>Bought: <strong>{p.day_buy_quantity ?? 0}</strong></div>
+                            <div>Sold: <strong>{p.day_sell_quantity ?? 0}</strong></div>
+                            <div>Buy: <strong>₹{fmt(buyPrice)}</strong></div>
+                            <div>Sell: <strong>₹{fmt(sellPrice)}</strong></div>
+                          </div>
+
+                          <div style={{ textAlign: 'right', minWidth: 90 }}>
+                            <div style={{ color: C.muted, fontSize: 11 }}>LTP</div>
+                            <div style={{ fontWeight: 700, color: C.heading, fontSize: 17 }}>₹{fmt(ltp)}</div>
+                            <div style={{ marginTop: 6, fontWeight: 700, fontSize: 12, color: pnlColor }}>
+                              {pnl >= 0 ? '+' : ''}₹{fmt(pnl, 0)}
+                            </div>
+                          </div>
+                        </div>
+
+                        {canSquareOff && (
+                          <div style={{ marginTop: 10, display: 'flex', justifyContent: 'flex-end' }}>
+                            <OrderModalButton symbol={p.tradingsymbol} side={netQty > 0 ? 'SELL' : 'BUY'} quantity={Math.abs(netQty)} price={ltp} label="Square Off" size="sm" />
+                          </div>
+                        )}
+                      </div>
+                    )
+                  })}
+                </div>
+              </div>
+            </>
           )}
+
+          <style>{`
+            .desktop-only { display: block; }
+            .mobile-only { display: none; }
+
+            @media (max-width: 767px) {
+              .desktop-only { display: none !important; }
+              .mobile-only { display: block !important; }
+            }
+          `}</style>
         </div>
       )
     } catch { /* fall through to offline mode */ }
@@ -179,46 +241,104 @@ export default async function PositionsPage() {
           No open positions in DAlgo records.
         </div>
       ) : (
-        <div style={{ background: C.card, border: `1px solid ${C.border}`, borderRadius: 12, overflow: 'hidden' }}>
-          <div style={{ overflowX: 'auto' }}>
-            <table style={{ width: '100%', borderCollapse: 'collapse', fontSize: 13 }}>
-              <thead>
-                <tr style={{ background: '#EFF6FF' }}>
-                  {['Symbol', 'Strategy', 'Qty (Rem)', 'Avg Entry', 'LTP', 'Unreal. P&L', 'Days Held', 'Entry Date'].map(h => (
-                    <th key={h} style={{ padding: '10px 14px', textAlign: h === 'LTP' || h === 'Unreal. P&L' ? 'right' : 'left', fontWeight: 600, color: C.heading, fontSize: 11, textTransform: 'uppercase', letterSpacing: '0.04em' }}>{h}</th>
-                  ))}
-                </tr>
-              </thead>
-              <tbody>
-                {rows.map((p: any, i: number) => {
-                  const ltp = ltpBySymbol.get(p.symbol.toUpperCase()) ?? null
-                  const pnl = ltp != null ? (ltp - p.first_buy_price) * p.remaining_qty : null
-                  const pnlColor = pnl == null ? C.muted : pnl >= 0 ? '#16A34A' : '#DC2626'
-                  const days = Math.floor((Date.now() - new Date(p.first_buy_at).getTime()) / 86400000)
-                  return (
-                    <tr key={p.id} style={{ borderTop: `1px solid ${C.border}`, background: i % 2 === 0 ? C.card : C.bg }}>
-                      <td style={{ padding: '10px 14px', fontWeight: 700, color: C.heading }}>{p.symbol}</td>
-                      <td style={{ padding: '10px 14px' }}>
-                        <StrategyTagButton symbol={p.symbol} currentTag={p.strategy_tag ?? 'accumulator'} strategies={activeStrategies} />
-                      </td>
-                      <td style={{ padding: '10px 14px', color: C.body }}>{p.remaining_qty} <span style={{ color: C.muted }}>/ {p.total_qty}</span></td>
-                      <td style={{ padding: '10px 14px', color: C.body }}>₹{fmt(p.first_buy_price)}</td>
-                      <td style={{ padding: '10px 14px', textAlign: 'right', color: C.body }}>{ltp != null ? `₹${fmt(ltp)}` : '—'}</td>
-                      <td style={{ padding: '10px 14px', textAlign: 'right', fontWeight: 600, color: pnlColor }}>
-                        {pnl == null ? '—' : `${pnl >= 0 ? '+' : ''}₹${fmt(Math.abs(pnl), 0)}`}
-                      </td>
-                      <td style={{ padding: '10px 14px', color: C.body }}>{days}d</td>
-                      <td style={{ padding: '10px 14px', color: C.muted, fontSize: 12 }}>
-                        {new Date(p.first_buy_at).toLocaleDateString('en-IN', { day: 'numeric', month: 'short', year: '2-digit' })}
-                      </td>
+        <>
+          <div className="desktop-only">
+            <div style={{ background: C.card, border: `1px solid ${C.border}`, borderRadius: 12, overflow: 'hidden' }}>
+              <div style={{ overflowX: 'auto' }}>
+                <table style={{ width: '100%', borderCollapse: 'collapse', fontSize: 13 }}>
+                  <thead>
+                    <tr style={{ background: '#EFF6FF' }}>
+                      {['Symbol', 'Strategy', 'Qty (Rem)', 'Avg Entry', 'LTP', 'Unreal. P&L', 'Days Held', 'Entry Date'].map(h => (
+                        <th key={h} style={{ padding: '10px 14px', textAlign: h === 'LTP' || h === 'Unreal. P&L' ? 'right' : 'left', fontWeight: 600, color: C.heading, fontSize: 11, textTransform: 'uppercase', letterSpacing: '0.04em' }}>{h}</th>
+                      ))}
                     </tr>
-                  )
-                })}
-              </tbody>
-            </table>
+                  </thead>
+                  <tbody>
+                    {rows.map((p: any, i: number) => {
+                      const ltp = ltpBySymbol.get(p.symbol.toUpperCase()) ?? null
+                      const pnl = ltp != null ? (ltp - p.first_buy_price) * p.remaining_qty : null
+                      const pnlColor = pnl == null ? C.muted : pnl >= 0 ? '#16A34A' : '#DC2626'
+                      const days = Math.floor((Date.now() - new Date(p.first_buy_at).getTime()) / 86400000)
+                      return (
+                        <tr key={p.id} style={{ borderTop: `1px solid ${C.border}`, background: i % 2 === 0 ? C.card : C.bg }}>
+                          <td style={{ padding: '10px 14px', fontWeight: 700, color: C.heading }}>{p.symbol}</td>
+                          <td style={{ padding: '10px 14px' }}>
+                            <StrategyTagButton symbol={p.symbol} currentTag={p.strategy_tag ?? 'accumulator'} strategies={activeStrategies} />
+                          </td>
+                          <td style={{ padding: '10px 14px', color: C.body }}>{p.remaining_qty} <span style={{ color: C.muted }}>/ {p.total_qty}</span></td>
+                          <td style={{ padding: '10px 14px', color: C.body }}>₹{fmt(p.first_buy_price)}</td>
+                          <td style={{ padding: '10px 14px', textAlign: 'right', color: C.body }}>{ltp != null ? `₹${fmt(ltp)}` : '—'}</td>
+                          <td style={{ padding: '10px 14px', textAlign: 'right', fontWeight: 600, color: pnlColor }}>
+                            {pnl == null ? '—' : `${pnl >= 0 ? '+' : ''}₹${fmt(Math.abs(pnl), 0)}`}
+                          </td>
+                          <td style={{ padding: '10px 14px', color: C.body }}>{days}d</td>
+                          <td style={{ padding: '10px 14px', color: C.muted, fontSize: 12 }}>
+                            {new Date(p.first_buy_at).toLocaleDateString('en-IN', { day: 'numeric', month: 'short', year: '2-digit' })}
+                          </td>
+                        </tr>
+                      )
+                    })}
+                  </tbody>
+                </table>
+              </div>
+            </div>
           </div>
-        </div>
+
+          <div className="mobile-only">
+            <div style={{ display: 'flex', flexDirection: 'column', gap: 10 }}>
+              {rows.map((p: any) => {
+                const ltp = ltpBySymbol.get(p.symbol.toUpperCase()) ?? null
+                const pnl = ltp != null ? (ltp - p.first_buy_price) * p.remaining_qty : null
+                const pnlColor = pnl == null ? C.muted : pnl >= 0 ? '#16A34A' : '#DC2626'
+                const days = Math.floor((Date.now() - new Date(p.first_buy_at).getTime()) / 86400000)
+
+                return (
+                  <div key={p.id} style={{ background: C.card, border: `1px solid ${C.border}`, borderRadius: 12, padding: 12 }}>
+                    <div style={{ display: 'flex', justifyContent: 'space-between', gap: 10, alignItems: 'center' }}>
+                      <div style={{ minWidth: 0 }}>
+                        <div style={{ fontWeight: 700, fontSize: 17, color: C.heading }}>{p.symbol}</div>
+                        <div style={{ marginTop: 4 }}>
+                          <StrategyTagButton symbol={p.symbol} currentTag={p.strategy_tag ?? 'accumulator'} strategies={activeStrategies} />
+                        </div>
+                      </div>
+
+                      <div style={{ textAlign: 'right', minWidth: 90 }}>
+                        <div style={{ color: C.muted, fontSize: 11 }}>LTP</div>
+                        <div style={{ fontWeight: 700, color: C.heading, fontSize: 17 }}>{ltp != null ? `₹${fmt(ltp)}` : '—'}</div>
+                      </div>
+                    </div>
+
+                    <div style={{ display: 'grid', gridTemplateColumns: '1fr auto', gap: 10, marginTop: 10 }}>
+                      <div style={{ color: C.body, fontSize: 12, lineHeight: 1.7 }}>
+                        <div>Qty: <strong>{p.remaining_qty}</strong> / {p.total_qty}</div>
+                        <div>Avg: <strong>₹{fmt(p.first_buy_price)}</strong></div>
+                        <div>Days: <strong>{days}d</strong></div>
+                      </div>
+
+                      <div style={{ textAlign: 'right', minWidth: 90 }}>
+                        <div style={{ color: C.muted, fontSize: 11 }}>P/L</div>
+                        <div style={{ fontWeight: 700, fontSize: 16, color: pnlColor }}>
+                          {pnl == null ? '—' : `${pnl >= 0 ? '+' : ''}₹${fmt(Math.abs(pnl), 0)}`}
+                        </div>
+                      </div>
+                    </div>
+                  </div>
+                )
+              })}
+            </div>
+          </div>
+        </>
       )}
+
+      <style>{`
+        .desktop-only { display: block; }
+        .mobile-only { display: none; }
+
+        @media (max-width: 767px) {
+          .desktop-only { display: none !important; }
+          .mobile-only { display: block !important; }
+        }
+      `}</style>
     </div>
   )
 }
