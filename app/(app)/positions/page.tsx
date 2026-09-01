@@ -135,11 +135,13 @@ export default async function PositionsPage() {
                   {dayPositions.map(p => {
                     const netQty = p.quantity
                     const buyPrice = p.buy_price ?? p.day_buy_price ?? p.average_price ?? 0
+                    const originalBuyPrice = p.average_price ?? p.buy_price ?? p.day_buy_price ?? null
                     const sellPrice = p.sell_price ?? 0
                     const ltp = p.last_price
                     const pnl = p.pnl ?? 0
                     const pnlColor = pnl >= 0 ? '#16A34A' : '#DC2626'
                     const canSquareOff = netQty !== 0
+                    const days = typeof p.day_buy_quantity !== 'undefined' && p.day_buy_quantity > 0 ? 0 : 1
 
                     return (
                       <div key={p.tradingsymbol} style={{ background: C.card, border: `1px solid ${C.border}`, borderRadius: 12, padding: 12 }}>
@@ -152,17 +154,24 @@ export default async function PositionsPage() {
 
                         <div style={{ display: 'grid', gridTemplateColumns: '1fr auto', gap: 8, marginTop: 8 }}>
                           <div style={{ color: C.body, fontSize: 12, lineHeight: 1.7 }}>
-                            <div>Bought: <strong>{p.day_buy_quantity ?? 0}</strong></div>
-                            <div>Sold: <strong>{p.day_sell_quantity ?? 0}</strong></div>
-                            <div>Buy: <strong>₹{fmt(buyPrice)}</strong></div>
-                            <div>Sell: <strong>₹{fmt(sellPrice)}</strong></div>
+                            <div>Qty: <strong>{p.day_buy_quantity ?? 0}</strong> / Sold: <strong>{p.day_sell_quantity ?? 0}</strong></div>
+                            <div>Days: <strong>{days}d</strong></div>
+                            <div>Avg Buy: <strong>₹{fmt(originalBuyPrice ?? buyPrice)}</strong></div>
+                            {sellPrice > 0 && (
+                              <div>Sell: <strong>₹{fmt(sellPrice)}</strong></div>
+                            )}
                           </div>
 
-                          <div style={{ textAlign: 'right', minWidth: 90 }}>
-                            <div style={{ color: C.muted, fontSize: 11 }}>LTP</div>
-                            <div style={{ fontWeight: 700, color: C.heading, fontSize: 17 }}>₹{fmt(ltp)}</div>
+                          <div style={{ textAlign: 'right', minWidth: 110 }}>
+                            <div style={{ display: 'inline-flex', alignItems: 'baseline', gap: 4, justifyContent: 'flex-end', whiteSpace: 'nowrap' }}>
+                              <span style={{ color: C.muted, fontSize: 11 }}>LTP</span>
+                              <span style={{ fontWeight: 700, color: C.heading, fontSize: 17 }}>₹{fmt(ltp)}</span>
+                            </div>
                             <div style={{ marginTop: 6, fontWeight: 700, fontSize: 12, color: pnlColor }}>
                               {pnl >= 0 ? '+' : ''}₹{fmt(pnl, 0)}
+                            </div>
+                            <div style={{ marginTop: 2, fontWeight: 700, fontSize: 12, color: pnlColor }}>
+                              {pnl >= 0 ? '+' : ''}{fmt(((pnl / Math.max(buyPrice, 1)) * 100) || 0)}%
                             </div>
                           </div>
                         </div>

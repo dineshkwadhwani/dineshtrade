@@ -381,21 +381,28 @@ export default async function HoldingsPage() {
                             </span>
                           ) : null}
                         </div>
+
                         <div style={{ display: 'flex', flexWrap: 'wrap', gap: 10, color: C.body, fontSize: 12, lineHeight: 1.5 }}>
                           <span>Qty: <strong>{totalQty}</strong></span>
                           <span>Avg: <strong>₹{fmt(h.average_price)}</strong></span>
+                          <span>Days: <strong>{h.firstBuyAt ? daysHeld(h.firstBuyAt) : '—'}</strong></span>
                         </div>
+
                         <div style={{ marginTop: 8, fontSize: 12, color: C.body }}>
                           Invested: <strong>₹{fmt(investedAmount)}</strong>
                         </div>
+
                         <div style={{ marginTop: 4, fontSize: 12, color: pnlColor, fontWeight: 700 }}>
                           P/L %: {pnlPct >= 0 ? '+' : ''}{fmt(pnlPct)}%
                         </div>
                       </div>
 
-                      <div style={{ textAlign: 'right', minWidth: 110 }}>
-                        <div style={{ color: C.body, fontSize: 12, marginBottom: 4 }}>LTP</div>
-                        <div style={{ fontWeight: 700, color: C.heading, fontSize: 18 }}>₹{fmt(h.last_price)}</div>
+                      <div style={{ textAlign: 'right', minWidth: 120 }}>
+                        <div style={{ display: 'inline-flex', alignItems: 'baseline', gap: 4, justifyContent: 'flex-end', whiteSpace: 'nowrap' }}>
+                          <span style={{ color: C.body, fontSize: 12 }}>LTP</span>
+                          <span style={{ fontWeight: 700, color: C.heading, fontSize: 18 }}>₹{fmt(h.last_price)}</span>
+                        </div>
+
                         <div style={{ marginTop: 8, fontSize: 12, color: todayColor, fontWeight: 700 }}>
                           {todayPct == null ? 'Today —' : `${todayPct >= 0 ? '+' : ''}${fmt(todayPct)}%`}
                         </div>
