@@ -478,12 +478,19 @@ export async function setStrategyId(account: string, symbol: string, newStrategy
       console.log(`[positions] setStrategyId called for ${symbol} without restampLots — lots left intact`)
     }
     p.strategyId = newStrategyId
-    // Only re-stamp lot-level owners when explicitly requested by the caller.
-    // This avoids accidental re-assignment of legacy/other lots when a
-    // position-level tag is changed for other reasons (UI/admin/API calls).
+    // When a position is intentionally re-tagged, any lot still carrying the
+    // old owner or an inherited position-level strategy must become owned by
+    // the new strategy. This is the key contract for momentum exits: once a
+    // position is reassigned, the lot itself is treated as the new strategy's
+    // asset and its T1/T2 targets must come from the new strategy.
+    //
+    // We intentionally do not overwrite lots that already belong to a different
+    // strategy (mixed-strategy pyramids), but we do re-home stale/legacy lots
+    // that still reflect the previous owner.
     if (restampLots && p.lots && p.lots.length > 0) {
       for (const lot of p.lots) {
-        if (!lot.strategyId || lot.strategyId === oldStrategyId) {
+        const inheritedFromOldOwner = !lot.strategyId || lot.strategyId === oldStrategyId || lot.strategyId === p.strategyId
+        if (inheritedFromOldOwner) {
           lot.strategyId = newStrategyId
         }
       }
