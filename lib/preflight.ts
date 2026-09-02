@@ -88,11 +88,12 @@ export interface PreflightInput {
   //   - SELL: noShort (with qty clamping)
   manual?: boolean
   // When true, GATE 9 (no-loss sell) is skipped even in auto mode. Used by
-  // squareOffEOD — it must sell regardless of P&L at end of day.
+  // end-of-day flows that are allowed to sell regardless of P&L when the rule
+  // explicitly says the exit is valid (e.g. square-off or profitable exit).
   bypassNoLossSell?: boolean
   // Explicit audited reasons for bypassing the no-loss gate. Prefer this over
   // the raw boolean for new flows so callers state why the override exists.
-  bypassNoLossSellReason?: 'squareOffEOD' | 'pivotalStopLoss'
+  bypassNoLossSellReason?: 'squareOffEOD' | 'exitSameDayOnPositive' | 'pivotalStopLoss'
 }
 
 export interface PreflightResult {

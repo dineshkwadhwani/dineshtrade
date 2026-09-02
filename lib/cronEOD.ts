@@ -122,11 +122,18 @@ export async function runEODSquareOff(): Promise<void> {
         if (!shouldSell) continue
 
         const qty = pos.remainingQty
+        const noLossBypass = squareOffEOD || exitOnPositive
+        const noLossReason: 'squareOffEOD' | 'exitSameDayOnPositive' | undefined = squareOffEOD
+          ? 'squareOffEOD'
+          : exitOnPositive
+            ? 'exitSameDayOnPositive'
+            : undefined
         const pre = await runPreflight({
           account, symbol: pos.symbol, side: 'SELL',
           quantity: qty, pricePerShare: ltp,
           strategyId: strategy.id,
-          bypassNoLossSell: squareOffEOD,
+          bypassNoLossSell: noLossBypass,
+          bypassNoLossSellReason: noLossReason,
         }, broker)
         const sellQty = pre.adjustedQty ?? qty
         if (!pre.ok) {
