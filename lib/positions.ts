@@ -469,15 +469,26 @@ export async function setStrategyId(account: string, symbol: string, newStrategy
     const k = makeKey(account, symbol)
     // Fall back to symbol-only match — customer_id scoping already isolates per-customer data
     const p = all[k] ?? Object.values(all).find(pos => pos.symbol === symbol.toUpperCase())
-    if (!p || p.strategyId === newStrategyId) return false
+    if (!p) return false
     // Self-heal account field while we're here
     if (p.account !== account.toUpperCase()) p.account = account.toUpperCase()
-    const oldStrategyId = p.strategyId
-    console.log(`[positions] re-stamped ${symbol}: ${oldStrategyId} → ${newStrategyId}`)
+    const previousPositionStrategy = p.strategyId
+    const staleLotOwner = p.lots
+      ?.map(lot => lot.strategyId)
+      .filter((strategyId): strategyId is string => !!strategyId && strategyId !== newStrategyId)[0]
+    const oldStrategyId = previousPositionStrategy !== newStrategyId ? previousPositionStrategy : staleLotOwner ?? previousPositionStrategy
+
+    const positionChanged = previousPositionStrategy !== newStrategyId
+    if (!positionChanged && !restampLots) return false
+
+    console.log(`[positions] re-stamped ${symbol}: ${previousPositionStrategy} → ${newStrategyId}${positionChanged ? '' : ' (restamping stale lots only)'}`)
     if (!restampLots) {
       console.log(`[positions] setStrategyId called for ${symbol} without restampLots — lots left intact`)
     }
-    p.strategyId = newStrategyId
+    if (positionChanged) {
+      p.strategyId = newStrategyId
+    }
+
     // When a position is intentionally re-tagged, any lot still carrying the
     // old owner or an inherited position-level strategy must become owned by
     // the new strategy. This is the key contract for momentum exits: once a
@@ -486,10 +497,12 @@ export async function setStrategyId(account: string, symbol: string, newStrategy
     //
     // We intentionally do not overwrite lots that already belong to a different
     // strategy (mixed-strategy pyramids), but we do re-home stale/legacy lots
-    // that still reflect the previous owner.
+    // that still reflect the previous owner. This also handles the edge case where
+    // the position row was already updated to the new strategy but one or more lots
+    // still carry the old strategy tag.
     if (restampLots && p.lots && p.lots.length > 0) {
       for (const lot of p.lots) {
-        const inheritedFromOldOwner = !lot.strategyId || lot.strategyId === oldStrategyId || lot.strategyId === p.strategyId
+        const inheritedFromOldOwner = !lot.strategyId || lot.strategyId === oldStrategyId || lot.strategyId === previousPositionStrategy
         if (inheritedFromOldOwner) {
           lot.strategyId = newStrategyId
         }
