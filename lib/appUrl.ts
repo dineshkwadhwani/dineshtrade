@@ -1,5 +1,12 @@
 // Build URLs that preserve the current subdomain in multi-tenant mode.
-// Always called from client-side code where `window` is available.
+// The active browser host must win over any static main-domain fallback; a
+// customer app running on dinesh.dalgo.online must never synthesize URLs against
+// the root dalgo.online host unless the user is actually on that host.
+
+function isDAlgoSubdomain(hostname: string): boolean {
+  const host = hostname.split(':')[0].toLowerCase()
+  return host.endsWith('.dalgo.online') && host !== 'dalgo.online' && host !== 'www.dalgo.online'
+}
 
 export function getAppUrl(): string {
   if (typeof window === 'undefined') {
@@ -8,13 +15,13 @@ export function getAppUrl(): string {
   }
 
   const host = window.location.hostname
-  const isSubdomain = host.endsWith('.dalgo.online') && host !== 'dalgo.online' && host !== 'www.dalgo.online'
-  
-  if (isSubdomain) {
+  if (isDAlgoSubdomain(host)) {
     return `https://${host}`
   }
   
   // Main domain or dev — use env-configured URL
+  // Important: when the app is already on a customer subdomain, do not let a
+  // root-domain env value override the current site origin.
   return (process.env.NEXT_PUBLIC_APP_URL || 'https://www.dalgo.online').replace(/\/$/, '')
 }
 

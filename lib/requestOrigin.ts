@@ -18,6 +18,12 @@ function isAllowedHost(host: string): boolean {
   return DALGO_HOST.test(hostname) && (MAIN_HOSTS.has(hostname) || hostname.endsWith('.dalgo.online'))
 }
 
+function normalizeOriginFromHost(hostname: string, protocol: string, port: string): string {
+  const baseHost = hostname.split(':')[0].toLowerCase()
+  const sanitizedPort = port && !baseHost.includes(':') ? port : ''
+  return `${protocol}://${baseHost}${sanitizedPort}`
+}
+
 export function getRequestBase(headers: RequestHeaders): string {
   const forwardedHost = firstHeaderValue(headers.get('x-forwarded-host'))
   const hostHeader = firstHeaderValue(headers.get('host'))
@@ -28,9 +34,16 @@ export function getRequestBase(headers: RequestHeaders): string {
 
   const hostname = candidate.split(':')[0].toLowerCase()
   const isProduction = process.env.NODE_ENV === 'production'
+  const isSubdomain = hostname.endsWith('.dalgo.online') && hostname !== 'dalgo.online' && hostname !== 'www.dalgo.online'
   const protocol = isProduction
     ? 'https'
     : firstHeaderValue(headers.get('x-forwarded-proto')) || 'http'
   const port = !isProduction && candidate.includes(':') ? `:${candidate.split(':').slice(1).join(':')}` : ''
-  return `${protocol}://${hostname}${port}`
+
+  // Always prefer the active request host over any configured main-domain URL.
+  if (isSubdomain || MAIN_HOSTS.has(hostname)) {
+    return normalizeOriginFromHost(hostname, protocol, port)
+  }
+
+  return configured
 }
