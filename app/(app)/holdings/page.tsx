@@ -375,11 +375,24 @@ export default async function HoldingsPage() {
                       <div style={{ minWidth: 0, flex: 1 }}>
                         <div style={{ display: 'flex', alignItems: 'center', gap: 8, flexWrap: 'wrap', marginBottom: 4 }}>
                           <div style={{ fontWeight: 700, fontSize: 16, color: C.heading, letterSpacing: '-0.01em' }}>{h.symbol}</div>
-                          {h.strategyTag ? (
-                            <span style={{ borderRadius: 999, background: '#E0F2FE', color: '#1D4ED8', fontSize: 10, fontWeight: 700, padding: '4px 8px', lineHeight: 1.2 }}>
-                              {h.strategyTag}
-                            </span>
-                          ) : null}
+                          {h.strategyTag
+                            ? <StrategyTagButton
+                                symbol={h.symbol}
+                                currentTag={h.strategyTag}
+                                strategies={activeStrategies}
+                                kiteQty={h.quantity + h.t1_quantity}
+                                kiteAvgPrice={h.average_price}
+                                disabled={h.tagDisabled}
+                              />
+                            : h.fromKite
+                              ? <StrategyTagButton
+                                  symbol={h.symbol}
+                                  currentTag="untracked"
+                                  strategies={activeStrategies}
+                                  kiteQty={h.quantity + h.t1_quantity}
+                                  kiteAvgPrice={h.average_price}
+                                />
+                              : null}
                         </div>
 
                         <div style={{ display: 'flex', flexWrap: 'wrap', gap: 10, color: C.body, fontSize: 12, lineHeight: 1.5 }}>
