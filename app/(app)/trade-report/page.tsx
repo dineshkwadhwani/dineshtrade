@@ -30,6 +30,12 @@ interface AccessibleCustomer {
   name: string
 }
 
+interface CustomerReportContext {
+  role?: string
+  customerId?: string
+  customers?: AccessibleCustomer[]
+}
+
 function istTodayYmd(): string {
   const fmt = new Intl.DateTimeFormat('en-CA', {
     timeZone: 'Asia/Kolkata',
@@ -78,23 +84,25 @@ export default function TradeReportPage() {
       fetch('/api/strategies').then(r => r.json()).catch(() => ({ strategies: [] })),
       fetch('/api/state').then(r => r.json()).catch(() => ({ accountsWithToken: [] })),
       fetch('/api/dalgo/trade-report/customers').then(r => r.json()).catch(() => ({ role: 'customer', customers: [] })),
-    ]).then(([accountsData, strategiesData, stateData, customersData]) => {
-      setAccounts(Array.isArray(accountsData.accounts) ? accountsData.accounts : [])
+    ]).then(([accountsData, strategiesData, stateData, customersData]: [any, any, StateResponse, CustomerReportContext]) => {
+      const role = customersData.role || 'customer'
+      const customerId = customersData.customerId || ''
+      const nextAccounts = Array.isArray(accountsData.accounts) ? accountsData.accounts : []
+      setAccounts(role === 'customer' && customerId
+        ? nextAccounts.map((account: AccountDisplay) => ({ ...account, name: customerId }))
+        : nextAccounts)
       const nextStrategies = Array.isArray(strategiesData.strategies)
         ? (strategiesData.strategies as StrategyOption[]).map(strategy => ({ id: strategy.id, name: strategy.name }))
         : []
       setStrategies(nextStrategies)
       setConnectedAccounts(Array.isArray((stateData as StateResponse).accountsWithToken) ? (stateData as StateResponse).accountsWithToken as string[] : [])
-      const role = customersData.role || 'customer'
       const customers: AccessibleCustomer[] = Array.isArray(customersData.customers) ? customersData.customers : []
       setUserRole(role)
       setAccessibleCustomers(customers)
       // For admin roles, auto-select the first customer if only one
       if (role !== 'customer' && customers.length === 1) setSelectedCustomerId(customers[0].id)
+      if (role === 'customer' && customerId) setAccountFilter(customerId)
     }).catch(() => {})
-
-    // Customers run report for themselves immediately; admins wait for customer selection
-    runReport(fromDate, toDate, accountFilter, strategyFilter, symbolFilter)
   }, [])
 
   async function runReport(nextFrom = fromDate, nextTo = toDate, nextAccount = accountFilter, nextStrategy = strategyFilter, nextSymbol = symbolFilter, nextCustomerId = selectedCustomerId) {
@@ -103,6 +111,7 @@ export default function TradeReportPage() {
       setError('Please select a customer to view their trade report.')
       return
     }
+
     setLoading(true)
     setError('')
     setInfo('')
@@ -126,7 +135,6 @@ export default function TradeReportPage() {
       const nextResult = (data.result || null) as LiveTradeReportResult | null
       setResult(nextResult)
       setSymbolOptions(Array.isArray(nextResult?.availableSymbols) ? nextResult.availableSymbols : [])
-
       const today = istTodayYmd()
       const includesToday = nextTo === today
       if (includesToday) {
@@ -272,7 +280,7 @@ export default function TradeReportPage() {
               }}
               className="w-full px-3 py-2.5 rounded-lg text-[12px] outline-none"
               style={{ background:'rgba(255,255,255,0.04)', border:'1px solid rgba(201,168,76,0.25)', color:'#c9a84c', fontFamily:'JetBrains Mono, monospace' }}>
-              <option value="">All accounts</option>
+              {userRole !== 'customer' && <option value="">All accounts</option>}
               {accounts.map(account => (
                 <option key={account.name} value={account.name}>{account.displayName || account.name}</option>
               ))}
@@ -311,9 +319,6 @@ export default function TradeReportPage() {
                 setResult(null)
                 setError('')
                 setInfo('')
-                if (loaded && fromDate && toDate) {
-                  void runReport(fromDate, toDate, accountFilter, strategyFilter, nextSymbol, selectedCustomerId)
-                }
               }}
               className="w-full px-3 py-2.5 rounded-lg text-[12px] outline-none"
               style={{ background:'rgba(255,255,255,0.04)', border:'1px solid rgba(201,168,76,0.25)', color:'#c9a84c', fontFamily:'JetBrains Mono, monospace' }}>
@@ -332,7 +337,8 @@ export default function TradeReportPage() {
         </div>
       </div>
 
-      {!loaded && <p className="text-[11px] dt-text-muted">Loading…</p>}
+      {!loaded && !loading && <p className="text-[11px] dt-text-muted">Set your filters, then run the report.</p>}
+      {loading && <p className="text-[11px] dt-text-muted">Loading…</p>}
 
       {info && (
         <div className="rounded-lg p-3" style={{ background:'rgba(82,183,136,0.06)', border:'1px solid rgba(82,183,136,0.3)' }}>

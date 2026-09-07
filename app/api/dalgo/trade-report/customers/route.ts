@@ -13,7 +13,7 @@ export async function GET() {
   if (!profile) return NextResponse.json({ error: 'No active session.' }, { status: 401 })
 
   if (profile.role === 'customer') {
-    return NextResponse.json({ role: profile.role, customers: [] })
+    return NextResponse.json({ role: profile.role, customerId: profile.id, customers: [] })
   }
 
   const admin = getSupabaseAdmin()
