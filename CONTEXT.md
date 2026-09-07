@@ -1,7 +1,7 @@
 # DineshTrade — Project Context
 
-**Last Updated:** 21 Aug 2026
-**Version:** 3.1 — added §17 (mass position deletion incident, root causes, fixes, and reconciliation/deployment operational facts). See §17 for the most recent and most safety-critical changes.
+**Last Updated:** 07 Sep 2026
+**Version:** 3.2 — added §18 (current multi-row/lot contract and recent-session handoff). See §18 for the authoritative row semantics.
 **Version 2.8 note:** capital/gate/strategy numbers below re-verified directly against live `data/strategy.json` and `lib/preflight.ts` on 09 Aug 2026; see `docs/ARCHITECTURE.md`, `docs/DATA_MODEL.md`, and `docs/MULTI_TENANCY_CURRENT_STATE.md` for the full code-verified picture (docs/ was reorganized the same day — speculative and superseded docs moved to `docs/archive/`).
 **Purpose:** This file gives Claude (or any AI assistant) full context of everything discussed so far about this project. Start any new conversation by uploading this file.
 
@@ -618,6 +618,83 @@ Older docs (`docs/archive/v1-historical-2026-06/`,
 `docs/archive/v2-unbuilt-angelone-supabase-plan/`) are historical/speculative only —
 see `docs/README.md` for why they were archived and what's wrong with trusting them
 as current state.
+
+## 18. CURRENT MULTI-ROW / LOT CONTRACT (07 Sep 2026)
+
+This is the authoritative explanation of how one account can show more than one row
+for the same symbol. Do not collapse rows by symbol before applying these rules.
+
+### Storage model
+
+- The unified position store has one aggregate parent per `account + symbol`.
+- Every BUY is represented by a separate lot with its own `id`, `boughtAt`,
+  `entryPrice`, `originalQty`, `remainingQty`, tranche state, and source
+  `strategyId`.
+- Parent fields (`totalQty`, `remainingQty`, `firstBuyPrice`, weighted average)
+  are summaries. They are not exit anchors and must not replace lot fields when
+  deciding a SELL.
+- `applyLotSell()` changes only the selected lot and then recomputes the parent
+  summary. A partial T1/T2 exit must not consume or rewrite another lot.
+- When `remainingQty` reaches zero, the lot is closed. A later BUY creates a new
+  lot rather than reviving the old entry or reusing its target ladder.
+
+### When UI/API rows split
+
+The aggregate store may remain one parent row, but reporting surfaces can emit
+multiple rows for the same symbol when the underlying events are distinct:
+
+1. different open lots need separate strategy attribution or price/quantity detail;
+2. separate BUY/SELL trades closed today have different order/trade identities;
+3. an old lot is sold and a new lot is bought again on the same day; or
+4. the same symbol exists in settled holdings and in today's T0 activity.
+
+`/api/positions` must therefore preserve journal trade identity and lot identity
+while enriching rows with live Kite data. Kite's netted symbol row is only a live
+quantity/price input; it cannot be the sole source for today's row shape.
+
+### Page-specific semantics
+
+- **Holdings:** shows currently held quantity. A sold-today lot is clamped to zero,
+  uses the buy cost for its average, and may retain a visible row so the completed
+  event remains explainable. Holdings dedupes duplicate Kite feeds after flattening
+  lots using `symbol + lotId`, preferring the T0 row; the no-lot fallback is only a
+  composite symbol/price/quantity key.
+- **Today's Positions:** mirrors Kite's day-position semantics. A pure sale of
+  settled inventory can be negative; a same-day round trip is zero/closed. A
+  journal-rebuilt row keeps the actual trade's strategy and order identity.
+- **Strategy Positions / automation:** uses the lot-level store and each lot's
+  strategy first. The parent strategy is only a fallback for legacy rows without a
+  lot strategy. Exit monitors evaluate one lot at a time and pass that lot's entry
+  price into no-loss preflight.
+- **Trade Report:** pairs journaled order legs, not netted symbol rows. Do not
+  infer a closed trade by subtracting aggregate symbol quantities.
+
+### Strategy attribution and re-tagging
+
+- A lot retains the strategy that created it, even when another strategy already
+  owns an older lot for the same symbol.
+- Holdings display uses the most recent open lot's strategy when one summary badge
+  is required; detailed rows use the individual lot strategy.
+- `setStrategyId` must update only lots whose strategy matches the old strategy.
+  It must never overwrite every lot in a mixed-strategy parent position.
+- A handoff to `accumulator` is an ownership change on the affected lot/position,
+  not a new BUY and not a reason to merge unrelated lots.
+
+### Recent-session progress and remaining risk
+
+- Completed: per-buy lots are preserved for Accumulator and momentum strategies;
+  lot-level T1/T2 exits, strategy IDs, weighted averages, sold-today reconstruction,
+  T+1 quantity handling, and final `symbol + lotId` dedupe are documented and live.
+- Completed: the position-store read/write race was fixed with mutation-aware
+  normalization and an async mutex around read-modify-write operations.
+- Completed: silent Kite fetch failures no longer look like external sales; monitor
+  ticks skip safely, reconciliation isolates failures per symbol/account, and a
+  journaled-today-but-untracked holding is recreated instead of being skipped.
+- Operational fact: reconciliation is cron-driven, not page-load-driven. A code push
+  does not deploy by itself; EC2 requires `~/deploybranch.sh` and a PM2 restart.
+- Remaining risk: recovery-created rows default to `accumulator`, reset their age
+  clock, and do not recover historical tranche state. Re-tag them deliberately and
+  do not treat the recovered row as proof of its original strategy history.
 
 For GitHub Copilot or Cursor: see `COPILOT.md` in the repo root for the full technical handoff document.
 

@@ -2,8 +2,8 @@
 
 **Purpose:** Zero-context onboarding for GitHub Copilot, Cursor, or any AI assistant picking up this codebase for the first time. Read top-to-bottom before touching any file.
 
-**Last Updated:** 07 Jun 2026 (body), corrected 09 Aug 2026, addendum 13 Aug 2026 (ops/health/cron updates)
-**Version:** 1.3
+**Last Updated:** 07 Sep 2026 (multi-row/lot contract and recovery handoff)
+**Version:** 1.4
 
 > Also read `docs/README.md` first — it points at `docs/ARCHITECTURE.md`,
 > `docs/APP_MAP.md`, `docs/DATA_MODEL.md`, and `docs/MULTI_TENANCY_CURRENT_STATE.md`,
@@ -184,6 +184,35 @@ Used as a **read-only fallback** in:
 - `GET /api/strategy/positions` — same purpose
 
 Do **not** use this as the primary tag source. It is a fallback only.
+
+### Multi-row / lot contract (must preserve)
+
+One `account + symbol` can have multiple BUY lots even though the unified store has
+one aggregate parent row. Each lot is independent and carries its own `id`, entry
+price, remaining quantity, tranche state, timestamps, and source strategy. Parent
+fields are summaries only.
+
+- A repeated BUY appends a lot. It never overwrites an older lot's exit ladder.
+- A partial SELL updates only the selected lot; then parent totals/weighted average
+  are recomputed. A fully closed lot is not revived by a later BUY.
+- SELL monitors evaluate lots independently and pass the selected lot's entry price
+  to no-loss preflight. Do not use the parent weighted average as the exit anchor.
+- `setStrategyId(old, next)` updates only lots currently tagged `old`; mixed-strategy
+  parent rows must remain mixed.
+- `/api/positions` may emit multiple rows for one symbol when trades/lots have
+  different identities, strategies, same-day round trips, or settled-vs-T0 sources.
+  Do not collapse these rows by symbol. Kite's netted row cannot represent them.
+- Holdings clamps sold-today quantities to zero and prefers buy cost for average
+  price. Today's Positions preserves Kite signed day quantities, including negative
+  pure-sale rows and zero round trips. Trade Report pairs journal order legs.
+- When flattening Holdings inputs, dedupe only after lot expansion using
+  `symbol + lotId`, prefer T0 data, and use a composite fallback only when no lot ID
+  exists.
+
+The detailed source-of-truth explanation is in `CONTEXT.md` §18 and the shape is
+also summarized in `docs/DATA_MODEL.md`. If a proposed change merges rows or moves
+strategy ownership, read those sections before editing `lib/positions.ts` or
+`app/api/positions`.
 
 ---
 

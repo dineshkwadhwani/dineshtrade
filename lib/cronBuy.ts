@@ -1,3 +1,13 @@
+// V2 uses the customer UUID as the execution identity. Legacy broker labels
+// such as DINESH must not be allowed to run a second BUY loop in the same
+// process after the customer-scoped cron has been enabled.
+export function isCustomerAccountAllowed(account: string): boolean {
+  const customerIds = (process.env.CUSTOMER_IDS || '')
+    .split(',')
+    .map(id => id.trim().toUpperCase())
+    .filter(Boolean)
+  return customerIds.length === 0 || customerIds.includes(account.trim().toUpperCase())
+}
 // Auto-buy engine for the cron subsystem.
 // Handles the per-recommendation BUY placement and per-strategy scan task body.
 
@@ -58,6 +68,10 @@ function recordAutoBuySkip(args: {
 }
 
 export async function autoBuyOnAccount(account: string, accountDisplayName: string | undefined, recs: Recommendation[]) {
+  if (!isCustomerAccountAllowed(account)) {
+    console.warn(`[cron autoBuy] skipped legacy account identity ${account}; V2 execution is customer-scoped`)
+    return
+  }
   const creds = await resolveAccountCreds(account)
   if (!creds.ok) {
     const reason = `[credentials] ${creds.error}`
@@ -235,9 +249,9 @@ export async function runStrategyTaskBody(strategy: Strategy): Promise<void> {
       if (result.message) console.log(`[cron strategy:${strategy.id}] 0 recs: ${result.message}`)
     } else {
       const accounts = getAccountList()
-      const targetAccounts = state.selectedAccounts.filter(a => !!state.kiteTokens[a])
+      const targetAccounts = state.selectedAccounts.filter(a => isCustomerAccountAllowed(a) && !!state.kiteTokens[a])
       if (targetAccounts.length === 0) {
-        const missingTokenAccounts = state.selectedAccounts.filter(a => !state.kiteTokens[a])
+        const missingTokenAccounts = state.selectedAccounts.filter(a => isCustomerAccountAllowed(a) && !state.kiteTokens[a])
         const detail = state.selectedAccounts.length === 0
           ? 'selectedAccounts is empty — check state.json'
           : `selected=[${state.selectedAccounts.join(',')}] missing tokens=[${missingTokenAccounts.join(',')}] — reconnect Zerodha for these accounts`

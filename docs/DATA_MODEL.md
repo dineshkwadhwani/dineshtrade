@@ -1,4 +1,4 @@
-# DineshTrade — Data Model (code-verified against live files, 09 Aug 2026)
+# DineshTrade — Data Model (code-verified against live files, 07 Sep 2026)
 
 No database exists. Everything below is a real file read directly from the repo /
 EC2 data directory. Two directories matter and they are **not the same thing**:
@@ -92,7 +92,38 @@ interface Strategy { id, name, type: StrategyType, active, color, scanIntervalMi
 Use `asDipParams()` / `asMomentumParams()` / `asPivotalParams()` from
 `lib/strategyConfig.ts` to narrow `Strategy.params` — never cast with `as any`.
 
-## 5. Journal event types (append-only, `journal-YYYY-MM.jsonl`)
+## 5. Multi-row and lot semantics
+
+The position store is aggregate-by-`account + symbol`, but its `lots` array is the
+behavioral source of truth. A repeated BUY appends a lot; it does not overwrite the
+older lot's entry or tranche ladder. Each lot is independently evaluated and sold,
+and `applyLotSell()` recomputes the parent totals after changing only that lot.
+The parent weighted average and `firstBuyPrice` are summary/compatibility fields,
+not SELL anchors.
+
+Reporting rows are not guaranteed to be unique by symbol. `/api/positions` keeps
+distinct journal trades and lot identities when the same symbol has different
+strategies, a same-day sell and re-buy, or settled holdings plus T0 activity. Kite
+often nets these into one symbol row, so Kite's row must not be used to decide the
+application row shape.
+
+Page rules:
+
+- Holdings shows currently held quantity, clamps sold-today lots to zero, and uses
+  buy cost for average price. After lot flattening, duplicate holdings/T0 inputs
+  are deduped by `symbol + lotId`, preferring T0; no-lot rows use a composite key.
+- Today's Positions preserves signed Kite day semantics: a pure sale from settled
+  inventory may be negative, while a same-day round trip is zero/closed.
+- Strategy positions and exit monitors use each lot's strategy and entry price.
+  The parent strategy is only a legacy fallback when a lot has no strategy ID.
+- Trade Report pairs journal order legs and must not derive closed trades from
+  aggregate symbol quantities.
+
+For the full operational contract, including re-tagging mixed-strategy lots and
+recovery-created positions, see `CONTEXT.md` §18 and `COPILOT.md`'s “Multi-row /
+lot contract” section.
+
+## 6. Journal event types (append-only, `journal-YYYY-MM.jsonl`)
 
 | `type` | Written by | Purpose |
 |---|---|---|

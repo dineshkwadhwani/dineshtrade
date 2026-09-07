@@ -543,7 +543,7 @@ export async function wipeAccountJournal(): Promise<{ filesModified: number; rec
       .select('id')
     if (error) {
       console.error(`[journal] wipeAccountJournal(${table}) error:`, error)
-      continue
+      throw new Error(`[journal] wipeAccountJournal(${table}) failed: ${error.message}`)
     }
     const removed = (data || []).length
     if (removed > 0) {

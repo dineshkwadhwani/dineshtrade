@@ -33,7 +33,7 @@ import {
   maybeRollDay, istHHMM, recordScan, recordExecuted, recordFailed,
   recordDelivery, shouldRunReactiveDip, dayStats, recordCoreTickRun,
 } from './cronState'
-import { autoBuyOnAccount, runStrategyTaskBody } from './cronBuy'
+import { autoBuyOnAccount, isCustomerAccountAllowed, runStrategyTaskBody } from './cronBuy'
 import { runEODSquareOff, dailyRetrospective } from './cronEOD'
 import { reconcileManualSells } from './cronReconcile'
 import { journalMonitorHeartbeat } from './journal'
@@ -318,7 +318,7 @@ async function tick(): Promise<void> {
       const reactive = await runReactiveDipScan()
       if (reactive.recommendations.length > 0) {
         const accounts = getAccountList()
-        const targetAccounts = state.selectedAccounts.filter(a => !!state.kiteTokens[a])
+        const targetAccounts = state.selectedAccounts.filter(a => isCustomerAccountAllowed(a) && !!state.kiteTokens[a])
         if (targetAccounts.length === 0) {
           console.log('[cron tick] reactive dip — no selectedAccounts with tokens; skipping auto-BUY')
         } else {
