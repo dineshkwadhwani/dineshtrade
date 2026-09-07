@@ -3,9 +3,9 @@ import type { Metadata } from 'next'
 import TaglineRotator from '@/components/marketing/TaglineRotator'
 
 export const metadata: Metadata = {
-  title: 'DAlgo - The California FinTech Trading Engine',
+  title: 'DAlgo | Precision Algo Trading for NSE Equities',
   description:
-    'Build, simulate, and automate NSE equity strategies with elegant controls, disciplined risk rails, and modern broker connectivity.',
+    'Automate disciplined NSE equity strategies with intelligent signals, broker-connected execution, and built-in risk controls.',
 }
 
 const MARKETING_LINES = [
