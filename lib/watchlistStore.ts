@@ -1,6 +1,6 @@
 // Runtime watchlist store — Supabase-backed (`customer_watchlists`, one row
 // per (customer_id, list_key)). Ported in Phase 4 of the multi-tenant
-// refactor from the file-based `~/dineshtrade/data/watchlist.json`.
+// refactor from the former file-backed implementation.
 //
 // Reads are uncached on the server — each strategy scan / API request picks
 // up the latest version, so changes go live without any restart.

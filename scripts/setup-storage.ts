@@ -4,9 +4,8 @@
 // Run:
 //   npx ts-node --project tsconfig.json scripts/setup-storage.ts
 //
-// Same dotenv + dynamic-import pattern as scripts/migrate-to-supabase.ts —
-// see that file's header comment for why lib/supabase.ts is imported
-// dynamically (inside main(), after dotenv has run) rather than statically.
+// Uses dotenv + a dynamic lib/supabase.ts import so environment variables are
+// loaded before the Supabase client is initialized.
 //
 // IMPORTANT — what this script can and cannot do:
 //   1. Creates the private 'kyc-documents' bucket with a MIME allowlist and
@@ -58,9 +57,8 @@ async function main(): Promise<void> {
   log('=== DAlgo KYC storage bucket setup ===\n')
 
   // Suppresses dotenv's own promotional "tip" line — see the matching
-  // comment in scripts/migrate-to-supabase.ts for why DOTENV_CONFIG_QUIET
-  // (not DOTENV_CONFIG_DOTENV_TIPS, which doesn't exist in the package) is
-  // the flag that actually works.
+  // DOTENV_CONFIG_QUIET is the supported dotenv flag for suppressing its
+  // promotional tip output.
   process.env.DOTENV_CONFIG_QUIET = 'true'
   loadEnv({ path: resolve(process.cwd(), '.env.local') })
   const { getSupabaseAdmin } = await import('../lib/supabase')

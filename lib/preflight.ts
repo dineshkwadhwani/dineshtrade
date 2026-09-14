@@ -120,8 +120,8 @@ export async function runPreflight(input: PreflightInput, broker: IBroker): Prom
   const market = await isMarketOpen()
   if (!market.open) return { ok: false, gate: 'market', reason: `Market closed: ${market.status}` }
 
-  // Capital config from the RUNTIME overlay (data/strategy.json) — user edits
-  // in Settings → Strategies land here. Never read from `strategyCfg.*` for
+  // Capital config from the customer-scoped runtime strategy store — user edits
+  // in Settings → Strategies land here. Never read from legacy file config for
   // any field the user can edit; that's the bundled config-on-disk and ignores
   // overlays.
   const cap = getCapital()

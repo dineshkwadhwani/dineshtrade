@@ -1,7 +1,6 @@
 // Pivotal list store — Supabase-backed (`customer_pivotal_lists`, one row
 // per (customer_id, list_id)). Ported in Phase 4 of the multi-tenant
-// refactor from the file-based `config/pivotalLists.json` (+ runtime
-// override at `~/dineshtrade/data/pivotalLists.json`).
+// refactor from the former file-backed implementation.
 //
 // `generated` (the V1 file's cosmetic seed-timestamp) has no column in
 // `customer_pivotal_lists` and isn't read by any business logic — only

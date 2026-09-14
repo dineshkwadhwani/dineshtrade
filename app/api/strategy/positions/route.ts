@@ -1,5 +1,5 @@
 // GET /api/strategy/positions — returns the unified position store contents
-// (data/positions.json) annotated with each row's strategy display name + color.
+// (customer_positions) annotated with each row's strategy display name + color.
 // Used by the Holdings page to label every holding with its actual strategy
 // (CATALYST, MARKET BOOM, ACCUMULATOR, etc.) rather than only flagging S1 rows.
 //

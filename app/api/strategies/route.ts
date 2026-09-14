@@ -60,7 +60,7 @@ export async function GET() {
 }
 
 // POST /api/strategies — save edited config. Validates, refuses if Auto is
-// on, writes to data/strategy.json, hot-reloads cron tasks.
+// on, writes to the customer-scoped Supabase strategy store, and hot-reloads cron tasks.
 export async function POST(req: Request) {
   const t = cookies().get('dt_session')?.value
   if (!t || !(await verifySession(t))) return NextResponse.json({ error: 'Unauthorized' }, { status: 401 })

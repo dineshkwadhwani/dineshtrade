@@ -25,7 +25,6 @@ import { getAccountList } from './accounts'
 import { type EODLineItem } from './email'
 import { runReactiveDipScan } from './strategyEngine'
 import { getActiveStrategies, getStrategyById, type Strategy } from './strategyConfig'
-import strategyCfg from '@/config/strategy.json'
 import { monitorAllConnected } from './strategy2'
 import { monitorAllAccountsStrategy1 } from './strategy1'
 import { monitorAllPivotalAccounts } from './pivotal'
@@ -85,7 +84,7 @@ function atMinuteWeekdayExpr(minute: number, hour: number): string {
 let currentSellCadenceMin = 5
 let sellCadenceWatcher: ReturnType<typeof setInterval> | null = null
 
-// Per-strategy scan tasks. Each active strategy in strategy.json gets its own
+// Per-strategy scan tasks. Each active strategy in the strategy store gets its own
 // cron task at its scanIntervalMin. The map keys are strategy ids so we can
 // start/stop individual tasks when the user toggles a strategy in Settings
 // (Phase 4). For Phase 3 the registry is populated once at startCron() time.
@@ -312,8 +311,14 @@ async function tick(): Promise<void> {
   // prevents the same symbol from firing on both the morning scan + reactive,
   // OR on consecutive 30-min reactive ticks.
   try {
-    const rcfg = (strategyCfg as any).strategy1_reactive
-    if (rcfg && shouldRunReactiveDip(t, rcfg)) {
+    const accumulator = getStrategyById('accumulator')
+    const accumulatorParams = (accumulator?.params || {}) as Record<string, unknown>
+    const reactiveConfig = {
+      scanStartHHMM: typeof accumulatorParams.reactiveScanStartHHMM === 'string' ? accumulatorParams.reactiveScanStartHHMM : '09:15',
+      scanEndHHMM: typeof accumulatorParams.reactiveScanEndHHMM === 'string' ? accumulatorParams.reactiveScanEndHHMM : '14:00',
+      intervalMin: typeof accumulatorParams.reactiveIntervalMin === 'number' ? accumulatorParams.reactiveIntervalMin : 30,
+    }
+    if (shouldRunReactiveDip(t, reactiveConfig)) {
       console.log(`[cron tick] ${t} IST — reactive dip scan window`)
       const reactive = await runReactiveDipScan()
       if (reactive.recommendations.length > 0) {

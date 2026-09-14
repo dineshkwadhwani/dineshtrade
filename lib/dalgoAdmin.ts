@@ -5,9 +5,8 @@
 // own RLS-scoped session could never satisfy anyway (that's the whole point
 // of these roles).
 //
-// Column names verified against the live schema/migration script, not just
-// the spec's SQL — see scripts/migrate-to-supabase.ts and
-// lib/strategyConfigStore.ts/lib/watchlistStore.ts for the ground truth where
+// Column names are verified against the live schema and the Supabase-backed
+// stores — see lib/strategyConfigStore.ts/lib/watchlistStore.ts for the ground truth where
 // it mattered (e.g. platform_strategies keys off `id`, not `strategy_key`;
 // customer_strategies keys off `strategy_key`; customer_watchlists.symbols
 // entries are `{nse, name, sector?}`, not `{symbol, name, sector}`).

@@ -1,8 +1,6 @@
-// Typed reader for the new strategy.json schema (v2). Phase 1 of the multi-
-// strategy refactor — exposes the new shape via this module so future UI and
-// engine code can use it without depending on the legacy flat keys. Existing
-// callers that still read strategyCfg.targets.* / strategyCfg.ema.* / etc.
-// keep working unchanged because those legacy keys are preserved in the JSON.
+// Typed reader for the V2 strategy schema. Runtime values are loaded from the
+// customer-scoped Supabase strategy store and exposed through synchronous
+// accessors backed by the hydrated in-memory cache.
 
 import { getRuntimeStrategyConfig } from './strategyConfigStore'
 
@@ -150,7 +148,7 @@ export interface Strategy {
   active: boolean             // when false, no cron fires for it
   color: string               // hex for UI accents (tabs, tiles, etc.)
   scanIntervalMin: number     // cron cadence in minutes
-  watchlist: string[]         // list keys from config/watchlist.json (e.g. ["listA"])
+  watchlist: string[]         // customer watchlist keys (e.g. ["listA"])
   params: DipParams | MomentumParams
   exits: StrategyExits
   giftNiftyGate?: GiftNiftyGate  // optional pre-market mode gate; absent = no gate (always fire)

@@ -2,7 +2,6 @@
 // Kite OHLC (so day-high/left-on-table reflect the full session), and computes
 // rolling 30-day stats. Used by both the cron'd email and the in-app Retrospective tab.
 
-import strategyCfg from '@/config/strategy.json'
 import {
   readJournalDay, readJournalRange, readJournalMonth, istDateString,
   type TradeRecord, type SignalSkippedRecord, type StrategyScanRecord,
@@ -11,7 +10,7 @@ import { getSupabaseAdmin } from './supabase'
 import { listStrategy1Positions } from './strategy1'
 import { resolveAccountCreds, getQuotes, getOrders, getHoldings, getPositions } from './kite'
 import { getState } from './state'
-import { getCapital, getStrategies } from './strategyConfig'
+import { getCapital, getStrategies, getStrategyById } from './strategyConfig'
 import { listStrategy2Positions } from './strategy2Positions'
 import type { MonthlyReportData } from './email'
 
@@ -182,13 +181,14 @@ function generateFineTuning(opts: {
   rolling30Stats: DailyReport['rolling30']
 }): string[] {
   const bullets: string[] = []
+  const catalystT1 = getStrategyById('catalyst')?.exits.t1Pct ?? 1.5
 
   // 1. T1 leaves money on the table
   const last10 = opts.rolling.slice(-10).filter(t => t.verdict === 'correct_exit' && t.exitPrice > 0)
   if (last10.length >= 8) {
     const avgLeftPct = last10.reduce((s, t) => s + (t.leftOnTable / Math.max(1, t.exitPrice)), 0) / last10.length * 100
     if (avgLeftPct > 1.5) {
-      bullets.push(`Last ${last10.length} T1 exits left an average of +${avgLeftPct.toFixed(2)}% on the table — consider raising T1 from +${strategyCfg.targets.intraday_t1_pct}% to +${(strategyCfg.targets.intraday_t1_pct + 0.3).toFixed(1)}%.`)
+      bullets.push(`Last ${last10.length} T1 exits left an average of +${avgLeftPct.toFixed(2)}% on the table — consider raising T1 from +${catalystT1}% to +${(catalystT1 + 0.3).toFixed(1)}%.`)
     }
   }
 
@@ -266,7 +266,7 @@ export async function buildDailyReport(dateYmd?: string): Promise<DailyReport> {
     }
     // Outcome is measured against the earliest signal price — that's when the
     // opportunity first appeared; gauging "did it run" from that baseline.
-    const t1Trigger = first.signalPrice * (1 + strategyCfg.targets.intraday_t1_pct / 100)
+    const t1Trigger = first.signalPrice * (1 + catalystT1 / 100)
     const hitT1 = ohlcRow.high >= t1Trigger
     return {
       ...base,
@@ -648,7 +648,8 @@ export async function buildMonthlyReport(dateYmd?: string): Promise<MonthlyRepor
     if (winRate < 60) {
       recommendation = `Win rate ${winRate.toFixed(0)}% is below the 70% target — review entry filters (volume + 3-candle momentum) before next month.`
     } else if (avgDailyReturn < 0.3 && totalTrades >= 10) {
-      recommendation = `Win rate is healthy but avg daily return of ${avgDailyReturn.toFixed(2)}% is light — consider raising T1 from +${strategyCfg.targets.intraday_t1_pct}% to +${(strategyCfg.targets.intraday_t1_pct + 0.3).toFixed(1)}%.`
+      const catalystT1 = getStrategyById('catalyst')?.exits.t1Pct ?? 1.5
+      recommendation = `Win rate is healthy but avg daily return of ${avgDailyReturn.toFixed(2)}% is light — consider raising T1 from +${catalystT1}% to +${(catalystT1 + 0.3).toFixed(1)}%.`
     } else if (winRate >= 75 && totalTrades < 8) {
       recommendation = `Quality is excellent (${winRate.toFixed(0)}% wins) but volume is light (${totalTrades} trades) — consider loosening the funds-gate or expanding the candidate universe.`
     }

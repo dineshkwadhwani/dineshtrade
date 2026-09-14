@@ -1,9 +1,8 @@
 // GET  /api/watchlist        — current effective watchlist { meta, lists }
 // POST /api/watchlist        — save the whole watchlist (idempotent overwrite)
 //
-// Save writes to data/watchlist.json — runtime override file. Strategy engine
-// reads from this file every scan, so changes take effect immediately on the
-// next tick / refresh without restarting the process.
+// Saves go to the customer-scoped watchlist store. Strategy engine reads the
+// store on every scan, so changes take effect on the next tick / refresh.
 //
 // Body shape (new):
 //   {

@@ -14,10 +14,10 @@
 // ERROR — no fallback to bundled JSON. The trading engine must not run with
 // silent strategy misconfigurations. Fix the Supabase row or the connection.
 //
-// Only `capital` and `strategies` are round-tripped: the legacy top-level
-// keys `config/strategy.json` used to also carry (capital_legacy, limits,
-// targets, strategy2_momentum, ema, strategy1_reactive, sources, version,
-// _comment) are not read by any caller of getRuntimeStrategyConfig() today
+// Only `capital` and `strategies` are round-tripped. The former legacy
+// top-level keys (capital_legacy, limits, targets, strategy2_momentum, ema,
+// strategy1_reactive, sources, version, _comment) are not read by any caller
+// of getRuntimeStrategyConfig() today
 // (verified — only lib/strategyConfig.ts's `.capital`/`.strategies` and
 // app/api/strategies/route.ts's merge-spread touch this object), so they're
 // dropped rather than given a home in the relational schema.

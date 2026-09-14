@@ -4,7 +4,6 @@
 // Used by the /api/strategy HTTP route (Manual) and the cron tick (Auto).
 
 import { getWatchlist } from './watchlistStore'
-import strategyCfg from '@/config/strategy.json'
 import { getStrategyById, getActiveStrategies, getCapital, checkGiftNiftyGate, asPivotalParams, type Strategy } from './strategyConfig'
 import { getMarketBriefing } from './marketBriefing'
 import { getState } from './state'
@@ -66,15 +65,15 @@ interface MomentumCeilingEval {
   actual: string
 }
 
-function resolveMomentumCfg(params: Record<string, unknown>, legacyS2: any): MomentumRuntimeCfg {
+function resolveMomentumCfg(params: Record<string, unknown>): MomentumRuntimeCfg {
   return {
-    minDayGainPct: typeof params.minDayGainPct === 'number' ? params.minDayGainPct : legacyS2.minDayGainPct,
-    maxDayGainPct: typeof params.maxDayGainPct === 'number' ? params.maxDayGainPct : legacyS2.maxDayGainPct,
-    emaProximityPct: typeof params.emaProximityPct === 'number' ? params.emaProximityPct : legacyS2.emaProximityPct,
-    consecutiveCandles: typeof params.consecutiveCandles === 'number' ? params.consecutiveCandles : legacyS2.consecutiveCandles,
-    scanStartHHMM: typeof params.scanStartHHMM === 'string' ? params.scanStartHHMM : legacyS2.scanStartHHMM,
-    scanEndHHMM: typeof params.scanEndHHMM === 'string' ? params.scanEndHHMM : legacyS2.scanEndHHMM,
-    volumeAvgDays: typeof params.volumeAvgDays === 'number' ? params.volumeAvgDays : legacyS2.volumeAvgDays,
+    minDayGainPct: typeof params.minDayGainPct === 'number' ? params.minDayGainPct : 0.5,
+    maxDayGainPct: typeof params.maxDayGainPct === 'number' ? params.maxDayGainPct : 1.5,
+    emaProximityPct: typeof params.emaProximityPct === 'number' ? params.emaProximityPct : 3,
+    consecutiveCandles: typeof params.consecutiveCandles === 'number' ? params.consecutiveCandles : 3,
+    scanStartHHMM: typeof params.scanStartHHMM === 'string' ? params.scanStartHHMM : '09:30',
+    scanEndHHMM: typeof params.scanEndHHMM === 'string' ? params.scanEndHHMM : '14:30',
+    volumeAvgDays: typeof params.volumeAvgDays === 'number' ? params.volumeAvgDays : 10,
     recentHighDays: typeof params.recentHighDays === 'number' ? params.recentHighDays : 20,
     ceilingBufferPct: typeof params.ceilingBufferPct === 'number' ? params.ceilingBufferPct : 2.0,
   }
@@ -276,15 +275,15 @@ export async function generateRecommendations(): Promise<StrategyResult> {
 //   4. Current price within ±3% of 20-day EMA
 
 // Pulls Strategy 2 params from the optional `strategy` argument; falls back
-// to the canonical 'catalyst' entry in strategy.json. Allowing this lets
+// to the canonical 'catalyst' entry in the strategy store. Allowing this lets
 // multiple momentum strategies (Catalyst, Market Boom, …) share this engine
 // while running with their own per-strategy params + watchlist + exits.
 async function runStrategy2(now: string, giftChangePct: number, strategyOverride?: Strategy): Promise<StrategyResult> {
   const strategy = strategyOverride || getStrategyById('catalyst')
   const params = (strategy?.params || {}) as Record<string, any>
-  const cfg = resolveMomentumCfg(params, strategyCfg.strategy2_momentum)
-  const exitT1 = strategy?.exits?.t1Pct ?? strategyCfg.targets.intraday_t1_pct ?? 1.5
-  const exitT2 = strategy?.exits?.t2Pct ?? strategyCfg.targets.intraday_t2_pct ?? 2.0
+  const cfg = resolveMomentumCfg(params)
+  const exitT1 = strategy?.exits?.t1Pct ?? 1.5
+  const exitT2 = strategy?.exits?.t2Pct ?? 2.0
   const watchlistKeys = strategy?.watchlist || ['listA']
   const SESSION_MINUTES = 375  // 9:15 → 15:30
 
@@ -502,7 +501,9 @@ async function ensureDailyAggregates(creds: KiteCreds, symbols: string[], volume
   // incremental fetch (yesterday's bar only); on cold-start it does the
   // full 60-day window. Failures are logged inside loadAndRefreshCloses.
   const closesBySymbol = await loadAndRefreshCloses(creds, stale)
-  const emaPeriod = strategyCfg.ema?.period ?? 20
+  const accumulator = getStrategyById('accumulator')
+  const accumulatorParams = (accumulator?.params || {}) as Record<string, unknown>
+  const emaPeriod = typeof accumulatorParams.emaPeriod === 'number' ? accumulatorParams.emaPeriod : 20
 
   for (const symbol of stale) {
     const bars = closesBySymbol[symbol]
@@ -646,22 +647,18 @@ export async function evaluateAllForTiles(overrideCreds?: KiteCreds): Promise<Ti
   } catch { /* fallback to 0 */ }
   // recommendedTab is now computed at the end against active strategies — see bottom of fn.
 
-  // Helpers — derive per-strategy cfg from a strategy's params, with the
-  // legacy strategy.json fallback for fields the user hasn't set. Used per
-  // active strategy so each strategy's tiles reflect its OWN thresholds.
-  const legacyS2 = strategyCfg.strategy2_momentum
-  const legacyEma = strategyCfg.ema || { period: 20, entryBelowPct: 5, strongBuyBelowPct: 8, minDownDays: 3 }
+  // Helpers — derive each strategy's runtime cfg from its Supabase-backed params.
   function momentumCfgFor(s: Strategy | undefined) {
     const p = (s?.params || {}) as Record<string, unknown>
-    return resolveMomentumCfg(p, legacyS2)
+    return resolveMomentumCfg(p)
   }
   function dipCfgFor(s: Strategy | undefined) {
     const p = (s?.params || {}) as Record<string, unknown>
     return {
-      period:           typeof p.emaPeriod === 'number'        ? p.emaPeriod        : legacyEma.period,
-      entryBelowPct:    typeof p.entryBelowPct === 'number'    ? p.entryBelowPct    : legacyEma.entryBelowPct,
-      strongBuyBelowPct:typeof p.strongBuyBelowPct === 'number'? p.strongBuyBelowPct: legacyEma.strongBuyBelowPct,
-      minDownDays:      typeof p.minDownDays === 'number'      ? p.minDownDays      : legacyEma.minDownDays,
+      period:           typeof p.emaPeriod === 'number'        ? p.emaPeriod        : 20,
+      entryBelowPct:    typeof p.entryBelowPct === 'number'    ? p.entryBelowPct    : 5,
+      strongBuyBelowPct:typeof p.strongBuyBelowPct === 'number'? p.strongBuyBelowPct: 8,
+      minDownDays:      typeof p.minDownDays === 'number'      ? p.minDownDays      : 3,
       reactiveDropPct:  typeof p.reactiveDrop === 'number'     ? p.reactiveDrop     : 3,
       capitulationFloor:typeof p.capitulationFloorPct === 'number' ? p.capitulationFloorPct : 12,
     }
@@ -1266,13 +1263,13 @@ async function runStrategy1(now: string, giftChangePct: number, strategyOverride
   const symbols = universe.map(s => s.nse.toUpperCase())
   const nameBySymbol = new Map(universe.map(s => [s.nse.toUpperCase(), s.name || s.nse]))
 
-  // Params from the strategy object — fall back to legacy strategy.json keys
-  const entryBelowPct     = params.entryBelowPct      ?? strategyCfg.ema?.entryBelowPct      ?? 5
-  const strongBuyBelowPct = params.strongBuyBelowPct  ?? strategyCfg.ema?.strongBuyBelowPct  ?? 8
-  const minDownDays       = params.minDownDays        ?? strategyCfg.ema?.minDownDays        ?? 3
-  const emaPeriod         = params.emaPeriod          ?? strategyCfg.ema?.period             ?? 20
+  // Params from the Supabase-backed strategy object.
+  const entryBelowPct     = params.entryBelowPct      ?? 5
+  const strongBuyBelowPct = params.strongBuyBelowPct  ?? 8
+  const minDownDays       = params.minDownDays        ?? 3
+  const emaPeriod         = params.emaPeriod          ?? 20
   const capitulationFloor = params.capitulationFloorPct ?? 12  // skip stocks deeper than -12% from EMA (news/panic, not mean-reversion)
-  const tranche2AbovePct  = params.tranche2AboveEMAPct ?? strategyCfg.targets?.strategy1_tranche2_above_ema_pct ?? 3
+  const tranche2AbovePct  = params.tranche2AboveEMAPct ?? 3
 
   let skippedNoToken = 0
   let skippedNoHistorical = 0
@@ -1390,8 +1387,8 @@ export async function runReactiveDipScan(strategyOverride?: Strategy): Promise<R
   const strategy = strategyOverride || getStrategyById('accumulator')
   const params = (strategy?.params || {}) as Record<string, any>
   const watchlistKeys = strategy?.watchlist || ['listA']
-  const dropPct = params.reactiveDrop ?? (strategyCfg as any).strategy1_reactive?.dropPct ?? 3.0
-  const tranche2AbovePct = params.tranche2AboveEMAPct ?? strategyCfg.targets?.strategy1_tranche2_above_ema_pct ?? 3
+  const dropPct = params.reactiveDrop ?? 3.0
+  const tranche2AbovePct = params.tranche2AboveEMAPct ?? 3
 
   const creds = await firstConnectedCreds()
   if (!creds) return { recommendations: [], scanned: 0, triggered: [], evaluated: 0, skipReason: 'No Kite account connected' }
@@ -1442,10 +1439,10 @@ export async function runReactiveDipScan(strategyOverride?: Strategy): Promise<R
   //    we synthesise today's close = LTP and prepend it to the historical closes for
   //    the down-days count. EMA still uses only completed historical bars (excludes
   //    today's incomplete bar) so it's not polluted by intraday volatility.
-  const entryBelowPct     = params.entryBelowPct      ?? strategyCfg.ema?.entryBelowPct      ?? 5
-  const strongBuyBelowPct = params.strongBuyBelowPct  ?? strategyCfg.ema?.strongBuyBelowPct  ?? 8
-  const minDownDays       = params.minDownDays        ?? strategyCfg.ema?.minDownDays        ?? 3
-  const emaPeriod         = params.emaPeriod          ?? strategyCfg.ema?.period             ?? 20
+  const entryBelowPct     = params.entryBelowPct      ?? 5
+  const strongBuyBelowPct = params.strongBuyBelowPct  ?? 8
+  const minDownDays       = params.minDownDays        ?? 3
+  const emaPeriod         = params.emaPeriod          ?? 20
   const capitulationFloor = params.capitulationFloorPct ?? 12
 
   const evaluated = await mapWithLimit(triggered, 3, async (symbol): Promise<Recommendation | null> => {

@@ -1,5 +1,3 @@
-import accountsConfig from '@/config/accounts.json'
-
 export interface AccountDisplay {
   name: string         // env-key, uppercase (e.g. "DINESH") — matches ZERODHA_ACCOUNTn value
   displayName: string  // human-readable (e.g. "Dinesh Wadhwani")
@@ -13,10 +11,6 @@ export interface AccountSecrets {
   apiKey: string
   apiSecret: string
 }
-
-const displayByName = new Map<string, AccountDisplay>(
-  (accountsConfig as AccountDisplay[]).map(a => [a.name, a])
-)
 
 // Returns the active env prefix (e.g. "TEST", "PROD") or null when ZERODHA_ENVIRONMENT
 // is missing/empty. Prefix-based scheme — env vars look like
@@ -35,8 +29,7 @@ export function getAccountList(): AccountDisplay[] {
   for (let i = 1; ; i++) {
     const name = process.env[`${prefix}_ZERODHA_ACCOUNT${i}`]
     if (!name) break
-    const display = displayByName.get(name)
-    accounts.push(display ?? {
+    accounts.push({
       name,
       displayName: name,
       initials: name.slice(0, 2).toUpperCase(),
@@ -48,7 +41,15 @@ export function getAccountList(): AccountDisplay[] {
 }
 
 export function getAccountDisplay(name: string): AccountDisplay | null {
-  return displayByName.get(name) || null
+  const normalized = name.trim().toUpperCase()
+  if (!normalized) return null
+  return {
+    name: normalized,
+    displayName: normalized,
+    initials: normalized.slice(0, 2),
+    color: '#c9a84c',
+    note: '',
+  }
 }
 
 // Server-only. Returns null if either secret env var is missing for this account

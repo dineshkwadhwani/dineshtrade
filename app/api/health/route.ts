@@ -27,7 +27,7 @@ async function testZerodha(): Promise<LogLine[]> {
 
   const accounts = getAccountList()
   if (accounts.length === 0) {
-    log(lines, 'error', 'No accounts configured in config/accounts.json')
+    log(lines, 'error', 'No legacy environment accounts configured')
     return lines
   }
   log(lines, 'info', `Found ${accounts.length} account(s): ${accounts.map(a => a.name).join(', ')}`)
