@@ -1,0 +1,157 @@
+{
+  "mode": "auto",
+  "selectedAccounts": [
+    "DINESH"
+  ],
+  "kiteTokens": {
+    "DINESH": "RTecczRf2OB6tH6OR50vjCsX8BE5Ru5i"
+  },
+  "idempotencyLedger": {
+    "DINESH:2026-08-10:BAJFINANCE:BUY": true,
+    "DINESH:2026-08-10:JSWSTEEL:BUY": true,
+    "DINESH:2026-08-10:CAMS:BUY": true,
+    "DINESH:2026-08-10:MCX:SELL": true,
+    "DINESH:2026-08-10:BAJFINANCE:SELL": true
+  },
+  "buyHistory": {
+    "DINESH:ADANIPOWER": [
+      {
+        "price": 220.75,
+        "ts": "2026-08-05T02:58:57.551Z"
+      }
+    ],
+    "DINESH:AXISBANK": [
+      {
+        "price": 1259.5,
+        "ts": "2026-08-10T09:25:02.197Z"
+      }
+    ],
+    "DINESH:BANKINDIA": [
+      {
+        "price": 141.09,
+        "ts": "2026-08-06T09:50:02.146Z"
+      }
+    ],
+    "DINESH:BIRLACORPN": [
+      {
+        "price": 924.421428,
+        "ts": "2026-08-10T09:25:02.202Z"
+      }
+    ],
+    "DINESH:BSE": [
+      {
+        "price": 3562.5,
+        "ts": "2026-08-05T02:58:57.568Z"
+      }
+    ],
+    "DINESH:BSOFT": [
+      {
+        "price": 325.946666,
+        "ts": "2026-08-10T09:25:02.206Z"
+      }
+    ],
+    "DINESH:COALINDIA": [
+      {
+        "price": 431.7,
+        "ts": "2026-08-10T09:25:02.209Z"
+      }
+    ],
+    "DINESH:COCHINSHIP": [
+      {
+        "price": 1545.9,
+        "ts": "2026-08-05T02:58:57.579Z"
+      }
+    ],
+    "DINESH:HINDUNILVR": [
+      {
+        "price": 2192.8,
+        "ts": "2026-08-10T09:25:02.215Z"
+      }
+    ],
+    "DINESH:ICICIBANK": [
+      {
+        "price": 1439.6,
+        "ts": "2026-08-10T09:25:02.220Z"
+      }
+    ],
+    "DINESH:ITC": [
+      {
+        "price": 275.75,
+        "ts": "2026-08-05T02:58:57.590Z"
+      }
+    ],
+    "DINESH:JINDALSTEL": [
+      {
+        "price": 1191.255555,
+        "ts": "2026-08-05T02:58:57.594Z"
+      }
+    ],
+    "DINESH:KOTAKBANK": [
+      {
+        "price": 404.4,
+        "ts": "2026-08-10T09:25:02.224Z"
+      }
+    ],
+    "DINESH:MCX": [
+      {
+        "price": 2698.9,
+        "ts": "2026-08-05T02:58:57.602Z"
+      }
+    ],
+    "DINESH:SAIL": [
+      {
+        "price": 165.12,
+        "ts": "2026-08-05T03:45:00.815Z"
+      }
+    ],
+    "DINESH:TATACHEM": [
+      {
+        "price": 722.796153,
+        "ts": "2026-08-05T02:58:57.609Z"
+      }
+    ],
+    "DINESH:TATASTEEL": [
+      {
+        "price": 199.337973,
+        "ts": "2026-08-05T02:58:57.613Z"
+      }
+    ],
+    "DINESH:HDFCAMC": [
+      {
+        "price": 2565.6,
+        "ts": "2026-08-05T04:27:01.377Z"
+      }
+    ],
+    "DINESH:NTPC": [
+      {
+        "price": 345.45,
+        "ts": "2026-08-05T09:55:02.102Z"
+      }
+    ],
+    "DINESH:HDFCBANK": [
+      {
+        "price": 738.45,
+        "ts": "2026-08-06T03:51:01.329Z"
+      }
+    ],
+    "DINESH:BAJFINANCE": [
+      {
+        "price": 1081.6,
+        "ts": "2026-08-10T03:51:10.979Z"
+      }
+    ],
+    "DINESH:JSWSTEEL": [
+      {
+        "price": 1308,
+        "ts": "2026-08-10T04:30:22.107Z"
+      }
+    ],
+    "DINESH:CAMS": [
+      {
+        "price": 792.6,
+        "ts": "2026-08-10T04:50:14.672Z"
+      }
+    ]
+  },
+  "panicSkipList": {}
+}

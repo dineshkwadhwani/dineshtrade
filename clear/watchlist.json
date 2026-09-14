@@ -1,0 +1,349 @@
+{
+  "generated": "2026-07-21",
+  "meta": {
+    "listA": {
+      "name": "List A"
+    },
+    "listB": {
+      "name": "List B"
+    },
+    "list3": {
+      "name": "QuickWins"
+    },
+    "lists": {
+      "name": "List s"
+    }
+  },
+  "lists": {
+    "listA": [
+      {
+        "nse": "BAJFINANCE",
+        "name": "Bajaj Finance",
+        "trades": 91,
+        "lastTraded": "2026-12-02"
+      },
+      {
+        "nse": "TMPV",
+        "name": "Tata Motors PV (TMPV)",
+        "trades": 81,
+        "lastTraded": "2026-03-27"
+      },
+      {
+        "nse": "RELIANCE",
+        "name": "Reliance Industries",
+        "trades": 74,
+        "lastTraded": "2025-11-06"
+      },
+      {
+        "nse": "BIRLACORPN",
+        "name": "Birla Corporation",
+        "trades": 62,
+        "lastTraded": "2026-05-01"
+      },
+      {
+        "nse": "TATASTEEL",
+        "name": "Tata Steel",
+        "trades": 60,
+        "lastTraded": "2026-09-03"
+      },
+      {
+        "nse": "MARUTI",
+        "name": "Maruti Suzuki",
+        "trades": 53,
+        "lastTraded": "2026-12-03"
+      },
+      {
+        "nse": "INDUSINDBK",
+        "name": "IndusInd Bank",
+        "trades": 50,
+        "lastTraded": "2025-11-12"
+      },
+      {
+        "nse": "BAJAJ-AUTO",
+        "name": "Bajaj Auto",
+        "trades": 46,
+        "lastTraded": "2026-11-03"
+      },
+      {
+        "nse": "JSWSTEEL",
+        "name": "JSW Steel",
+        "trades": 45,
+        "lastTraded": "2024-11-12"
+      },
+      {
+        "nse": "M&M",
+        "name": "Mahindra & Mahindra",
+        "trades": 44,
+        "lastTraded": "2026-11-03"
+      },
+      {
+        "nse": "TATACHEM",
+        "name": "Tata Chemicals",
+        "trades": 41,
+        "lastTraded": "2026-05-08"
+      },
+      {
+        "nse": "INTELLECT",
+        "name": "Intellect Design Arena",
+        "trades": 41,
+        "lastTraded": "2026-12-02"
+      },
+      {
+        "nse": "SAIL",
+        "name": "SAIL",
+        "trades": 40,
+        "lastTraded": "2026-12-05"
+      },
+      {
+        "nse": "AXISBANK",
+        "name": "Axis Bank",
+        "trades": 36,
+        "lastTraded": "2025-10-06"
+      },
+      {
+        "nse": "ICICIBANK",
+        "name": "ICICI Bank",
+        "trades": 35,
+        "lastTraded": "2026-04-06"
+      },
+      {
+        "nse": "SBIN",
+        "name": "State Bank of India",
+        "trades": 32,
+        "lastTraded": "2026-05-11"
+      },
+      {
+        "nse": "HDFCBANK",
+        "name": "HDFC Bank",
+        "trades": 30,
+        "lastTraded": "2026-06-01"
+      },
+      {
+        "nse": "TCS",
+        "name": "TCS",
+        "trades": 24,
+        "lastTraded": "2025-12-11"
+      },
+      {
+        "nse": "BSE",
+        "name": "BSE Ltd",
+        "trades": 23,
+        "lastTraded": "2026-04-13"
+      },
+      {
+        "nse": "INFY",
+        "name": "Infosys",
+        "trades": 21,
+        "lastTraded": "2024-12-06"
+      },
+      {
+        "nse": "JIOFIN",
+        "name": "Jio Financial Services",
+        "trades": 17,
+        "lastTraded": "2026-09-03"
+      },
+      {
+        "nse": "MCX",
+        "name": "MCX India",
+        "trades": 16,
+        "lastTraded": "2026-04-13"
+      },
+      {
+        "nse": "JINDALSTEL",
+        "name": "Jindal Steel & Power",
+        "trades": 16,
+        "lastTraded": "2026-04-05"
+      },
+      {
+        "nse": "OFSS",
+        "name": "Oracle Financial Services",
+        "trades": 15,
+        "lastTraded": "2025-05-06"
+      },
+      {
+        "nse": "PNB",
+        "name": "Punjab National Bank",
+        "trades": 14,
+        "lastTraded": "2026-11-05"
+      },
+      {
+        "nse": "HEROMOTOCO",
+        "name": "Hero MotoCorp",
+        "trades": 14,
+        "lastTraded": "2025-10-06"
+      },
+      {
+        "nse": "TATAPOWER",
+        "name": "Tata Power",
+        "trades": 13,
+        "lastTraded": "2025-10-06"
+      },
+      {
+        "nse": "M&MFIN",
+        "name": "Mahindra Finance",
+        "trades": 8,
+        "lastTraded": "2024-07-05"
+      },
+      {
+        "nse": "BANKINDIA",
+        "name": "Bank of India",
+        "trades": 7,
+        "lastTraded": "2025-09-07"
+      },
+      {
+        "nse": "WIPRO",
+        "name": "Wipro",
+        "trades": 7,
+        "lastTraded": "2024-07-01"
+      },
+      {
+        "nse": "HDFCAMC",
+        "name": "HDFC AMC",
+        "trades": 6,
+        "lastTraded": "2024-10-09"
+      },
+      {
+        "nse": "COCHINSHIP",
+        "name": "Cochin Shipyard",
+        "trades": 6,
+        "lastTraded": "2025-06-02"
+      },
+      {
+        "nse": "ITC",
+        "name": "ITC Ltd",
+        "trades": 6,
+        "lastTraded": "2026-05-04"
+      },
+      {
+        "nse": "BAJAJFINSV",
+        "name": "Bajaj Finserv",
+        "trades": 2,
+        "lastTraded": "2025-12-06"
+      },
+      {
+        "nse": "CAMS",
+        "name": "Computer Age Management Services",
+        "trades": 2,
+        "lastTraded": "2024-12-02"
+      },
+      {
+        "nse": "HYUNDAI",
+        "name": "Hyundai Motor India",
+        "trades": 2,
+        "lastTraded": "2025-06-20"
+      },
+      {
+        "nse": "ICICIPRULI",
+        "name": "ICICIPRULI",
+        "trades": 2,
+        "lastTraded": "2025-09-07"
+      },
+      {
+        "nse": "PERSISTENT",
+        "name": "Persistent Systems",
+        "trades": 2,
+        "lastTraded": "2024-07-04"
+      },
+      {
+        "nse": "SIEMENS",
+        "name": "SIEMENS",
+        "trades": 2,
+        "lastTraded": "2025-12-11"
+      },
+      {
+        "nse": "HINDUNILVR",
+        "name": "HINDUSTAN UNILEVER",
+        "sector": "consumer"
+      },
+      {
+        "nse": "KOTAKBANK",
+        "name": "KOTAK MAHINDRA BANK",
+        "sector": "banking_finance"
+      },
+      {
+        "nse": "LT",
+        "name": "LARSEN & TOUBRO",
+        "sector": "industrials"
+      },
+      {
+        "nse": "NTPC",
+        "name": "NTPC",
+        "sector": "others"
+      },
+      {
+        "nse": "COALINDIA",
+        "name": "COAL INDIA",
+        "sector": "energy"
+      },
+      {
+        "nse": "ASIANPAINT",
+        "name": "ASIAN PAINTS",
+        "sector": "commodities"
+      },
+      {
+        "nse": "CIPLA",
+        "name": "CIPLA",
+        "sector": "pharma"
+      },
+      {
+        "nse": "ADANIPOWER",
+        "name": "ADANI POWER",
+        "sector": "energy"
+      },
+      {
+        "nse": "TMCV",
+        "name": "TATA MOTORS",
+        "sector": "auto"
+      }
+    ],
+    "listB": [
+      {
+        "nse": "INDUSINDBK",
+        "name": "INDUSIND BANK"
+      }
+    ],
+    "list3": [
+      {
+        "nse": "BAJFINANCE",
+        "name": "BAJAJ FINANCE"
+      },
+      {
+        "nse": "ADANIENT",
+        "name": "ADANI ENTERPRISES"
+      },
+      {
+        "nse": "INFY",
+        "name": "INFOSYS"
+      },
+      {
+        "nse": "INDUSINDBK",
+        "name": "INDUSIND BANK"
+      },
+      {
+        "nse": "BSE",
+        "name": "BSE"
+      },
+      {
+        "nse": "M&M",
+        "name": "MAHINDRA & MAHINDRA"
+      },
+      {
+        "nse": "SIEMENS",
+        "name": "SIEMENS"
+      },
+      {
+        "nse": "SBIN",
+        "name": "STATE BANK OF INDIA"
+      },
+      {
+        "nse": "MARUTI",
+        "name": "MARUTI SUZUKI INDIA"
+      },
+      {
+        "nse": "TATASTEEL",
+        "name": "TATA STEEL"
+      }
+    ],
+    "lists": []
+  }
+}

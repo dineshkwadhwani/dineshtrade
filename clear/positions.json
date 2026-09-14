@@ -1,0 +1,399 @@
+{
+  "DINESH:ADANIPOWER": {
+    "strategyId": "accumulator",
+    "account": "DINESH",
+    "symbol": "ADANIPOWER",
+    "firstBuyPrice": 220.75,
+    "firstBuyAt": "2026-08-05T02:58:57.549Z",
+    "totalQty": 45,
+    "remainingQty": 45,
+    "tranche1At": null,
+    "lots": [
+      {
+        "id": "1785898737549-1x1les",
+        "boughtAt": "2026-08-05T02:58:57.549Z",
+        "entryPrice": 220.75,
+        "originalQty": 45,
+        "remainingQty": 45,
+        "tranche1At": null,
+        "strategyId": "accumulator"
+      }
+    ],
+    "tranche1SoldQty": 0
+  },
+  "DINESH:BSE": {
+    "strategyId": "accumulator",
+    "account": "DINESH",
+    "symbol": "BSE",
+    "firstBuyPrice": 3562.5,
+    "firstBuyAt": "2026-08-05T02:58:57.566Z",
+    "totalQty": 1,
+    "remainingQty": 1,
+    "tranche1At": null,
+    "lots": [
+      {
+        "id": "1785898737566-3yz49s",
+        "boughtAt": "2026-08-05T02:58:57.566Z",
+        "entryPrice": 3562.5,
+        "originalQty": 1,
+        "remainingQty": 1,
+        "tranche1At": null,
+        "strategyId": "accumulator"
+      }
+    ],
+    "tranche1SoldQty": 0
+  },
+  "DINESH:COCHINSHIP": {
+    "strategyId": "accumulator",
+    "account": "DINESH",
+    "symbol": "COCHINSHIP",
+    "firstBuyPrice": 1545.9,
+    "firstBuyAt": "2026-08-05T02:58:57.577Z",
+    "totalQty": 3,
+    "remainingQty": 3,
+    "tranche1At": null,
+    "lots": [
+      {
+        "id": "1785898737577-3r5t1c",
+        "boughtAt": "2026-08-05T02:58:57.577Z",
+        "entryPrice": 1545.9,
+        "originalQty": 3,
+        "remainingQty": 3,
+        "tranche1At": null,
+        "strategyId": "accumulator"
+      }
+    ],
+    "tranche1SoldQty": 0
+  },
+  "DINESH:ITC": {
+    "strategyId": "accumulator",
+    "account": "DINESH",
+    "symbol": "ITC",
+    "firstBuyPrice": 275.75,
+    "firstBuyAt": "2026-08-05T02:58:57.588Z",
+    "totalQty": 82,
+    "remainingQty": 41,
+    "tranche1At": "2026-08-05T03:45:00.691Z",
+    "lots": [
+      {
+        "id": "1785898737588-61ozgw",
+        "boughtAt": "2026-08-05T02:58:57.588Z",
+        "entryPrice": 275.75,
+        "originalQty": 82,
+        "remainingQty": 41,
+        "tranche1At": "2026-08-05T03:45:00.691Z",
+        "strategyId": "accumulator",
+        "tranche1SoldQty": 41
+      }
+    ],
+    "tranche1SoldQty": 41
+  },
+  "DINESH:JINDALSTEL": {
+    "strategyId": "accumulator",
+    "account": "DINESH",
+    "symbol": "JINDALSTEL",
+    "firstBuyPrice": 1191.26,
+    "firstBuyAt": "2026-08-05T02:58:57.592Z",
+    "totalQty": 9,
+    "remainingQty": 9,
+    "tranche1At": null,
+    "lots": [
+      {
+        "id": "1785898737592-m7d2wt",
+        "boughtAt": "2026-08-05T02:58:57.592Z",
+        "entryPrice": 1191.255555,
+        "originalQty": 9,
+        "remainingQty": 9,
+        "tranche1At": null,
+        "strategyId": "accumulator"
+      }
+    ],
+    "tranche1SoldQty": 0
+  },
+  "DINESH:TATACHEM": {
+    "strategyId": "accumulator",
+    "account": "DINESH",
+    "symbol": "TATACHEM",
+    "firstBuyPrice": 722.8,
+    "firstBuyAt": "2026-08-05T02:58:57.607Z",
+    "totalQty": 13,
+    "remainingQty": 13,
+    "tranche1At": null,
+    "lots": [
+      {
+        "id": "1785898737607-38pey0",
+        "boughtAt": "2026-08-05T02:58:57.607Z",
+        "entryPrice": 722.796153,
+        "originalQty": 13,
+        "remainingQty": 13,
+        "tranche1At": null,
+        "strategyId": "accumulator"
+      }
+    ],
+    "tranche1SoldQty": 0
+  },
+  "DINESH:TATASTEEL": {
+    "strategyId": "accumulator",
+    "account": "DINESH",
+    "symbol": "TATASTEEL",
+    "firstBuyPrice": 199.34,
+    "firstBuyAt": "2026-08-05T02:58:57.611Z",
+    "totalQty": 153,
+    "remainingQty": 153,
+    "tranche1At": null,
+    "lots": [
+      {
+        "id": "1785898737611-hbg562",
+        "boughtAt": "2026-08-05T02:58:57.611Z",
+        "entryPrice": 199.337973,
+        "originalQty": 153,
+        "remainingQty": 153,
+        "tranche1At": null,
+        "strategyId": "accumulator"
+      }
+    ],
+    "tranche1SoldQty": 0
+  },
+  "DINESH:HDFCAMC": {
+    "strategyId": "market_boom",
+    "account": "DINESH",
+    "symbol": "HDFCAMC",
+    "firstBuyPrice": 2565.6,
+    "firstBuyAt": "2026-08-05T04:27:01.421Z",
+    "totalQty": 7,
+    "remainingQty": 7,
+    "tranche1At": null,
+    "lots": [
+      {
+        "id": "1786353900535-mhmob0",
+        "boughtAt": "2026-08-05T04:27:01.421Z",
+        "entryPrice": 2565.6,
+        "originalQty": 7,
+        "remainingQty": 7,
+        "tranche1At": null,
+        "strategyId": "market_boom"
+      }
+    ],
+    "tranche1SoldQty": 0
+  },
+  "DINESH:HDFCBANK": {
+    "strategyId": "market_boom",
+    "account": "DINESH",
+    "symbol": "HDFCBANK",
+    "firstBuyPrice": 738.5,
+    "firstBuyAt": "2026-08-06T03:51:01.336Z",
+    "totalQty": 27,
+    "remainingQty": 27,
+    "tranche1At": null,
+    "lots": [
+      {
+        "id": "1786353900540-eirl1z",
+        "boughtAt": "2026-08-06T03:51:01.336Z",
+        "entryPrice": 738.5,
+        "originalQty": 27,
+        "remainingQty": 27,
+        "tranche1At": null,
+        "strategyId": "market_boom"
+      }
+    ],
+    "tranche1SoldQty": 0
+  },
+  "DINESH:JSWSTEEL": {
+    "strategyId": "catalyst",
+    "account": "DINESH",
+    "symbol": "JSWSTEEL",
+    "firstBuyPrice": 1308.2,
+    "firstBuyAt": "2026-08-10T04:30:22.111Z",
+    "totalQty": 15,
+    "remainingQty": 15,
+    "tranche1At": null,
+    "lots": [
+      {
+        "id": "1786353900543-qvjb4q",
+        "boughtAt": "2026-08-10T04:30:22.111Z",
+        "entryPrice": 1308.2,
+        "originalQty": 15,
+        "remainingQty": 15,
+        "tranche1At": null,
+        "strategyId": "catalyst"
+      }
+    ],
+    "tranche1SoldQty": 0
+  },
+  "DINESH:CAMS": {
+    "strategyId": "catalyst",
+    "account": "DINESH",
+    "symbol": "CAMS",
+    "firstBuyPrice": 792.15,
+    "firstBuyAt": "2026-08-10T04:50:14.677Z",
+    "totalQty": 25,
+    "remainingQty": 25,
+    "tranche1At": null,
+    "lots": [
+      {
+        "id": "1786353900546-fxj09v",
+        "boughtAt": "2026-08-10T04:50:14.677Z",
+        "entryPrice": 792.15,
+        "originalQty": 25,
+        "remainingQty": 25,
+        "tranche1At": null,
+        "strategyId": "catalyst"
+      }
+    ],
+    "tranche1SoldQty": 0
+  },
+  "DINESH:AXISBANK": {
+    "strategyId": "accumulator",
+    "account": "DINESH",
+    "symbol": "AXISBANK",
+    "firstBuyPrice": 1259.5,
+    "firstBuyAt": "2026-08-10T09:25:02.194Z",
+    "totalQty": 7,
+    "remainingQty": 7,
+    "tranche1At": null,
+    "lots": [
+      {
+        "id": "1786353902194-v1bd0y",
+        "boughtAt": "2026-08-10T09:25:02.194Z",
+        "entryPrice": 1259.5,
+        "originalQty": 7,
+        "remainingQty": 7,
+        "tranche1At": null,
+        "strategyId": "accumulator"
+      }
+    ],
+    "tranche1SoldQty": 0
+  },
+  "DINESH:BIRLACORPN": {
+    "strategyId": "accumulator",
+    "account": "DINESH",
+    "symbol": "BIRLACORPN",
+    "firstBuyPrice": 924.42,
+    "firstBuyAt": "2026-08-10T09:25:02.200Z",
+    "totalQty": 21,
+    "remainingQty": 21,
+    "tranche1At": null,
+    "lots": [
+      {
+        "id": "1786353902200-fwml75",
+        "boughtAt": "2026-08-10T09:25:02.200Z",
+        "entryPrice": 924.421428,
+        "originalQty": 21,
+        "remainingQty": 21,
+        "tranche1At": null,
+        "strategyId": "accumulator"
+      }
+    ],
+    "tranche1SoldQty": 0
+  },
+  "DINESH:BSOFT": {
+    "strategyId": "accumulator",
+    "account": "DINESH",
+    "symbol": "BSOFT",
+    "firstBuyPrice": 325.95,
+    "firstBuyAt": "2026-08-10T09:25:02.204Z",
+    "totalQty": 30,
+    "remainingQty": 30,
+    "tranche1At": null,
+    "lots": [
+      {
+        "id": "1786353902204-yylp79",
+        "boughtAt": "2026-08-10T09:25:02.204Z",
+        "entryPrice": 325.946666,
+        "originalQty": 30,
+        "remainingQty": 30,
+        "tranche1At": null,
+        "strategyId": "accumulator"
+      }
+    ],
+    "tranche1SoldQty": 0
+  },
+  "DINESH:COALINDIA": {
+    "strategyId": "accumulator",
+    "account": "DINESH",
+    "symbol": "COALINDIA",
+    "firstBuyPrice": 431.7,
+    "firstBuyAt": "2026-08-10T09:25:02.208Z",
+    "totalQty": 23,
+    "remainingQty": 23,
+    "tranche1At": null,
+    "lots": [
+      {
+        "id": "1786353902208-cwflft",
+        "boughtAt": "2026-08-10T09:25:02.208Z",
+        "entryPrice": 431.7,
+        "originalQty": 23,
+        "remainingQty": 23,
+        "tranche1At": null,
+        "strategyId": "accumulator"
+      }
+    ],
+    "tranche1SoldQty": 0
+  },
+  "DINESH:HINDUNILVR": {
+    "strategyId": "accumulator",
+    "account": "DINESH",
+    "symbol": "HINDUNILVR",
+    "firstBuyPrice": 2192.8,
+    "firstBuyAt": "2026-08-10T09:25:02.212Z",
+    "totalQty": 9,
+    "remainingQty": 9,
+    "tranche1At": null,
+    "lots": [
+      {
+        "id": "1786353902212-n6q65e",
+        "boughtAt": "2026-08-10T09:25:02.212Z",
+        "entryPrice": 2192.8,
+        "originalQty": 9,
+        "remainingQty": 9,
+        "tranche1At": null,
+        "strategyId": "accumulator"
+      }
+    ],
+    "tranche1SoldQty": 0
+  },
+  "DINESH:ICICIBANK": {
+    "strategyId": "accumulator",
+    "account": "DINESH",
+    "symbol": "ICICIBANK",
+    "firstBuyPrice": 1439.6,
+    "firstBuyAt": "2026-08-10T09:25:02.218Z",
+    "totalQty": 7,
+    "remainingQty": 7,
+    "tranche1At": null,
+    "lots": [
+      {
+        "id": "1786353902218-dqijdc",
+        "boughtAt": "2026-08-10T09:25:02.218Z",
+        "entryPrice": 1439.6,
+        "originalQty": 7,
+        "remainingQty": 7,
+        "tranche1At": null,
+        "strategyId": "accumulator"
+      }
+    ],
+    "tranche1SoldQty": 0
+  },
+  "DINESH:KOTAKBANK": {
+    "strategyId": "accumulator",
+    "account": "DINESH",
+    "symbol": "KOTAKBANK",
+    "firstBuyPrice": 404.4,
+    "firstBuyAt": "2026-08-10T09:25:02.223Z",
+    "totalQty": 37,
+    "remainingQty": 37,
+    "tranche1At": null,
+    "lots": [
+      {
+        "id": "1786353902223-2sxfhx",
+        "boughtAt": "2026-08-10T09:25:02.223Z",
+        "entryPrice": 404.4,
+        "originalQty": 37,
+        "remainingQty": 37,
+        "tranche1At": null,
+        "strategyId": "accumulator"
+      }
+    ],
+    "tranche1SoldQty": 0
+  }
+}

@@ -1,0 +1,46 @@
+{
+  "name": "dineshtrade",
+  "version": "1.0.0",
+  "private": true,
+  "scripts": {
+    "dev": "next dev",
+    "build": "next build && node scripts/build-cron-runtime.mjs",
+    "start": "NODE_ENV=production node server.js",
+    "lint": "next lint"
+  },
+  "dependencies": {
+    "@supabase/supabase-js": "^2.112.2",
+    "axios": "^1.6.8",
+    "clsx": "^2.1.1",
+    "date-fns": "^3.6.0",
+    "jose": "^5.2.4",
+    "kiteconnect": "^5.0.1",
+    "next": "^14.2.35",
+    "node-cron": "^3.0.3",
+    "nodemailer": "^6.9.16",
+    "react": "^18",
+    "react-dom": "^18",
+    "resend": "^6.18.1",
+    "tailwind-merge": "^2.3.0",
+    "yahoo-finance2": "3.14.1"
+  },
+  "devDependencies": {
+    "@types/connect": "^3.4.38",
+    "@types/node": "^20",
+    "@types/node-cron": "^3.0.11",
+    "@types/nodemailer": "^6.4.17",
+    "@types/react": "^18",
+    "@types/react-dom": "^18",
+    "autoprefixer": "^10.0.1",
+    "dotenv": "^17.4.2",
+    "esbuild": "^0.25.5",
+    "eslint": "^8",
+    "eslint-config-next": "^14.2.35",
+    "postcss": "^8",
+    "supabase": "^2.114.0",
+    "tailwindcss": "^3.4.1",
+    "ts-node": "^10.9.2",
+    "tsconfig-paths": "^4.2.0",
+    "typescript": "^5"
+  }
+}
