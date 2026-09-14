@@ -53,6 +53,10 @@ function makeKey(account: string, symbol: string): string {
   return `${account.toUpperCase()}:${symbol.toUpperCase()}`
 }
 
+function isManualHold(position?: Pick<Position, 'strategyId'> | null): boolean {
+  return position?.strategyId === 'manual'
+}
+
 function round2(value: number): number {
   return Number(value.toFixed(2))
 }
@@ -266,6 +270,12 @@ export async function recordBuy(strategyId: string, account: string, symbol: str
     // Positions may be stored with broker name account (V1) or UUID account (V2); find by symbol.
     const existing = positions[k] ??
       Object.values(positions).find(p => p.symbol === symbol.toUpperCase())
+
+    if (existing && isManualHold(existing) && strategyId !== 'manual') {
+      console.log(`[positions] blocked auto BUY ${k} × ${qty} @ ₹${price}: position is manually held (manual strategy is sticky)`) 
+      return
+    }
+
     if (existing) {
       // Self-heal the account field so future lookups use the correct key
       if (existing.account !== account.toUpperCase()) {
@@ -316,7 +326,14 @@ export async function ensureTracked(strategyId: string, account: string, symbol:
   return withLock(async () => {
     const positions = await readAll()
     const k = makeKey(account, symbol)
-    if (positions[k]) return false
+    const existing = positions[k] ?? Object.values(positions).find(p => p.symbol === symbol.toUpperCase())
+    if (existing) {
+      if (isManualHold(existing) && strategyId !== 'manual') {
+        console.log(`[positions] ensureTracked skipped ${k}: manual hold is sticky (incoming ${strategyId})`)
+        return false
+      }
+      return false
+    }
     const next: Position = {
       strategyId,
       account: account.toUpperCase(),
@@ -339,7 +356,14 @@ export async function seedMissingPosition(strategyId: string, account: string, s
   return withLock(async () => {
     const positions = await readAll()
     const k = makeKey(account, symbol)
-    if (positions[k]) return false
+    const existing = positions[k] ?? Object.values(positions).find(p => p.symbol === symbol.toUpperCase())
+    if (existing) {
+      if (isManualHold(existing) && strategyId !== 'manual') {
+        console.log(`[positions] seedMissingPosition skipped ${k}: manual hold is sticky (incoming ${strategyId})`)
+        return false
+      }
+      return false
+    }
 
     const safeBoughtAt = Number.isFinite(new Date(boughtAtIso).getTime()) ? boughtAtIso : new Date().toISOString()
     const next: Position = {
