@@ -30,7 +30,7 @@ export default async function PositionsPage() {
   const admin = getSupabaseAdmin()
   const primaryCustomerId = (process.env.CUSTOMER_IDS || '').split(',')[0]?.trim() || customerId
 
-  const [brokerRes, strategyRes, trackedRes] = await Promise.all([
+  const [brokerRes, strategyRes, trackedRes, recentOrdersRes] = await Promise.all([
     admin.from('broker_accounts')
       .select('access_token_enc, api_key_enc, token_expires_at')
       .eq('customer_id', customerId).eq('broker_name', 'zerodha').eq('active', true)
@@ -40,6 +40,11 @@ export default async function PositionsPage() {
     admin.from('customer_positions')
       .select('symbol, strategy_tag, first_buy_price, remaining_qty, total_qty, lots')
       .eq('customer_id', customerId),
+    admin.from('orders')
+      .select('symbol, side, price, strategy_tag, created_at')
+      .eq('customer_id', customerId)
+      .eq('status', 'COMPLETE')
+      .order('created_at', { ascending: false }),
   ])
 
   const activeStrategies = ((strategyRes.data ?? []) as any[])
@@ -49,6 +54,14 @@ export default async function PositionsPage() {
   activeStrategies.push({ id: 'manual', label: 'Manual', color: '#a78bfa' })
 
   const trackedBySymbol = new Map<string, any>((trackedRes.data ?? []).map((p: any) => [String(p.symbol).toUpperCase(), p]))
+  const lastBuyMetaBySymbol = new Map<string, { price: number; strategyTag: string | null }>()
+  for (const row of (recentOrdersRes.data ?? []) as any[]) {
+    if (row.side !== 'BUY') continue
+    const sym = String(row.symbol).toUpperCase()
+    if (lastBuyMetaBySymbol.has(sym)) continue
+    const price = Number(row.price) || 0
+    lastBuyMetaBySymbol.set(sym, { price, strategyTag: row.strategy_tag ?? null })
+  }
   const broker = brokerRes.data
   const tokenValid = broker?.access_token_enc && isTokenValid(broker.token_expires_at)
 
@@ -94,18 +107,28 @@ export default async function PositionsPage() {
                       </thead>
                       <tbody>
                         {dayPositions.map((p, i) => {
-                          const tracked = trackedBySymbol.get(p.tradingsymbol.toUpperCase())
+                          const sym = p.tradingsymbol.toUpperCase()
+                          const tracked = trackedBySymbol.get(sym)
+                          const fallbackBuy = lastBuyMetaBySymbol.get(sym)
+                          const lotBuyPrice = Array.isArray(tracked?.lots)
+                            ? [...tracked.lots]
+                                .sort((a: any, b: any) => String(b.boughtAt ?? b.bought_at ?? '').localeCompare(String(a.boughtAt ?? a.bought_at ?? '')))
+                                .map((lot: any) => Number(lot.entryPrice ?? lot.entry_price ?? 0))
+                                .find(v => v > 0) ?? 0
+                            : 0
                           const netQty = p.quantity
                           const buyQty = p.day_buy_quantity ?? 0
                           const sellQty = p.day_sell_quantity ?? 0
-                          const isHoldingExit = (p.day_buy_quantity ?? 0) === 0 && (p.day_sell_quantity ?? 0) > 0 && (tracked?.first_buy_price ?? 0) > 0
-                          const buyPrice = p.buy_price ?? p.day_buy_price ?? p.average_price ?? tracked?.first_buy_price ?? 0
+                          const isHoldingExit = (buyQty === 0) && (sellQty > 0) && (!!tracked || !!fallbackBuy)
+                          const buyPrice = isHoldingExit
+                            ? (lotBuyPrice || tracked?.first_buy_price || fallbackBuy?.price || p.buy_price || p.day_buy_price || p.average_price || 0)
+                            : (p.buy_price ?? p.day_buy_price ?? p.average_price ?? tracked?.first_buy_price ?? lotBuyPrice || fallbackBuy?.price || 0)
                           const sellPrice = p.sell_price ?? 0
                           const ltp = p.last_price
                           const pnl = p.pnl ?? 0
                           const canSquareOff = netQty !== 0
                           const pnlColor = pnl >= 0 ? '#16A34A' : '#DC2626'
-                          const strategyTag = tracked?.strategy_tag || 'accumulator'
+                          const strategyTag = tracked?.strategy_tag ?? fallbackBuy?.strategyTag ?? 'accumulator'
                           return (
                             <tr key={p.tradingsymbol} style={{ borderTop: `1px solid ${C.border}`, background: i % 2 === 0 ? C.card : C.bg }}>
                               <td style={{ padding: '10px 14px', fontWeight: 700, color: C.heading }}>
@@ -148,18 +171,26 @@ export default async function PositionsPage() {
               <div className="mobile-only">
                 <div style={{ display: 'flex', flexDirection: 'column', gap: 10 }}>
                   {dayPositions.map(p => {
-                    const tracked = trackedBySymbol.get(p.tradingsymbol.toUpperCase())
+                    const sym = p.tradingsymbol.toUpperCase()
+                    const tracked = trackedBySymbol.get(sym)
+                    const fallbackBuy = lastBuyMetaBySymbol.get(sym)
+                    const lotBuyPrice = Array.isArray(tracked?.lots)
+                      ? [...tracked.lots]
+                          .sort((a: any, b: any) => String(b.boughtAt ?? b.bought_at ?? '').localeCompare(String(a.boughtAt ?? a.bought_at ?? '')))
+                          .map((lot: any) => Number(lot.entryPrice ?? lot.entry_price ?? 0))
+                          .find(v => v > 0) ?? 0
+                      : 0
                     const netQty = p.quantity
-                    const buyPrice = p.buy_price ?? p.day_buy_price ?? p.average_price ?? tracked?.first_buy_price ?? 0
-                    const originalBuyPrice = tracked?.first_buy_price ?? p.average_price ?? p.buy_price ?? p.day_buy_price ?? null
+                    const buyPrice = (p.buy_price ?? p.day_buy_price ?? p.average_price ?? tracked?.first_buy_price ?? lotBuyPrice || fallbackBuy?.price) || 0
+                    const originalBuyPrice = (lotBuyPrice || tracked?.first_buy_price || fallbackBuy?.price || p.average_price || p.buy_price || p.day_buy_price || null)
                     const sellPrice = p.sell_price ?? 0
                     const ltp = p.last_price
                     const pnl = p.pnl ?? 0
                     const pnlColor = pnl >= 0 ? '#16A34A' : '#DC2626'
                     const canSquareOff = netQty !== 0
                     const days = typeof p.day_buy_quantity !== 'undefined' && p.day_buy_quantity > 0 ? 0 : 1
-                    const isHoldingExit = (p.day_buy_quantity ?? 0) === 0 && (p.day_sell_quantity ?? 0) > 0 && (tracked?.first_buy_price ?? 0) > 0
-                    const strategyTag = tracked?.strategy_tag || 'accumulator'
+                    const isHoldingExit = ((p.day_buy_quantity ?? 0) === 0) && ((p.day_sell_quantity ?? 0) > 0) && (!!tracked || !!fallbackBuy)
+                    const strategyTag = tracked?.strategy_tag ?? fallbackBuy?.strategyTag ?? 'accumulator'
 
                     return (
                       <div key={p.tradingsymbol} style={{ background: C.card, border: `1px solid ${C.border}`, borderRadius: 12, padding: 12 }}>
