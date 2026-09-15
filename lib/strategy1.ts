@@ -214,7 +214,7 @@ export async function monitorAccountStrategy1(account: string): Promise<Strategy
           await markPlaced(account, symbol, 'SELL', { price: ltp, manual: false })
           journalOrder({ account, symbol, side: 'SELL', qty: actualQty, price: ltp, tag: STRATEGY_1_TRANCHE2_TAG, orderId: placed.data.data.order_id })
             .catch(err => console.error('[strategy1] journalOrder failed:', err))
-          await positions.applyLotSell(account, symbol, lot.id, actualQty)
+          await positions.applyLotSell(account, symbol, lot.id, actualQty, { orderId: placed.data.data.order_id })
           const pnlR = (ltp - lot.entryPrice) * actualQty
           appendJournal({
             type: 'trade', date: istDateString(),
@@ -295,7 +295,7 @@ export async function monitorAccountStrategy1(account: string): Promise<Strategy
           await markPlaced(account, symbol, 'SELL', { price: ltp, manual: false })
           journalOrder({ account, symbol, side: 'SELL', qty: actualQty, price: ltp, tag: STRATEGY_1_TRANCHE1_TAG, orderId: placed.data.data.order_id })
             .catch(err => console.error('[strategy1] journalOrder failed:', err))
-          await positions.applyLotSell(account, symbol, lot.id, actualQty, { markTranche1: true })
+          await positions.applyLotSell(account, symbol, lot.id, actualQty, { markTranche1: true, orderId: placed.data.data.order_id })
           const pnlR = (ltp - lot.entryPrice) * actualQty
           appendJournal({
             type: 'trade', date: istDateString(),
@@ -369,7 +369,7 @@ export async function monitorAccountStrategy1(account: string): Promise<Strategy
         if (placed.ok && placed.data?.data?.order_id) {
           soldAnyLot = true
           await markPlaced(account, symbol, 'SELL', { price: ltp, manual: false })
-          await positions.applyLotSell(account, symbol, lot.id, actualQty)
+          await positions.applyLotSell(account, symbol, lot.id, actualQty, { orderId: placed.data.data.order_id })
           const pnlR2 = (ltp - lot.entryPrice) * actualQty
           appendJournal({
             type: 'trade', date: istDateString(),

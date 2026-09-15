@@ -324,7 +324,7 @@ export async function monitorPivotalAccount(account: string): Promise<PivotalMon
       if (placed.ok && placed.data?.data?.order_id) {
         soldAnyLot = true
         await markPlaced(account, pos.symbol, 'SELL', { price: ltp, manual: false })
-        await applyLotSell(account, pos.symbol, lot.id, actualQty, { markTranche1 })
+        await applyLotSell(account, pos.symbol, lot.id, actualQty, { markTranche1, orderId: placed.data.data.order_id })
         journalOrder({ account, symbol: pos.symbol, side: 'SELL', qty: actualQty, price: ltp, tag, orderId: placed.data.data.order_id })
           .catch(err => console.error('[pivotal] journalOrder failed:', err))
         appendJournal({

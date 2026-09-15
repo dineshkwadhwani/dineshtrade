@@ -32,6 +32,7 @@ export interface PositionLot {
   tranche1SoldQty?: number
   tranche2At?: string | null  // set when T2 fires; allows cleanup of leftover shares on next tick
   strategyId?: string       // source strategy that bought this lot (optional for backward compat)
+  sellOrderIds?: string[]    // broker SELL orders already applied to this lot
 }
 
 export interface Position {
@@ -423,7 +424,7 @@ export async function markTranche1Sold(account: string, symbol: string, soldQty:
   })
 }
 
-export async function applyLotSell(account: string, symbol: string, lotId: string, soldQty: number, opts?: { markTranche1?: boolean; markTranche2?: boolean }): Promise<void> {
+export async function applyLotSell(account: string, symbol: string, lotId: string, soldQty: number, opts?: { markTranche1?: boolean; markTranche2?: boolean; orderId?: string }): Promise<void> {
   return withLock(async () => {
     const positions = await readAll()
     const p = positions[makeKey(account, symbol)]
@@ -432,6 +433,7 @@ export async function applyLotSell(account: string, symbol: string, lotId: strin
     if (p.account !== account.toUpperCase()) p.account = account.toUpperCase()
     const lot = p.lots.find(item => item.id === lotId)
     if (!lot || lot.remainingQty <= 0) return
+    if (opts?.orderId && lot.sellOrderIds?.includes(opts.orderId)) return
     const executedQty = Math.min(soldQty, lot.remainingQty)
     if (opts?.markTranche1) {
       lot.tranche1At = new Date().toISOString()
@@ -441,37 +443,13 @@ export async function applyLotSell(account: string, symbol: string, lotId: strin
       lot.tranche2At = new Date().toISOString()
     }
     lot.remainingQty = Math.max(0, lot.remainingQty - executedQty)
+    if (opts?.orderId) lot.sellOrderIds = [...(lot.sellOrderIds || []), opts.orderId]
     summarizeMomentumPosition(p)
     if (p.remainingQty <= 0) {
       await deletePositionRow(symbol)
     } else {
       await upsertPosition(p)
     }
-  })
-}
-
-// Reconcile a completed sell against the lot identified by its buy price.
-// Strategy exits already know the lot, so this must not invent FIFO/LIFO order.
-export async function reducePositionLotByEntryPrice(account: string, symbol: string, entryPrice: number, soldQty: number): Promise<number> {
-  return withLock(async () => {
-    const positions = await readAll()
-    const p = positions[makeKey(account, symbol)]
-      || Object.values(positions).find(position => position.symbol === symbol.toUpperCase())
-    if (!p) return 0
-    if (p.account !== account.toUpperCase()) p.account = account.toUpperCase()
-
-    const lot = p.lots?.find(item => Math.abs(item.entryPrice - entryPrice) < 0.01 && item.remainingQty > 0)
-    if (!lot || soldQty <= 0) return 0
-    const executedQty = Math.min(Math.floor(soldQty), lot.remainingQty)
-    lot.remainingQty -= executedQty
-    summarizeMomentumPosition(p)
-
-    if (p.remainingQty <= 0) {
-      await deletePositionRow(symbol)
-    } else {
-      await upsertPosition(p)
-    }
-    return executedQty
   })
 }
 

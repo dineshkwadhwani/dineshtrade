@@ -55,8 +55,8 @@
 
 import { getState, setBuyHistoryForSymbol } from './state'
 import { resolveAccountCreds, getPositions, getHoldings, getOrders, getQuotes, buildLiveQtyBySymbol } from './kite'
-import { istDateString, readJournalRange, journalOrder, type OrderRecord, type TradeRecord } from './journal'
-import { listPositions, recordBuy, removePosition, reducePositionLotByEntryPrice } from './positions'
+import { istDateString, readJournalRange, journalOrder, type OrderRecord } from './journal'
+import { listPositions, recordBuy, removePosition } from './positions'
 import { istDateKey } from './cronState'
 
 function strategyFromTag(tag?: string): string | null {
@@ -312,26 +312,6 @@ export async function reconcileManualSells(): Promise<void> {
       )
 
       const zeroQtyPositions = trackedPositions.filter(p => (liveQty.get(p.symbol.toUpperCase()) ?? 0) <= 0)
-
-      // A DAlgo sell carries its lot entry price in the trade journal. Repair
-      // only that matching lot if the broker quantity exposes a stale store.
-      for (const pos of trackedPositions) {
-        const sym = pos.symbol.toUpperCase()
-        const brokerQty = Math.max(0, liveQty.get(sym) ?? 0)
-        if (brokerQty <= 0 || brokerQty >= pos.remainingQty) continue
-
-        const sellOrders = todaySellBySymbol.get(sym) || []
-        const tradesByOrderId = new Map(
-          todayJournal
-            .filter((record): record is TradeRecord => record.type === 'trade' && !!record.orderIdSell && record.symbol.toUpperCase() === sym)
-            .map(record => [record.orderIdSell!, record])
-        )
-        for (const order of sellOrders) {
-          const trade = tradesByOrderId.get(order.order_id)
-          if (!trade) continue
-          await reducePositionLotByEntryPrice(account, pos.symbol, trade.entryPrice, Number(order.filled_quantity || order.quantity) || 0)
-        }
-      }
 
       for (const pos of zeroQtyPositions) {
         const sym = pos.symbol.toUpperCase()

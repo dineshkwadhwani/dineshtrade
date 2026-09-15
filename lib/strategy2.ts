@@ -450,7 +450,7 @@ export async function monitorAccount(account: string): Promise<MonitorResult> {
         await markPlaced(account, symbol, 'SELL', { price: ltp, manual: false })
         journalOrder({ account, symbol, side: 'SELL', qty: actualQty, price: ltp, tag: sellTag, strategyId: lotStrategyId, orderId: placed.data.data.order_id })
           .catch(err => console.error('[strategy2] journalOrder failed:', err))
-        await applyLotSell(account, symbol, lot.id, actualQty, { markTranche1, markTranche2 })
+        await applyLotSell(account, symbol, lot.id, actualQty, { markTranche1, markTranche2, orderId: placed.data.data.order_id })
 
         const pnlRupees = (ltp - lot.entryPrice) * actualQty
         const dayHigh = (quote as any)?.ohlc?.high ?? ltp
