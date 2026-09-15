@@ -31,6 +31,7 @@ function isTokenValid(expiresAt: string | null | undefined): boolean {
 
 interface DisplayHolding {
   symbol: string
+  lotLabel?: string
   quantity: number
   t1_quantity: number
   average_price: number
@@ -59,7 +60,7 @@ export default async function HoldingsPage() {
       .eq('customer_id', customerId).eq('broker_name', 'zerodha').eq('active', true)
       .maybeSingle(),
     admin.from('customer_positions')
-      .select('symbol, strategy_tag, first_buy_at, remaining_qty, first_buy_price, status')
+      .select('symbol, strategy_tag, first_buy_at, remaining_qty, first_buy_price, lots, status')
       .eq('customer_id', customerId).eq('status', 'open'),
     admin.from('customer_strategies')
       .select('strategy_key, name, color, active').eq('customer_id', customerId),
@@ -93,8 +94,8 @@ export default async function HoldingsPage() {
   }
 
   const trackedPositions = (trackedRes.data ?? []) as any[]
-  const strategyBySymbol = new Map<string, { tag: string; firstBuyAt: string }>(
-    trackedPositions.map(p => [p.symbol.toUpperCase(), { tag: p.strategy_tag ?? 'accumulator', firstBuyAt: p.first_buy_at }])
+  const trackedBySymbol = new Map<string, any>(
+    trackedPositions.map(p => [p.symbol.toUpperCase(), p])
   )
 
   const broker = brokerRes.data
@@ -116,9 +117,37 @@ export default async function HoldingsPage() {
         ? (() => { try { return decrypt(broker.api_key_enc!) } catch { return envApiKey } })()
         : envApiKey
       const kiteHoldings = await getHoldings({ apiKey, accessToken })
-      holdings = kiteHoldings.map(h => {
-        const tracked = strategyBySymbol.get(h.tradingsymbol.toUpperCase())
-        return {
+      holdings = kiteHoldings.flatMap(h => {
+        const tracked = trackedBySymbol.get(h.tradingsymbol.toUpperCase())
+        const activeLots = Array.isArray(tracked?.lots)
+          ? tracked.lots
+            .map((lot: any, originalIndex: number) => ({ lot, originalIndex }))
+            .sort((a: any, b: any) => String(a.lot.boughtAt ?? a.lot.bought_at ?? '').localeCompare(String(b.lot.boughtAt ?? b.lot.bought_at ?? '')))
+            .filter(({ lot }: { lot: any }) => Number(lot.remainingQty ?? lot.remaining_qty ?? 0) > 0)
+          : []
+
+        if (activeLots.length > 0) {
+          return activeLots.map(({ lot, originalIndex }: { lot: any; originalIndex: number }) => {
+            const quantity = Number(lot.remainingQty ?? lot.remaining_qty ?? 0)
+            const averagePrice = Number(lot.entryPrice ?? lot.entry_price ?? tracked.first_buy_price) || h.average_price
+            return {
+              symbol: h.tradingsymbol,
+              lotLabel: `L${originalIndex + 1}`,
+              quantity,
+              t1_quantity: 0,
+              average_price: averagePrice,
+              last_price: h.last_price,
+              close_price: h.close_price ?? null,
+              pnl: (h.last_price - averagePrice) * quantity,
+              strategyTag: lot.strategyId ?? tracked.strategy_tag ?? null,
+              firstBuyAt: lot.boughtAt ?? lot.bought_at ?? tracked.first_buy_at ?? null,
+              fromKite: true,
+              tagDisabled: true,
+            }
+          })
+        }
+
+        return [{
           symbol: h.tradingsymbol,
           quantity: h.quantity,
           t1_quantity: h.t1_quantity ?? 0,
@@ -126,10 +155,10 @@ export default async function HoldingsPage() {
           last_price: h.last_price,
           close_price: h.close_price ?? null,
           pnl: h.pnl,
-          strategyTag: tracked?.tag ?? null,
-          firstBuyAt: tracked?.firstBuyAt ?? null,
+          strategyTag: tracked?.strategy_tag ?? null,
+          firstBuyAt: tracked?.first_buy_at ?? null,
           fromKite: true,
-        }
+        }]
       })
 
       // A holding fully sold today shows qty 0 in Kite but its DAlgo position
@@ -299,47 +328,29 @@ export default async function HoldingsPage() {
                       const todayColor = (todayPct ?? 0) >= 0 ? POSITIVE : NEGATIVE
                       const days = h.firstBuyAt ? daysHeld(h.firstBuyAt) : null
                       return (
-                        <tr key={h.symbol} style={{ borderTop: `1px solid ${C.border}`, background: i % 2 === 0 ? C.card : C.bg }}>
-                          <td style={{ padding: '10px 14px', fontWeight: 600, color: C.heading }}>{h.symbol}</td>
+                        <tr key={`${h.symbol}-${h.lotLabel ?? 'aggregate'}`} style={{ borderTop: `1px solid ${C.border}`, background: i % 2 === 0 ? C.card : C.bg }}>
+                          <td style={{ padding: '10px 14px', fontWeight: 600, color: C.heading }}>
+                            {h.symbol}{h.lotLabel ? <span style={{ marginLeft: 6, color: C.muted, fontSize: 11 }}>{h.lotLabel}</span> : null}
+                          </td>
                           <td style={{ padding: '10px 14px' }}>
                             {h.strategyTag
-                              ? <StrategyTagButton
-                                  symbol={h.symbol}
-                                  currentTag={h.strategyTag}
-                                  strategies={activeStrategies}
-                                  kiteQty={h.quantity + h.t1_quantity}
-                                  kiteAvgPrice={h.average_price}
-                                  disabled={h.tagDisabled}
-                                />
+                              ? <StrategyTagButton symbol={h.symbol} currentTag={h.strategyTag} strategies={activeStrategies} kiteQty={totalQty} kiteAvgPrice={h.average_price} disabled={h.tagDisabled} />
                               : h.fromKite
-                                ? <StrategyTagButton
-                                    symbol={h.symbol}
-                                    currentTag="untracked"
-                                    strategies={activeStrategies}
-                                    kiteQty={h.quantity + h.t1_quantity}
-                                    kiteAvgPrice={h.average_price}
-                                  />
+                                ? <StrategyTagButton symbol={h.symbol} currentTag="untracked" strategies={activeStrategies} kiteQty={totalQty} kiteAvgPrice={h.average_price} />
                                 : <span style={{ color: '#94A3B8', fontSize: 12 }}>—</span>}
                           </td>
                           <td style={{ padding: '10px 14px', color: C.body }}>
-                            {h.quantity + h.t1_quantity}
-                            {h.t1_quantity > 0 && (
-                              <span title={`${h.t1_quantity} pending T+1 settlement`} style={{ marginLeft: 4, fontSize: 10, fontWeight: 600, padding: '1px 5px', borderRadius: 4, background: '#FEF3C7', color: '#D97706' }}>T1</span>
-                            )}
+                            {totalQty}
+                            {h.t1_quantity > 0 && <span title={`${h.t1_quantity} pending T+1 settlement`} style={{ marginLeft: 4, fontSize: 10, fontWeight: 600, padding: '1px 5px', borderRadius: 4, background: '#FEF3C7', color: '#D97706' }}>T1</span>}
                           </td>
                           <td style={{ padding: '10px 14px', color: C.body }}>₹{fmt(h.average_price)}</td>
                           <td style={{ padding: '10px 14px', color: C.body }}>₹{fmt(h.last_price)}</td>
                           <td style={{ padding: '10px 14px', fontWeight: 600, color: pnlColor }}>₹{fmt(pnl)}</td>
                           <td style={{ padding: '10px 14px', fontWeight: 600, color: pnlColor }}>{pnlPct >= 0 ? '+' : ''}{fmt(pnlPct)}%</td>
-                          <td style={{ padding: '10px 14px', fontWeight: 600, color: todayPct == null ? C.muted : todayColor }}>
-                            {todayPct == null ? '—' : `${todayPct >= 0 ? '+' : ''}${fmt(todayPct)}%`}
-                          </td>
+                          <td style={{ padding: '10px 14px', fontWeight: 600, color: todayPct == null ? C.muted : todayColor }}>{todayPct == null ? '—' : `${todayPct >= 0 ? '+' : ''}${fmt(todayPct)}%`}</td>
                           <td style={{ padding: '10px 14px', color: C.muted, fontSize: 12 }}>{days != null ? `${days}d` : '—'}</td>
                           <td style={{ padding: '10px 14px' }}>
-                            {/* SELL button only when broker is connected and has live qty */}
-                            {!offlineMode && (
-                              <OrderModalButton symbol={h.symbol} side="SELL" quantity={totalQty} price={h.last_price} size="sm" />
-                            )}
+                            {!offlineMode && <OrderModalButton symbol={h.symbol} side="SELL" quantity={totalQty} price={h.last_price} size="sm" />}
                           </td>
                         </tr>
                       )
@@ -359,7 +370,7 @@ export default async function HoldingsPage() {
 
           <div className="mobile-only">
             <div style={{ display: 'flex', flexDirection: 'column', gap: 10 }}>
-              {holdings.map(h => {
+              {holdings.map((h, i) => {
                 const totalQty = h.quantity + h.t1_quantity
                 const investedAmount = totalQty * h.average_price
                 const pnl = totalQty * (h.last_price - h.average_price)
@@ -370,11 +381,11 @@ export default async function HoldingsPage() {
                 const todayColor = (todayPct ?? 0) >= 0 ? POSITIVE : NEGATIVE
 
                 return (
-                  <div key={h.symbol} style={{ background: C.card, border: `1px solid ${C.border}`, borderRadius: 12, padding: 12 }}>
+                  <div key={`${h.symbol}-${h.lotLabel ?? 'aggregate'}-${i}`} style={{ background: C.card, border: `1px solid ${C.border}`, borderRadius: 12, padding: 12 }}>
                     <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'flex-start', gap: 10 }}>
                       <div style={{ minWidth: 0, flex: 1 }}>
                         <div style={{ display: 'flex', alignItems: 'center', gap: 8, flexWrap: 'wrap', marginBottom: 4 }}>
-                          <div style={{ fontWeight: 700, fontSize: 16, color: C.heading, letterSpacing: '-0.01em' }}>{h.symbol}</div>
+                          <div style={{ fontWeight: 700, fontSize: 16, color: C.heading, letterSpacing: '-0.01em' }}>{h.symbol}{h.lotLabel ? <span style={{ marginLeft: 6, color: C.muted, fontSize: 11 }}>{h.lotLabel}</span> : null}</div>
                           {h.strategyTag
                             ? <StrategyTagButton
                                 symbol={h.symbol}
