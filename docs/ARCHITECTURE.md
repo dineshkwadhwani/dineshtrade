@@ -186,7 +186,9 @@ identically by every account under the one operator.
 ## 9. Persistence layer
 
 No database. Flat files under `data/` (see `docs/DATA_MODEL.md` for exact shapes):
-`state.json`, `positions.json`, `strategy.json` (runtime overlay of
+`customer_state`, `customer_positions`, and Supabase-backed strategy/config stores
+(legacy `state.json` and `positions.json` snapshots are not runtime sources),
+`strategy.json` (runtime overlay of
 `config/strategy.json`), `watchlist.json` (runtime overlay of
 `config/watchlist.json`), `pivotalLists.json` (overlay of `config/pivotalLists.json`),
 `daily-closes.json` (rolling OHLC cache), `backtest-history.json`, and monthly

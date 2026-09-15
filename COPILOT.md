@@ -60,10 +60,10 @@ This is not a SaaS product. It is a private, single-owner trading system managin
 | `panicSell.ts` | Circuit-breaker panic-sell state — when triggered, blocks all auto-BUYs |
 | `pivotal.ts` | Pivotal (breakout) strategy engine — `scanPivotalStrategy()`, `monitorPivotalAccount()`, `monitorAllPivotalAccounts()` |
 | `pivotalListStore.ts` | Pivotal list CRUD — reads/writes `config/pivotalLists.json` seed + `data/pivotalLists.json` runtime overlay |
-| `positions.ts` | Unified position store (`positions.json`) — single source of truth for which strategy owns which holding; all read-modify-write functions wrapped in an in-process async mutex (`withLock`) |
+| `positions.ts` | Supabase-backed `customer_positions` store — single source of truth for which strategy owns which holding; all read-modify-write functions wrapped in an in-process async mutex (`withLock`) |
 | `preflight.ts` | 13-named-checkpoint order validation gate chain — runs before every order placement (see §8 below — the file's own header comment saying "six gates" is stale) |
 | `retrospective.ts` | Builds daily/monthly HTML email reports from journal data |
-| `state.ts` | Reads/writes `state.json` (mode, Kite tokens, idempotency keys, buy history, panic list) |
+| `state.ts` | Supabase-backed `customer_state` store (mode, Kite tokens, idempotency keys, buy history, panic list) |
 | `strategy.ts` | Legacy strategy helpers (shared utilities used by strategy1/strategy2) |
 | `strategy1.ts` | Accumulator (mean-reversion) SELL monitor — checks open Accumulator positions for EMA recovery exit |
 | `strategy2.ts` | Catalyst (momentum) SELL monitor — checks open Catalyst positions for profit exits |
@@ -96,13 +96,13 @@ This is not a SaaS product. It is a private, single-owner trading system managin
 
 ## 3. Data Layer
 
-All runtime data lives in `~/dineshtrade/data/` on the EC2 server. **This directory is never touched by deploy steps.**
+Trading runtime state lives in Supabase. Legacy `~/dineshtrade/data/` files are not the source of truth for V2 trading data.
 
 | File | Purpose |
 | --- | --- |
-| `state.json` | App mode (auto/manual), Kite access tokens, idempotency keys, buy history per symbol, panic skip list |
-| `positions.json` | Unified position store: `{ strategyId, account, symbol, firstBuyPrice, firstBuyAt, totalQty, remainingQty }` — one entry per account+symbol |
-| `journal-YYYY-MM.jsonl` | Append-only trade journal. One JSON object per line. New file per month. Never mutated, only appended |
+| `customer_state` | App mode, broker session metadata, idempotency keys, buy history per symbol, panic skip list |
+| `customer_positions` | Unified lot-based position store, one row per customer and symbol |
+| `orders` / `trades` / `signals_skipped` | Supabase-backed journal records, scoped by customer |
 | `strategy.json` | User's live strategy config overlay (overrides compiled defaults) |
 | `watchlist.json` | Named watchlist config |
 | `daily-closes.json` | Rolling 60-day close price cache |
@@ -121,7 +121,7 @@ This is the most complex part of the codebase. Read carefully.
 
 ### The Single Source of Truth
 
-`positions.json` is the **single source of truth** for which strategy owns a holding. Every auto-BUY writes an entry to this store via `recordBuy()` in `lib/positions.ts`.
+`customer_positions` is the **single source of truth** for which strategy owns a holding. Every auto-BUY writes an entry to this store via `recordBuy()` in `lib/positions.ts`.
 
 ### Positions Strategy Attribution (current policy)
 
@@ -145,7 +145,7 @@ This is the most complex part of the codebase. Read carefully.
 
 ### Key Rule: Manually Closed Positions Are Removed After Reconciliation
 
-When a user manually sells a position in Kite (using the S button in the Holdings page, or directly in Kite's own app), `reconcileManualSells()` detects the closure, journals the SELL, and then removes the open row from `positions.json`.
+When a user manually sells a position in Kite (using the S button in the Holdings page, or directly in Kite's own app), `reconcileManualSells()` detects the closure, journals the SELL, and then removes the open row from `customer_positions`.
 
 **Why:** Leaving the row behind can contaminate the next re-buy of the same symbol with a stale `firstBuyPrice`, which in turn breaks momentum exit logic.
 

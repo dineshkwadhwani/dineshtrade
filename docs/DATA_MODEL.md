@@ -1,7 +1,7 @@
-# DineshTrade — Data Model (code-verified against live files, 07 Sep 2026)
+# DineshTrade — Data Model (code-verified against live Supabase stores, 15 Sep 2026)
 
-No database exists. Everything below is a real file read directly from the repo /
-EC2 data directory. Two directories matter and they are **not the same thing**:
+Trading state is stored in Supabase. The repository's `clear/` directory contains
+old local snapshots only and is not read by the live runtime.
 
 - `config/*.json` — checked into git. Bundled **seed defaults**.
 - `data/*.json` — **never** committed (gitignored, EC2-only, `~/dineshtrade/data/`).
@@ -24,19 +24,24 @@ EC2 data directory. Two directories matter and they are **not the same thing**:
 | `watchlist.json` | `{ generated, rules, listA: entry[], listB: entry[] }`, entry = `{ nse, name, trades, lastTraded, sector }` | 108 symbols total: `listA` 62, `listB` 46. Derived from 5 years of trade-frequency history per the embedded `rules` block. |
 | `notes.txt` | Plain text | Not config — a personal scratch file (deploy-script snippet + pasted AI session-continuation notes). Not machine-read by the app. |
 
-## 2. `data/` — live runtime state (EC2, never wiped by deploys)
+## 2. Supabase — live runtime state
+
+| Table | Contents |
+|---|---|
+| `customer_state` | Mode, broker session metadata, idempotency ledger, buy history, panic skip list. |
+| `customer_positions` | Open positions and lot-level entry prices, quantities, strategy ownership, and sell state. |
+| `orders` / `trades` / `signals_skipped` | Journal records, scoped by `customer_id`. |
+
+Reset deletes the customer's `orders`, `trades`, and `signals_skipped`, clears
+`customer_positions` and `customer_state` trading state, then re-seeds current
+broker holdings as fresh BUY records.
+
+## 3. Legacy/local files — not live trading state
 
 | File | Shape | Notes |
 |---|---|---|
-| `state.json` | `{ mode, selectedAccounts, kiteTokens, idempotencyLedger, buyHistory, panicSkipList }` | Contains a live Kite access token — sensitive. `panicSkipList` and `mode`/`selectedAccounts` are global, not per-account (see `docs/MULTI_TENANCY_CURRENT_STATE.md`). |
-| `positions.json` | Object keyed `"ACCOUNT:SYMBOL"` → `{ strategyId, account, symbol, firstBuyPrice, firstBuyAt, totalQty, remainingQty, tranche1At, tranche1SoldQty, lots: [{id, boughtAt, entryPrice, originalQty, remainingQty, tranche1At, strategyId}] }` | Lot-based — supports multiple pyramid buys per symbol, each with independent tranche state. |
-| `strategy.json` | Same schema-2.0 shape as the seed, but **live values**: 4 strategies (adds `new_pivotal`), `capital.perTrade` ₹20,000, `maxPositions` 35, `maxBuysPerDay` 6, `maxDeployPct` 100%. Carries `_updatedAt` (last write 2026-08-06). | **This is what actually runs.** See `docs/ARCHITECTURE.md` §6 for full per-strategy param detail. |
-| `watchlist.json` | `{ generated, meta: {listA, listB, list3: "QuickWins", ...}, lists: {...} }` | Live list is smaller and different from the seed — `listA` 48 symbols (seed: 62), `listB` 1 symbol (seed: 46), plus a new `list3` "QuickWins" (10 symbols) the seed doesn't have at all. |
-| `pivotalLists.json` | Mirrors seed shape | Still empty — `pivotalA` has zero symbols even though the live Pivotal strategy (`new_pivotal`) is active and pointed at it. |
-| `daily-closes.json` | `{ schema, updatedAt, closes: { [symbol]: {date, close, volume, open?, high?, low?}[] } }` | Rolling cache, ~67 symbols, feeds EMA/momentum/ceiling calculations without re-hitting Kite. Capped at 60 entries/symbol. |
-| `backtest-history.json` | `{ schema, updatedAt, runs: [...] }` | Persisted backtest run history — dozens of runs, each with full strategy snapshot + summary metrics + per-trade P&L. |
-| `journal-YYYY-MM.jsonl` | Append-only JSON Lines, one file per IST month | Record `type`s: `order`, `trade`, `signal_skipped`, `strategy_scan`, `exit_monitor`, `monitor_heartbeat`. Never mutated, only appended. Mode `0o600`. |
-| `strategy1.json.migrated`, `strategy2_positions.json.migrated` | Legacy pre-unification snapshots | Inert leftovers from the one-shot migration into the unified `positions.ts` store (with `strategyId`, `lots[]`). Kept only as a recovery path — not read by the running app. |
+| `clear/` legacy snapshots | Historical JSON snapshots | Not read by the V2 runtime; should not be used to diagnose live customer data. |
+| `data/*.json` | Legacy V1/runtime artifacts | Not the source for V2 customer trading state. |
 
 ## 3. Known config-vs-live drift (as of this audit)
 
