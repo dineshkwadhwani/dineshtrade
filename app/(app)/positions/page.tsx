@@ -122,7 +122,7 @@ export default async function PositionsPage() {
                           const isHoldingExit = (buyQty === 0) && (sellQty > 0) && (!!tracked || !!fallbackBuy)
                           const buyPrice = isHoldingExit
                             ? (lotBuyPrice || tracked?.first_buy_price || fallbackBuy?.price || p.buy_price || p.day_buy_price || p.average_price || 0)
-                            : (p.buy_price ?? p.day_buy_price ?? p.average_price ?? tracked?.first_buy_price ?? lotBuyPrice || fallbackBuy?.price || 0)
+                            : (p.buy_price ?? p.day_buy_price ?? p.average_price ?? tracked?.first_buy_price ?? lotBuyPrice ?? fallbackBuy?.price ?? 0)
                           const sellPrice = p.sell_price ?? 0
                           const ltp = p.last_price
                           const pnl = p.pnl ?? 0
@@ -133,12 +133,12 @@ export default async function PositionsPage() {
                             <tr key={p.tradingsymbol} style={{ borderTop: `1px solid ${C.border}`, background: i % 2 === 0 ? C.card : C.bg }}>
                               <td style={{ padding: '10px 14px', fontWeight: 700, color: C.heading }}>
                                 <div>{p.tradingsymbol}</div>
-                                {isHoldingExit && (
-                                  <div style={{ marginTop: 4, display: 'flex', alignItems: 'center', gap: 6, flexWrap: 'wrap' }}>
+                                <div style={{ marginTop: 4, display: 'flex', alignItems: 'center', gap: 6, flexWrap: 'wrap' }}>
+                                  {isHoldingExit && (
                                     <span style={{ display: 'inline-flex', alignItems: 'center', padding: '2px 6px', borderRadius: 999, fontSize: 10, fontWeight: 700, background: '#E0F2FE', color: '#0369A1' }}>Holding</span>
-                                    <StrategyTagButton symbol={p.tradingsymbol} currentTag={strategyTag} strategies={activeStrategies} disabled={true} />
-                                  </div>
-                                )}
+                                  )}
+                                  <StrategyTagButton symbol={p.tradingsymbol} currentTag={strategyTag} strategies={activeStrategies} disabled={isHoldingExit} />
+                                </div>
                               </td>
                               <td style={{ padding: '10px 14px', textAlign: 'right', fontWeight: 700, color: netQty > 0 ? '#16A34A' : netQty < 0 ? '#DC2626' : C.muted }}>{netQty > 0 ? `+${netQty}` : netQty}</td>
                               <td style={{ padding: '10px 14px', textAlign: 'right', color: buyQty > 0 ? '#16A34A' : C.muted }}>{buyQty > 0 ? `+${buyQty}` : '—'}</td>
@@ -181,7 +181,7 @@ export default async function PositionsPage() {
                           .find(v => v > 0) ?? 0
                       : 0
                     const netQty = p.quantity
-                    const buyPrice = (p.buy_price ?? p.day_buy_price ?? p.average_price ?? tracked?.first_buy_price ?? lotBuyPrice || fallbackBuy?.price) || 0
+                    const buyPrice = (p.buy_price ?? p.day_buy_price ?? p.average_price ?? tracked?.first_buy_price ?? lotBuyPrice ?? fallbackBuy?.price ?? 0)
                     const originalBuyPrice = (lotBuyPrice || tracked?.first_buy_price || fallbackBuy?.price || p.average_price || p.buy_price || p.day_buy_price || null)
                     const sellPrice = p.sell_price ?? 0
                     const ltp = p.last_price
@@ -197,12 +197,12 @@ export default async function PositionsPage() {
                         <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', gap: 10 }}>
                           <div style={{ fontWeight: 700, fontSize: 17, color: C.heading }}>
                             <div>{p.tradingsymbol}</div>
-                            {isHoldingExit && (
-                              <div style={{ marginTop: 4, display: 'flex', alignItems: 'center', gap: 6, flexWrap: 'wrap' }}>
+                            <div style={{ marginTop: 4, display: 'flex', alignItems: 'center', gap: 6, flexWrap: 'wrap' }}>
+                              {isHoldingExit && (
                                 <span style={{ display: 'inline-flex', alignItems: 'center', padding: '2px 6px', borderRadius: 999, fontSize: 10, fontWeight: 700, background: '#E0F2FE', color: '#0369A1' }}>Holding</span>
-                                <StrategyTagButton symbol={p.tradingsymbol} currentTag={strategyTag} strategies={activeStrategies} disabled={true} />
-                              </div>
-                            )}
+                              )}
+                              <StrategyTagButton symbol={p.tradingsymbol} currentTag={strategyTag} strategies={activeStrategies} disabled={isHoldingExit} />
+                            </div>
                           </div>
                           <span style={{ padding: '4px 8px', borderRadius: 999, fontSize: 11, fontWeight: 700, background: netQty >= 0 ? '#DCFCE7' : '#FEE2E2', color: netQty >= 0 ? '#15803D' : '#B91C1C' }}>
                             Net {netQty}
