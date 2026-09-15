@@ -132,7 +132,7 @@ export default async function HoldingsPage() {
             const averagePrice = Number(lot.entryPrice ?? lot.entry_price ?? tracked.first_buy_price) || h.average_price
             return {
               symbol: h.tradingsymbol,
-              lotLabel: `L${originalIndex + 1}`,
+              lotLabel: originalIndex === 0 ? undefined : `L${originalIndex + 1}`,
               quantity,
               t1_quantity: 0,
               average_price: averagePrice,
