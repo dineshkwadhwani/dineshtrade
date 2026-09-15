@@ -7,6 +7,7 @@ import { getProfile } from '@/lib/dalgoAuth'
 import { loadBrokerAccountCreds, getHoldings, getQuotes } from '@/lib/kite'
 import { decrypt } from '@/lib/encryption'
 import { sendDatastoreAlert } from '@/lib/email'
+import { istDateString, readJournalRange, type JournalRecord, type OrderRecord, type TradeRecord } from '@/lib/journal'
 import StrategyTagButton from '@/components/app/StrategyTagButton'
 import OrderModalButton from '@/components/app/OrderModalButton'
 
@@ -27,6 +28,24 @@ function fmt(n: number, decimals = 2) {
 function isTokenValid(expiresAt: string | null | undefined): boolean {
   if (!expiresAt) return true  // no expiry stored — assume valid
   return new Date(expiresAt) > new Date()
+}
+
+function recoverActiveLots(symbol: string, records: JournalRecord[]): Array<{ entryPrice: number; remainingQty: number; boughtAt: string }> {
+  const buys = records
+    .filter((record): record is OrderRecord => record.type === 'order' && record.side === 'BUY' && record.symbol.toUpperCase() === symbol.toUpperCase())
+    .map(record => ({ entryPrice: record.price, remainingQty: record.qty, boughtAt: record.ts }))
+  const trades = records
+    .filter((record): record is TradeRecord => record.type === 'trade' && record.symbol.toUpperCase() === symbol.toUpperCase())
+  for (const trade of trades) {
+    let remainingToClose = trade.qty
+    for (const lot of buys.filter(candidate => Math.abs(candidate.entryPrice - trade.entryPrice) < 0.01)) {
+      if (remainingToClose <= 0) break
+      const closedQty = Math.min(lot.remainingQty, remainingToClose)
+      lot.remainingQty -= closedQty
+      remainingToClose -= closedQty
+    }
+  }
+  return buys.filter(lot => lot.remainingQty > 0)
 }
 
 interface DisplayHolding {
@@ -65,6 +84,8 @@ export default async function HoldingsPage() {
     admin.from('customer_strategies')
       .select('strategy_key, name, color, active').eq('customer_id', customerId),
   ])
+
+  const journalRecords = await readJournalRange('2020-01-01', istDateString()).catch(() => [] as JournalRecord[])
 
   const activeStrategies = ((strategyRes.data ?? []) as any[])
     .filter(s => s.active)
@@ -119,11 +140,14 @@ export default async function HoldingsPage() {
       const kiteHoldings = await getHoldings({ apiKey, accessToken })
       holdings = kiteHoldings.flatMap(h => {
         const tracked = trackedBySymbol.get(h.tradingsymbol.toUpperCase())
-        const lotEntries = Array.isArray(tracked?.lots)
+        const recoveredLots = tracked && (!Array.isArray(tracked.lots) || tracked.lots.length === 0)
+          ? recoverActiveLots(h.tradingsymbol, journalRecords)
+          : []
+        const lotEntries = Array.isArray(tracked?.lots) && tracked.lots.length > 0
           ? tracked.lots
               .map((lot: any, originalIndex: number) => ({ lot, originalIndex }))
               .sort((a: any, b: any) => String(a.lot.boughtAt ?? a.lot.bought_at ?? '').localeCompare(String(b.lot.boughtAt ?? b.lot.bought_at ?? '')))
-          : []
+          : recoveredLots.map((lot, originalIndex) => ({ lot, originalIndex }))
         const activeLots = lotEntries.filter(({ lot }: { lot: any }) => Number(lot.remainingQty ?? lot.remaining_qty ?? 0) > 0)
 
         if (activeLots.length > 0) {
