@@ -119,12 +119,12 @@ export default async function HoldingsPage() {
       const kiteHoldings = await getHoldings({ apiKey, accessToken })
       holdings = kiteHoldings.flatMap(h => {
         const tracked = trackedBySymbol.get(h.tradingsymbol.toUpperCase())
-        const activeLots = Array.isArray(tracked?.lots)
+        const lotEntries = Array.isArray(tracked?.lots)
           ? tracked.lots
-            .map((lot: any, originalIndex: number) => ({ lot, originalIndex }))
-            .sort((a: any, b: any) => String(a.lot.boughtAt ?? a.lot.bought_at ?? '').localeCompare(String(b.lot.boughtAt ?? b.lot.bought_at ?? '')))
-            .filter(({ lot }: { lot: any }) => Number(lot.remainingQty ?? lot.remaining_qty ?? 0) > 0)
+              .map((lot: any, originalIndex: number) => ({ lot, originalIndex }))
+              .sort((a: any, b: any) => String(a.lot.boughtAt ?? a.lot.bought_at ?? '').localeCompare(String(b.lot.boughtAt ?? b.lot.bought_at ?? '')))
           : []
+        const activeLots = lotEntries.filter(({ lot }: { lot: any }) => Number(lot.remainingQty ?? lot.remaining_qty ?? 0) > 0)
 
         if (activeLots.length > 0) {
           return activeLots.map(({ lot, originalIndex }: { lot: any; originalIndex: number }) => {
@@ -217,12 +217,14 @@ export default async function HoldingsPage() {
       // single-row using the position's first_buy_price.
       if (Array.isArray(p.lots) && p.lots.length > 0) {
         return p.lots
-          .filter((lot: any) => (lot.remainingQty ?? lot.remaining_qty ?? 0) > 0)
-          .map((lot: any) => {
+          .map((lot: any, originalIndex: number) => ({ lot, originalIndex }))
+          .filter(({ lot }: { lot: any }) => (lot.remainingQty ?? lot.remaining_qty ?? 0) > 0)
+          .map(({ lot, originalIndex }: { lot: any; originalIndex: number }) => {
             const qty = lot.remainingQty ?? lot.remaining_qty ?? 0
             const entryPrice = lot.entryPrice ?? lot.entry_price ?? p.first_buy_price
             return {
               symbol: p.symbol,
+              lotLabel: originalIndex === 0 ? undefined : `L${originalIndex + 1}`,
               quantity: qty,
               t1_quantity: 0,
               average_price: entryPrice,
