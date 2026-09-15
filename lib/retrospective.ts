@@ -225,6 +225,7 @@ export async function buildDailyReport(dateYmd?: string): Promise<DailyReport> {
     ...missedToday.map(m => m.symbol),
   ]
   const ohlc = await fetchDayOHLC(allSymbols)
+  const catalystT1 = getStrategyById('catalyst')?.exits.t1Pct ?? 1.5
 
   const trades: EnrichedTrade[] = tradesToday.map(t => {
     const ohlcRow = ohlc[t.symbol.toUpperCase()]
