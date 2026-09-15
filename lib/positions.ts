@@ -426,9 +426,10 @@ export async function markTranche1Sold(account: string, symbol: string, soldQty:
 export async function applyLotSell(account: string, symbol: string, lotId: string, soldQty: number, opts?: { markTranche1?: boolean; markTranche2?: boolean }): Promise<void> {
   return withLock(async () => {
     const positions = await readAll()
-    const k = makeKey(account, symbol)
-    const p = positions[k]
+    const p = positions[makeKey(account, symbol)]
+      || Object.values(positions).find(position => position.symbol === symbol.toUpperCase())
     if (!p || !p.lots || soldQty <= 0) return
+    if (p.account !== account.toUpperCase()) p.account = account.toUpperCase()
     const lot = p.lots.find(item => item.id === lotId)
     if (!lot || lot.remainingQty <= 0) return
     const executedQty = Math.min(soldQty, lot.remainingQty)
@@ -446,6 +447,31 @@ export async function applyLotSell(account: string, symbol: string, lotId: strin
     } else {
       await upsertPosition(p)
     }
+  })
+}
+
+// Reconcile a completed sell against the lot identified by its buy price.
+// Strategy exits already know the lot, so this must not invent FIFO/LIFO order.
+export async function reducePositionLotByEntryPrice(account: string, symbol: string, entryPrice: number, soldQty: number): Promise<number> {
+  return withLock(async () => {
+    const positions = await readAll()
+    const p = positions[makeKey(account, symbol)]
+      || Object.values(positions).find(position => position.symbol === symbol.toUpperCase())
+    if (!p) return 0
+    if (p.account !== account.toUpperCase()) p.account = account.toUpperCase()
+
+    const lot = p.lots?.find(item => Math.abs(item.entryPrice - entryPrice) < 0.01 && item.remainingQty > 0)
+    if (!lot || soldQty <= 0) return 0
+    const executedQty = Math.min(Math.floor(soldQty), lot.remainingQty)
+    lot.remainingQty -= executedQty
+    summarizeMomentumPosition(p)
+
+    if (p.remainingQty <= 0) {
+      await deletePositionRow(symbol)
+    } else {
+      await upsertPosition(p)
+    }
+    return executedQty
   })
 }
 

@@ -55,8 +55,8 @@
 
 import { getState, setBuyHistoryForSymbol } from './state'
 import { resolveAccountCreds, getPositions, getHoldings, getOrders, getQuotes, buildLiveQtyBySymbol } from './kite'
-import { istDateString, readJournalRange, journalOrder, type OrderRecord } from './journal'
-import { listPositions, recordBuy, removePosition } from './positions'
+import { istDateString, readJournalRange, journalOrder, type OrderRecord, type TradeRecord } from './journal'
+import { listPositions, recordBuy, removePosition, reducePositionLotByEntryPrice } from './positions'
 import { istDateKey } from './cronState'
 
 function strategyFromTag(tag?: string): string | null {
@@ -294,11 +294,14 @@ export async function reconcileManualSells(): Promise<void> {
       // symbols with in-flight (pending) SELL orders. Case 2 lives in
       // reconcileManualSellsEOD() now — this function only handles Case 1
       // (today's actual completed sells).
-      const todaySellBySymbol = new Map<string, typeof kiteOrders[0]>()
+      const todaySellBySymbol = new Map<string, typeof kiteOrders[0][]>()
       for (const o of kiteOrders) {
         if (o.transaction_type !== 'SELL') continue
         if (o.status !== 'COMPLETE') continue
-        todaySellBySymbol.set(o.tradingsymbol.toUpperCase(), o)
+        const symbol = o.tradingsymbol.toUpperCase()
+        const orders = todaySellBySymbol.get(symbol) || []
+        orders.push(o)
+        todaySellBySymbol.set(symbol, orders)
       }
 
       // Find already-journaled SELL order IDs for today (avoid duplicate entries)
@@ -310,24 +313,45 @@ export async function reconcileManualSells(): Promise<void> {
 
       const zeroQtyPositions = trackedPositions.filter(p => (liveQty.get(p.symbol.toUpperCase()) ?? 0) <= 0)
 
+      // A DAlgo sell carries its lot entry price in the trade journal. Repair
+      // only that matching lot if the broker quantity exposes a stale store.
+      for (const pos of trackedPositions) {
+        const sym = pos.symbol.toUpperCase()
+        const brokerQty = Math.max(0, liveQty.get(sym) ?? 0)
+        if (brokerQty <= 0 || brokerQty >= pos.remainingQty) continue
+
+        const sellOrders = todaySellBySymbol.get(sym) || []
+        const tradesByOrderId = new Map(
+          todayJournal
+            .filter((record): record is TradeRecord => record.type === 'trade' && !!record.orderIdSell && record.symbol.toUpperCase() === sym)
+            .map(record => [record.orderIdSell!, record])
+        )
+        for (const order of sellOrders) {
+          const trade = tradesByOrderId.get(order.order_id)
+          if (!trade) continue
+          await reducePositionLotByEntryPrice(account, pos.symbol, trade.entryPrice, Number(order.filled_quantity || order.quantity) || 0)
+        }
+      }
+
       for (const pos of zeroQtyPositions) {
         const sym = pos.symbol.toUpperCase()
-        const kiteOrder = todaySellBySymbol.get(sym)
-        if (!kiteOrder) continue
+        const sellOrders = todaySellBySymbol.get(sym) || []
+        if (sellOrders.length === 0) continue
         // DAlgo-placed sells are already journaled + position removed by applyLotSell.
         // Only act on genuine discrepancies (sells that bypassed the system).
-        if (journaledSellOrderIds.has(kiteOrder.order_id)) continue
-
-        const fillPrice = Number(kiteOrder.average_price) || pos.firstBuyPrice
-        const fillQty = Number(kiteOrder.filled_quantity || kiteOrder.quantity) || pos.remainingQty
-        await journalOrder({
-          account, symbol: pos.symbol, side: 'SELL',
-          qty: fillQty, price: fillPrice,
-          tag: 'dt-manual', strategyId: pos.strategyId, source: 'manual',
-          orderId: kiteOrder.order_id,
-        }).catch(err => console.error(`[reconcile] journalOrder failed ${account} ${sym}:`, err))
+        for (const kiteOrder of sellOrders) {
+          if (journaledSellOrderIds.has(kiteOrder.order_id)) continue
+          const fillPrice = Number(kiteOrder.average_price) || pos.firstBuyPrice
+          const fillQty = Number(kiteOrder.filled_quantity || kiteOrder.quantity) || pos.remainingQty
+          await journalOrder({
+            account, symbol: pos.symbol, side: 'SELL',
+            qty: fillQty, price: fillPrice,
+            tag: 'dt-manual', strategyId: pos.strategyId, source: 'manual',
+            orderId: kiteOrder.order_id,
+          }).catch(err => console.error(`[reconcile] journalOrder failed ${account} ${sym}:`, err))
+        }
         await removePosition(account, pos.symbol)
-        console.log(`[reconcile] ${account} ${sym}: discrepancy — external SELL journaled + position removed (order ${kiteOrder.order_id})`)
+        console.log(`[reconcile] ${account} ${sym}: discrepancy — external SELLs journaled + position removed`)
       }
     } catch (err) {
       console.error(`[reconcile] account ${account}: reconcile pass failed — will retry next tick:`, err)
