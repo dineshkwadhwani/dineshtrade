@@ -166,7 +166,6 @@ export default async function HoldingsPage() {
               strategyTag: lot.strategyId ?? tracked.strategy_tag ?? null,
               firstBuyAt: lot.boughtAt ?? lot.bought_at ?? tracked.first_buy_at ?? null,
               fromKite: true,
-              tagDisabled: true,
             }
           })
         }
