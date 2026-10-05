@@ -26,6 +26,8 @@ interface Props {
   tokenCapturedAt: string | null
   cronMode: string
   kiteLoginUrl: string
+  brokerLoginUrl?: string
+  brokerName?: 'zerodha' | 'upstox'
   strategies: { id: string; name: string; type: string; active: boolean; scan_interval_min: number; color: string | null; watchlist_keys: string[] | null; params: Record<string, unknown>; exits: Record<string, unknown>; gift_nifty_gate: Record<string, unknown> | null }[]
   capitalConfig: Record<string, unknown> | null
   fixedRules: { rule_key: string; value: string; description?: string | null; display_name?: string | null; rule_name?: string | null }[]
@@ -34,8 +36,9 @@ interface Props {
   justConnected?: boolean
   platformConfig?: { key: string; value: string }[]
 }
-export default function SettingsClient({ savedApiKey, savedApiSecret, isConnected, tokenCapturedAt, cronMode, kiteLoginUrl, strategies, capitalConfig, fixedRules, watchlists, targetCustomerId, justConnected, platformConfig }: Props) {
+export default function SettingsClient({ savedApiKey, savedApiSecret, isConnected, tokenCapturedAt, cronMode, kiteLoginUrl, brokerLoginUrl = kiteLoginUrl, brokerName = 'zerodha', strategies, capitalConfig, fixedRules, watchlists, targetCustomerId, justConnected, platformConfig }: Props) {
   const router = useRouter()
+  const brokerLabel = brokerName === 'upstox' ? 'Upstox' : 'Zerodha'
   const [tab, setTab] = useState<TabId>('connection')
   const [apiKey, setApiKey] = useState('')
   const [apiSecret, setApiSecret] = useState('')
@@ -47,7 +50,7 @@ export default function SettingsClient({ savedApiKey, savedApiSecret, isConnecte
   const [disconnecting, setDisconnecting] = useState(false)
 
   async function handleDisconnect() {
-    if (!confirm('Disconnect Zerodha? The current token will be cleared. You will need to reconnect to resume auto-trading.')) return
+    if (!confirm(`Disconnect ${brokerLabel}? The current token will be cleared. You will need to reconnect to resume auto-trading.`)) return
     setDisconnecting(true)
     try {
       const res = await fetch('/api/dalgo/customer/broker/disconnect', { method: 'DELETE' })
@@ -72,10 +75,10 @@ export default function SettingsClient({ savedApiKey, savedApiSecret, isConnecte
     if (!apiKey.trim() || !apiSecret.trim()) { setCredsMsg('Both fields are required.'); return }
     setSavingCreds(true); setCredsMsg('')
     try {
-      const res = await fetch('/api/dalgo/setup/broker', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ broker: 'zerodha', apiKey: apiKey.trim(), apiSecret: apiSecret.trim() }) })
+      const res = await fetch('/api/dalgo/setup/broker', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ broker: brokerName, apiKey: apiKey.trim(), apiSecret: apiSecret.trim() }) })
       const data = await res.json()
       if (!res.ok) { setCredsMsg(data.error || 'Failed to save.') }
-      else { setCredsMsg('Credentials saved. Connect Zerodha to verify.'); setApiKey(''); setApiSecret(''); router.refresh() }
+      else { setCredsMsg(`Credentials saved. Connect ${brokerLabel} to verify.`); setApiKey(''); setApiSecret(''); router.refresh() }
     } catch { setCredsMsg('Connection error.') }
     finally { setSavingCreds(false) }
   }
@@ -159,11 +162,11 @@ export default function SettingsClient({ savedApiKey, savedApiSecret, isConnecte
         <div style={{ display: 'flex', flexDirection: 'column', gap: 20 }}>
           {justConnected && (
             <div style={{ background: '#DCFCE7', border: '1px solid #86EFAC', borderRadius: 10, padding: '12px 16px' }}>
-              <p style={{ margin: 0, fontSize: 13, fontWeight: 600, color: '#16A34A' }}>✓ Zerodha connected successfully — your token is active for today.</p>
+              <p style={{ margin: 0, fontSize: 13, fontWeight: 600, color: '#16A34A' }}>✓ {brokerLabel} connected successfully — your token is active for today.</p>
             </div>
           )}
           <div style={{ background: C.card, border: `1px solid ${C.border}`, borderRadius: 12, padding: 24 }}>
-            <h2 style={{ fontFamily: SORA, fontSize: 16, fontWeight: 600, color: C.heading, margin: '0 0 16px' }}>Zerodha Connection</h2>
+            <h2 style={{ fontFamily: SORA, fontSize: 16, fontWeight: 600, color: C.heading, margin: '0 0 16px' }}>{brokerLabel} Connection</h2>
             <div style={{ display: 'flex', alignItems: 'center', gap: 10, marginBottom: 16 }}>
               <span style={{ fontSize: 13, color: C.body }}>Status:</span>
               <span style={{ padding: '3px 10px', borderRadius: 999, fontSize: 12, fontWeight: 600, background: isConnected ? '#DCFCE7' : '#FEE2E2', color: isConnected ? '#16A34A' : '#DC2626' }}>
@@ -172,8 +175,8 @@ export default function SettingsClient({ savedApiKey, savedApiSecret, isConnecte
               {tokenCapturedAt && <span style={{ fontSize: 11, color: C.muted }}>Token from {new Date(tokenCapturedAt).toLocaleString('en-IN', { day: 'numeric', month: 'short', hour: '2-digit', minute: '2-digit', hour12: false, timeZone: 'Asia/Kolkata' })}</span>}
             </div>
             <div style={{ display: 'flex', alignItems: 'center', gap: 10, marginBottom: 20 }}>
-              <a href={kiteLoginUrl} style={{ ...btnStyle, display: 'inline-block', background: '#387ED1', color: '#fff', textDecoration: 'none', fontSize: 14 }}>
-                {isConnected ? '↻ Reconnect Zerodha' : '⚡ Connect Zerodha'}
+              <a href={brokerLoginUrl} style={{ ...btnStyle, display: 'inline-block', background: '#387ED1', color: '#fff', textDecoration: 'none', fontSize: 14 }}>
+                {isConnected ? `↻ Reconnect ${brokerLabel}` : `⚡ Connect ${brokerLabel}`}
               </a>
               {isConnected && (
                 <button onClick={handleDisconnect} disabled={disconnecting}
@@ -188,11 +191,11 @@ export default function SettingsClient({ savedApiKey, savedApiSecret, isConnecte
               {savedApiSecret && <p style={{ fontSize: 12, color: C.muted, margin: '0' }}>Current API Secret: <code>{savedApiSecret}</code></p>}
               <div>
                 <label style={{ fontSize: 12, fontWeight: 600, color: C.heading, display: 'block', marginBottom: 4 }}>API Key</label>
-                <input type="text" value={apiKey} onChange={e => setApiKey(e.target.value)} placeholder="Kite Connect API key" autoComplete="new-password" style={inputStyle} />
+                <input type="text" value={apiKey} onChange={e => setApiKey(e.target.value)} placeholder={`${brokerLabel} API key`} autoComplete="new-password" style={inputStyle} />
               </div>
               <div>
                 <label style={{ fontSize: 12, fontWeight: 600, color: C.heading, display: 'block', marginBottom: 4 }}>API Secret</label>
-                <input type="password" value={apiSecret} onChange={e => setApiSecret(e.target.value)} placeholder="Kite Connect API secret" autoComplete="new-password" style={inputStyle} />
+                <input type="password" value={apiSecret} onChange={e => setApiSecret(e.target.value)} placeholder={`${brokerLabel} API secret`} autoComplete="new-password" style={inputStyle} />
               </div>
               {credsMsg && <p style={{ fontSize: 13, color: credsMsg.includes('saved') ? '#16A34A' : '#DC2626', margin: 0 }}>{credsMsg}</p>}
               <button type="submit" disabled={savingCreds} style={{ ...btnStyle, background: savingCreds ? '#93C5FD' : C.primary, color: '#fff', alignSelf: 'flex-start' }}>
@@ -221,7 +224,7 @@ export default function SettingsClient({ savedApiKey, savedApiSecret, isConnecte
               <p style={{ fontFamily: INTER, fontSize: 13, color: '#991B1B', margin: 0, lineHeight: 1.6 }}>
                 <strong>What this does:</strong> Wipes all tracked positions and journal records for this account, then
                 re-imports every open Zerodha holding/position as an <strong>Accumulator</strong> BUY entry.
-                Use this to sync the app with your actual Zerodha portfolio after manual trades or a fresh start.
+                Use this to sync the app with your actual {brokerLabel} portfolio after manual trades or a fresh start.
                 <br /><strong>This cannot be undone.</strong> Must be in Manual mode.
               </p>
             </div>

@@ -43,6 +43,7 @@ export interface Profile {
   status: ProfileStatus
   full_name: string
   email: string
+  preferred_broker?: 'zerodha' | 'upstox' | null
   subdomain?: string | null
   instance_ip?: string | null
 }
@@ -124,7 +125,7 @@ export async function login(email: string, password: string): Promise<LoginResul
   const admin = getSupabaseAdmin()
   const { data: profile, error: profileError } = await admin
     .from('profiles')
-    .select('id, role, status, full_name, email, subdomain, instance_ip')
+    .select('id, role, status, full_name, email, preferred_broker, subdomain, instance_ip')
     .eq('id', data.user.id)
     .maybeSingle()
 
@@ -179,7 +180,7 @@ export async function getProfile(): Promise<Profile | null> {
   const admin = getSupabaseAdmin()
   const { data, error } = await admin
     .from('profiles')
-    .select('id, role, status, full_name, email, subdomain, instance_ip')
+    .select('id, role, status, full_name, email, preferred_broker, subdomain, instance_ip')
     .eq('id', session.userId)
     .maybeSingle()
 

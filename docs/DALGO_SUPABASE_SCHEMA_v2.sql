@@ -97,6 +97,7 @@ create table if not exists profiles (
   full_name text not null,
   email text not null,
   mobile text,
+  preferred_broker text check (preferred_broker is null or preferred_broker in ('zerodha', 'upstox')),
   status text not null default 'pending'
     check (status in ('pending', 'under_review', 'identity_verified', 'active', 'suspended', 'rejected')),
   assigned_account_manager_id uuid references profiles(id),

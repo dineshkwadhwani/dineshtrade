@@ -31,7 +31,7 @@ export default async function SetupPage({ searchParams }: { searchParams: { conn
   const isConnected = !!brokerAccount?.access_token_enc || searchParams.connected === 'true'
 
   const appUrl = getRequestBase(headers())
-  const brokerName = brokerAccount?.broker_name || availableBrokers[0] || ''
+  const brokerName = brokerAccount?.broker_name || profile.preferred_broker || availableBrokers[0] || ''
   const callbackUrl = brokerName === 'upstox'
     ? process.env.UPSTOX_REDIRECT_URI || `${appUrl}/api/dalgo/setup/broker-callback`
     : `${appUrl}/api/dalgo/setup/kite-callback`

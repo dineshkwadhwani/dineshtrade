@@ -85,5 +85,14 @@ export async function POST(req: NextRequest) {
     return NextResponse.json({ error: 'Failed to save broker credentials.' }, { status: 500 })
   }
 
+  const { error: preferenceError } = await admin
+    .from('profiles')
+    .update({ preferred_broker: broker, updated_at: now })
+    .eq('id', profile.id)
+  if (preferenceError) {
+    console.error('[api/dalgo/setup/broker] preference update error:', preferenceError.message)
+    return NextResponse.json({ error: 'Credentials were saved, but the selected broker could not be updated.' }, { status: 500 })
+  }
+
   return NextResponse.json({ ok: true })
 }

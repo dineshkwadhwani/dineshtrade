@@ -256,6 +256,7 @@ Every time a customer saves a strategy change:
 9. Aadhar card number — required, 12 digits (masked after entry)
 10. Aadhar front image — required (JPEG/PNG/PDF, max 5MB)
 11. Aadhar back image — required (JPEG/PNG/PDF, max 5MB)
+12. Preferred trading broker — required for individual customers (Zerodha or Upstox); saved on the customer profile and used by Settings and broker setup
 
 **Surepass V2 Aadhar validation:** Configurable ON/OFF via `SUREPASS_KYC_ENABLED` platform config. Default OFF. When ON: full name-match via Surepass API V2. When OFF: images stored but not validated. TODO comment in code for Surepass integration.
 
@@ -302,9 +303,9 @@ Customer submits + OTP verified → Status: under_review
 ```
 Customer logs in → sees "Complete Your Setup" banner
 → SCREEN 1: Broker Setup
-    - Select broker (V1: Zerodha only, others "Coming Soon")
+  - Use the broker selected during registration (Zerodha or Upstox)
     - Enter API Key + API Secret
-    - Helper: "Zerodha → Kite Connect → Create App → Copy Key/Secret"
+  - Show broker-specific API credential instructions
     - Keys AES-256 encrypted before storing
     - "Test Connection" button
 → SCREEN 2: Strategy Setup

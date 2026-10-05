@@ -36,6 +36,7 @@ const EMPTY_UPLOAD: UploadState = { status: 'idle', path: '', fileName: '' }
 
 interface FormState {
   fullName: string; email: string; password: string; mobile: string; dob: string
+  broker: 'zerodha' | 'upstox'
   address: string; city: string; state: string; pincode: string; aadharNumber: string
   companyName: string; gstNumber: string; companyRegistrationNumber: string
   companyAddress: string; companyCity: string; companyState: string; companyPincode: string
@@ -43,7 +44,7 @@ interface FormState {
 }
 
 const EMPTY_FORM: FormState = {
-  fullName: '', email: '', password: '', mobile: '', dob: '', address: '', city: '', state: '', pincode: '', aadharNumber: '',
+  fullName: '', email: '', password: '', mobile: '', dob: '', broker: 'zerodha', address: '', city: '', state: '', pincode: '', aadharNumber: '',
   companyName: '', gstNumber: '', companyRegistrationNumber: '', companyAddress: '', companyCity: '', companyState: '', companyPincode: '', companyEmail: '', companyMobile: '',
 }
 
@@ -244,6 +245,7 @@ export default function RegisterClient() {
       state: form.state,
       pincode: form.pincode,
       mobile: form.mobile,
+      ...(mode === 'customer' ? { broker: form.broker } : {}),
       aadharNumber: form.aadharNumber,
       aadharFrontPath: aadharFront.path,
       aadharBackPath: aadharBack.path,
@@ -371,6 +373,16 @@ export default function RegisterClient() {
           <input id="reg-mobile" type="tel" required autoComplete="tel" value={form.mobile}
             onChange={e => update('mobile', e.target.value)} style={inputStyle(!!fieldErrors.mobile)} />
         </Field>
+
+        {mode === 'customer' && (
+          <Field id="reg-broker" label="Broker you plan to connect" error={fieldErrors.broker}>
+            <select id="reg-broker" required value={form.broker}
+              onChange={e => update('broker', e.target.value as FormState['broker'])} style={inputStyle(!!fieldErrors.broker)}>
+              <option value="zerodha">Zerodha</option>
+              <option value="upstox">Upstox</option>
+            </select>
+          </Field>
+        )}
 
         <Field id="reg-dob" label="Date of birth" error={fieldErrors.dob}>
           <input id="reg-dob" type="date" required value={form.dob}

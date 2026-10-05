@@ -12,6 +12,7 @@ import { NextRequest, NextResponse } from 'next/server'
 import { getSupabaseAdmin } from '@/lib/supabase'
 import { createEphemeralAnonClient } from '@/lib/dalgoAuth'
 import { sendRegistrationConfirmation } from '@/lib/email'
+import { IMPLEMENTED_BROKERS } from '@/lib/broker/supported'
 
 type RegistrationType = 'customer' | 'broking_company'
 
@@ -26,6 +27,7 @@ interface RegisterBody {
   state: string
   pincode: string
   mobile: string
+  broker?: string
   aadharNumber: string
   aadharFrontPath: string
   aadharBackPath: string
@@ -58,6 +60,10 @@ function validate(body: Partial<RegisterBody>): Record<string, string> {
   if (body.type !== 'customer' && body.type !== 'broking_company') {
     fields.type = "must be 'customer' or 'broking_company'"
     return fields   // no point checking the rest without a valid type
+  }
+
+  if (body.type === 'customer' && !IMPLEMENTED_BROKERS.includes(body.broker as typeof IMPLEMENTED_BROKERS[number])) {
+    fields.broker = 'select a supported broker'
   }
 
   const required = body.type === 'broking_company' ? BROKING_COMPANY_REQUIRED : CUSTOMER_REQUIRED
@@ -98,7 +104,7 @@ export async function POST(req: NextRequest) {
 
   const {
     type, email, password, fullName, dob, address, city, state, pincode, mobile,
-    aadharNumber, aadharFrontPath, aadharBackPath,
+    aadharNumber, aadharFrontPath, aadharBackPath, broker,
     companyName, gstNumber, companyRegistrationNumber, companyAddress,
     companyCity, companyState, companyPincode, companyEmail, companyMobile,
   } = body as RegisterBody
@@ -142,6 +148,7 @@ export async function POST(req: NextRequest) {
     full_name: fullName,
     email,
     mobile,
+    preferred_broker: type === 'customer' ? broker : null,
     status: 'pending',
   })
 
