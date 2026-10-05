@@ -10,12 +10,13 @@ export default async function AppLayout({ children }: { children: React.ReactNod
   const admin = getSupabaseAdmin()
   const { data: broker } = await admin
     .from('broker_accounts')
-    .select('token_expires_at')
+    .select('access_token_enc, token_expires_at')
     .eq('customer_id', profile.id)
     .eq('broker_name', 'zerodha')
+    .eq('active', true)
     .maybeSingle()
 
-  const tokenExpired = !broker?.token_expires_at || new Date(broker.token_expires_at) < new Date()
+  const tokenExpired = !broker?.access_token_enc || !broker?.token_expires_at || new Date(broker.token_expires_at) < new Date()
 
   return (
     <AppShell fullName={profile?.full_name ?? undefined} tokenExpired={tokenExpired}>

@@ -63,8 +63,9 @@ export default async function DashboardPage() {
   const customerId = profile_session.id
   const admin = getSupabaseAdmin()
 
-  const [capitalRes, instanceRes, strategiesRes, stateRes, positionsRes] = await Promise.all([
+  const [capitalRes, brokerRes, instanceRes, strategiesRes, stateRes, positionsRes] = await Promise.all([
     admin.from('customer_capital_config').select('*').eq('customer_id', customerId).maybeSingle(),
+    admin.from('broker_accounts').select('access_token_enc, token_expires_at').eq('customer_id', customerId).eq('broker_name', 'zerodha').eq('active', true).maybeSingle(),
     admin.from('customer_instances').select('kite_token_status, cron_mode, todays_buy_count, todays_sell_count').eq('customer_id', customerId).maybeSingle(),
     admin.from('customer_strategies').select('id, name, type, scan_interval_min').eq('customer_id', customerId).eq('active', true).order('name'),
     admin.from('customer_state').select('cron_mode, daily_buy_count, daily_sell_count, gift_nifty_change_pct').eq('customer_id', customerId).maybeSingle(),
@@ -72,6 +73,7 @@ export default async function DashboardPage() {
   ])
 
   const cap = capitalRes.data
+  const broker = brokerRes.data
   const instance = instanceRes.data
   const strategies = strategiesRes.data ?? []
   const state = stateRes.data
@@ -82,7 +84,9 @@ export default async function DashboardPage() {
   const greeting = parseInt(hour) < 12 ? 'Good morning' : parseInt(hour) < 17 ? 'Good afternoon' : 'Good evening'
 
   const cronMode = instance?.cron_mode ?? state?.cron_mode ?? 'manual'
-  const tokenStatus = instance?.kite_token_status ?? 'missing'
+  const hasValidBrokerToken = !!broker?.access_token_enc
+  const tokenExpired = hasValidBrokerToken && !!broker?.token_expires_at && new Date(broker.token_expires_at) <= new Date()
+  const tokenStatus = hasValidBrokerToken ? (tokenExpired ? 'expired' : 'connected') : (instance?.kite_token_status === 'expired' ? 'expired' : 'missing')
   const openPositions = positionsRes.count ?? 0
   const buysToday = instance?.todays_buy_count ?? state?.daily_buy_count ?? 0
   const sellsToday = instance?.todays_sell_count ?? state?.daily_sell_count ?? 0

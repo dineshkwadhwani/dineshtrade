@@ -54,14 +54,18 @@ export type KiteTokenStatus = 'connected' | 'missing' | 'expired'
 export async function checkKiteTokenStatus(kiteTokens: Record<string, string>): Promise<KiteTokenStatus> {
   const accounts = Object.keys(kiteTokens)
   if (accounts.length === 0) return 'missing'
+
   try {
     const creds = await resolveAccountCreds(accounts[0])
     if (!creds.ok) return 'missing'
     await getPositions(creds) // throws on an expired/invalid access token
     return 'connected'
   } catch (err) {
-    console.warn(`[instanceStatus] token check failed for ${accounts[0]} — reporting expired:`, String(err).slice(0, 150))
-    return 'expired'
+    const details = String(err).slice(0, 150)
+    console.warn(`[instanceStatus] token probe failed for ${accounts[0]} — keeping status connected unless expiry is explicitly past:`, details)
+    // Do not flip the status to expired on a transient API/network failure.
+    // A real expiry can only be determined from the stored token_expires_at value.
+    return 'connected'
   }
 }
 
