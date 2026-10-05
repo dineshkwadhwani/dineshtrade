@@ -18,6 +18,14 @@ function fmt(n: number | null | undefined, decimals = 2) {
   return n.toLocaleString('en-IN', { maximumFractionDigits: decimals, minimumFractionDigits: decimals })
 }
 
+function getPositionPercent(pnl: number, buyPrice: number, qty: number) {
+  const quantity = Math.abs(Number(qty) || 0)
+  const effectiveBuyPrice = Number(buyPrice) || 0
+  const positionCost = (quantity * effectiveBuyPrice)
+  if (!positionCost) return 0
+  return (pnl / positionCost) * 100
+}
+
 function isTokenValid(expiresAt: string | null | undefined): boolean {
   if (!expiresAt) return true
   return new Date(expiresAt) > new Date()
@@ -228,7 +236,7 @@ export default async function PositionsPage() {
                               {pnl >= 0 ? '+' : ''}₹{fmt(pnl, 0)}
                             </div>
                             <div style={{ marginTop: 2, fontWeight: 700, fontSize: 12, color: pnlColor }}>
-                              {pnl >= 0 ? '+' : ''}{fmt(((pnl / Math.max(buyPrice, 1)) * 100) || 0)}%
+                              {pnl >= 0 ? '+' : ''}{fmt(getPositionPercent(pnl, originalBuyPrice ?? buyPrice, netQty), 2)}%
                             </div>
                           </div>
                         </div>
