@@ -8,6 +8,35 @@ really there, not from what earlier planning docs assumed would exist.
 **Last updated:** 16 Aug 2026 — updated to reflect the live subdomain routing, SSO,
 and per-customer EC2 model now in production on `multitanent_refactor` branch.
 
+## Broker-specific trading update (5 Oct 2026)
+
+- Live customer strategy scans, tiles, buy/sell monitors, preflight account checks,
+  reconciliation, EOD exits, manual orders, and portfolio snapshots now resolve the
+  customer's single active `broker_accounts` row and use its broker adapter.
+- Signal-data exception retained for family deployments: when one process has
+  multiple `CUSTOMER_IDS`, scans use the first customer's broker as the shared signal
+  source; standalone deployments use their sole customer's broker. Positions,
+  holdings, order checks, and order placement remain tied to the executing customer.
+- Zerodha remains supported. Upstox OAuth and adapter calls are implemented for
+  quotes, historical candles, portfolio, orders, margins, and order placement.
+  Upstox deployments must set `UPSTOX_REDIRECT_URI` to the exact callback registered
+  in the Upstox Developer Console (`/api/dalgo/setup/broker-callback`).
+- Only Zerodha and Upstox are enabled in customer setup. Angel One remains a stub;
+  Groww and the other listed schema values are not implemented.
+- Super Admin → Platform Config → Available Brokers controls connection choices via
+  `platform_config.AVAILABLE_BROKERS`. Apply
+  `scripts/migrations/2026-10-05-platform-available-brokers.sql`; its default enables
+  both implemented brokers. Disabling a broker blocks new connections but does not
+  interrupt customers already connected to it.
+- `daily_closes` is now partitioned by `broker_name`; apply
+  `scripts/migrations/2026-10-05-daily-closes-broker-scope.sql` before deploying the
+  application build. Existing untagged rows are retained as Zerodha history.
+- Backtesting remains Zerodha-only and now rejects other selected brokers instead of
+  silently using the deployment's primary Kite account. Legacy V1 `/api/*` endpoints
+  outside the DAlgo customer routes remain Zerodha-specific.
+- Validation performed: `npm run build` passes. No live broker API credentials were
+  available here to verify OAuth, quotes, portfolio responses, or order execution.
+
 ## The one-sentence version
 
 DineshTrade has **one human operator, multiple broker sub-accounts**. It is not

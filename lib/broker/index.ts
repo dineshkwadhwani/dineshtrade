@@ -13,7 +13,7 @@ export * from './IBroker'
 
 export interface BrokerCustomer {
   brokerName: string
-  brokerCredentials: { accessToken: string; apiKey: string }
+  brokerCredentials: { accessToken: string; apiKey: string; apiSecret?: string }
 }
 
 export function getBroker(customer: BrokerCustomer): IBroker {

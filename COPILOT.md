@@ -2,8 +2,28 @@
 
 **Purpose:** Zero-context onboarding for GitHub Copilot, Cursor, or any AI assistant picking up this codebase for the first time. Read top-to-bottom before touching any file.
 
-**Last Updated:** 07 Sep 2026 (multi-row/lot contract and recovery handoff)
-**Version:** 1.4
+**Last Updated:** 05 Oct 2026 (selected-broker trading and platform broker-availability handoff)
+**Version:** 1.5
+
+## Current Implementation Status (05 Oct 2026)
+
+- Live DAlgo strategy scans, tiles, preflight, auto/manual order placement, sell
+  monitors, reconciliation, EOD exits, and portfolio snapshots use the customer's
+  selected broker via `lib/broker/customer.ts` and `IBroker` adapters.
+- Zerodha and Upstox are implemented. Super Admin controls customer connection
+  choices at Platform Config -> Available Brokers using
+  `platform_config.AVAILABLE_BROKERS`; both are seeded enabled. Disabling a broker
+  blocks new connections but does not interrupt already-connected customers.
+- Standalone customers use their broker for signal data. Multi-customer family
+  deployments retain the first customer's broker as the shared signal source, while
+  each customer's own adapter handles positions, preflight account checks, and orders.
+- Upstox needs `UPSTOX_REDIRECT_URI` set to the registered
+  `/api/dalgo/setup/broker-callback` URL. Apply both dated 2026-10-05 SQL migrations
+  in `scripts/migrations/` before deploying; migration execution was not verified.
+- Backtesting remains Zerodha-only; Groww and Angel One trading adapters are not
+  implemented. Some legacy V1 endpoints outside DAlgo customer routes remain
+  Zerodha-specific.
+- `npm run build` passed. No live broker API calls or order placement were tested.
 
 > Also read `docs/README.md` first — it points at `docs/ARCHITECTURE.md`,
 > `docs/APP_MAP.md`, `docs/DATA_MODEL.md`, and `docs/MULTI_TENANCY_CURRENT_STATE.md`,
@@ -18,16 +38,16 @@
 
 ## 1. Project Overview
 
-**DineshTrade** is a personal algorithmic trading application for Indian equities. It automates BUY/SELL decisions on the NSE using Zerodha Kite Connect, targeting CNC (delivery) trades only — no F&O, no intraday short-selling.
+**DineshTrade** is an algorithmic trading application for Indian equities. Its DAlgo customer trading flow supports Zerodha Kite Connect and Upstox, targeting CNC/delivery trades only — no F&O, no intraday short-selling.
 
 - **Owner:** Dinesh Wadhwani, Pune, Maharashtra, India
 - **Production:** <https://dineshtrade.online>
-- **Broker:** Zerodha (Kite Connect API)
+- **Supported DAlgo brokers:** Zerodha and Upstox (`lib/broker/` adapters)
 - **Exchange:** NSE only, CNC/Delivery only
 - **Stack:** Next.js 14 (App Router), TypeScript, Tailwind CSS, node-cron, PM2 on AWS EC2 (ap-south-1)
 - **Process manager:** PM2 (`dineshtrade` process), Caddy reverse proxy, Node 20 LTS
 
-This is not a SaaS product. It is a private, single-owner trading system managing 4 family Zerodha accounts.
+The repository contains legacy V1 surfaces and the multi-tenant DAlgo V2 application. DAlgo customers run isolated instances and can use the implemented Zerodha or Upstox adapter; distinguish legacy V1 Zerodha-only routes from DAlgo customer routes.
 
 ---
 
@@ -42,17 +62,21 @@ This is not a SaaS product. It is a private, single-owner trading system managin
 | `backtest.ts` | Historical strategy simulation — replays strategy signals against close price history |
 | `backtestHistory.ts` | Saved backtest runs — read/write to `backtest-history.json` |
 | `cron.ts` | Pure orchestrator: tick management, node-cron task lifecycle. Imports from cronBuy / cronEOD / cronReconcile / cronState. Exports `startCron`, `reloadCronStrategies`, `stopCron` |
-| `cronBuy.ts` | Auto-buy engine: `autoBuyOnAccount()` and `runStrategyTaskBody()`. Calls preflight, strategyEngine, Kite order placement, and cronState record functions |
-| `cronEOD.ts` | EOD square-off + daily/monthly retrospective emails. `exitSameDayOnPositive` now uses estimated net P&L after charges. Imports `reconcileManualSells` from cronReconcile for the final 15:35 sweep |
-| `cronReconcile.ts` | Detects positions manually closed in Kite, journals SELL entries with buying strategyId, and removes the closed row from the live positions store to prevent stale re-buy anchors |
+| `cronBuy.ts` | Auto-buy engine: `autoBuyOnAccount()` and `runStrategyTaskBody()`. Calls preflight, strategyEngine, and the customer's selected broker adapter |
+| `cronEOD.ts` | EOD exits use each customer's selected broker; also builds daily/monthly retrospective emails |
+| `cronReconcile.ts` | Reconciles manual trades against each customer's selected broker and removes closed rows to prevent stale re-buy anchors |
 | `cronState.ts` | Shared mutable day-stats and in-process quota state (`inProcessBuyCounts`, `inProcessNewSymbols`). No imports from other cron files. Exports record helpers (`recordExecuted`, `recordFailed`, etc.) |
-| `dailyCloses.ts` | Rolling 60-day close price cache — reads/writes `daily-closes.json` |
+| `dailyCloses.ts` | Rolling 60-day Supabase candle cache, partitioned by source broker |
+| `broker/customer.ts` | Loads the active customer broker and family-group signal source; normalizes broker order results |
+| `broker/availability.ts` | Reads `AVAILABLE_BROKERS` from `platform_config`; falls back to implemented brokers if unset |
+| `broker/IBroker.ts` | Normalized broker contract used by DAlgo trading paths |
+| `broker/ZerodhaAdapter.ts` / `broker/UpstoxAdapter.ts` | Implemented customer broker adapters; see current status above for setup requirements and limits |
 | `ema.ts` | EMA calculation utility |
 | `email.ts` | nodemailer wrappers for trade_executed, trade_failed, and daily report emails |
 | `instruments.ts` | NSE instrument token lookup (maps ticker symbol → Kite instrument token) |
 | `intradayCircuit.ts` | Live NIFTY 50 circuit breaker check with hysteresis — blocks all trades when Nifty falls ≥5% |
 | `journal.ts` | Append-only JSONL trade journal (one file per month: `journal-YYYY-MM.jsonl`). Exports `journalOrder()`, `getJournalStrategyFallback()` |
-| `kite.ts` | Zerodha Kite API wrappers — all HTTP calls go through here. Also exports `buildLiveQtyBySymbol()` |
+| `kite.ts` | Legacy Zerodha Kite wrappers. DAlgo live strategy paths use `IBroker`; `ZerodhaAdapter` delegates to these wrappers |
 | `market.ts` | Market hours (9:15–15:30 IST), NSE holidays, weekday check |
 | `marketBriefing.ts` | AI-generated morning briefing (calls Gemini API) |
 | `marketMock.ts` | Local dev mock data for Kite API responses (used when `USE_MOCK_MARKET=true`) |

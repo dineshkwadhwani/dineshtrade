@@ -56,6 +56,8 @@ const PUBLIC_EXACT = new Set([
   '/api/dalgo/setup/broker', // broker credential setup — session-gated inside the route, not via middleware (identity_verified customers have a session but not active status)
   '/api/dalgo/setup/kite-login', // initiates Kite OAuth — reads session cookie inside the route
   '/api/dalgo/setup/kite-callback', // Kite OAuth callback — validates via cookie set by kite-login
+  '/api/dalgo/setup/broker-callback', // Upstox OAuth callback — validates the broker-pending cookie
+  '/api/dalgo/setup/broker-login', // selected broker OAuth entry; route validates session
   '/api/zerodha/callback', // Kite OAuth callback — self-authenticates via dalgo_kite_pending or dt_session cookie; no DAlgo JWT needed
   '/api/auth', // V1 auth route stays public too
   '/favicon.ico',

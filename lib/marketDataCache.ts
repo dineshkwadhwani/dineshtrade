@@ -16,6 +16,7 @@
 // live quotes and today's intraday (5-min) candles.
 
 import { getQuotes as kiteGetQuotes, getHistoricalCandles as kiteGetHistoricalCandles, type KiteCreds, type KiteQuoteEntry, type HistoricalCandle } from './kite'
+import type { IBroker, BrokerCandle } from './broker/IBroker'
 
 const QUOTE_TTL_MS = Number(process.env.MARKET_DATA_QUOTE_TTL_MS) || 60_000
 const CANDLE_TTL_MS = Number(process.env.MARKET_DATA_CANDLE_TTL_MS) || 60_000
@@ -30,6 +31,31 @@ let quoteHits = 0, quoteMisses = 0, candleHits = 0, candleMisses = 0
 
 export function getMarketDataCacheStats() {
   return { quoteHits, quoteMisses, candleHits, candleMisses }
+}
+
+export async function getBrokerQuotes(broker: IBroker, symbols: string[]): Promise<Record<string, KiteQuoteEntry>> {
+  const raw = await broker.getQuotes(symbols)
+  const result: Record<string, KiteQuoteEntry> = {}
+  for (const [symbol, quote] of Object.entries(raw)) {
+    result[`NSE:${symbol.toUpperCase()}`] = {
+      instrument_token: 0,
+      last_price: quote.lastPrice,
+      ohlc: { open: quote.open, high: quote.high, low: quote.low, close: quote.close },
+      volume: quote.volume,
+      net_change: quote.netChange,
+    }
+  }
+  return result
+}
+
+export async function getBrokerHistoricalCandles(
+  broker: IBroker,
+  symbol: string,
+  from: string,
+  to: string,
+  interval: 'day' | '5minute' | '15minute' | '60minute' = 'day',
+): Promise<BrokerCandle[]> {
+  return broker.getHistoricalCandles(symbol, from, to, interval)
 }
 
 // Kite's /quote endpoint already batches many symbols per HTTP call, so this

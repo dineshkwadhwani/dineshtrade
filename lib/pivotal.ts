@@ -2,10 +2,10 @@ import { getState } from './state'
 import { getAccountList } from './accounts'
 import { getPivotalLists, type PivotalScriptEntry } from './pivotalListStore'
 import { asPivotalParams, getCapital, getStrategyById, getStrategies, type Strategy } from './strategyConfig'
-import { resolveAccountCreds, getQuotes, placeKiteOrder, type KiteCreds } from './kite'
-import { getInstrumentTokens } from './instruments'
+import { loadCustomerBroker, loadMarketDataBroker, placeBrokerOrder } from './broker/customer'
+import { getCustomerId } from './supabase'
 import { loadAndRefreshCloses } from './dailyCloses'
-import { getCachedQuotes, getCachedHistoricalCandles } from './marketDataCache'
+import { getBrokerQuotes, getBrokerHistoricalCandles } from './marketDataCache'
 import { runPreflight, markPlaced } from './preflight'
 import { getBroker } from './broker'
 import { appendJournal, classifyVerdict, istDateString, journalOrder } from './journal'
@@ -16,7 +16,7 @@ export interface PivotalRecommendation {
   symbol: string
   name: string
   price: number
-  priceSource: 'kite_live'
+  priceSource: 'broker_live'
   dayChangePct: number
   action: string
   source: string
@@ -79,13 +79,13 @@ function minutesElapsedInSession(): number {
   return Math.max(1, Math.min(375, nowMin - hhmmToMinutes('09:15')))
 }
 
-async function firstConnectedCreds(): Promise<KiteCreds | null> {
-  const state = await getState()
-  for (const account of Object.keys(state.kiteTokens)) {
-    const creds = await resolveAccountCreds(account)
-    if (creds.ok) return { apiKey: creds.apiKey, accessToken: creds.accessToken }
+async function firstConnectedBroker() {
+  try {
+    return (await loadMarketDataBroker(getCustomerId()))?.broker ?? null
+  } catch (err) {
+    console.error('[pivotal] failed to load selected broker:', err)
+    return null
   }
-  return null
 }
 
 function findScript(strategy: Strategy, lists: Awaited<ReturnType<typeof getPivotalLists>>, symbol: string): PivotalScriptEntry | null {
@@ -94,8 +94,8 @@ function findScript(strategy: Strategy, lists: Awaited<ReturnType<typeof getPivo
 }
 
 export async function scanPivotalStrategy(strategy: Strategy): Promise<PivotalScanResult> {
-  const creds = await firstConnectedCreds()
-  if (!creds) return { recommendations: [], message: 'No Kite account connected — Login with Kite in Settings to run Pivotal.' }
+  const broker = await firstConnectedBroker()
+  if (!broker) return { recommendations: [], message: 'No supported broker connected — connect your broker in Settings to run Pivotal.' }
 
   const params = asPivotalParams(strategy)
   const lists = await getPivotalLists()
@@ -106,8 +106,7 @@ export async function scanPivotalStrategy(strategy: Strategy): Promise<PivotalSc
   }
 
   const symbols = scripts.map(entry => entry.nse.toUpperCase())
-  const quotes = await getCachedQuotes(creds, symbols).catch(() => ({} as Awaited<ReturnType<typeof getQuotes>>))
-  const tokens = await getInstrumentTokens(creds, symbols).catch(() => ({} as Record<string, number>))
+  const quotes = await getBrokerQuotes(broker, symbols).catch(() => ({} as Awaited<ReturnType<typeof getBrokerQuotes>>))
   const sessionElapsed = minutesElapsedInSession()
   const today = istDateOffset(0)
   const intradayFrom = `${today} 09:15:00`
@@ -117,7 +116,7 @@ export async function scanPivotalStrategy(strategy: Strategy): Promise<PivotalSc
   // Daily closes for the consolidation/volume windows — shared, Supabase-backed
   // rolling cache (same one Strategy 1/2 use), fetched once for all scripts
   // instead of one uncached Kite historical call per script.
-  const dailyClosesBySymbol = await loadAndRefreshCloses(creds, symbols).catch(() => ({} as Record<string, Awaited<ReturnType<typeof loadAndRefreshCloses>>[string]>))
+  const dailyClosesBySymbol = await loadAndRefreshCloses(broker, symbols).catch(() => ({} as Record<string, Awaited<ReturnType<typeof loadAndRefreshCloses>>[string]>))
 
   const recommendations: PivotalRecommendation[] = []
   for (const script of scripts) {
@@ -129,9 +128,6 @@ export async function scanPivotalStrategy(strategy: Strategy): Promise<PivotalSc
     if (!(ltp > 0 && prevClose > 0)) continue
     if (dayGainPct < params.minDayGainPct || dayGainPct > params.maxDayGainPct) continue
     if (ltp <= script.breakoutTriggerPrice) continue
-
-    const token = tokens[script.nse.toUpperCase()]
-    if (!token) continue
 
     const daily = (dailyClosesBySymbol[script.nse.toUpperCase()] || [])
     const priorDaily = daily.filter(candle => candle.date < today)
@@ -154,7 +150,7 @@ export async function scanPivotalStrategy(strategy: Strategy): Promise<PivotalSc
       if (nowMinutes < hhmmToMinutes(params.minProjectedVolumeCheckHHMM)) continue
       const projectedDayVolume = currentVolume / (sessionElapsed / 375)
       if (projectedDayVolume < avgVolume * params.minVolumeSurgeRatio) continue
-      const intraday = await getCachedHistoricalCandles(creds, token, intradayFrom, intradayTo, '5minute').catch(() => [])
+      const intraday = await getBrokerHistoricalCandles(broker, script.nse.toUpperCase(), intradayFrom, intradayTo, '5minute').catch(() => [])
       const closes = intraday.map(candle => candle.close)
       if (closes.length < params.breakoutConfirmCandles) continue
       const lastN = closes.slice(-params.breakoutConfirmCandles)
@@ -174,7 +170,7 @@ export async function scanPivotalStrategy(strategy: Strategy): Promise<PivotalSc
       symbol: script.nse.toUpperCase(),
       name: script.name || script.nse.toUpperCase(),
       price: Number(ltp.toFixed(2)),
-      priceSource: 'kite_live',
+      priceSource: 'broker_live',
       dayChangePct: Number(dayGainPct.toFixed(2)),
       action: script.executionMode === 'dayEnd' ? 'BUY near close' : 'BUY breakout',
       source: `${strategy.name} · ${lists.meta[params.pivotalListId]?.name || params.pivotalListId}`,
@@ -197,13 +193,15 @@ export async function monitorPivotalAccount(account: string): Promise<PivotalMon
   const positions = (await listPositions({ account })).filter(position => pivotalIds.has(position.strategyId))
   if (positions.length === 0) return { account, ranAt, positionsChecked: 0, entries: [] }
 
-  const credsResult = await resolveAccountCreds(account)
-  if (!credsResult.ok) {
-    return { account, ranAt, positionsChecked: 0, entries: [{ account, accountDisplayName: displayName, symbol: '—', action: 'skipped', reason: credsResult.error }] }
+  const customerBroker = await loadCustomerBroker(account).catch(err => {
+    console.error(`[pivotal] ${account}: broker lookup failed`, err)
+    return null
+  })
+  if (!customerBroker) {
+    return { account, ranAt, positionsChecked: 0, entries: [{ account, accountDisplayName: displayName, symbol: '—', action: 'skipped', reason: 'Selected broker credentials unavailable' }] }
   }
-  const creds: KiteCreds = { apiKey: credsResult.apiKey, accessToken: credsResult.accessToken }
-  const broker = getBroker({ brokerName: 'zerodha', brokerCredentials: { apiKey: creds.apiKey, accessToken: creds.accessToken } })
-  const quotes = await getQuotes(creds, positions.map(position => position.symbol)).catch(() => ({} as Awaited<ReturnType<typeof getQuotes>>))
+  const broker = customerBroker.broker
+  const quotes = await getBrokerQuotes(broker, positions.map(position => position.symbol)).catch(() => ({} as Awaited<ReturnType<typeof getBrokerQuotes>>))
   const pivotalLists = await getPivotalLists()
   const entries: PivotalMonitorEntry[] = []
 
@@ -320,7 +318,7 @@ export async function monitorPivotalAccount(account: string): Promise<PivotalMon
 
       const actualQty = pre.adjustedQty ?? sellQty
       const tag = `dt-${pos.strategyId}-${tagSuffix}`
-      const placed = await placeKiteOrder(creds, { symbol: pos.symbol, side: 'SELL', quantity: actualQty, tag })
+      const placed = await placeBrokerOrder(broker, { symbol: pos.symbol, side: 'SELL', quantity: actualQty, tag, product: 'delivery', orderType: 'MARKET' })
       if (placed.ok && placed.data?.data?.order_id) {
         soldAnyLot = true
         await markPlaced(account, pos.symbol, 'SELL', { price: ltp, manual: false })

@@ -6,7 +6,7 @@ import { getActiveStrategies, getStrategyById, type Strategy } from '@/lib/strat
 import { rehydrateForCustomer } from '@/lib/strategyConfigStore'
 import { getWatchlist } from '@/lib/watchlistStore'
 import { withCustomer } from '@/lib/supabase'
-import { loadBrokerAccountCreds } from '@/lib/kite'
+import { loadCustomerBroker } from '@/lib/broker/customer'
 
 export const dynamic = 'force-dynamic'
 
@@ -16,7 +16,6 @@ export async function POST(req: NextRequest) {
     if (!profile) return NextResponse.json({ error: 'No active session.' }, { status: 401 })
 
     const body = await req.json().catch(() => ({}))
-    const primaryCustomerId = (process.env.CUSTOMER_IDS || '').split(',')[0]?.trim() || profile.id
     // Strategy config + watchlist always come from the target customer; Kite creds from the primary (Connect plan).
     const targetCustomerId = (['superadmin', 'account_manager'] as string[]).includes(profile.role) && body.targetCustomerId
       ? body.targetCustomerId as string
@@ -31,8 +30,8 @@ export async function POST(req: NextRequest) {
     const days = typeof body.days === 'number' ? body.days : 60
     const initialCapital = typeof body.initialCapital === 'number' ? body.initialCapital : 50000
 
-    // Load target customer's strategy + watchlist, and primary customer's Kite creds, in parallel.
-    const [[resolvedStrategySnapshot, resolvedStrategySnapshots, targetWatchlist], primaryCreds] = await Promise.all([
+    // Load target customer's strategy + watchlist and selected broker together.
+    const [[resolvedStrategySnapshot, resolvedStrategySnapshots, targetWatchlist], customerBroker] = await Promise.all([
       withCustomer(targetCustomerId, async () => {
         await rehydrateForCustomer()
         const snap = strategySnapshot ?? (strategyId ? getStrategyById(strategyId) ?? undefined : undefined)
@@ -40,21 +39,23 @@ export async function POST(req: NextRequest) {
         const wl = await getWatchlist()
         return [snap, snaps, wl] as const
       }),
-      // Read from broker_accounts (OAuth flow) — not the legacy state.kiteTokens path.
-      loadBrokerAccountCreds(primaryCustomerId),
+      loadCustomerBroker(targetCustomerId),
     ])
 
-    if (!primaryCreds) {
-      return NextResponse.json({ error: 'Primary account Kite token not found. Please reconnect via Settings → Connection.' }, { status: 400 })
+    if (!customerBroker) {
+      return NextResponse.json({ error: 'Selected broker token not found. Please reconnect via Settings → Connection.' }, { status: 400 })
+    }
+    if (customerBroker.brokerName !== 'zerodha') {
+      return NextResponse.json({ error: 'Backtesting currently supports Zerodha historical data only.' }, { status: 400 })
     }
 
-    // Run in primary customer's context; strategy + watchlist overrides inject the target customer's data.
-    const result = await withCustomer(primaryCustomerId, () => runStrategyBacktest({
+    // Backtest historical provider is currently Zerodha-only.
+    const result = await withCustomer(targetCustomerId, () => runStrategyBacktest({
       days, initialCapital, strategyId, runAllActive,
       strategySnapshot: resolvedStrategySnapshot,
       strategySnapshots: resolvedStrategySnapshots,
       watchlistOverride: targetWatchlist,
-      credsOverride: primaryCreds,
+      credsOverride: { apiKey: customerBroker.apiKey, accessToken: customerBroker.accessToken },
     }))
 
     const historyEntry = buildBacktestHistoryEntry({

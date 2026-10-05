@@ -4,7 +4,7 @@ import { getSupabaseAdmin } from '@/lib/supabase'
 
 export const dynamic = 'force-dynamic'
 
-// DELETE /api/dalgo/customer/broker/disconnect — clears the Zerodha access token
+// DELETE /api/dalgo/customer/broker/disconnect — clears the selected broker access token
 // for the logged-in customer so they can re-authenticate and get a fresh token.
 // API key + secret are preserved; only the OAuth session token is cleared.
 export async function DELETE() {
@@ -18,10 +18,11 @@ export async function DELETE() {
       access_token_enc: null,
       token_captured_at: null,
       token_expires_at: null,
+      refresh_token_enc: null,
       updated_at: new Date().toISOString(),
     })
     .eq('customer_id', profile.id)
-    .eq('broker_name', 'zerodha')
+    .eq('active', true)
 
   if (error) {
     console.error('[broker/disconnect] update error:', error.message)

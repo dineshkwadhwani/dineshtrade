@@ -54,7 +54,9 @@
 //      ONLY from the 15:35 IST EOD sweep.
 
 import { getState, setBuyHistoryForSymbol } from './state'
-import { resolveAccountCreds, getPositions, getHoldings, getOrders, getQuotes, buildLiveQtyBySymbol } from './kite'
+import { loadCustomerBroker } from './broker/customer'
+import { getBrokerQuotes } from './marketDataCache'
+import type { BrokerHolding, BrokerOrder, BrokerPositions } from './broker/IBroker'
 import { istDateString, readJournalRange, journalOrder, type OrderRecord } from './journal'
 import { listPositions, recordBuy, removePosition } from './positions'
 import { istDateKey } from './cronState'
@@ -70,31 +72,31 @@ function strategyFromTag(tag?: string): string | null {
 }
 
 function buildLiveInventory(
-  holdings: Awaited<ReturnType<typeof getHoldings>>,
-  positions: Awaited<ReturnType<typeof getPositions>>,
+  holdings: BrokerHolding[],
+  positions: BrokerPositions,
 ): Map<string, { qty: number; avgPrice: number }> {
   const inventory = new Map<string, { qty: number; avgPrice: number }>()
 
   for (const holding of holdings) {
-    const symbol = holding.tradingsymbol.toUpperCase()
-    const qty = (holding.quantity || 0) + (holding.t1_quantity || 0)
-    const avgPrice = Number(holding.average_price) || 0
+    const symbol = holding.symbol.toUpperCase()
+    const qty = (holding.quantity || 0) + (holding.t1Quantity || 0)
+    const avgPrice = Number(holding.averagePrice) || 0
     if (qty > 0 && avgPrice > 0) inventory.set(symbol, { qty, avgPrice })
   }
 
   for (const position of positions.net) {
-    const symbol = position.tradingsymbol.toUpperCase()
+    const symbol = position.symbol.toUpperCase()
     if (inventory.has(symbol)) continue
     const qty = position.quantity || 0
-    const avgPrice = Number(position.average_price) || 0
+    const avgPrice = Number(position.averagePrice) || 0
     if (qty > 0 && avgPrice > 0) inventory.set(symbol, { qty, avgPrice })
   }
 
   for (const position of positions.day) {
-    const symbol = position.tradingsymbol.toUpperCase()
+    const symbol = position.symbol.toUpperCase()
     if (inventory.has(symbol)) continue
     const qty = position.quantity || 0
-    const avgPrice = Number(position.average_price) || 0
+    const avgPrice = Number(position.averagePrice) || 0
     if (qty > 0 && avgPrice > 0) inventory.set(symbol, { qty, avgPrice })
   }
 
@@ -132,7 +134,7 @@ async function absorbUntrackedPositions(
   account: string,
   liveInventory: Map<string, { qty: number; avgPrice: number }>,
   trackedSymbols: Set<string>,
-  kiteOrders: Awaited<ReturnType<typeof getOrders>>,
+  brokerOrders: BrokerOrder[],
   todayJournal: Awaited<ReturnType<typeof readJournalRange>>,
 ): Promise<void> {
   const journaledBuyOrderIds = new Set(
@@ -183,16 +185,16 @@ async function absorbUntrackedPositions(
     // mass-deletion incident: the loop died on the first untracked symbol
     // and never got to the rest, every tick, until the process restarted).
     try {
-      // Fix req 2 — verify today's Kite order book before deciding this is a
+      // Fix req 2 — verify today's broker order book before deciding this is a
       // genuinely untracked (pre-existing/prior-day) holding vs. a real order
       // that our own engine just placed moments ago (a same-tick race with the
       // BUY engine, which journals + records the position itself — see the
       // "must be awaited" comment in cronBuy.ts).
-      const latestCompletedBuy = kiteOrders
-        .filter(o => o.transaction_type === 'BUY' && o.status === 'COMPLETE' && o.tradingsymbol.toUpperCase() === symbol)
+      const latestCompletedBuy = brokerOrders
+        .filter(o => o.side === 'BUY' && o.status === 'COMPLETE' && o.symbol.toUpperCase() === symbol)
         .sort((a, b) => {
-          const ta = Date.parse(a.order_timestamp || '') || 0
-          const tb = Date.parse(b.order_timestamp || '') || 0
+          const ta = Date.parse(a.timestamp || '') || 0
+          const tb = Date.parse(b.timestamp || '') || 0
           return tb - ta
         })[0]
 
@@ -201,14 +203,14 @@ async function absorbUntrackedPositions(
         // stale/racy read of our own store — re-sync the tracked position from
         // the REAL fill data without writing a second journal entry.
         const inferredStrategy = strategyFromTag(latestCompletedBuy.tag) || 'accumulator'
-        const fillQty = Number(latestCompletedBuy.filled_quantity || latestCompletedBuy.quantity) || live.qty
-        const fillPrice = Number(latestCompletedBuy.average_price) || live.avgPrice
+        const fillQty = Number(latestCompletedBuy.filledQuantity || latestCompletedBuy.quantity) || live.qty
+        const fillPrice = Number(latestCompletedBuy.averagePrice) || live.avgPrice
 
-        if (journaledBuyOrderIds.has(latestCompletedBuy.order_id)) {
+        if (journaledBuyOrderIds.has(latestCompletedBuy.orderId)) {
           await recordBuy(inferredStrategy, account, symbol, fillQty, fillPrice)
           await setBuyHistoryForSymbol(account, symbol, [{ price: fillPrice }])
           markAbsorbedToday(account, symbol)
-          console.log(`[reconcile] ${account} ${symbol}: re-synced tracked position from existing order ${latestCompletedBuy.order_id} (no duplicate journal entry)`)
+          console.log(`[reconcile] ${account} ${symbol}: re-synced tracked position from existing order ${latestCompletedBuy.orderId} (no duplicate journal entry)`)
           continue
         }
 
@@ -222,10 +224,10 @@ async function absorbUntrackedPositions(
           account, symbol, side: 'BUY',
           qty: fillQty, price: fillPrice,
           tag: inferredTag, strategyId: inferredStrategy,
-          orderId: latestCompletedBuy.order_id,
+          orderId: latestCompletedBuy.orderId,
         }).catch(err => console.error(`[reconcile] journalOrder (real order backfill) failed ${account} ${symbol}:`, err))
         markAbsorbedToday(account, symbol)
-        console.log(`[reconcile] ${account} ${symbol}: journaled real order ${latestCompletedBuy.order_id} into ${inferredStrategy} @ ₹${fillPrice} (was missing from journal)`)
+        console.log(`[reconcile] ${account} ${symbol}: journaled real order ${latestCompletedBuy.orderId} into ${inferredStrategy} @ ₹${fillPrice} (was missing from journal)`)
         continue
       }
 
@@ -263,19 +265,31 @@ export async function reconcileManualSells(): Promise<void> {
     // creds, a Supabase hiccup, an unexpected data shape) must not prevent
     // every other account's reconciliation from running this tick.
     try {
-      const creds = await resolveAccountCreds(account)
-      if (!creds.ok) continue
+      const customerBroker = await loadCustomerBroker(account).catch(err => {
+        console.error(`[reconcile] ${account}: broker lookup failed`, err)
+        return null
+      })
+      if (!customerBroker) continue
+      const broker = customerBroker.broker
 
       const openPositions = await listPositions({ account })
 
       // Fetch live qty, today's Kite SELL orders, and live avg-price inventory in parallel.
-      const [livePositions, holdings, kiteOrders] = await Promise.all([
-        getPositions(creds).catch(() => ({ day: [], net: [] })),
-        getHoldings(creds).catch(() => [] as Awaited<ReturnType<typeof getHoldings>>),
-        getOrders(creds).catch(() => [] as Awaited<ReturnType<typeof getOrders>>),
+      const [livePositions, holdings, brokerOrders] = await Promise.all([
+        broker.getPositions().catch(() => ({ day: [], net: [] }) as BrokerPositions),
+        broker.getHoldings().catch(() => [] as BrokerHolding[]),
+        broker.getOrders().catch(() => [] as BrokerOrder[]),
       ])
 
-      const liveQty = buildLiveQtyBySymbol([...livePositions.day, ...livePositions.net], holdings)
+      const liveQty = new Map<string, number>()
+      for (const position of [...livePositions.day, ...livePositions.net]) {
+        const symbol = position.symbol.toUpperCase()
+        liveQty.set(symbol, Math.max(liveQty.get(symbol) || 0, Number(position.quantity || 0)))
+      }
+      for (const holding of holdings) {
+        const symbol = holding.symbol.toUpperCase()
+        liveQty.set(symbol, (liveQty.get(symbol) || 0) + Number(holding.quantity || 0) + Number(holding.t1Quantity || 0))
+      }
       const liveInventory = buildLiveInventory(holdings, livePositions)
       // Build a symbol-only tracked set (no account filter) so positions whose
       // `account` field was seeded as '' don't appear untracked and get
@@ -285,7 +299,7 @@ export async function reconcileManualSells(): Promise<void> {
 
       const todayJournal = await readJournalRange(today, today).catch(() => [] as Awaited<ReturnType<typeof readJournalRange>>)
 
-      await absorbUntrackedPositions(account, liveInventory, trackedSymbols, kiteOrders, todayJournal)
+      await absorbUntrackedPositions(account, liveInventory, trackedSymbols, brokerOrders, todayJournal)
 
       const trackedPositions = await listPositions({ account })
       if (trackedPositions.length === 0) continue
@@ -294,11 +308,11 @@ export async function reconcileManualSells(): Promise<void> {
       // symbols with in-flight (pending) SELL orders. Case 2 lives in
       // reconcileManualSellsEOD() now — this function only handles Case 1
       // (today's actual completed sells).
-      const todaySellBySymbol = new Map<string, typeof kiteOrders[0][]>()
-      for (const o of kiteOrders) {
-        if (o.transaction_type !== 'SELL') continue
+      const todaySellBySymbol = new Map<string, BrokerOrder[]>()
+      for (const o of brokerOrders) {
+        if (o.side !== 'SELL') continue
         if (o.status !== 'COMPLETE') continue
-        const symbol = o.tradingsymbol.toUpperCase()
+        const symbol = o.symbol.toUpperCase()
         const orders = todaySellBySymbol.get(symbol) || []
         orders.push(o)
         todaySellBySymbol.set(symbol, orders)
@@ -319,15 +333,15 @@ export async function reconcileManualSells(): Promise<void> {
         if (sellOrders.length === 0) continue
         // DAlgo-placed sells are already journaled + position removed by applyLotSell.
         // Only act on genuine discrepancies (sells that bypassed the system).
-        for (const kiteOrder of sellOrders) {
-          if (journaledSellOrderIds.has(kiteOrder.order_id)) continue
-          const fillPrice = Number(kiteOrder.average_price) || pos.firstBuyPrice
-          const fillQty = Number(kiteOrder.filled_quantity || kiteOrder.quantity) || pos.remainingQty
+        for (const brokerOrder of sellOrders) {
+          if (journaledSellOrderIds.has(brokerOrder.orderId)) continue
+          const fillPrice = Number(brokerOrder.averagePrice) || pos.firstBuyPrice
+          const fillQty = Number(brokerOrder.filledQuantity || brokerOrder.quantity) || pos.remainingQty
           await journalOrder({
             account, symbol: pos.symbol, side: 'SELL',
             qty: fillQty, price: fillPrice,
             tag: 'dt-manual', strategyId: pos.strategyId, source: 'manual',
-            orderId: kiteOrder.order_id,
+            orderId: brokerOrder.orderId,
           }).catch(err => console.error(`[reconcile] journalOrder failed ${account} ${sym}:`, err))
         }
         await removePosition(account, pos.symbol)
@@ -355,21 +369,25 @@ export async function reconcileManualSellsEOD(): Promise<void> {
   const today = istDateString()
 
   for (const account of connectedAccounts) {
-    const creds = await resolveAccountCreds(account)
-    if (!creds.ok) continue
+    const customerBroker = await loadCustomerBroker(account).catch(err => {
+      console.error(`[reconcile-eod] ${account}: broker lookup failed`, err)
+      return null
+    })
+    if (!customerBroker) continue
+    const broker = customerBroker.broker
 
     // Safe-fetch: if live-data calls fail we MUST NOT delete positions, since
     // empty holdings/positions would make every CNC holding look like a zero-qty
     // "sold externally" row and wipe the entire position store. Bail for this
     // account and let the next EOD run try again.
-    let livePositions: Awaited<ReturnType<typeof getPositions>>
-    let holdings: Awaited<ReturnType<typeof getHoldings>>
-    let kiteOrders: Awaited<ReturnType<typeof getOrders>>
+    let livePositions: BrokerPositions
+    let holdings: BrokerHolding[]
+    let brokerOrders: BrokerOrder[]
     try {
-      ;[livePositions, holdings, kiteOrders] = await Promise.all([
-        getPositions(creds),
-        getHoldings(creds),
-        getOrders(creds).catch(() => [] as Awaited<ReturnType<typeof getOrders>>),
+      ;[livePositions, holdings, brokerOrders] = await Promise.all([
+        broker.getPositions(),
+        broker.getHoldings(),
+        broker.getOrders().catch(() => [] as BrokerOrder[]),
       ])
     } catch (err) {
       console.error(`[reconcile-eod] ${account}: live-data fetch failed — skipping EOD sweep to avoid false closes:`, err)
@@ -379,7 +397,7 @@ export async function reconcileManualSellsEOD(): Promise<void> {
     const trackedPositions = await listPositions({ account })
     if (trackedPositions.length === 0) continue
 
-    // Safety net: if Kite returned no holdings at all but we have tracked CNC
+    // Safety net: if the broker returned no holdings at all but we have tracked CNC
     // positions, the API likely returned incomplete data. Abort rather than
     // treating all those positions as sold (which would delete them and reset
     // their strategy tags to 'accumulator' next morning via the absorb path).
@@ -388,16 +406,24 @@ export async function reconcileManualSellsEOD(): Promise<void> {
       continue
     }
 
-    const liveQty = buildLiveQtyBySymbol([...livePositions.day, ...livePositions.net], holdings)
+    const liveQty = new Map<string, number>()
+    for (const position of [...livePositions.day, ...livePositions.net]) {
+      const symbol = position.symbol.toUpperCase()
+      liveQty.set(symbol, Math.max(liveQty.get(symbol) || 0, Number(position.quantity || 0)))
+    }
+    for (const holding of holdings) {
+      const symbol = holding.symbol.toUpperCase()
+      liveQty.set(symbol, (liveQty.get(symbol) || 0) + Number(holding.quantity || 0) + Number(holding.t1Quantity || 0))
+    }
 
-    const todaySellBySymbol = new Map<string, typeof kiteOrders[0]>()
+    const todaySellBySymbol = new Map<string, BrokerOrder>()
     const pendingSellSymbols = new Set<string>()
-    for (const o of kiteOrders) {
-      if (o.transaction_type !== 'SELL') continue
-      const sym = o.tradingsymbol.toUpperCase()
+    for (const o of brokerOrders) {
+      if (o.side !== 'SELL') continue
+      const sym = o.symbol.toUpperCase()
       if (o.status === 'COMPLETE') {
         todaySellBySymbol.set(sym, o)
-      } else if (['OPEN', 'PENDING', 'PUT ORDER REQ RECEIVED', 'VALIDATION PENDING', 'TRIGGER PENDING'].includes(o.status)) {
+      } else if (['OPEN', 'PENDING'].includes(o.status)) {
         pendingSellSymbols.add(sym)
       }
     }
@@ -432,7 +458,7 @@ export async function reconcileManualSellsEOD(): Promise<void> {
       .filter(p => !todaySellBySymbol.has(p.symbol.toUpperCase()))
       .map(p => p.symbol.toUpperCase())
     const quotes = priorDaySymbols.length > 0
-      ? await getQuotes(creds, priorDaySymbols).catch(() => ({} as Record<string, any>))
+      ? await getBrokerQuotes(broker, priorDaySymbols).catch(() => ({} as Record<string, any>))
       : {}
 
     for (const pos of zeroQtyPositions) {

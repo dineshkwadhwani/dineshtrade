@@ -28,6 +28,7 @@ export interface AngelOneAdapterConfig {
 const NOT_IMPLEMENTED = 'AngelOne adapter not yet implemented — V2'
 
 export class AngelOneAdapter implements IBroker {
+  readonly brokerName = 'angelone'
   constructor(_config: AngelOneAdapterConfig) {}
 
   getLoginUrl(): string { throw new Error(NOT_IMPLEMENTED) }

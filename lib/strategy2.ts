@@ -19,12 +19,10 @@
 // placed before this per-strategy tagging existed.
 
 import {
-  resolveAccountCreds, getPositions, getHoldings, getOrders, getQuotes, placeKiteOrder, getHistoricalCandles,
-  buildLiveQtyBySymbol,
-  type KitePosition, type KiteOrder,
-} from './kite'
+  loadCustomerBroker, placeBrokerOrder,
+} from './broker/customer'
+import { getBrokerQuotes, getBrokerHistoricalCandles } from './marketDataCache'
 import { runPreflight, markPlaced } from './preflight'
-import { getBroker } from './broker'
 import { sendEmail, isSkipTradeMailsEnabled } from './email'
 import { getAccountList } from './accounts'
 import { ensureStrategy1Tracking } from './strategy1'
@@ -35,7 +33,6 @@ import {
   recordStrategy2Buy, ageInCalendarDays,
 } from './strategy2Positions'
 import { listPositionLots, applyLotSell, seedMissingPosition, realignPositionAnchor } from './positions'
-import { getInstrumentTokens } from './instruments'
 
 export const STRATEGY_2_BUY_TAG = 'dt-s2'
 export const STRATEGY_2_SELL_TAG = 'dt-s2-exit'
@@ -97,11 +94,14 @@ export async function monitorAccount(account: string): Promise<MonitorResult> {
   const displayName = getAccountList().find(a => a.name === account)?.displayName
   const entries: MonitorEntry[] = []
 
-  const creds = await resolveAccountCreds(account)
-  if (!creds.ok) {
-    return { account, ranAt, positionsChecked: 0, entries: [{ account, accountDisplayName: displayName, symbol: '—', action: 'skipped', reason: creds.error }] }
+  const customerBroker = await loadCustomerBroker(account).catch(err => {
+    console.error(`[strategy2] ${account}: broker lookup failed`, err)
+    return null
+  })
+  if (!customerBroker) {
+    return { account, ranAt, positionsChecked: 0, entries: [{ account, accountDisplayName: displayName, symbol: '—', action: 'skipped', reason: 'Selected broker credentials unavailable' }] }
   }
-  const broker = getBroker({ brokerName: 'zerodha', brokerCredentials: { apiKey: creds.apiKey, accessToken: creds.accessToken } })
+  const broker = customerBroker.broker
 
   // Per-position strategy config — looked up inside the loop now so each
   // position uses ITS OWN strategy's exits + handoff window. Default fallbacks
@@ -118,25 +118,33 @@ export async function monitorAccount(account: string): Promise<MonitorResult> {
   // read here must abort this tick entirely, not fall through to the "sold
   // externally, drop from store" logic below with fabricated empty data (this
   // was the root cause of the Aug 2026 mass position-deletion incident).
-  let day: KitePosition[] = []
-  let net: KitePosition[] = []
-  let holdings: Awaited<ReturnType<typeof getHoldings>> = []
-  let orders: KiteOrder[] = []
+  let day: Awaited<ReturnType<typeof broker.getPositions>>['day'] = []
+  let net: Awaited<ReturnType<typeof broker.getPositions>>['net'] = []
+  let holdings: Awaited<ReturnType<typeof broker.getHoldings>> = []
+  let orders: Awaited<ReturnType<typeof broker.getOrders>> = []
   try {
     ;[[{ day, net }, holdings], orders] = await Promise.all([
-      Promise.all([getPositions(creds), getHoldings(creds)]),
-      getOrders(creds),
+      Promise.all([broker.getPositions(), broker.getHoldings()]),
+      broker.getOrders(),
     ])
   } catch (err) {
     console.error(`[strategy2] ${account}: live Kite data fetch failed — skipping this tick to avoid false "sold externally" deletions:`, err)
     return { account, ranAt, positionsChecked: 0, entries: [{ account, accountDisplayName: displayName, symbol: '—', action: 'skipped', reason: 'Kite live data fetch failed — tick skipped to protect tracked positions' }] }
   }
-  const liveQtyBySymbol = buildLiveQtyBySymbol([...day, ...net], holdings)
+  const liveQtyBySymbol = new Map<string, number>()
+  for (const position of [...day, ...net]) {
+    const symbol = position.symbol.toUpperCase()
+    liveQtyBySymbol.set(symbol, Math.max(liveQtyBySymbol.get(symbol) || 0, Number(position.quantity || 0)))
+  }
+  for (const holding of holdings) {
+    const symbol = holding.symbol.toUpperCase()
+    liveQtyBySymbol.set(symbol, (liveQtyBySymbol.get(symbol) || 0) + Number(holding.quantity || 0) + Number(holding.t1Quantity || 0))
+  }
   const liveAvgBySymbol = new Map<string, number>()
   for (const h of holdings) {
-    const sym = h.tradingsymbol.toUpperCase()
-    const qty = (h.quantity || 0) + (h.t1_quantity || 0)
-    const avg = Number(h.average_price) || 0
+    const sym = h.symbol.toUpperCase()
+    const qty = (h.quantity || 0) + (h.t1Quantity || 0)
+    const avg = Number(h.averagePrice) || 0
     if (qty > 0 && avg > 0) liveAvgBySymbol.set(sym, avg)
   }
 
@@ -153,23 +161,23 @@ export async function monitorAccount(account: string): Promise<MonitorResult> {
     if (!prev || r.ts > prev.ts) latestBuyBySymbol.set(sym, { strategyId: r.strategyId, price: r.price, ts: r.ts })
   }
   for (const p of [...net, ...day]) {
-    const sym = p.tradingsymbol.toUpperCase()
+    const sym = p.symbol.toUpperCase()
     if (liveAvgBySymbol.has(sym)) continue
     const qty = p.quantity || 0
-    const avg = Number(p.average_price) || 0
+    const avg = Number(p.averagePrice) || 0
     if (qty > 0 && avg > 0) liveAvgBySymbol.set(sym, avg)
   }
 
   // Seed 1: today's Kite dt-s2 BUYs (legacy tag — keeps backward compatibility).
-  const todaysS2Buys = orders.filter(o => o.tag === STRATEGY_2_BUY_TAG && o.transaction_type === 'BUY' && o.status === 'COMPLETE')
+  const todaysS2Buys = orders.filter(o => o.tag === STRATEGY_2_BUY_TAG && o.side === 'BUY' && o.status === 'COMPLETE')
   const allKnown = await listStrategy2Positions()
   // positions already scoped by customer_id in Supabase — no account filter needed
   const knownKeys = new Set(allKnown.map(p => p.symbol.toUpperCase()))
   for (const o of todaysS2Buys) {
-    const sym = o.tradingsymbol.toUpperCase()
+    const sym = o.symbol.toUpperCase()
     if (!knownKeys.has(sym) && (liveQtyBySymbol.get(sym) ?? 0) > 0) {
-      const px = Number(o.average_price) || 0
-      const qty = Number(o.filled_quantity || o.quantity) || 0
+      const px = Number(o.averagePrice) || 0
+      const qty = Number(o.filledQuantity || o.quantity) || 0
       if (px > 0 && qty > 0) {
         await recordStrategy2Buy(account, sym, qty, px)
         console.log(`[strategy2 monitor] seeded missing position ${account}:${sym} from today's Kite order`)
@@ -243,8 +251,7 @@ export async function monitorAccount(account: string): Promise<MonitorResult> {
   }
 
   const symbols = positions.map(p => p.symbol)
-  const quotes = await getQuotes(creds, symbols)
-  const instrumentTokens = await getInstrumentTokens(creds, symbols).catch(() => ({} as Record<string, number>))
+  const quotes = await getBrokerQuotes(broker, symbols)
   const candleWindow = latestCompletedFiveMinuteRange()
 
   console.log(`[strategy2 monitor] ${account}: ${positions.length} open S2 position(s) — ${symbols.join(', ')}`)
@@ -308,13 +315,8 @@ export async function monitorAccount(account: string): Promise<MonitorResult> {
     }
 
     const gainPct = ((ltp - pos.firstBuyPrice) / pos.firstBuyPrice) * 100
-    let lastCompletedCandle: Awaited<ReturnType<typeof getHistoricalCandles>>[number] | null = null
-
-    const token = instrumentTokens[symbol]
-    if (token) {
-      const candles = await getHistoricalCandles(creds, token, candleWindow.from, candleWindow.to, '5minute').catch(() => [])
-      lastCompletedCandle = candles[candles.length - 1] || null
-    }
+    const candles = await getBrokerHistoricalCandles(broker, symbol, candleWindow.from, candleWindow.to, '5minute').catch(() => [])
+    const lastCompletedCandle = candles[candles.length - 1] || null
 
     const lots = (await listPositionLots(pos)).sort((a, b) => a.boughtAt.localeCompare(b.boughtAt))
     let soldAnyLot = false
@@ -444,7 +446,7 @@ export async function monitorAccount(account: string): Promise<MonitorResult> {
       // so a Market Boom (or any other momentum strategy) exit doesn't get mislabeled
       // as Catalyst everywhere the tag is parsed back for display (journal, reports).
       const sellTag = `dt-${lotStrategyId}-${tagSuffix}`
-      const placed = await placeKiteOrder(creds, { symbol, side: 'SELL', quantity: actualQty, tag: sellTag })
+      const placed = await placeBrokerOrder(broker, { symbol, side: 'SELL', quantity: actualQty, tag: sellTag, product: 'delivery', orderType: 'MARKET' })
       if (placed.ok && placed.data?.data?.order_id) {
         soldAnyLot = true
         await markPlaced(account, symbol, 'SELL', { price: ltp, manual: false })

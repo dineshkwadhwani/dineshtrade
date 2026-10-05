@@ -4,7 +4,7 @@
 import { NextResponse } from 'next/server'
 import { getProfile, AuthError } from '@/lib/dalgoAuth'
 import { getSupabaseAdmin } from '@/lib/supabase'
-import { loadBrokerAccountCreds, getOrders } from '@/lib/kite'
+import { loadCustomerBroker } from '@/lib/broker/customer'
 
 export const dynamic = 'force-dynamic'
 
@@ -34,7 +34,7 @@ export async function GET(req: Request) {
     const targetParam = new URL(req.url).searchParams.get('targetCustomerId')
     const isPrivileged = profile.role === 'superadmin' || profile.role === 'account_manager'
     const customerId = isPrivileged && targetParam ? targetParam : profile.id
-    const creds = await loadBrokerAccountCreds(customerId)
+    const customerBroker = await loadCustomerBroker(customerId).catch(() => null)
 
     const admin = getSupabaseAdmin()
     const today = istDateKey()
@@ -53,20 +53,26 @@ export async function GET(req: Request) {
       if (row.broker_order_id) byBrokerOrderId.set(row.broker_order_id, row)
     }
 
-    if (creds) {
-      const orders = await getOrders(creds).catch(() => null)
+    if (customerBroker) {
+      const orders = await customerBroker.broker.getOrders().catch(() => null)
       if (orders !== null) {
         const enriched = orders.map(o => {
-          const db = byBrokerOrderId.get(o.order_id)
+          const db = byBrokerOrderId.get(o.orderId)
           return {
             ...o,
+            order_id: o.orderId,
+            tradingsymbol: o.symbol,
+            transaction_type: o.side,
+            filled_quantity: o.filledQuantity,
+            average_price: o.averagePrice,
+            order_timestamp: o.timestamp,
             strategy_tag: db?.strategy_tag ?? null,
             source_mode: db?.source ?? null,
             // Prefer DB tag when available, but keep broker tag as fallback.
             tag: db?.tag ?? o.tag,
           }
         })
-        return NextResponse.json({ orders: enriched, source: 'kite' })
+        return NextResponse.json({ orders: enriched, source: customerBroker.brokerName })
       }
     }
 

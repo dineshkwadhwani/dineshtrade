@@ -76,6 +76,7 @@ function nextSixAmIST(): string {
 }
 
 export class ZerodhaAdapter implements IBroker {
+  readonly brokerName = 'zerodha'
   private creds: KiteCreds
   private apiSecret?: string
 

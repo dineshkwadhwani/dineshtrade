@@ -1,6 +1,7 @@
 'use client'
 
 import { useState, useEffect } from 'react'
+import type { ImplementedBroker } from '@/lib/broker/supported'
 
 const FONT_SORA = "'Sora', sans-serif"
 const FONT_INTER = "'Inter', sans-serif"
@@ -19,28 +20,29 @@ const inputStyle: React.CSSProperties = {
 }
 
 const BROKERS = [
-  { value: 'zerodha', label: 'Zerodha', available: true },
-  { value: 'upstox', label: 'Upstox', available: false },
-  { value: 'angelone', label: 'Angel One', available: false },
-  { value: 'dhan', label: 'Dhan', available: false },
+  { value: 'zerodha', label: 'Zerodha' },
+  { value: 'upstox', label: 'Upstox' },
 ]
 
 interface Props {
   profile: { id: string; full_name: string; email: string }
   initialHasCreds: boolean
   initialIsConnected: boolean
+  initialBroker: string
+  availableBrokers: ImplementedBroker[]
   initialError: string | null
   isActive?: boolean
   callbackUrl: string
+  loginUrl: string
 }
 
 type Stage = 'credentials' | 'connect' | 'done'
 
-function StepBar({ stage }: { stage: Stage }) {
+function StepBar({ stage, brokerLabel }: { stage: Stage; brokerLabel: string }) {
   const steps = [
     { key: 'identity', label: 'Identity verified', done: true },
     { key: 'credentials', label: 'Broker credentials', done: stage === 'connect' || stage === 'done' },
-    { key: 'connect', label: 'Kite connected', done: stage === 'done' },
+    { key: 'connect', label: `${brokerLabel} connected`, done: stage === 'done' },
   ]
   return (
     <div style={{ display: 'flex', alignItems: 'center', gap: 0, marginBottom: 28 }}>
@@ -69,17 +71,19 @@ function StepBar({ stage }: { stage: Stage }) {
   )
 }
 
-export default function SetupClient({ profile, initialHasCreds, initialIsConnected, initialError, isActive, callbackUrl }: Props) {
+export default function SetupClient({ profile, initialHasCreds, initialIsConnected, initialBroker, availableBrokers, initialError, isActive, callbackUrl, loginUrl }: Props) {
   const [stage, setStage] = useState<Stage>(
     initialIsConnected ? 'done' : initialHasCreds ? 'connect' : 'credentials'
   )
   const [reconnecting, setReconnecting] = useState(false)
-  const [broker, setBroker] = useState('zerodha')
+  const [broker, setBroker] = useState(initialBroker)
   const [apiKey, setApiKey] = useState('')
   const [apiSecret, setApiSecret] = useState('')
   const [loading, setLoading] = useState(false)
   const [error, setError] = useState(initialError ?? '')
   const [copied, setCopied] = useState(false)
+  const brokerLabel = BROKERS.find(item => item.value === broker)?.label || 'Broker'
+  const brokerChoices = BROKERS.filter(item => availableBrokers.includes(item.value as ImplementedBroker) || item.value === initialBroker)
 
   function copyCallbackUrl() {
     navigator.clipboard.writeText(callbackUrl).then(() => {
@@ -92,6 +96,10 @@ export default function SetupClient({ profile, initialHasCreds, initialIsConnect
     e.preventDefault()
     if (!apiKey.trim() || !apiSecret.trim()) {
       setError('Both API Key and API Secret are required.')
+      return
+    }
+    if (!broker) {
+      setError('Broker connections are temporarily unavailable.')
       return
     }
     setError('')
@@ -145,12 +153,12 @@ export default function SetupClient({ profile, initialHasCreds, initialIsConnect
               )}
               <div style={{ display: 'flex', flexDirection: 'column', gap: 12 }}>
                 {initialHasCreds && (
-                  <a href="/api/dalgo/setup/kite-login" style={{
+                  <a href={loginUrl} style={{
                     display: 'block', padding: '13px 0', background: '#387ED1', color: '#fff',
                     fontFamily: FONT_INTER, fontWeight: 600, fontSize: 15, textAlign: 'center',
                     borderRadius: 8, textDecoration: 'none',
                   }}>
-                    Connect to Kite →
+                    Connect to {brokerLabel} →
                   </a>
                 )}
                 <button onClick={() => { setError(''); setStage('credentials'); setReconnecting(true) }} style={{
@@ -182,38 +190,45 @@ export default function SetupClient({ profile, initialHasCreds, initialIsConnect
             Hi {profile.full_name} — connect your broker to start trading.
           </p>
 
-          <StepBar stage={stage} />
+          <StepBar stage={stage} brokerLabel={brokerLabel} />
 
           {stage === 'credentials' && (
             <form onSubmit={handleSaveCreds} style={{ display: 'flex', flexDirection: 'column', gap: 16 }}>
               <div>
                 <label style={{ fontFamily: FONT_INTER, fontSize: 13, fontWeight: 600, color: '#1E3A8A', display: 'block', marginBottom: 6 }}>Broker</label>
                 <select value={broker} onChange={e => setBroker(e.target.value)} style={inputStyle}>
-                  {BROKERS.map(b => (
-                    <option key={b.value} value={b.value} disabled={!b.available}>
-                      {b.label}{!b.available ? ' (Coming Soon)' : ''}
+                  {brokerChoices.map(item => (
+                    <option key={item.value} value={item.value} disabled={!availableBrokers.includes(item.value as ImplementedBroker)}>
+                      {item.label}{!availableBrokers.includes(item.value as ImplementedBroker) ? ' (not available for new connections)' : ''}
                     </option>
                   ))}
                 </select>
               </div>
+              {availableBrokers.length === 0 && (
+                <p style={{ fontFamily: FONT_INTER, fontSize: 13, color: '#92400E', background: '#FFF7ED', padding: '10px 14px', borderRadius: 8, margin: 0 }}>
+                  Broker connections are temporarily unavailable. Contact support for assistance.
+                </p>
+              )}
               <div>
                 <label style={{ fontFamily: FONT_INTER, fontSize: 13, fontWeight: 600, color: '#1E3A8A', display: 'block', marginBottom: 6 }}>API Key</label>
                 <input type="text" value={apiKey} autoComplete="off"
                   onChange={e => { setApiKey(e.target.value); setError('') }}
-                  placeholder="Paste your Kite Connect API key" style={inputStyle} />
+                  placeholder={`Paste your ${brokerLabel} API key`} style={inputStyle} />
               </div>
               <div>
                 <label style={{ fontFamily: FONT_INTER, fontSize: 13, fontWeight: 600, color: '#1E3A8A', display: 'block', marginBottom: 6 }}>API Secret</label>
                 <input type="password" value={apiSecret} autoComplete="off"
                   onChange={e => { setApiSecret(e.target.value); setError('') }}
-                  placeholder="Paste your Kite Connect API secret" style={inputStyle} />
+                  placeholder={`Paste your ${brokerLabel} API secret`} style={inputStyle} />
               </div>
               <p style={{ fontFamily: FONT_INTER, fontSize: 12, color: '#64748B', background: '#F1F5F9', borderRadius: 8, padding: '10px 14px', margin: 0, lineHeight: 1.6 }}>
                 <strong>How to find your credentials:</strong><br />
-                Log into Zerodha → Kite Connect → Create App → Copy API Key and Secret
+                {broker === 'upstox'
+                  ? 'Create an app in the Upstox Developer Console and use the registered redirect URL below.'
+                  : 'Log into Zerodha → Kite Connect → Create App → Copy API Key and Secret'}
               </p>
               {error && <p style={{ fontFamily: FONT_INTER, fontSize: 13, color: '#EF4444', margin: 0 }}>{error}</p>}
-              <button type="submit" disabled={loading} style={{
+              <button type="submit" disabled={loading || availableBrokers.length === 0} style={{
                 width: '100%', padding: '12px 0', background: loading ? '#93C5FD' : '#1E3A8A', color: '#fff',
                 fontFamily: FONT_INTER, fontWeight: 600, fontSize: 15,
                 border: 'none', borderRadius: 8, cursor: loading ? 'not-allowed' : 'pointer', marginTop: 4,
@@ -228,12 +243,12 @@ export default function SetupClient({ profile, initialHasCreds, initialIsConnect
               <div style={{ background: '#F0FDF4', border: '1px solid #BBF7D0', borderRadius: 10, padding: '14px 18px' }}>
                 <p style={{ fontFamily: FONT_INTER, fontSize: 14, color: '#065F46', fontWeight: 600, margin: '0 0 4px' }}>✓ Credentials saved</p>
                 <p style={{ fontFamily: FONT_INTER, fontSize: 13, color: '#475569', margin: 0 }}>
-                  Now connect to Kite to verify your credentials and allow DAlgo to place trades on your behalf.
+                  Now connect to {brokerLabel} to verify your credentials and allow DAlgo to place trades on your behalf.
                 </p>
               </div>
               <div style={{ background: '#EFF6FF', border: '1px solid #BFDBFE', borderRadius: 10, padding: '14px 18px' }}>
                 <p style={{ fontFamily: FONT_INTER, fontSize: 12, color: '#1E3A8A', fontWeight: 600, margin: '0 0 8px' }}>
-                  Set this as the Redirect URL in your Zerodha Developer Console:
+                  Set this as the Redirect URL in your {brokerLabel} Developer Console:
                 </p>
                 <div style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
                   <code style={{ flex: 1, fontFamily: 'monospace', fontSize: 12, color: '#1E3A8A', background: '#DBEAFE', padding: '7px 10px', borderRadius: 6, wordBreak: 'break-all' }}>
@@ -263,18 +278,18 @@ export default function SetupClient({ profile, initialHasCreds, initialIsConnect
               <div style={{ background: '#FFF7ED', border: '1px solid #FED7AA', borderRadius: 10, padding: '14px 18px' }}>
                 <p style={{ fontFamily: FONT_INTER, fontSize: 13, color: '#92400E', margin: '0 0 6px', fontWeight: 600 }}>What happens next:</p>
                 <ol style={{ fontFamily: FONT_INTER, fontSize: 13, color: '#78350F', margin: 0, paddingLeft: 18, lineHeight: 1.8 }}>
-                  <li>You will be redirected to Zerodha&apos;s Kite login page</li>
-                  <li>Log in with your Zerodha credentials</li>
+                  <li>You will be redirected to {brokerLabel}&apos;s login page</li>
+                  <li>Log in with your {brokerLabel} credentials</li>
                   <li>You will be redirected back here — connection verified</li>
                 </ol>
               </div>
               {error && <p style={{ fontFamily: FONT_INTER, fontSize: 13, color: '#EF4444', margin: 0 }}>{error}</p>}
-              <a href="/api/dalgo/setup/kite-login" style={{
+              <a href={loginUrl} style={{
                 display: 'block', width: '100%', padding: '13px 0', background: '#387ED1', color: '#fff',
                 fontFamily: FONT_INTER, fontWeight: 600, fontSize: 15, textAlign: 'center',
                 borderRadius: 8, textDecoration: 'none', boxSizing: 'border-box',
               }}>
-                Connect to Kite →
+                Connect to {brokerLabel} →
               </a>
               <button onClick={() => setStage('credentials')} style={{
                 background: 'none', border: 'none', fontFamily: FONT_INTER, fontSize: 13, color: '#64748B', cursor: 'pointer', padding: 0,
@@ -288,7 +303,7 @@ export default function SetupClient({ profile, initialHasCreds, initialIsConnect
             <div style={{ textAlign: 'center' }}>
               <div style={{ fontSize: 48, marginBottom: 16 }}>✅</div>
               <h2 style={{ fontFamily: FONT_SORA, fontWeight: 700, fontSize: 20, color: '#1E3A8A', margin: '0 0 12px' }}>
-                Kite connected!
+                {brokerLabel} connected!
               </h2>
               <p style={{ fontFamily: FONT_INTER, fontSize: 14, color: '#475569', margin: '0 0 24px', lineHeight: 1.6 }}>
                 Your broker credentials have been verified and your access token is saved.

@@ -7,13 +7,11 @@ import { getWatchlist } from './watchlistStore'
 import { getStrategyById, getActiveStrategies, getCapital, checkGiftNiftyGate, asPivotalParams, type Strategy } from './strategyConfig'
 import { getMarketBriefing } from './marketBriefing'
 import { getState } from './state'
-import { getPrimaryCustomerId } from './accounts'
-import {
-  resolveAccountCreds, loadBrokerAccountCreds, type KiteCreds,
-} from './kite'
-import { getInstrumentTokens } from './instruments'
+import { getCustomerId } from './supabase'
+import { loadMarketDataBroker } from './broker/customer'
+import type { IBroker } from './broker/IBroker'
 import { loadAndRefreshCloses, type DailyClose } from './dailyCloses'
-import { getCachedQuotes, getCachedHistoricalCandles } from './marketDataCache'
+import { getBrokerQuotes, getBrokerHistoricalCandles } from './marketDataCache'
 import { computeEMA, consecutiveDownDays, deviationPct } from './ema'
 import { scanPivotalStrategy } from './pivotal'
 import { getPivotalLists } from './pivotalListStore'
@@ -130,7 +128,7 @@ function evaluateMomentumCeiling(
 
 interface WatchlistStock { nse: string; name?: string; trades?: number }
 
-export type PriceSource = 'kite_live' | 'briefing_cmp'
+export type PriceSource = 'broker_live' | 'briefing_cmp'
 
 export interface Recommendation {
   symbol: string
@@ -207,9 +205,13 @@ async function mapWithLimit<T, R>(items: T[], limit: number, fn: (item: T) => Pr
 // Find a connected account's creds — used by both strategies for /quote and /historical.
 // The data is account-agnostic (the same LTP, same candle); we just need someone's tokens.
 // V2: load primary customer creds directly from DB, bypassing the legacy env-based resolveAccountCreds.
-async function firstConnectedCreds(): Promise<KiteCreds | null> {
-  const primaryCustomerId = getPrimaryCustomerId()
-  return loadBrokerAccountCreds(primaryCustomerId)
+async function firstConnectedBroker(): Promise<IBroker | null> {
+  try {
+    return (await loadMarketDataBroker(getCustomerId()))?.broker ?? null
+  } catch (err) {
+    console.error('[strategyEngine] failed to load selected broker:', err)
+    return null
+  }
 }
 
 // ──────── MARKET MODE (cached briefing) ────────
@@ -307,11 +309,11 @@ async function runStrategy2(now: string, giftChangePct: number, strategyOverride
   }
 
   // 1. Need a connected Kite account
-  const creds = await firstConnectedCreds()
-  if (!creds) {
+  const broker = await firstConnectedBroker()
+  if (!broker) {
     return {
       mode: 'catalyst', recommendations: [], giftChangePct,
-      message: 'No Kite account connected — Login with Kite in Settings to run Strategy 2.',
+      message: 'No supported broker connected — connect your broker in Settings to run Strategy 2.',
       generatedAt: now,
     }
   }
@@ -337,10 +339,10 @@ async function runStrategy2(now: string, giftChangePct: number, strategyOverride
   const nameBySymbol = new Map(universe.map(s => [s.nse.toUpperCase(), s.name || s.nse]))
 
   // 3. Load daily aggregates (EMA + 10-day avg vol + prev close) — cached per IST date
-  await ensureDailyAggregates(creds, symbols, cfg.volumeAvgDays)
+  await ensureDailyAggregates(broker, symbols, cfg.volumeAvgDays)
 
   // 4. Batched live quote for all List A — shared cache, deduped across strategies/customers
-  const quotes = await getCachedQuotes(creds, symbols)
+  const quotes = await getBrokerQuotes(broker, symbols)
 
   // 5. Cheap filters first — eliminate most symbols before fetching 5-min candles
   const cheapPassed: Array<{ symbol: string; ltp: number; volume: number; agg: DailyAggregate }> = []
@@ -392,10 +394,7 @@ async function runStrategy2(now: string, giftChangePct: number, strategyOverride
       // Today's intraday 5-min candles: from today 9:15 to now
       const from = `${istDateString()} 09:15:00`
       const to = `${istDateString()} 15:30:00`
-      const aggEntry = dailyAggregateCache.get(c.symbol)!
-      const token = await import('./instruments').then(m => m.getInstrumentToken(creds, c.symbol))
-      if (!token) { skippedNoCandles++; continue }
-      candles = await getCachedHistoricalCandles(creds, token, from, to, '5minute')
+      candles = await getBrokerHistoricalCandles(broker, c.symbol, from, to, '5minute')
     } catch (err) {
       skippedNoCandles++
       continue
@@ -419,7 +418,7 @@ async function runStrategy2(now: string, giftChangePct: number, strategyOverride
   const applyceiling = cfg.recentHighDays > 0 && cfg.ceilingBufferPct > 0
   let closesCache: Record<string, any> = {}
   if (applyceiling) {
-    closesCache = await loadAndRefreshCloses(creds, symbols)
+    closesCache = await loadAndRefreshCloses(broker, symbols)
   }
 
   const afterCeiling = applyceiling ? survivors.filter(s => {
@@ -451,7 +450,7 @@ async function runStrategy2(now: string, giftChangePct: number, strategyOverride
       symbol: s.symbol,
       name: nameBySymbol.get(s.symbol) || s.symbol,
       price: s.ltp,
-      priceSource: 'kite_live',
+      priceSource: 'broker_live',
       dayChangePct: s.dayGainPct,
       action: 'BUY',
       strategy: strategy?.id || 'catalyst',
@@ -480,7 +479,7 @@ async function runStrategy2(now: string, giftChangePct: number, strategyOverride
       skippedNotStretched: skippedGainOutOfRange + skippedEMAExtended + skippedVolumeWeak + skippedCeiling,
       produced: recs.length,
     },
-    priceSource: 'kite_live',
+    priceSource: 'broker_live',
     message: recs.length === 0
       ? `No List A stocks meet the momentum criteria at ${Math.floor(nowMin/60).toString().padStart(2,'0')}:${(nowMin%60).toString().padStart(2,'0')} IST. Will re-scan next tick.`
       : undefined,
@@ -489,7 +488,7 @@ async function runStrategy2(now: string, giftChangePct: number, strategyOverride
 }
 
 // Load (or refresh) the daily-aggregate cache for given symbols. Once per IST day.
-async function ensureDailyAggregates(creds: KiteCreds, symbols: string[], volumeAvgDays: number): Promise<void> {
+async function ensureDailyAggregates(broker: IBroker, symbols: string[], volumeAvgDays: number): Promise<void> {
   const today = istDateString()
   const stale = symbols.filter(s => {
     const entry = dailyAggregateCache.get(s)
@@ -500,7 +499,7 @@ async function ensureDailyAggregates(creds: KiteCreds, symbols: string[], volume
   // Disk-backed rolling cache of daily closes. On most days this is a tiny
   // incremental fetch (yesterday's bar only); on cold-start it does the
   // full 60-day window. Failures are logged inside loadAndRefreshCloses.
-  const closesBySymbol = await loadAndRefreshCloses(creds, stale)
+  const closesBySymbol = await loadAndRefreshCloses(broker, stale)
   const accumulator = getStrategyById('accumulator')
   const accumulatorParams = (accumulator?.params || {}) as Record<string, unknown>
   const emaPeriod = typeof accumulatorParams.emaPeriod === 'number' ? accumulatorParams.emaPeriod : 20
@@ -586,7 +585,7 @@ function fmtPct(v: number): string {
   return `${v >= 0 ? '+' : ''}${v.toFixed(2)}%`
 }
 
-export async function evaluateAllForTiles(overrideCreds?: KiteCreds): Promise<TileEvalResult> {
+export async function evaluateAllForTiles(overrideBroker?: IBroker): Promise<TileEvalResult> {
   const generatedAt = new Date().toISOString()
 
   const active = getActiveStrategies()
@@ -606,8 +605,8 @@ export async function evaluateAllForTiles(overrideCreds?: KiteCreds): Promise<Ti
     dataHealth: { ok: true, totalSymbols: 0, quotesMissing: 0, emaMissing: 0, candlesMissing: 0, message: 'No symbols scanned yet.' },
   }
 
-  const creds = overrideCreds ?? await firstConnectedCreds()
-  if (!creds) return { ...empty, message: 'No Kite account connected — Login with Kite in Settings.' }
+  const broker = overrideBroker ?? await firstConnectedBroker()
+  if (!broker) return { ...empty, message: 'No supported broker connected — connect your broker in Settings.' }
 
   const watchlist = await getWatchlist()
   const listA: WatchlistStock[] = watchlist.lists.listA || []
@@ -675,12 +674,11 @@ export async function evaluateAllForTiles(overrideCreds?: KiteCreds): Promise<Ti
   // prorated-vs-average check off the same data.
   const allMomentumCfgs = active.filter(s => s.type === 'momentum').map(momentumCfgFor)
   const maxVolumeAvgDays = Math.max(catCfgDefault.volumeAvgDays, ...allMomentumCfgs.map(c => c.volumeAvgDays))
-  await ensureDailyAggregates(creds, symbols, maxVolumeAvgDays)
-  const closesBySymbol = await loadAndRefreshCloses(creds, symbols)
+  await ensureDailyAggregates(broker, symbols, maxVolumeAvgDays)
+  const closesBySymbol = await loadAndRefreshCloses(broker, symbols)
   // Same shared cache the BUY cron uses — tiles and cron must never see
   // different data, or a tile can look fine while the cron silently skips.
-  const quotes = await getCachedQuotes(creds, symbols).catch(() => ({} as Awaited<ReturnType<typeof getCachedQuotes>>))
-  const symbolTokens = await getInstrumentTokens(creds, symbols).catch(() => ({} as Record<string, number>))
+  const quotes = await getBrokerQuotes(broker, symbols).catch(() => ({} as Awaited<ReturnType<typeof getBrokerQuotes>>))
 
   // Scan window status (Strategy 2 only — uses scanStartHHMM/scanEndHHMM)
   const nowMin = istMinutesSinceMidnight()
@@ -727,15 +725,11 @@ export async function evaluateAllForTiles(overrideCreds?: KiteCreds): Promise<Ti
   const fromTs = `${today} 09:15:00`
   const toTs = `${today} 15:30:00`
   let logged = false
-  // Concurrency 3 — Kite's historical endpoint is rate-limited to ~3 req/sec;
-  // going higher just trades 429s for retries.
-  await mapWithLimit(symbols, 3, async (symbol) => {
-    const token = symbolTokens[symbol]
-    if (!token) { candleClosesBySymbol.set(symbol, []); candleFetchFailed.add(symbol); return }
+  await mapWithLimit(symbols, 2, async (symbol) => {
     try {
       const shouldLog = !logged
       if (shouldLog) logged = true
-      const candles = await getCachedHistoricalCandles(creds, token, fromTs, toTs, '5minute', shouldLog)
+      const candles = await getBrokerHistoricalCandles(broker, symbol, fromTs, toTs, '5minute')
       if (shouldLog) {
         console.log(`[tiles candles] ${symbol}: parsed ${candles.length} candle(s). Last 4 closes: ${candles.slice(-4).map(c => c.close.toFixed(2)).join(' → ')}`)
       }
@@ -1235,11 +1229,11 @@ async function runStrategy1(now: string, giftChangePct: number, strategyOverride
   const params = (strategy?.params || {}) as Record<string, any>
   const watchlistKeys = strategy?.watchlist || ['listA']
 
-  const creds = await firstConnectedCreds()
-  if (!creds) {
+  const broker = await firstConnectedBroker()
+  if (!broker) {
     return {
       mode: 'dip', recommendations: [], giftChangePct,
-      message: 'No Kite account connected — Login with Kite in Settings to run Strategy 1.',
+      message: 'No supported broker connected — connect your broker in Settings to run Strategy 1.',
       generatedAt: now,
     }
   }
@@ -1283,7 +1277,7 @@ async function runStrategy1(now: string, giftChangePct: number, strategyOverride
 
   // 2. Daily closes via the shared, Supabase-backed rolling cache (same one
   // Strategy 2 uses) instead of a direct per-symbol Kite historical call.
-  const closesBySymbol = await loadAndRefreshCloses(creds, symbols)
+  const closesBySymbol = await loadAndRefreshCloses(broker, symbols)
   const fetched: Array<EmaCandidate | null> = symbols.map(symbol => {
     const closes = (closesBySymbol[symbol] || []).map(c => c.close)
     if (closes.length < emaPeriod + 2) { skippedNoHistorical++; return null }
@@ -1297,7 +1291,7 @@ async function runStrategy1(now: string, giftChangePct: number, strategyOverride
   const validHistoricals = fetched.filter((x): x is EmaCandidate => !!x)
 
   // 3. Fetch live LTPs for everyone in one batch — shared cache
-  const quotes = await getCachedQuotes(creds, validHistoricals.map(v => v.symbol))
+  const quotes = await getBrokerQuotes(broker, validHistoricals.map(v => v.symbol))
 
   // 4. Filter to stocks meeting Strategy 1 entry: ≥5% below EMA AND ≥3 consecutive down days
   let skippedDownDays = 0
@@ -1324,7 +1318,7 @@ async function runStrategy1(now: string, giftChangePct: number, strategyOverride
       symbol: v.symbol,
       name: nameBySymbol.get(v.symbol) || v.symbol,
       price: ltp,
-      priceSource: 'kite_live',
+      priceSource: 'broker_live',
       dayChangePct: dayChgPct,
       action: 'BUY',
       strategy: strategy?.id || 'accumulator',
@@ -1355,7 +1349,7 @@ async function runStrategy1(now: string, giftChangePct: number, strategyOverride
       skippedNotStretched: skippedNotStretched + skippedCapitulation,
       produced: final.length,
     },
-    priceSource: 'kite_live',
+    priceSource: 'broker_live',
     message: final.length === 0
       ? `No List A stocks currently meet Strategy 1 criteria (5%+ below 20-EMA & 3+ down days).`
       : undefined,
@@ -1390,8 +1384,8 @@ export async function runReactiveDipScan(strategyOverride?: Strategy): Promise<R
   const dropPct = params.reactiveDrop ?? 3.0
   const tranche2AbovePct = params.tranche2AboveEMAPct ?? 3
 
-  const creds = await firstConnectedCreds()
-  if (!creds) return { recommendations: [], scanned: 0, triggered: [], evaluated: 0, skipReason: 'No Kite account connected' }
+  const broker = await firstConnectedBroker()
+  if (!broker) return { recommendations: [], scanned: 0, triggered: [], evaluated: 0, skipReason: 'No supported broker connected' }
 
   const wl = await getWatchlist()
   // Flat-map across selected lists, then de-dupe by NSE symbol — a symbol may
@@ -1414,7 +1408,7 @@ export async function runReactiveDipScan(strategyOverride?: Strategy): Promise<R
   const nameBySymbol = new Map(universe.map(s => [s.nse.toUpperCase(), s.name || s.nse]))
 
   // 1. Batch-fetch live LTPs + yesterday's close (from ohlc.close) — shared cache
-  const quotes = await getCachedQuotes(creds, symbols).catch(() => ({} as Awaited<ReturnType<typeof getCachedQuotes>>))
+  const quotes = await getBrokerQuotes(broker, symbols).catch(() => ({} as Awaited<ReturnType<typeof getBrokerQuotes>>))
 
   // 2. Find symbols already down ≥dropPct% intraday
   const triggered: string[] = []
@@ -1432,7 +1426,7 @@ export async function runReactiveDipScan(strategyOverride?: Strategy): Promise<R
 
   // 3. Resolve daily closes for triggered symbols only — same Supabase-backed
   // rolling cache the morning scan uses, not a direct per-symbol Kite call.
-  const closesBySymbol = await loadAndRefreshCloses(creds, triggered).catch(() => ({} as Record<string, DailyClose[]>))
+  const closesBySymbol = await loadAndRefreshCloses(broker, triggered).catch(() => ({} as Record<string, DailyClose[]>))
 
   // 4. For each triggered symbol, fetch historical + apply Strategy 1 entry checks.
   //    "Count today as down day" → since we already know LTP is ≥3% below prev close,
@@ -1475,7 +1469,7 @@ export async function runReactiveDipScan(strategyOverride?: Strategy): Promise<R
         symbol,
         name: nameBySymbol.get(symbol) || symbol,
         price: ltp,
-        priceSource: 'kite_live',
+        priceSource: 'broker_live',
         dayChangePct: dayChgPct,
         action: 'BUY',
         strategy: strategy?.id || 'accumulator',

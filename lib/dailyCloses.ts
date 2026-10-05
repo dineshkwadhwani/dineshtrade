@@ -1,6 +1,6 @@
 // Persistent rolling cache of daily closes per symbol — Supabase-backed
 // (`daily_closes`, SHARED across all customers — NSE OHLC data is identical
-// for everyone, so this table is NOT scoped by customer_id). Ported in
+// across providers). Ported in
 // Phase 4 of the multi-tenant refactor from the file-based
 // `~/dineshtrade/data/daily-closes.json`.
 //
@@ -23,6 +23,7 @@
 import { getSupabaseAdmin } from './supabase'
 import { getHistoricalCandles, type KiteCreds } from './kite'
 import { getInstrumentTokens } from './instruments'
+import type { IBroker } from './broker/IBroker'
 
 export interface DailyClose {
   date: string                    // YYYY-MM-DD
@@ -50,9 +51,9 @@ function rowToClose(row: any): DailyClose {
   }
 }
 
-async function loadDb(symbols?: string[]): Promise<Record<string, DailyClose[]>> {
+async function loadDb(brokerName: string, symbols?: string[]): Promise<Record<string, DailyClose[]>> {
   const admin = getSupabaseAdmin()
-  let query = admin.from('daily_closes').select('*').order('trade_date', { ascending: true })
+  let query = admin.from('daily_closes').select('*').eq('broker_name', brokerName).order('trade_date', { ascending: true })
   if (symbols && symbols.length > 0) query = query.in('symbol', symbols)
   const { data, error } = await query
   if (error) throw new Error(`[dailyCloses] read failed: ${error.message}`)
@@ -65,10 +66,11 @@ async function loadDb(symbols?: string[]): Promise<Record<string, DailyClose[]>>
   return closes
 }
 
-async function upsertSymbolCloses(symbol: string, records: DailyClose[]): Promise<void> {
+async function upsertSymbolCloses(brokerName: string, symbol: string, records: DailyClose[]): Promise<void> {
   const admin = getSupabaseAdmin()
   const trimmed = records.slice(-MAX_KEEP)
   const rows = trimmed.map(r => ({
+    broker_name: brokerName,
     symbol,
     trade_date: r.date,
     open_price: r.open ?? null,
@@ -78,7 +80,7 @@ async function upsertSymbolCloses(symbol: string, records: DailyClose[]): Promis
     volume: r.volume,
     updated_at: new Date().toISOString(),
   }))
-  const { error } = await admin.from('daily_closes').upsert(rows, { onConflict: 'symbol,trade_date' })
+  const { error } = await admin.from('daily_closes').upsert(rows, { onConflict: 'broker_name,symbol,trade_date' })
   if (error) throw new Error(`[dailyCloses] upsert failed for ${symbol}: ${error.message}`)
 
   // Prune anything older than the trimmed window — keeps the shared table
@@ -88,6 +90,7 @@ async function upsertSymbolCloses(symbol: string, records: DailyClose[]): Promis
     const { error: deleteError } = await admin
       .from('daily_closes')
       .delete()
+      .eq('broker_name', brokerName)
       .eq('symbol', symbol)
       .lt('trade_date', oldestKept)
     if (deleteError) console.warn(`[dailyCloses] prune failed for ${symbol}: ${deleteError.message}`)
@@ -129,15 +132,17 @@ async function mapWithLimit<T, R>(items: T[], limit: number, fn: (item: T) => Pr
 // ─── Fetch with one retry ──────────────────────────────────────────────────
 
 async function fetchSymbolBars(
-  creds: KiteCreds,
+  source: KiteCreds | IBroker,
   symbol: string,
-  token: number,
+  token: string | number,
   from: string,
   to: string,
 ): Promise<DailyClose[] | null> {
   for (let attempt = 0; attempt < 2; attempt++) {
     try {
-      const candles = await getHistoricalCandles(creds, token, from, to, 'day')
+      const candles = 'accessToken' in source
+        ? await getHistoricalCandles(source, Number(token), from, to, 'day')
+        : await source.getHistoricalCandles(symbol, from, to, 'day')
       return candles.map(c => ({
         date: ymdOnly(c.date),
         open: c.open,
@@ -166,10 +171,11 @@ async function fetchSymbolBars(
 // empty array) so callers can decide whether they have enough bars to
 // compute an EMA.
 export async function loadAndRefreshCloses(
-  creds: KiteCreds,
+  source: KiteCreds | IBroker,
   symbols: string[],
 ): Promise<Record<string, DailyClose[]>> {
-  const closes = await loadDb(symbols)
+  const brokerName = 'accessToken' in source ? 'zerodha' : source.brokerName
+  const closes = await loadDb(brokerName, symbols)
   const yesterday = istYmd(-1)
   const fullStart = istYmd(-90)   // cold-cache window (a bit wider than MAX_KEEP for buffer)
 
@@ -189,7 +195,12 @@ export async function loadAndRefreshCloses(
   }
 
   // Resolve instrument tokens (single batched call inside getInstrumentTokens)
-  const tokens = await getInstrumentTokens(creds, needFetch.map(p => p.symbol))
+  const tokens: Record<string, string | number> = 'accessToken' in source
+    ? await getInstrumentTokens(source, needFetch.map(p => p.symbol))
+    : Object.fromEntries(await Promise.all(needFetch.map(async plan => {
+      try { return [plan.symbol, await source.resolveInstrumentToken(plan.symbol)] as const }
+      catch { return [plan.symbol, ''] as const }
+    })))
 
   // Fetch in parallel with a small concurrency cap. Each call is tiny in the
   // incremental case (1–3 days of data); cold-cache symbols still take longer.
@@ -202,7 +213,7 @@ export async function loadAndRefreshCloses(
       failCount++
       return
     }
-    const bars = await fetchSymbolBars(creds, plan.symbol, token, plan.from, plan.to)
+    const bars = await fetchSymbolBars(source, plan.symbol, token, plan.from, plan.to)
     if (!bars) { failCount++; return }
 
     // Merge: cache up to lastDate + new bars, dedup by date, sort ascending, trim.
@@ -224,7 +235,7 @@ export async function loadAndRefreshCloses(
   // Persist whatever we successfully accumulated. A partial failure still
   // updates the shared table for the symbols that did succeed.
   try {
-    await Promise.all(Array.from(touchedSymbols).map(sym => upsertSymbolCloses(sym, closes[sym])))
+    await Promise.all(Array.from(touchedSymbols).map(sym => upsertSymbolCloses(brokerName, sym, closes[sym])))
   } catch (err) {
     console.warn(`[dailyCloses] Supabase save failed — ${String(err).slice(0, 160)}`)
   }
@@ -234,5 +245,5 @@ export async function loadAndRefreshCloses(
 // Read-only access for callers that don't want to trigger a refresh — primarily
 // for diagnostics / inspection routes. Returns the shared cache as-is.
 export async function readCachedCloses(): Promise<Record<string, DailyClose[]>> {
-  return loadDb()
+  return loadDb('zerodha')
 }

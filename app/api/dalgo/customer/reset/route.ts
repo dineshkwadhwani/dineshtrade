@@ -15,14 +15,12 @@
 import { NextRequest, NextResponse } from 'next/server'
 import { getProfile } from '@/lib/dalgoAuth'
 import { getSupabaseAdmin, withCustomer } from '@/lib/supabase'
-import { loadBrokerAccountCreds } from '@/lib/kite'
-import { getPositions, getHoldings } from '@/lib/kite'
+import { loadCustomerBroker } from '@/lib/broker/customer'
 import { getState, resetAccountCronState, recordBuyHistory } from '@/lib/state'
 import { wipeAccountPositions, recordBuy } from '@/lib/positions'
 import { istDateString, journalOrder } from '@/lib/journal'
 import { recordResetTimestamp } from '@/lib/instanceStatus'
 import { rehydrateForCustomer } from '@/lib/strategyConfigStore'
-import { getPrimaryCustomerId } from '@/lib/accounts'
 
 export const dynamic = 'force-dynamic'
 
@@ -61,23 +59,22 @@ export async function POST(req: NextRequest) {
       )
     }
 
-    // Resolve Kite credentials from broker_accounts (V2 OAuth flow).
-    const creds = await loadBrokerAccountCreds(targetCustomerId)
-    if (!creds) {
+    const customerBroker = await loadCustomerBroker(targetCustomerId).catch(() => null)
+    if (!customerBroker) {
       return NextResponse.json(
-        { error: 'No active Kite token found. Please reconnect via Settings → Connection.' },
+        { error: 'No active broker token found. Please reconnect via Settings → Connection.' },
         { status: 400 },
       )
     }
 
     // Derive the account label used for journal entries and cron state.
-    const account = getPrimaryCustomerId()
+    const account = targetCustomerId
 
-    // ── FETCH from Zerodha ─────────────────────────────────────────────────
+    // ── FETCH from the selected broker ────────────────────────────────────
 
     const [{ day, net }, holdings] = await Promise.all([
-      getPositions(creds).catch(() => ({ day: [], net: [] })),
-      getHoldings(creds).catch(() => [] as Awaited<ReturnType<typeof getHoldings>>),
+      customerBroker.broker.getPositions().catch(() => ({ day: [], net: [] })),
+      customerBroker.broker.getHoldings().catch(() => []),
     ])
 
     // Build de-duplicated seed list: holdings (CNC/delivery) take precedence
@@ -85,23 +82,23 @@ export async function POST(req: NextRequest) {
     const seedMap = new Map<string, { symbol: string; qty: number; avgPrice: number }>()
 
     for (const h of holdings) {
-      const sym = h.tradingsymbol.toUpperCase()
-      const qty = (h.quantity || 0) + (h.t1_quantity || 0)
-      const avg = Number(h.average_price) || 0
+      const sym = h.symbol.toUpperCase()
+      const qty = (h.quantity || 0) + (h.t1Quantity || 0)
+      const avg = Number(h.averagePrice) || 0
       if (qty > 0 && avg > 0) seedMap.set(sym, { symbol: sym, qty, avgPrice: avg })
     }
     for (const p of net) {
-      const sym = p.tradingsymbol.toUpperCase()
+      const sym = p.symbol.toUpperCase()
       if (seedMap.has(sym)) continue
       const qty = p.quantity || 0
-      const avg = Number(p.average_price) || 0
+      const avg = Number(p.averagePrice) || 0
       if (qty > 0 && avg > 0) seedMap.set(sym, { symbol: sym, qty, avgPrice: avg })
     }
     for (const p of day) {
-      const sym = p.tradingsymbol.toUpperCase()
+      const sym = p.symbol.toUpperCase()
       if (seedMap.has(sym)) continue
       const qty = p.quantity || 0
-      const avg = Number(p.average_price) || 0
+      const avg = Number(p.averagePrice) || 0
       if (qty > 0 && avg > 0) seedMap.set(sym, { symbol: sym, qty, avgPrice: avg })
     }
 

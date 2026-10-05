@@ -1,9 +1,34 @@
 # DineshTrade — Project Context
 
-**Last Updated:** 07 Sep 2026
-**Version:** 3.2 — added §18 (current multi-row/lot contract and recent-session handoff). See §18 for the authoritative row semantics.
+**Last Updated:** 05 Oct 2026
+**Version:** 3.3 — added the broker-routing and platform broker-availability handoff below; §18 remains authoritative for lot semantics.
 **Version 2.8 note:** capital/gate/strategy numbers below re-verified directly against live `data/strategy.json` and `lib/preflight.ts` on 09 Aug 2026; see `docs/ARCHITECTURE.md`, `docs/DATA_MODEL.md`, and `docs/MULTI_TENANCY_CURRENT_STATE.md` for the full code-verified picture (docs/ was reorganized the same day — speculative and superseded docs moved to `docs/archive/`).
 **Purpose:** This file gives Claude (or any AI assistant) full context of everything discussed so far about this project. Start any new conversation by uploading this file.
+
+## Current Implementation Handoff (05 Oct 2026)
+
+- Live DAlgo strategy scans, tiles, preflight, auto/manual orders, sell monitors,
+  reconciliation, EOD exits, and portfolio snapshots now resolve the selected
+  broker through `lib/broker/customer.ts` and the `IBroker` adapter interface.
+- Zerodha and Upstox adapters are implemented and enabled by default. Customer
+  setup availability is controlled at Super Admin -> Platform Config -> Available
+  Brokers (`platform_config.AVAILABLE_BROKERS`). Angel One remains a stub; Groww is
+  not implemented.
+- Standalone deployments use that customer's broker for strategy signal data. A
+  grouped family deployment with multiple `CUSTOMER_IDS` retains the first customer's
+  broker as the shared signal source; positions, account checks, and order execution
+  remain tied to the executing customer.
+- Upstox OAuth requires `UPSTOX_REDIRECT_URI` to exactly match the callback registered
+  in its developer console: `/api/dalgo/setup/broker-callback`.
+- Daily closes are partitioned by `broker_name`. Before deploying, apply both
+  `scripts/migrations/2026-10-05-daily-closes-broker-scope.sql` and
+  `scripts/migrations/2026-10-05-platform-available-brokers.sql` to the shared
+  Supabase database. These migrations have not been confirmed applied.
+- Backtesting remains Zerodha-only and rejects a non-Zerodha selected broker rather
+  than silently using another customer's account. Legacy V1 API routes outside the
+  DAlgo customer routes may also remain Zerodha-specific.
+- `npm run build` passes. Live broker OAuth, quotes, account reads, and order
+  placement have not been tested with production broker credentials.
 
 ---
 

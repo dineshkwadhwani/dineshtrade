@@ -6,6 +6,8 @@ import ConfigClient, { type ConfigRow } from './ConfigClient'
 import NotificationsConfig from './NotificationsConfig'
 import HolidayManager, { type HolidayRow } from './HolidayManager'
 import BrokerSourceManager, { type BrokerSourceRow } from './BrokerSourceManager'
+import BrokerAvailabilityConfig from './BrokerAvailabilityConfig'
+import { getAvailableBrokers } from '@/lib/broker/availability'
 
 const FEATURE_KEYS = [
   'SUREPASS_KYC_ENABLED',
@@ -13,15 +15,17 @@ const FEATURE_KEYS = [
   'STRATEGY_SCAN_DB_ENABLED',
   'HEARTBEAT_DB_ENABLED',
 ]
+const BROKER_CONFIG_KEY = 'AVAILABLE_BROKERS'
 const NOTIFICATION_KEYS = ['TOKEN_ALERT_TIME_IST', 'SUPPORT_EMAIL', 'SKIP_TRADE_MAILS', 'SKIPPED_EMAILS_ENABLED', 'SKIPPED_EMAILS_TO']
-const ALL_KEYS = [...FEATURE_KEYS, ...NOTIFICATION_KEYS]
+const ALL_KEYS = [...FEATURE_KEYS, ...NOTIFICATION_KEYS, BROKER_CONFIG_KEY]
 
 export default async function AdminConfigPage() {
   const admin = getSupabaseAdmin()
-  const [{ data: configData }, { data: holidayData }, { data: brokerData }] = await Promise.all([
+  const [{ data: configData }, { data: holidayData }, { data: brokerData }, availableBrokers] = await Promise.all([
     admin.from('platform_config').select('*').in('key', ALL_KEYS),
     admin.from('platform_holidays').select('*').eq('market', 'NSE').order('holiday_date', { ascending: true }),
     admin.from('platform_broker_sources').select('*').order('display_order', { ascending: true }).order('name', { ascending: true }),
+    getAvailableBrokers(),
   ])
   const byKey = new Map<string, ConfigRow>((configData ?? []).map(row => [row.key, row as ConfigRow]))
   const featureConfigs: ConfigRow[] = FEATURE_KEYS.map(k => byKey.get(k)).filter((c): c is ConfigRow => !!c)
@@ -55,6 +59,10 @@ export default async function AdminConfigPage() {
       <PageHeader title="Platform Config" subtitle="Feature flags and platform-wide settings — changes take effect immediately" />
       <SectionCard>
         <ConfigClient configs={featureConfigs} />
+      </SectionCard>
+      <div style={{ height: 12 }} />
+      <SectionCard>
+        <BrokerAvailabilityConfig initialAvailable={availableBrokers} />
       </SectionCard>
       <div style={{ height: 12 }} />
       <SectionCard>

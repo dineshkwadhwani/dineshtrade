@@ -4,7 +4,7 @@
 
 import { NextRequest, NextResponse } from 'next/server'
 import { getProfile, AuthError } from '@/lib/dalgoAuth'
-import { loadBrokerAccountCreds, kiteRequest } from '@/lib/kite'
+import { loadCustomerBroker } from '@/lib/broker/customer'
 
 export const dynamic = 'force-dynamic'
 
@@ -16,15 +16,20 @@ export async function GET(req: NextRequest) {
     const symbols = new URL(req.url).searchParams.get('symbols') || ''
     if (!symbols) return NextResponse.json({ quotes: {} })
 
-    // Try primary customer creds first (paid Connect plan has /quote access)
-    const primaryCustomerId = (process.env.CUSTOMER_IDS || '').split(',')[0]?.trim() || profile.id
-    const creds = await loadBrokerAccountCreds(primaryCustomerId) ?? await loadBrokerAccountCreds(profile.id)
-    if (!creds) return NextResponse.json({ quotes: {}, error: 'Kite not connected' })
-
-    // Kite requires repeated i= params, not comma-separated
-    const paramList = symbols.split(',').map(s => `i=${encodeURIComponent(s.trim())}`).join('&')
-    const r = await kiteRequest<{ data?: Record<string, any> }>(`/quote?${paramList}`, creds)
-    return NextResponse.json({ quotes: r.data?.data ?? {} })
+    const customerBroker = await loadCustomerBroker(profile.id).catch(() => null)
+    if (!customerBroker) return NextResponse.json({ quotes: {}, error: 'Selected broker not connected' })
+    const symbolList = symbols.split(',').map(value => value.trim().replace(/^NSE:/i, '')).filter(Boolean)
+    const quotes = await customerBroker.broker.getQuotes(symbolList)
+    const normalized = Object.fromEntries(Object.entries(quotes).map(([symbol, quote]) => [
+      `NSE:${symbol}`,
+      {
+        last_price: quote.lastPrice,
+        volume: quote.volume,
+        net_change: quote.netChange,
+        ohlc: { open: quote.open, high: quote.high, low: quote.low, close: quote.close },
+      },
+    ]))
+    return NextResponse.json({ quotes: normalized })
   } catch (err) {
     if (err instanceof AuthError) return NextResponse.json({ error: err.message }, { status: err.statusCode })
     return NextResponse.json({ quotes: {}, error: String(err) })

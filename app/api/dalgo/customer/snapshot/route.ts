@@ -4,42 +4,37 @@
 
 import { NextResponse } from 'next/server'
 import { getProfile } from '@/lib/dalgoAuth'
-import { loadBrokerAccountCreds, kiteRequest, getHoldings } from '@/lib/kite'
+import { loadCustomerBroker } from '@/lib/broker/customer'
 
 export const dynamic = 'force-dynamic'
-
-interface MarginsResp {
-  equity?: { available?: { live_balance?: number; cash?: number } }
-}
 
 export async function GET() {
   const profile = await getProfile()
   if (!profile) return NextResponse.json({ error: 'Unauthorized' }, { status: 401 })
 
-  const creds = await loadBrokerAccountCreds(profile.id)
-  if (!creds) {
+  const customerBroker = await loadCustomerBroker(profile.id).catch(() => null)
+  if (!customerBroker) {
     return NextResponse.json({ portfolioValue: null, availableFunds: null })
   }
 
-  const [marginsResult, holdings] = await Promise.all([
-    kiteRequest<{ data?: MarginsResp }>('/user/margins', creds).catch(() => null),
-    getHoldings(creds).catch(() => []),
+  const [margins, holdings] = await Promise.all([
+    customerBroker.broker.getMargins().catch(() => null),
+    customerBroker.broker.getHoldings().catch(() => []),
   ])
 
-  const m = marginsResult?.data?.data?.equity?.available
-  const availableFunds = m?.live_balance != null ? Number(m.live_balance) : m?.cash != null ? Number(m.cash) : null
+  const availableFunds = margins ? Number(margins.available) : null
 
   const portfolioValue = Number(
     holdings.reduce((sum, h) => {
-      const qty = (h.quantity || 0) + (h.t1_quantity || 0)
-      return sum + qty * (h.last_price || 0)
+      const qty = (h.quantity || 0) + (h.t1Quantity || 0)
+      return sum + qty * (h.lastPrice || 0)
     }, 0).toFixed(2),
   )
 
   const investedValue = Number(
     holdings.reduce((sum, h) => {
-      const qty = (h.quantity || 0) + (h.t1_quantity || 0)
-      return sum + qty * (h.average_price || 0)
+      const qty = (h.quantity || 0) + (h.t1Quantity || 0)
+      return sum + qty * (h.averagePrice || 0)
     }, 0).toFixed(2),
   )
 

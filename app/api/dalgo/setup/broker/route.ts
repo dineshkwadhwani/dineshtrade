@@ -2,6 +2,7 @@ import { NextRequest, NextResponse } from 'next/server'
 import { getProfile } from '@/lib/dalgoAuth'
 import { getSupabaseAdmin } from '@/lib/supabase'
 import { encrypt } from '@/lib/encryption'
+import { getAvailableBrokers } from '@/lib/broker/availability'
 
 export const dynamic = 'force-dynamic'
 
@@ -27,7 +28,7 @@ export async function POST(req: NextRequest) {
   const apiKey = typeof body.apiKey === 'string' ? body.apiKey.trim() : ''
   const apiSecret = typeof body.apiSecret === 'string' ? body.apiSecret.trim() : ''
 
-  const ALLOWED_BROKERS = new Set(['zerodha', 'upstox', 'angelone', 'aliceblue', 'dhan', '5paisa'])
+  const ALLOWED_BROKERS = new Set(['zerodha', 'upstox'])
   if (!ALLOWED_BROKERS.has(broker)) {
     return NextResponse.json({ error: 'Invalid broker.' }, { status: 400 })
   }
@@ -35,21 +36,46 @@ export async function POST(req: NextRequest) {
     return NextResponse.json({ error: 'API Key and API Secret are required.' }, { status: 400 })
   }
 
+  const availableBrokers = await getAvailableBrokers()
+  if (!availableBrokers.includes(broker as 'zerodha' | 'upstox')) {
+    const admin = getSupabaseAdmin()
+    const { data: existing } = await admin
+      .from('broker_accounts')
+      .select('id')
+      .eq('customer_id', profile.id)
+      .eq('broker_name', broker)
+      .eq('active', true)
+      .maybeSingle()
+    if (!existing) {
+      return NextResponse.json({ error: 'This broker is not currently available for new connections.' }, { status: 403 })
+    }
+  }
+
   const apiKeyEnc = encrypt(apiKey)
   const apiSecretEnc = encrypt(apiSecret)
 
   const admin = getSupabaseAdmin()
+  const now = new Date().toISOString()
+  const { error: deactivateError } = await admin
+    .from('broker_accounts')
+    .update({ active: false, updated_at: now })
+    .eq('customer_id', profile.id)
+  if (deactivateError) {
+    console.error('[api/dalgo/setup/broker] deactivate error:', deactivateError.message)
+    return NextResponse.json({ error: 'Failed to update selected broker.' }, { status: 500 })
+  }
+
   const { error } = await admin.from('broker_accounts').upsert(
     {
       customer_id: profile.id,
       broker_name: broker,
       api_key_enc: apiKeyEnc,
       api_secret_enc: apiSecretEnc,
-      // Clear the old access token — new credentials require a fresh Kite OAuth
+      // New credentials require a fresh broker OAuth session.
       access_token_enc: null,
       token_captured_at: null,
       active: true,
-      updated_at: new Date().toISOString(),
+      updated_at: now,
     },
     { onConflict: 'customer_id,broker_name' }
   )

@@ -38,11 +38,10 @@ import { reconcileManualSells } from './cronReconcile'
 import { journalMonitorHeartbeat } from './journal'
 import { getFixedRules } from './fixedRules'
 import { isHeartbeatDbEnabled, updateInstanceStatus, checkKiteTokenStatus } from './instanceStatus'
-import { checkAndSendTokenAlert, sendPrimaryTokenMissingAlert } from './tokenAlert'
+import { checkAndSendTokenAlert } from './tokenAlert'
 import { listPositions } from './positions'
 import { getSupabaseAdmin, withCustomer } from './supabase'
-import { decrypt } from './encryption'
-import { getQuotes, setTickQuoteCache, clearTickQuoteCache } from './kite'
+import { loadCustomerBroker } from './broker/customer'
 import { rehydrateForCustomer, waitForInitialHydration } from './strategyConfigStore'
 
 // Re-export record functions and getDayStats so external callers that were
@@ -100,29 +99,6 @@ function parseCustomerIds(): string[] {
     .filter(Boolean)
 }
 
-// Loads the Zerodha access token from broker_accounts for a customer.
-// Returns null if no active row or no token yet captured.
-async function loadKiteToken(customerId: string): Promise<{ apiKey: string; accessToken: string } | null> {
-  try {
-    const admin = getSupabaseAdmin()
-    const { data } = await admin
-      .from('broker_accounts')
-      .select('access_token_enc, api_key_enc')
-      .eq('customer_id', customerId)
-      .eq('broker_name', 'zerodha')
-      .eq('active', true)
-      .maybeSingle()
-    if (!data?.access_token_enc) return null
-    const accessToken = decrypt(data.access_token_enc)
-    const customerApiKey = data.api_key_enc ? (() => { try { return decrypt(data.api_key_enc!) } catch { return '' } })() : ''
-    if (!customerApiKey) return null
-    return { apiKey: customerApiKey, accessToken }
-  } catch (err) {
-    console.error(`[cron] loadKiteToken(${customerId}) failed:`, err)
-    return null
-  }
-}
-
 // Builds the union of all watchlist symbols across all customers.
 // Uses primary customer's context since watchlists are customer-scoped.
 async function collectAllWatchlistSymbols(customerIds: string[]): Promise<string[]> {
@@ -147,19 +123,24 @@ async function collectAllWatchlistSymbols(customerIds: string[]): Promise<string
   return Array.from(symbolSet)
 }
 
-// Runs the full tick for one customer inside their async context.
-// Loads their own Kite token (for order placement), seeds state.kiteTokens,
-// then runs tick(). Market data (quotes) is already in the per-tick cache
-// from the primary account pre-fetch — no extra Kite data API calls needed.
+// Runs the full tick for one customer inside their async context and seeds
+// state with that customer's selected broker token for monitor dispatch.
 async function runCustomerTick(customerId: string): Promise<void> {
   await withCustomer(customerId, async () => {
-    const credentials = await loadKiteToken(customerId)
-    if (credentials) {
+    const customerBroker = await loadCustomerBroker(customerId).catch(err => {
+      console.error(`[cron] customer=${customerId} broker lookup failed:`, err)
+      return null
+    })
+    if (customerBroker) {
       await saveState({
-        kiteTokens: { [customerId]: credentials.accessToken },
+        kiteTokens: { [customerId]: customerBroker.accessToken },
         selectedAccounts: [customerId],
       }).catch(err =>
         console.error(`[cron] customer=${customerId} saveState kiteTokens failed:`, err)
+      )
+    } else {
+      await saveState({ kiteTokens: {}, selectedAccounts: [] }).catch(err =>
+        console.error(`[cron] customer=${customerId} clear stale broker state failed:`, err)
       )
     }
     // Refresh this customer's strategy config from Supabase before the tick runs
@@ -411,34 +392,6 @@ export async function startCron(): Promise<void> {
   const tickExpr = await buildTickExpr()
   tickTask = cron.schedule(tickExpr, () => {
     ;(async () => {
-      clearTickQuoteCache()
-
-      // §6.7 — Primary account (first in CUSTOMER_IDS) must have a Connect
-      // plan. It fetches market data for ALL customers. If its token is missing,
-      // skip the entire tick and alert everyone.
-      const primaryId = customerIds[0]
-      const primaryCreds = await loadKiteToken(primaryId)
-      if (!primaryCreds) {
-        console.error(`[cron tick] primary customer ${primaryId} has no Kite token — skipping tick for all ${customerIds.length} customer(s)`)
-        sendPrimaryTokenMissingAlert(primaryId, customerIds).catch(err =>
-          console.error('[cron tick] sendPrimaryTokenMissingAlert failed:', err))
-        return
-      }
-
-      // Pre-fetch live quotes for the union of ALL customers' watchlist symbols
-      // using the primary's Connect plan API. Sets the module-level cache so
-      // secondary customers' getQuotes() calls return from cache at zero cost.
-      try {
-        const allSymbols = await collectAllWatchlistSymbols(customerIds)
-        if (allSymbols.length > 0) {
-          const quotes = await getQuotes(primaryCreds, allSymbols)
-          setTickQuoteCache(quotes)
-          console.log(`[cron tick] pre-fetched ${Object.keys(quotes).length} quote(s) for ${allSymbols.length} symbol(s) using primary account`)
-        }
-      } catch (err) {
-        console.error('[cron tick] pre-fetch quotes failed (continuing with empty cache):', err)
-      }
-
       for (const customerId of customerIds) {
         try {
           await runCustomerTick(customerId)
@@ -515,6 +468,18 @@ function registerStrategyTask(strategy: Strategy, customerIds: string[]): void {
       for (const customerId of customerIds) {
         try {
           await withCustomer(customerId, async () => {
+            const customerBroker = await loadCustomerBroker(customerId).catch(err => {
+              console.error(`[cron strategy:${strategy.id}] customer=${customerId} broker lookup failed:`, err)
+              return null
+            })
+            if (!customerBroker) {
+              console.warn(`[cron strategy:${strategy.id}] customer=${customerId} skipped — selected broker is not connected`)
+              return
+            }
+            await saveState({
+              kiteTokens: { [customerId]: customerBroker.accessToken },
+              selectedAccounts: [customerId],
+            })
             // Strategy config is customer-scoped. Resolve it after entering
             // the customer context so one customer's params/watchlist/gates
             // cannot be reused for another customer's scan.

@@ -13,8 +13,8 @@
 // we ALLOW the trade and log a warning. The gate is a safety override, not a
 // primary check — measurement failure shouldn't silently block all trades.
 
-import { getHistoricalCandles, type KiteCreds } from './kite'
-import { getInstrumentToken } from './instruments'
+import type { IBroker } from './broker/IBroker'
+import { getBrokerHistoricalCandles } from './marketDataCache'
 import { addPanicSkip, isPanicSkipped, getState } from './state'
 import { getCapital } from './strategyConfig'
 import { istDateString } from './journal'
@@ -36,7 +36,7 @@ function candlesNeeded(panicWindowMin: number): number {
 }
 
 export async function checkPanicSell(
-  creds: KiteCreds,
+  broker: IBroker,
   symbol: string,
   ltp: number,
 ): Promise<PanicCheckResult> {
@@ -61,14 +61,9 @@ export async function checkPanicSell(
   // Fetch the last N candles of today's 5-min stream
   let candles
   try {
-    const token = await getInstrumentToken(creds, symbol)
-    if (!token) {
-      console.warn(`[panicSell] ${symbol}: no instrument token — allowing trade`)
-      return { panic: false, reason: 'no instrument token' }
-    }
     const from = `${istDateString()} 09:15:00`
     const to = `${istDateString()} 15:30:00`
-    candles = await getHistoricalCandles(creds, token, from, to, '5minute')
+    candles = await getBrokerHistoricalCandles(broker, symbol, from, to, '5minute')
   } catch (err) {
     console.warn(`[panicSell] ${symbol}: candle fetch failed — allowing trade. ${String(err).slice(0, 200)}`)
     return { panic: false, reason: 'candle fetch failed' }

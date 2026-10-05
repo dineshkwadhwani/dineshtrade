@@ -17,7 +17,7 @@ import { getAccountList } from './accounts'
 import { sendEmail, type EODLineItem } from './email'
 import { runStrategyScan, runReactiveDipScan, type Recommendation } from './strategyEngine'
 import { getCapital, type Strategy } from './strategyConfig'
-import { resolveAccountCreds, placeKiteOrder } from './kite'
+import { loadCustomerBroker, placeBrokerOrder } from './broker/customer'
 import { runPreflight, markPlaced } from './preflight'
 import { getBroker } from './broker'
 import { appendJournal, istDateString } from './journal'
@@ -72,9 +72,12 @@ export async function autoBuyOnAccount(account: string, accountDisplayName: stri
     console.warn(`[cron autoBuy] skipped legacy account identity ${account}; V2 execution is customer-scoped`)
     return
   }
-  const creds = await resolveAccountCreds(account)
-  if (!creds.ok) {
-    const reason = `[credentials] ${creds.error}`
+  const customerBroker = await loadCustomerBroker(account).catch(err => {
+    console.error(`[cron autoBuy] ${account}: broker lookup failed`, err)
+    return null
+  })
+  if (!customerBroker) {
+    const reason = '[credentials] selected broker credentials unavailable'
     recordSkipped({ time: istHHMM(), account, symbol: '—', side: 'BUY', quantity: 0, reason })
     appendJournal({
       type: 'signal_skipped',
@@ -95,7 +98,7 @@ export async function autoBuyOnAccount(account: string, accountDisplayName: stri
     }).catch(err => console.error('[cron autoBuy] credential-skipped email failed:', err))
     return
   }
-  const broker = getBroker({ brokerName: 'zerodha', brokerCredentials: { apiKey: creds.apiKey, accessToken: creds.accessToken } })
+  const broker = customerBroker.broker
   // Read the capital config once for the in-process quota check
   const cap = getCapital()
   for (const rec of recs) {
@@ -158,8 +161,9 @@ export async function autoBuyOnAccount(account: string, accountDisplayName: stri
     }
     // Tag carries the strategy id directly — unified store + per-strategy params.
     const tag = `dt-${rec.strategy}`
-    const placed = await placeKiteOrder(creds, {
+    const placed = await placeBrokerOrder(broker, {
       symbol: rec.symbol, side: 'BUY', quantity: rec.suggestedQty, tag,
+      product: 'delivery', orderType: 'MARKET',
     })
     if (placed.ok && placed.data?.data?.order_id) {
       // Increment in-process counters immediately so sibling strategy tasks see them

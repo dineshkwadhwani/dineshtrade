@@ -7,12 +7,11 @@
 
 import { NextRequest, NextResponse } from 'next/server'
 import { getProfile, AuthError } from '@/lib/dalgoAuth'
-import { loadBrokerAccountCreds, getHoldings } from '@/lib/kite'
 import { withCustomer } from '@/lib/supabase'
+import { loadCustomerBroker, loadMarketDataBroker } from '@/lib/broker/customer'
 import { saveState } from '@/lib/state'
 import { rehydrateForCustomer } from '@/lib/strategyConfigStore'
 import { evaluateAllForTiles, type Tile } from '@/lib/strategyEngine'
-import { getPrimaryCustomerId } from '@/lib/accounts'
 
 export const dynamic = 'force-dynamic'
 
@@ -28,44 +27,38 @@ export async function POST(req: NextRequest) {
       ? body.targetCustomerId
       : profile.id
 
-    // Primary customer supplies market data (paid Kite Connect plan)
-    const primaryCustomerId = getPrimaryCustomerId()
-    const primaryCreds = await loadBrokerAccountCreds(primaryCustomerId)
+    const customerBroker = await loadCustomerBroker(targetCustomerId)
 
-    if (!primaryCreds) {
-      return NextResponse.json({ error: 'Primary account Kite not connected.', tilesByStrategy: {}, activeStrategies: [] })
+    if (!customerBroker) {
+      return NextResponse.json({ error: 'Connect a supported broker before running scans.', tilesByStrategy: {}, activeStrategies: [] })
     }
 
-    const primaryAccountName = primaryCustomerId
-
-    // Customer's own creds for holdings annotation (best-effort)
-    const customerCreds = await loadBrokerAccountCreds(targetCustomerId)
-
     let result: Awaited<ReturnType<typeof evaluateAllForTiles>>
-    let holdings: Awaited<ReturnType<typeof getHoldings>> = []
+    let holdings: Awaited<ReturnType<typeof customerBroker.broker.getHoldings>> = []
+    const marketDataBroker = await loadMarketDataBroker(targetCustomerId)
 
     await withCustomer(targetCustomerId, async () => {
-      await saveState({ kiteTokens: { [primaryAccountName]: primaryCreds.accessToken } })
+      await saveState({ kiteTokens: { [targetCustomerId]: customerBroker.accessToken }, selectedAccounts: [targetCustomerId] })
       await rehydrateForCustomer()
       ;[result, holdings] = await Promise.all([
-        evaluateAllForTiles(primaryCreds),
-        customerCreds ? getHoldings(customerCreds).catch(() => []) : Promise.resolve([]),
+        evaluateAllForTiles(marketDataBroker?.broker),
+        customerBroker.broker.getHoldings().catch(() => []),
       ])
     })
 
     const res = result!
-    const heldBySymbol = new Map(holdings.map(h => [h.tradingsymbol.toUpperCase(), h]))
+    const heldBySymbol = new Map(holdings.map(h => [h.symbol.toUpperCase(), h]))
 
     function annotate(tile: Tile) {
       const h = heldBySymbol.get(tile.symbol)
       if (!h) return tile
-      const qty = (h.quantity || 0) + (h.t1_quantity || 0)
+      const qty = (h.quantity || 0) + (h.t1Quantity || 0)
       return {
         ...tile,
         holding: {
           qty,
-          avgPrice: h.average_price,
-          pnl: qty * (tile.ltp - h.average_price),
+          avgPrice: h.averagePrice,
+          pnl: qty * (tile.ltp - h.averagePrice),
         },
       }
     }

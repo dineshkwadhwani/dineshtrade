@@ -5,14 +5,13 @@
 
 import { NextRequest, NextResponse } from 'next/server'
 import { getProfile, AuthError } from '@/lib/dalgoAuth'
-import { loadBrokerAccountCreds } from '@/lib/kite'
+import { loadCustomerBroker } from '@/lib/broker/customer'
 import { withCustomer } from '@/lib/supabase'
 import { saveState } from '@/lib/state'
 import { rehydrateForCustomer } from '@/lib/strategyConfigStore'
 import { generateRecommendations } from '@/lib/strategyEngine'
 import { getCapital } from '@/lib/strategyConfig'
 import { istDateString, appendJournal } from '@/lib/journal'
-import { getPrimaryCustomerId } from '@/lib/accounts'
 
 export const dynamic = 'force-dynamic'
 
@@ -29,25 +28,24 @@ export async function POST(req: NextRequest) {
       ? body.targetCustomerId
       : profile.id
 
-    // Primary customer supplies market data (paid Kite Connect plan for live quotes)
-    const primaryCustomerId = (process.env.CUSTOMER_IDS || '').split(',')[0]?.trim() || profile.id
-    const primaryCreds = await loadBrokerAccountCreds(primaryCustomerId)
+    const customerBroker = await loadCustomerBroker(targetCustomerId).catch(err => {
+      console.error('[engine/scan] broker lookup failed:', err)
+      return null
+    })
 
-    if (!primaryCreds) {
+    if (!customerBroker) {
       return NextResponse.json({
-        error: 'Primary account Kite not connected. Live quotes unavailable.',
+        error: 'Selected broker not connected. Live quotes unavailable.',
         recommendations: [],
         mode: 'error',
         generatedAt: new Date().toISOString(),
       })
     }
 
-    const primaryAccountName = getPrimaryCustomerId()
-
     let result: Awaited<ReturnType<typeof generateRecommendations>>
 
     await withCustomer(targetCustomerId, async () => {
-      await saveState({ kiteTokens: { [primaryAccountName]: primaryCreds.accessToken } })
+      await saveState({ kiteTokens: { [targetCustomerId]: customerBroker.accessToken }, selectedAccounts: [targetCustomerId] })
       await rehydrateForCustomer()
       result = await generateRecommendations()
     })

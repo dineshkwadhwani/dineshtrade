@@ -5,15 +5,13 @@
 
 import { NextRequest, NextResponse } from 'next/server'
 import { getProfile, AuthError } from '@/lib/dalgoAuth'
-import { loadBrokerAccountCreds, placeKiteOrder } from '@/lib/kite'
-import { getBroker } from '@/lib/broker'
+import { loadCustomerBroker, placeBrokerOrder } from '@/lib/broker/customer'
 import { runPreflight, markPlaced } from '@/lib/preflight'
 import { recordBuy } from '@/lib/positions'
 import { journalOrder } from '@/lib/journal'
 import { withCustomer } from '@/lib/supabase'
 import { saveState } from '@/lib/state'
 import { rehydrateForCustomer } from '@/lib/strategyConfigStore'
-import { getPrimaryCustomerId } from '@/lib/accounts'
 import { sendEmail } from '@/lib/email'
 
 export const dynamic = 'force-dynamic'
@@ -44,27 +42,25 @@ export async function POST(req: NextRequest) {
     const qty = Number(quantity)
     const pricePerShare = Number(price)
 
-    // Customer's Kite credentials (for order placement)
-    const creds = await loadBrokerAccountCreds(targetCustomerId)
-    if (!creds) {
-      return NextResponse.json({ error: 'Kite not connected. Please reconnect in Settings.' }, { status: 400 })
+    const customerBroker = await loadCustomerBroker(targetCustomerId).catch(err => {
+      console.error('[engine/order] broker lookup failed:', err)
+      return null
+    })
+    if (!customerBroker) {
+      return NextResponse.json({ error: 'Selected broker not connected. Please reconnect in Settings.' }, { status: 400 })
     }
 
-    const primaryAccountName = getPrimaryCustomerId()
-
-    const broker = getBroker({
-      brokerName: 'zerodha',
-      brokerCredentials: { apiKey: creds.apiKey, accessToken: creds.accessToken },
-    })
+    const broker = customerBroker.broker
+    const accountId = targetCustomerId
 
     let preflightResult: Awaited<ReturnType<typeof runPreflight>>
 
     // Run preflight within customer context so getState().kiteTokens is populated
     await withCustomer(targetCustomerId, async () => {
-      await saveState({ kiteTokens: { [primaryAccountName]: creds.accessToken } })
+      await saveState({ kiteTokens: { [accountId]: customerBroker.accessToken }, selectedAccounts: [accountId] })
       await rehydrateForCustomer()
       preflightResult = await runPreflight({
-        account: primaryAccountName,
+        account: accountId,
         symbol: symbolUpper,
         side,
         quantity: qty,
@@ -77,7 +73,7 @@ export async function POST(req: NextRequest) {
     const pre = preflightResult!
     if (!pre.ok) {
       sendEmail('trade_failed', {
-        account: primaryAccountName,
+        account: accountId,
         accountDisplayName: profile.full_name,
         symbol: symbolUpper,
         side,
@@ -91,19 +87,18 @@ export async function POST(req: NextRequest) {
       return NextResponse.json({ error: 'Preflight failed', gate: pre.gate, reason: pre.reason }, { status: 422 })
     }
 
-    // Place order via Kite
-    const orderResult = await placeKiteOrder(creds, {
+    const orderResult = await placeBrokerOrder(broker, {
       symbol: symbolUpper,
       side,
       quantity: pre.adjustedQty ?? qty,
       tag: tag ?? (strategyId ? `dt-${strategyId}` : 'dt-manual'),
-      product: 'CNC',
+      product: 'delivery',
       orderType,
       price: limitPrice,
     })
 
     if (!orderResult.ok) {
-      const errMsg = orderResult.data?.message || `Kite HTTP ${orderResult.status}`
+      const errMsg = orderResult.data?.message || `Broker order failed (HTTP ${orderResult.status})`
       return NextResponse.json({ error: errMsg }, { status: 502 })
     }
 
@@ -114,11 +109,11 @@ export async function POST(req: NextRequest) {
     // Gap 1 fix: record buy in position store + journal, same as auto-buy cron
     if (orderId && side === 'BUY') {
       await withCustomer(targetCustomerId, async () => {
-        await saveState({ kiteTokens: { [primaryAccountName]: creds.accessToken } })
-        await markPlaced(primaryAccountName, symbolUpper, 'BUY', { price: pricePerShare, manual: true })
-        await recordBuy(effectiveStrategyId, primaryAccountName, symbolUpper, filledQty, pricePerShare)
+        await saveState({ kiteTokens: { [accountId]: customerBroker.accessToken }, selectedAccounts: [accountId] })
+        await markPlaced(accountId, symbolUpper, 'BUY', { price: pricePerShare, manual: true })
+        await recordBuy(effectiveStrategyId, accountId, symbolUpper, filledQty, pricePerShare)
         await journalOrder({
-          account: primaryAccountName,
+          account: accountId,
           symbol: symbolUpper,
           side: 'BUY',
           qty: filledQty,
@@ -133,7 +128,7 @@ export async function POST(req: NextRequest) {
 
     // Notify on success
     sendEmail('trade_executed', {
-      account: primaryAccountName,
+      account: accountId,
       accountDisplayName: profile.full_name,
       symbol: symbolUpper,
       symbolName: symbolUpper,

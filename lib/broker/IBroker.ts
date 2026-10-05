@@ -64,6 +64,7 @@ export interface BrokerOrderResult { orderId: string; status: BrokerOrderStatus 
 
 export interface IBroker {
   // Auth
+    readonly brokerName: string
   getLoginUrl(): string
   generateSession(authCode: string): Promise<BrokerSession>
   refreshSession?(refreshToken: string): Promise<BrokerSession>
@@ -80,7 +81,7 @@ export interface IBroker {
   // Market data
   getQuotes(symbols: string[]): Promise<BrokerQuoteMap>
   getHistoricalCandles(symbol: string, from: string, to: string, interval: CandleInterval): Promise<BrokerCandle[]>
-  resolveInstrumentToken(symbol: string): Promise<number>
+  resolveInstrumentToken(symbol: string): Promise<string | number>
 
   // Orders
   placeOrder(input: BrokerOrderInput): Promise<BrokerOrderResult>

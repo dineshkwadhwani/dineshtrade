@@ -12,7 +12,7 @@
 // up to a minute" when this flag is flipped, which is an accepted trade-off.
 
 import { getSupabaseAdmin, getCustomerId } from './supabase'
-import { resolveAccountCreds, getPositions } from './kite'
+import { loadCustomerBroker } from './broker/customer'
 
 // ─── HEARTBEAT_DB_ENABLED cache (60s TTL) ──────────────────────────────────
 
@@ -56,9 +56,9 @@ export async function checkKiteTokenStatus(kiteTokens: Record<string, string>): 
   if (accounts.length === 0) return 'missing'
 
   try {
-    const creds = await resolveAccountCreds(accounts[0])
-    if (!creds.ok) return 'missing'
-    await getPositions(creds) // throws on an expired/invalid access token
+    const customerBroker = await loadCustomerBroker(accounts[0])
+    if (!customerBroker) return 'missing'
+    await customerBroker.broker.getPositions() // throws on an expired/invalid access token
     return 'connected'
   } catch (err) {
     const details = String(err).slice(0, 150)

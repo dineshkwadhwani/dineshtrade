@@ -14,12 +14,9 @@
 
 import { getState } from './state'
 import { getAccountList } from './accounts'
-import {
-  resolveAccountCreds, getQuotes, placeKiteOrder,
-  type KiteCreds,
-} from './kite'
+import { loadCustomerBroker, placeBrokerOrder } from './broker/customer'
+import { getBrokerQuotes } from './marketDataCache'
 import { runPreflight, markPlaced } from './preflight'
-import { getBroker } from './broker'
 import { sendEmail, isSkipTradeMailsEnabled } from './email'
 import { appendJournal, journalOrder, istDateString, istHHMM } from './journal'
 import { asDipParams, getStrategyById, getStrategies } from './strategyConfig'
@@ -109,12 +106,14 @@ export async function monitorAccountStrategy1(account: string): Promise<Strategy
   const displayName = getAccountList().find(a => a.name === account)?.displayName
   const entries: Strategy1Entry[] = []
 
-  const cr = await resolveAccountCreds(account)
-  if (!cr.ok) {
-    return { account, ranAt, positionsChecked: 0, entries: [{ account, accountDisplayName: displayName, symbol: '—', action: 'skipped', reason: cr.error }] }
+  const customerBroker = await loadCustomerBroker(account).catch(err => {
+    console.error(`[strategy1] ${account}: broker lookup failed`, err)
+    return null
+  })
+  if (!customerBroker) {
+    return { account, ranAt, positionsChecked: 0, entries: [{ account, accountDisplayName: displayName, symbol: '—', action: 'skipped', reason: 'Selected broker credentials unavailable' }] }
   }
-  const creds: KiteCreds = { apiKey: cr.apiKey, accessToken: cr.accessToken }
-  const broker = getBroker({ brokerName: 'zerodha', brokerCredentials: { apiKey: creds.apiKey, accessToken: creds.accessToken } })
+  const broker = customerBroker.broker
 
   // All dip-type strategies use the Strategy 1 monitor (accumulator + any
   // user-created dip-type strategies). Each position's exits come from ITS
@@ -130,7 +129,7 @@ export async function monitorAccountStrategy1(account: string): Promise<Strategy
   const symbols = ours.map(p => p.symbol)
   let quotes: Record<string, { last_price: number }> = {}
   try {
-    quotes = await getQuotes(creds, symbols) as any
+    quotes = await getBrokerQuotes(broker, symbols)
   } catch (err) {
     return { account, ranAt, positionsChecked: ours.length, entries: [{ account, accountDisplayName: displayName, symbol: '—', action: 'skipped', reason: `Quote fetch failed: ${String(err).slice(0, 100)}` }] }
   }
@@ -208,7 +207,7 @@ export async function monitorAccountStrategy1(account: string): Promise<Strategy
           continue
         }
         const actualQty = pre.adjustedQty ?? intentQty
-        const placed = await placeKiteOrder(creds, { symbol, side: 'SELL', quantity: actualQty, tag: STRATEGY_1_TRANCHE2_TAG })
+        const placed = await placeBrokerOrder(broker, { symbol, side: 'SELL', quantity: actualQty, tag: STRATEGY_1_TRANCHE2_TAG, product: 'delivery', orderType: 'MARKET' })
         if (placed.ok && placed.data?.data?.order_id) {
           soldAnyLot = true
           await markPlaced(account, symbol, 'SELL', { price: ltp, manual: false })
@@ -289,7 +288,7 @@ export async function monitorAccountStrategy1(account: string): Promise<Strategy
           continue
         }
         const actualQty = pre.adjustedQty ?? intentQty
-        const placed = await placeKiteOrder(creds, { symbol, side: 'SELL', quantity: actualQty, tag: STRATEGY_1_TRANCHE1_TAG })
+        const placed = await placeBrokerOrder(broker, { symbol, side: 'SELL', quantity: actualQty, tag: STRATEGY_1_TRANCHE1_TAG, product: 'delivery', orderType: 'MARKET' })
         if (placed.ok && placed.data?.data?.order_id) {
           soldAnyLot = true
           await markPlaced(account, symbol, 'SELL', { price: ltp, manual: false })
@@ -365,7 +364,7 @@ export async function monitorAccountStrategy1(account: string): Promise<Strategy
           continue
         }
         const actualQty = pre.adjustedQty ?? intentQty
-        const placed = await placeKiteOrder(creds, { symbol, side: 'SELL', quantity: actualQty, tag: STRATEGY_1_TRANCHE2_TAG })
+        const placed = await placeBrokerOrder(broker, { symbol, side: 'SELL', quantity: actualQty, tag: STRATEGY_1_TRANCHE2_TAG, product: 'delivery', orderType: 'MARKET' })
         if (placed.ok && placed.data?.data?.order_id) {
           soldAnyLot = true
           await markPlaced(account, symbol, 'SELL', { price: ltp, manual: false })

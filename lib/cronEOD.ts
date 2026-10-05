@@ -5,9 +5,9 @@ import { getState } from './state'
 import { getAccountList } from './accounts'
 import { sendDailyReport, sendMonthlyReport, isEmailConfigured, sendDailyReportToEmail, sendMonthlyReportToEmail } from './email'
 import { getActiveStrategies, asMomentumParams } from './strategyConfig'
-import { resolveAccountCreds, placeKiteOrder, getQuotes } from './kite'
+import { loadCustomerBroker, placeBrokerOrder } from './broker/customer'
+import { getBrokerQuotes } from './marketDataCache'
 import { runPreflight, markPlaced } from './preflight'
-import { getBroker } from './broker'
 import { istDateString, journalOrder, readJournalDay, type OrderRecord } from './journal'
 import { buildDailyReport, buildMonthlyReport, isLastWeekdayOfMonth } from './retrospective'
 import { listPositions, removePosition } from './positions'
@@ -76,12 +76,15 @@ export async function runEODSquareOff(): Promise<void> {
     const targetAccounts = Object.keys(state.kiteTokens)
     for (const account of targetAccounts) {
       const displayName = accounts.find(a => a.name === account)?.displayName
-      const creds = await resolveAccountCreds(account)
-      if (!creds.ok) {
-        console.warn(`[cron eod] ${strategy.id} ${account}: creds not available — skipping`)
+      const customerBroker = await loadCustomerBroker(account).catch(err => {
+        console.error(`[cron eod] ${strategy.id} ${account}: broker lookup failed`, err)
+        return null
+      })
+      if (!customerBroker) {
+        console.warn(`[cron eod] ${strategy.id} ${account}: selected broker unavailable — skipping`)
         continue
       }
-      const broker = getBroker({ brokerName: 'zerodha', brokerCredentials: { apiKey: creds.apiKey, accessToken: creds.accessToken } })
+      const broker = customerBroker.broker
 
       const strategyPositions = await listPositions({ account, strategyId: strategy.id })
       const accountPositions = await listPositions({ account })
@@ -106,7 +109,7 @@ export async function runEODSquareOff(): Promise<void> {
       if (positions.length === 0) continue
 
       const symbols = positions.map(p => p.symbol.toUpperCase())  // getQuotes adds NSE: internally
-      const quotes = await getQuotes(creds, symbols)
+      const quotes = await getBrokerQuotes(broker, symbols)
 
       for (const pos of positions) {
         const quoteKey = `NSE:${pos.symbol.toUpperCase()}`
@@ -141,7 +144,7 @@ export async function runEODSquareOff(): Promise<void> {
           continue
         }
 
-        const placed = await placeKiteOrder(creds, { symbol: pos.symbol, side: 'SELL', quantity: sellQty, tag: `dt-eod-${strategy.id}` })
+        const placed = await placeBrokerOrder(broker, { symbol: pos.symbol, side: 'SELL', quantity: sellQty, tag: `dt-eod-${strategy.id}`, product: 'delivery', orderType: 'MARKET' })
         if (placed.ok && placed.data?.data?.order_id) {
           await markPlaced(account, pos.symbol, 'SELL')
           await journalOrder({
@@ -165,7 +168,7 @@ export async function runEODSquareOff(): Promise<void> {
             mode: 'auto',
           }).catch(err => console.error('[cron eod] email failed:', err))
         } else {
-          const errMsg = placed.data?.message || placed.data?.error_type || `Kite HTTP ${placed.status}`
+          const errMsg = placed.data?.message || placed.data?.error_type || `Broker order failed (HTTP ${placed.status})`
           recordFailed({ time: t, account, symbol: pos.symbol, side: 'SELL', quantity: sellQty, price: ltp, reason: errMsg })
         }
       }

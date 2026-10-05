@@ -45,21 +45,20 @@ export async function GET(req: Request) {
 
     const market = await isMarketOpen()
 
-    // kite connection: instance row updated by heartbeat (stale in manual mode) —
-    // always fall back to broker_accounts for the ground truth when not 'connected'.
-    let kiteConnected = false
+    // Broker connection status falls back to broker_accounts when instance
+    // heartbeat data is stale (for example while the engine is in manual mode).
+    let brokerConnected = false
     if (instance?.kite_token_status === 'connected') {
-      kiteConnected = true
+      brokerConnected = true
     } else {
       // Heartbeat may be stale (manual mode) or instance row missing — check broker_accounts directly
       const { data: broker } = await admin
         .from('broker_accounts')
         .select('token_expires_at, access_token_enc')
         .eq('customer_id', customerId)
-        .eq('broker_name', 'zerodha')
         .eq('active', true)
         .maybeSingle()
-      kiteConnected = !!(broker?.access_token_enc) && (!broker.token_expires_at || new Date(broker.token_expires_at) > new Date())
+      brokerConnected = !!(broker?.access_token_enc) && (!broker.token_expires_at || new Date(broker.token_expires_at) > new Date())
     }
 
     // customer_state is the live source (settings page writes here directly);
@@ -70,7 +69,8 @@ export async function GET(req: Request) {
 
     return NextResponse.json({
       cronMode,
-      kiteConnected,
+      kiteConnected: brokerConnected,
+      brokerConnected,
       marketOpen: market.open,
       marketStatus: market.status,
       buyCap: capital?.max_buys_per_day ?? 6,

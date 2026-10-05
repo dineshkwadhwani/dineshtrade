@@ -2,6 +2,7 @@ import { NextRequest, NextResponse } from 'next/server'
 import { requireRole, AuthError } from '@/lib/dalgoAuth'
 import { getSupabaseAdmin } from '@/lib/supabase'
 import { writeAuditLog } from '@/lib/audit'
+import { IMPLEMENTED_BROKERS } from '@/lib/broker/supported'
 
 // Reads the session cookie via requireRole()/getSession() (lib/dalgoAuth.ts,
 // next/headers cookies()) on every request — force-dynamic makes that
@@ -35,7 +36,17 @@ export async function PUT(req: NextRequest, { params }: { params: { key: string 
       return NextResponse.json({ error: 'Config key not found.' }, { status: 404 })
     }
 
-    const newValue = String(body.value)
+    let newValue = String(body.value)
+    if (params.key === 'AVAILABLE_BROKERS') {
+      let parsed: unknown
+      try { parsed = JSON.parse(newValue) } catch {
+        return NextResponse.json({ error: 'Available brokers must be a JSON array.' }, { status: 400 })
+      }
+      if (!Array.isArray(parsed) || parsed.some(value => !IMPLEMENTED_BROKERS.includes(value))) {
+        return NextResponse.json({ error: 'Available brokers contains an unsupported broker.' }, { status: 400 })
+      }
+      newValue = JSON.stringify(IMPLEMENTED_BROKERS.filter(broker => parsed.includes(broker)))
+    }
     const now = new Date().toISOString()
     const { data: updated, error: updateError } = await admin
       .from('platform_config')

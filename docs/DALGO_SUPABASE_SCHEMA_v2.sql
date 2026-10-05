@@ -36,6 +36,8 @@ insert into platform_config (key, value, description, value_type) values
  'Store strategy_scan records in Supabase (increases DB usage 73%)', 'boolean'),
 ('HEARTBEAT_DB_ENABLED', 'false',
  'Store monitor_heartbeat records in Supabase. Default off — dropped entirely.', 'boolean'),
+('AVAILABLE_BROKERS', '["zerodha","upstox"]',
+ 'Brokers customers may select when creating or changing a broker connection.', 'json'),
 ('TOKEN_ALERT_TIME_IST', '09:00',
  'Time HH:MM IST to send token-missing alerts', 'string'),
 ('SUPPORT_EMAIL', 'support@dalgo.online',
@@ -476,6 +478,7 @@ create table if not exists strategy_scans (
 
 -- Shared daily closes (not per user)
 create table if not exists daily_closes (
+  broker_name text not null default 'zerodha',
   symbol text not null,
   trade_date date not null,
   open_price numeric,
@@ -484,7 +487,7 @@ create table if not exists daily_closes (
   close_price numeric not null,
   volume bigint,
   updated_at timestamptz default now(),
-  primary key (symbol, trade_date)
+  primary key (broker_name, symbol, trade_date)
 );
 
 -- Backtest runs
@@ -539,7 +542,7 @@ create index if not exists idx_trades_customer_date on trades(customer_id, trade
 create index if not exists idx_positions_customer on customer_positions(customer_id);
 create index if not exists idx_positions_customer_symbol on customer_positions(customer_id, symbol);
 create index if not exists idx_positions_open on customer_positions(customer_id, status) where status = 'open';
-create index if not exists idx_daily_closes on daily_closes(symbol, trade_date desc);
+create index if not exists idx_daily_closes on daily_closes(broker_name, symbol, trade_date desc);
 create index if not exists idx_signals_date on signals_skipped(customer_id, signal_date desc);
 create index if not exists idx_audit_log on audit_log(actor_id, created_at desc);
 create index if not exists idx_sso_active on sso_tokens(token) where used = false;

@@ -4,7 +4,7 @@
 
 import { getState, recordIdempotency, makeIdempotencyKey, getBuyHistory, resetBuyHistoryForSymbol, recordBuyHistory, setBuyHistoryForSymbol } from '@/lib/state'
 import { getCapital, getStrategyById, asDipParams } from '@/lib/strategyConfig'
-import { resolveAccountCreds } from '@/lib/kite'
+import { loadCustomerBroker } from '@/lib/broker/customer'
 import { istDateString, readJournalRange, type JournalRecord } from '@/lib/journal'
 import { isMarketOpen } from '@/lib/market'
 import { checkIntradayCircuit } from '@/lib/intradayCircuit'
@@ -111,9 +111,11 @@ export async function runPreflight(input: PreflightInput, broker: IBroker): Prom
   const tradeValue = pricePerShare * quantity
 
   // GATE 1 — token connected (V1 env-named accounts + V2 broker_accounts/DB accounts)
-  const creds = await resolveAccountCreds(account)
-  if (!creds.ok) return { ok: false, gate: 'token', reason: creds.error }
-  const { apiKey, accessToken } = creds
+  const customerBroker = await loadCustomerBroker(account).catch(err => {
+    console.error(`[preflight] ${account}: broker lookup failed`, err)
+    return null
+  })
+  if (!customerBroker) return { ok: false, gate: 'token', reason: `${account}: selected broker credentials unavailable` }
   const state = await getState()
 
   // GATE 2 — market open + not holiday
@@ -174,7 +176,7 @@ export async function runPreflight(input: PreflightInput, broker: IBroker): Prom
   // detected as panic-selling, all subsequent auto-BUY attempts on it skip
   // until the next IST day. Skipped for manual orders (your judgement).
   if (!manual && side === 'BUY') {
-    const ps = await checkPanicSell({ apiKey, accessToken }, symbol, pricePerShare)
+    const ps = await checkPanicSell(broker, symbol, pricePerShare)
     if (ps.panic) {
       return { ok: false, gate: 'panicSell', reason: ps.reason || `${symbol}: panic-sell detected` }
     }

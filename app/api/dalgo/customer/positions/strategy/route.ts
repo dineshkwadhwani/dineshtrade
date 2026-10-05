@@ -7,7 +7,6 @@ import { getProfile } from '@/lib/dalgoAuth'
 import { getSupabaseAdmin, withCustomer } from '@/lib/supabase'
 import { setStrategyId } from '@/lib/positions'
 import { rehydrateForCustomer } from '@/lib/strategyConfigStore'
-import { getPrimaryCustomerId } from '@/lib/accounts'
 
 export const dynamic = 'force-dynamic'
 
@@ -47,7 +46,7 @@ export async function PATCH(req: NextRequest) {
       }
     }
 
-    const account = getPrimaryCustomerId()
+    const account = targetCustomerId
 
     // capture prior strategy for audit
     const { getPosition } = await import('@/lib/positions')
