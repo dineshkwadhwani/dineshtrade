@@ -220,16 +220,18 @@ Do these once per new subdomain in the **Supabase Dashboard**:
 ### Authentication → URL Configuration → Redirect URLs
 Add:
 ```
+https://dalgo.online/auth/reset-password
 https://<subdomain>.dalgo.online
 https://<subdomain>.dalgo.online/auth/reset-password
+http://localhost:3000/auth/reset-password
 ```
 
 ### Authentication → Email Templates → Reset Password
 Ensure the action URL in the template is:
 ```
-{{ .SiteURL }}/auth/reset-password
+{{ .ConfirmationURL }}
 ```
-*(Site URL must remain `https://dalgo.online` — password resets always go through the main server)*
+The app requests redirects to `/auth/reset-password`; keep the Supabase Site URL set to `https://dalgo.online` so recovery returns to the main auth server. The generated confirmation URL must be used so Supabase can validate the recovery token before redirecting.
 
 ---
 

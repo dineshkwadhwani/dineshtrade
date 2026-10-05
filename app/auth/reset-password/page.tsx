@@ -7,7 +7,8 @@ import AuthShowcasePanel from '@/components/marketing/AuthShowcasePanel'
 // Minimal anon client — cannot import lib/supabase.ts here (server-only module)
 const supabase = createClient(
   process.env.NEXT_PUBLIC_SUPABASE_URL!,
-  process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY!
+  process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY!,
+  { auth: { detectSessionInUrl: false } }
 )
 
 const FONT_SORA = "'Sora', sans-serif"
@@ -25,24 +26,36 @@ export default function ResetPasswordPage() {
   // Supabase puts the recovery token in the URL hash on redirect.
   // Parse it, set the session, then show the form.
   useEffect(() => {
-    const hash = window.location.hash.substring(1)
-    const params = new URLSearchParams(hash)
-    const accessToken = params.get('access_token')
-    const refreshToken = params.get('refresh_token')
-    const type = params.get('type')
+    async function establishRecoverySession() {
+      try {
+        const searchParams = new URLSearchParams(window.location.search)
+        const code = searchParams.get('code')
+        if (code) {
+          const { error } = await supabase.auth.exchangeCodeForSession(code)
+          if (error) { setStage('error'); return }
+          window.history.replaceState(null, '', window.location.pathname)
+          setStage('form')
+          return
+        }
 
-    if (type !== 'recovery' || !accessToken || !refreshToken) {
-      setStage('error')
-      return
-    }
+        const hashParams = new URLSearchParams(window.location.hash.substring(1))
+        const accessToken = hashParams.get('access_token')
+        const refreshToken = hashParams.get('refresh_token')
+        if (hashParams.get('type') !== 'recovery' || !accessToken || !refreshToken) {
+          setStage('error')
+          return
+        }
 
-    supabase.auth.setSession({ access_token: accessToken, refresh_token: refreshToken })
-      .then(({ error }) => {
+        const { error } = await supabase.auth.setSession({ access_token: accessToken, refresh_token: refreshToken })
         if (error) { setStage('error'); return }
-        // Clear the hash so tokens don't linger in browser history
         window.history.replaceState(null, '', window.location.pathname)
         setStage('form')
-      })
+      } catch {
+        setStage('error')
+      }
+    }
+
+    void establishRecoverySession()
   }, [])
 
   async function handleSubmit(e: React.FormEvent) {
@@ -52,11 +65,15 @@ export default function ResetPasswordPage() {
     if (password !== confirm) { setError('Passwords do not match.'); return }
 
     setSubmitting(true)
-    const { error } = await supabase.auth.updateUser({ password })
-    setSubmitting(false)
-
-    if (error) { setError(error.message); return }
-    setStage('success')
+    try {
+      const { error } = await supabase.auth.updateUser({ password })
+      if (error) { setError(error.message); return }
+      setStage('success')
+    } catch {
+      setError('Unable to update your password. Please request a new reset link.')
+    } finally {
+      setSubmitting(false)
+    }
   }
 
   return (

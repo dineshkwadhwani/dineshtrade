@@ -1,7 +1,13 @@
 'use client'
 import { useEffect, useState } from 'react'
+import { createClient } from '@supabase/supabase-js'
 import AuthShowcasePanel from '@/components/marketing/AuthShowcasePanel'
 import type { Profile, ProfileRole } from '@/lib/dalgoAuth'
+
+const supabase = createClient(
+  process.env.NEXT_PUBLIC_SUPABASE_URL!,
+  process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY!
+)
 
 interface Props {
   initialProfile: Profile | null
@@ -75,6 +81,10 @@ export default function LoginClient({ initialProfile, initialError }: Props) {
   const [password, setPassword] = useState('')
   const [error, setError] = useState(initialError ?? '')
   const [loading, setLoading] = useState(false)
+  const [forgotPassword, setForgotPassword] = useState(false)
+  const [resetLoading, setResetLoading] = useState(false)
+  const [resetMessage, setResetMessage] = useState('')
+  const [resetError, setResetError] = useState('')
 
   // Already logged in when the page loaded (page.tsx's server-side
   // getSession()/getProfile() found a valid session) — redirect immediately
@@ -112,6 +122,27 @@ export default function LoginClient({ initialProfile, initialError }: Props) {
     }
   }
 
+  async function handleResetRequest(e: React.FormEvent) {
+    e.preventDefault()
+    setResetError('')
+    setResetMessage('')
+    setResetLoading(true)
+    try {
+      const { error: requestError } = await supabase.auth.resetPasswordForEmail(email.trim(), {
+        redirectTo: `${window.location.origin}/auth/reset-password`,
+      })
+      if (requestError) {
+        setResetError('Unable to send the reset email right now. Please try again.')
+      } else {
+        setResetMessage('If an account exists for this email, a password reset link has been sent.')
+      }
+    } catch {
+      setResetError('Connection error. Please try again.')
+    } finally {
+      setResetLoading(false)
+    }
+  }
+
   return (
     <CardShell>
       <h1 style={{ fontFamily: FONT_SORA, fontWeight: 700, fontSize: 22, color: '#1E3A8A', margin: 0 }}>
@@ -121,6 +152,59 @@ export default function LoginClient({ initialProfile, initialError }: Props) {
         Log in to your DAlgo account.
       </p>
 
+      {forgotPassword ? (
+        <>
+          <h2 style={{ fontFamily: FONT_SORA, fontWeight: 600, fontSize: 17, color: '#1E3A8A', margin: '0 0 8px' }}>
+            Reset your password
+          </h2>
+          <p style={{ fontFamily: FONT_INTER, fontSize: 13, color: '#475569', lineHeight: 1.6, margin: '0 0 20px' }}>
+            Enter your account email and we’ll send a secure password reset link.
+          </p>
+          <form onSubmit={handleResetRequest}>
+            <label
+              htmlFor="dalgo-reset-email"
+              style={{ display: 'block', fontFamily: FONT_INTER, fontSize: 13, fontWeight: 500, color: '#1E3A8A', marginBottom: 6 }}
+            >
+              Email
+            </label>
+            <input
+              id="dalgo-reset-email"
+              type="email"
+              required
+              autoComplete="email"
+              autoFocus
+              value={email}
+              onChange={e => { setEmail(e.target.value); setResetError(''); setResetMessage('') }}
+              style={{
+                width: '100%', padding: '10px 14px', marginBottom: 16,
+                border: resetError ? '1px solid #EF4444' : '1px solid #BFDBFE',
+                borderRadius: 8, fontFamily: FONT_INTER, fontSize: 14, color: '#0F172A', outline: 'none',
+              }}
+            />
+            {resetError && <p role="alert" style={{ fontFamily: FONT_INTER, color: '#EF4444', fontSize: 13, margin: '0 0 12px' }}>{resetError}</p>}
+            {resetMessage && <p role="status" style={{ fontFamily: FONT_INTER, color: '#047857', fontSize: 13, lineHeight: 1.5, margin: '0 0 12px' }}>{resetMessage}</p>}
+            <button
+              type="submit"
+              disabled={resetLoading}
+              style={{
+                width: '100%', padding: '12px 0', background: '#3B82F6', color: '#FFFFFF',
+                fontFamily: FONT_INTER, fontWeight: 600, fontSize: 14, border: 'none', borderRadius: 8,
+                cursor: resetLoading ? 'not-allowed' : 'pointer', opacity: resetLoading ? 0.7 : 1,
+              }}
+            >
+              {resetLoading ? 'Sending…' : 'Send reset link'}
+            </button>
+          </form>
+          <button
+            type="button"
+            onClick={() => { setForgotPassword(false); setResetError(''); setResetMessage('') }}
+            style={{ display: 'block', margin: '16px auto 0', background: 'none', border: 'none', color: '#3B82F6', fontFamily: FONT_INTER, fontSize: 13, cursor: 'pointer' }}
+          >
+            Back to login
+          </button>
+        </>
+      ) : (
+      <>
       <form onSubmit={handleSubmit}>
         <label
           htmlFor="dalgo-login-email"
@@ -174,6 +258,16 @@ export default function LoginClient({ initialProfile, initialError }: Props) {
           }}
         />
 
+        <div style={{ display: 'flex', justifyContent: 'flex-end', marginTop: 8 }}>
+          <button
+            type="button"
+            onClick={() => { setForgotPassword(true); setError('') }}
+            style={{ background: 'none', border: 'none', padding: 0, color: '#3B82F6', fontFamily: FONT_INTER, fontSize: 13, cursor: 'pointer' }}
+          >
+            Forgot password?
+          </button>
+        </div>
+
         {error && (
           <p style={{ fontFamily: FONT_INTER, color: '#EF4444', fontSize: 13, marginTop: 10, marginBottom: 0 }}>
             {error}
@@ -205,6 +299,8 @@ export default function LoginClient({ initialProfile, initialError }: Props) {
         Don't have an account?{' '}
         <a href="/register" style={{ color: '#3B82F6' }}>Register</a>
       </p>
+      </>
+      )}
     </CardShell>
   )
 }
