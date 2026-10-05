@@ -106,6 +106,33 @@ export function createEphemeralAnonClient() {
   })
 }
 
+function isMissingPreferredBrokerColumn(error: { code?: string; message?: string } | null): boolean {
+  return !!error &&
+    (error.code === '42703' || error.code === 'PGRST204') &&
+    error.message?.includes('preferred_broker') === true
+}
+
+async function getAuthProfile(admin: ReturnType<typeof getSupabaseAdmin>, userId: string) {
+  const current = await admin
+    .from('profiles')
+    .select('id, role, status, full_name, email, preferred_broker, subdomain, instance_ip')
+    .eq('id', userId)
+    .maybeSingle()
+
+  if (!isMissingPreferredBrokerColumn(current.error)) return current
+
+  const legacy = await admin
+    .from('profiles')
+    .select('id, role, status, full_name, email, subdomain, instance_ip')
+    .eq('id', userId)
+    .maybeSingle()
+
+  return {
+    ...legacy,
+    data: legacy.data ? { ...legacy.data, preferred_broker: null } : null,
+  }
+}
+
 // Authenticates via Supabase Auth, then checks the profiles row. Throws
 // AuthError(401) for wrong credentials, AuthError(403) for a missing profile
 // or a non-'active' status. Returns the session tokens (caller decides how to
@@ -123,13 +150,13 @@ export async function login(email: string, password: string): Promise<LoginResul
   }
 
   const admin = getSupabaseAdmin()
-  const { data: profile, error: profileError } = await admin
-    .from('profiles')
-    .select('id, role, status, full_name, email, preferred_broker, subdomain, instance_ip')
-    .eq('id', data.user.id)
-    .maybeSingle()
+  const { data: profile, error: profileError } = await getAuthProfile(admin, data.user.id)
 
-  if (profileError || !profile) {
+  if (profileError) {
+    console.error('[dalgoAuth] Login profile lookup failed:', profileError.code, profileError.message)
+    throw new AuthError('Unable to verify your account profile. Please try again.', 503)
+  }
+  if (!profile) {
     throw new AuthError('No profile exists for this account.', 403)
   }
   if (profile.status === 'pending') {
@@ -178,11 +205,7 @@ export async function getProfile(): Promise<Profile | null> {
   if (!session) return null
 
   const admin = getSupabaseAdmin()
-  const { data, error } = await admin
-    .from('profiles')
-    .select('id, role, status, full_name, email, preferred_broker, subdomain, instance_ip')
-    .eq('id', session.userId)
-    .maybeSingle()
+  const { data, error } = await getAuthProfile(admin, session.userId)
 
   if (error || !data) return null
   return data as Profile
