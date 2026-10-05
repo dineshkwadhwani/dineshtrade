@@ -18,7 +18,7 @@ export default async function AdminUsersPage() {
           <CustomersClient
             customers={customers}
             accountManagers={managers.map(m => ({ id: m.id, full_name: m.full_name }))}
-            basePath="/admin/users"
+            basePath="/admin/customers"
           />
         }
       />

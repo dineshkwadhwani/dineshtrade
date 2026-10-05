@@ -47,6 +47,7 @@ export default function RegistrationDetailClient({
   const [reason, setReason] = useState('')
   const [subdomain, setSubdomain] = useState('')
   const [subdomainError, setSubdomainError] = useState('')
+  const [activationError, setActivationError] = useState('')
 
   const isDecided = !!registration.step1_approved_at || !!registration.rejection_reason
 
@@ -95,6 +96,25 @@ export default function RegistrationDetailClient({
         setShowRejectForm(false)
         router.refresh()
       }
+    } finally {
+      setBusy(false)
+    }
+  }
+
+  async function handleActivate() {
+    if (!confirm(`Activate ${registration.full_name}'s account?`)) return
+    setBusy(true)
+    setActivationError('')
+    try {
+      const res = await fetch(`/api/dalgo/admin/customers/${registration.profile_id}/activate`, { method: 'POST' })
+      if (!res.ok) {
+        const body = await res.json().catch(() => ({}))
+        setActivationError(body.error || 'Failed to activate account.')
+      } else {
+        router.refresh()
+      }
+    } catch {
+      setActivationError('Connection error. Please try again.')
     } finally {
       setBusy(false)
     }
@@ -299,6 +319,16 @@ export default function RegistrationDetailClient({
           </div>
         </div>
       )}
+
+      {canAct && registration.registration_type === 'customer' &&
+        (profileStatus === 'identity_verified' || profileStatus === 'broker_setup_complete') && (
+          <div style={{ display: 'flex', alignItems: 'center', gap: 12, flexWrap: 'wrap', marginTop: 8 }}>
+            <button onClick={handleActivate} disabled={busy} style={{ ...primaryButtonStyle, opacity: busy ? 0.6 : 1 }}>
+              {busy ? 'Activating…' : 'Activate Account'}
+            </button>
+            {activationError && <p role="alert" style={{ color: '#EF4444', fontSize: 13, margin: 0 }}>{activationError}</p>}
+          </div>
+        )}
     </div>
   )
 }
