@@ -6,6 +6,14 @@ import { decrypt, encrypt } from '@/lib/encryption'
 
 export const dynamic = 'force-dynamic'
 
+function nextKiteExpiry(): string {
+  const now = new Date()
+  const expiry = new Date(now)
+  expiry.setUTCHours(0, 30, 0, 0)
+  if (expiry <= now) expiry.setUTCDate(expiry.getUTCDate() + 1)
+  return expiry.toISOString()
+}
+
 // Always derive base from request headers so we stay on the correct subdomain.
 // APP_BASE_URL points to the main domain (dalgo.online) and must not be used
 // here — using it would redirect the customer to the main domain where their
@@ -76,14 +84,19 @@ export async function GET(req: NextRequest) {
     }
 
     const now = new Date().toISOString()
-    await admin
+    const { error: saveTokenError } = await admin
       .from('broker_accounts')
       .update({
         access_token_enc: encrypt(accessToken),
         token_captured_at: now,
+        token_expires_at: nextKiteExpiry(),
         updated_at: now,
       })
       .eq('id', brokerAccount.id)
+    if (saveTokenError) {
+      console.error('[kite-callback] failed to save access token:', saveTokenError.message)
+      return redirectWithCleanup('/setup?error=' + encodeURIComponent('Could not save the Zerodha connection. Please try again.'))
+    }
 
     // Only advance status if not already active — don't downgrade an active customer
     const { data: currentProfile } = await admin.from('profiles').select('status').eq('id', customerId).maybeSingle()

@@ -16,7 +16,9 @@ export default async function AppLayout({ children }: { children: React.ReactNod
     .eq('active', true)
     .maybeSingle()
 
-  const tokenExpired = !broker?.access_token_enc || !broker?.token_expires_at || new Date(broker.token_expires_at) < new Date()
+  const tokenExpired = !!broker?.access_token_enc &&
+    !!broker.token_expires_at &&
+    new Date(broker.token_expires_at) <= new Date()
 
   return (
     <AppShell fullName={profile?.full_name ?? undefined} tokenExpired={tokenExpired}>

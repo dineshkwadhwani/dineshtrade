@@ -56,7 +56,7 @@ printf '%s\n' \
 confirm "Are DNS and the security group ready?"
 
 step "1/8" "Installing Ubuntu packages and Node.js 24 LTS"
-sudo -v
+sudo -n true || fail "This setup requires sudo access. Confirm the ubuntu user can run sudo without a password."
 sudo apt-get update
 sudo apt-get install -y ca-certificates curl git gnupg nginx certbot \
   python3-certbot-nginx nano
