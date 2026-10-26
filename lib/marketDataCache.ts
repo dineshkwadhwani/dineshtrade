@@ -26,6 +26,8 @@ interface Entry<T> { data: T; expiresAt: number }
 const quoteCache = new Map<string, Entry<KiteQuoteEntry>>()
 const candleCache = new Map<string, Entry<HistoricalCandle[]>>()
 const candleInFlight = new Map<string, Promise<HistoricalCandle[]>>()
+const brokerCandleCache = new Map<string, Entry<BrokerCandle[]>>()
+const brokerCandleInFlight = new Map<string, Promise<BrokerCandle[]>>()
 
 let quoteHits = 0, quoteMisses = 0, candleHits = 0, candleMisses = 0
 
@@ -55,7 +57,40 @@ export async function getBrokerHistoricalCandles(
   to: string,
   interval: 'day' | '5minute' | '15minute' | '60minute' = 'day',
 ): Promise<BrokerCandle[]> {
-  return broker.getHistoricalCandles(symbol, from, to, interval)
+  const normalizedSymbol = symbol.toUpperCase()
+  const key = `${broker.brokerName}:${normalizedSymbol}:${interval}:${from}:${to}`
+  const cached = brokerCandleCache.get(key)
+  if (cached && cached.expiresAt > Date.now()) {
+    candleHits++
+    return cached.data
+  }
+
+  const inFlight = brokerCandleInFlight.get(key)
+  if (inFlight) {
+    candleHits++
+    return inFlight
+  }
+
+  candleMisses++
+  const fetchPromise = broker.getHistoricalCandles(normalizedSymbol, from, to, interval)
+    .catch(async firstError => {
+      console.warn(`[marketDataCache] ${broker.brokerName} ${normalizedSymbol} ${interval} fetch failed, retrying once:`, String(firstError).slice(0, 150))
+      await new Promise(resolve => setTimeout(resolve, 400))
+      return broker.getHistoricalCandles(normalizedSymbol, from, to, interval)
+    })
+    .then(candles => {
+      brokerCandleCache.set(key, { data: candles, expiresAt: Date.now() + CANDLE_TTL_MS })
+      return candles
+    })
+    .catch(err => {
+      console.warn(`[marketDataCache] ${broker.brokerName} ${normalizedSymbol} ${interval} fetch failed after retry:`, String(err).slice(0, 150))
+      throw err
+    })
+    .finally(() => {
+      brokerCandleInFlight.delete(key)
+    })
+  brokerCandleInFlight.set(key, fetchPromise)
+  return fetchPromise
 }
 
 // Kite's /quote endpoint already batches many symbols per HTTP call, so this
