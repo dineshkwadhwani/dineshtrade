@@ -28,6 +28,8 @@ Go to **AWS Console → EC2 → Instances → Launch Instance** (ensure region i
 | HTTP | TCP | 80 | Anywhere 0.0.0.0/0 |
 | HTTPS | TCP | 443 | Anywhere 0.0.0.0/0 |
 
+Launch the instance. 
+
 > ⚠️ If your home IP changes, SSH will block you. Update the SSH rule source in AWS Console → EC2 → Security Groups.
 
 ### 0.3 — Allocate and Associate an Elastic IP (Static IP)
