@@ -27,7 +27,7 @@ step() {
 [[ "$#" -eq 0 ]] || fail "Run without arguments; the script will prompt for the customer subdomain."
 [[ -t 0 ]] || fail "Run this script in an interactive SSH terminal."
 
-printf '%s\n' "DAlgo server setup for Ubuntu 24.04"
+printf '%s\n' "DAlgo server setup"
 read -r -p "Customer subdomain (lowercase, for example: isha): " SUBDOMAIN
 [[ "$SUBDOMAIN" =~ ^[a-z0-9]([a-z0-9-]{0,61}[a-z0-9])?$ ]] || \
   fail "Use a lowercase subdomain containing only letters, numbers, and interior hyphens."
@@ -37,8 +37,11 @@ readonly DOMAIN="${SUBDOMAIN}.dalgo.online"
 [[ -r /etc/os-release ]] || fail "Cannot identify the operating system."
 # shellcheck source=/etc/os-release
 source /etc/os-release
-[[ "${ID:-}" == "ubuntu" && "${VERSION_ID:-}" == "24.04" ]] || \
-  fail "This script expects Ubuntu 24.04 LTS."
+[[ "${ID:-}" == "ubuntu" ]] || fail "This script supports Ubuntu only."
+case "${VERSION_ID:-}" in
+  24.04|26.04) printf 'Detected Ubuntu %s.\n' "$VERSION_ID" ;;
+  *) fail "Supported versions are Ubuntu 24.04 LTS and 26.04 LTS; detected ${VERSION_ID:-unknown}." ;;
+esac
 
 read -r -p "Email address for Let's Encrypt certificate notices: " CERT_EMAIL
 [[ "$CERT_EMAIL" =~ ^[^[:space:]@]+@[^[:space:]@]+\.[^[:space:]@]+$ ]] || \
@@ -52,14 +55,16 @@ printf '%s\n' \
   "- The GitHub repository must be accessible to this server."
 confirm "Are DNS and the security group ready?"
 
-step "1/8" "Installing Ubuntu packages and Node.js 20"
+step "1/8" "Installing Ubuntu packages and Node.js 24 LTS"
 sudo -v
 sudo apt-get update
 sudo apt-get install -y ca-certificates curl git gnupg nginx certbot \
   python3-certbot-nginx nano
-curl -fsSL https://deb.nodesource.com/setup_20.x | sudo -E bash -
+curl -fsSL https://deb.nodesource.com/setup_24.x | sudo -E bash -
 sudo apt-get install -y nodejs
 sudo npm install --global pm2
+[[ "$(node --version)" =~ ^v24\. ]] || \
+  fail "Node.js 24 was not installed; found $(node --version)."
 printf 'Node: %s | npm: %s | PM2: %s\n' \
   "$(node --version)" "$(npm --version)" "$(pm2 --version | tail -n 1)"
 

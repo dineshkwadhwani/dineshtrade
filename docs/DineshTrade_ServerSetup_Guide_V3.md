@@ -14,7 +14,7 @@ Go to **AWS Console → EC2 → Instances → Launch Instance** (ensure region i
 | Setting | Value |
 |---|---|
 | Name | `dalgo-<subdomain>` |
-| AMI | Ubuntu Server 24.04 LTS (HVM) — Free tier eligible |
+| AMI | Ubuntu Server 24.04 LTS or 26.04 LTS (HVM) |
 | Instance type | **t3.small** minimum (t3.micro will OOM during build) |
 | Key pair | Reuse existing `.pem` or create new — download and save safely |
 | Storage | 20 GiB gp3 |
@@ -70,6 +70,8 @@ Supabase, or Zerodha. Before running it, complete the AWS, Elastic IP, DNS, and
 security-group setup above, and have this customer's `.env.local` values and a
 reachable email address for Let's Encrypt certificate notices ready. The Git
 repository URL is already configured in the script; you do not need to provide it.
+The script supports Ubuntu Server 24.04 LTS and 26.04 LTS and installs Node.js
+24 LTS on either version.
 
 From Terminal on your Mac, upload the script and connect to the instance:
 
@@ -139,7 +141,7 @@ free -h   # verify swap shows 2G
 ## Step 2 — Install Node.js, npm, PM2
 
 ```bash
-curl -fsSL https://deb.nodesource.com/setup_20.x | sudo -E bash -
+curl -fsSL https://deb.nodesource.com/setup_24.x | sudo -E bash -
 sudo apt-get install -y nodejs
 sudo npm install -g pm2
 node -v && npm -v && pm2 -v   # verify
